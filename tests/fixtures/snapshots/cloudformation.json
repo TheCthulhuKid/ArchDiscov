@@ -1,0 +1,28 @@
+{
+  "schema_version": "1",
+  "snapshot_id": "00000000-0000-4000-8000-000000000003",
+  "account_id": "123456789012",
+  "collection_started_at": "2026-10-13T08:03:00Z",
+  "collection_completed_at": "2026-10-13T08:03:01Z",
+  "source": {
+    "kind": "cloudformation",
+    "path": "network.json",
+    "stack_name": "network",
+    "template_format_version": "2010-09-09"
+  },
+  "coverage": {"regions": ["eu-west-1"], "account_wide": false},
+  "regions": {
+    "eu-west-1": {
+      "resources": [{
+        "identity": {
+          "account_id": "123456789012",
+          "region": "eu-west-1",
+          "service": "ec2",
+          "logical_address": "network/MainVpc"
+        },
+        "name": "main",
+        "resource_type": "AWS::EC2::VPC"
+      }]
+    }
+  }
+}

@@ -1,0 +1,141 @@
+{
+  "schema_version": "2",
+  "snapshot_id": "00000000-0000-4000-8000-000000000009",
+  "account_id": "123456789012",
+  "collection_started_at": "2026-10-13T08:00:00Z",
+  "collection_completed_at": "2026-10-13T08:01:00Z",
+  "source": {"kind": "mock", "label": "load-balancing"},
+  "coverage": {"regions": ["eu-west-1"], "account_wide": false},
+  "regions": {
+    "eu-west-1": {
+      "resources": [
+        {
+          "identity": {
+            "account_id": "123456789012",
+            "region": "eu-west-1",
+            "service": "elasticloadbalancing",
+            "physical_id": "arn:aws:elasticloadbalancing:eu-west-1:123456789012:loadbalancer/app/web/123"
+          },
+          "resource_type": "AWS::ElasticLoadBalancingV2::LoadBalancer",
+          "arn": "arn:aws:elasticloadbalancing:eu-west-1:123456789012:loadbalancer/app/web/123",
+          "name": "web",
+          "lb_type": "application",
+          "scheme": "internet-facing",
+          "dns_name": "web-123.eu-west-1.elb.amazonaws.com",
+          "ip_address_type": "ipv4",
+          "vpc_id": "vpc-main",
+          "subnet_ids": ["subnet-a", "subnet-b"],
+          "security_group_ids": ["sg-web"],
+          "children": [
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "elasticloadbalancing",
+                "physical_id": "arn:aws:elasticloadbalancing:eu-west-1:123456789012:listener/app/web/123/456"
+              },
+              "resource_type": "AWS::ElasticLoadBalancingV2::Listener",
+              "arn": "arn:aws:elasticloadbalancing:eu-west-1:123456789012:listener/app/web/123/456",
+              "load_balancer_arn": "arn:aws:elasticloadbalancing:eu-west-1:123456789012:loadbalancer/app/web/123",
+              "port": 443,
+              "protocol": "HTTPS",
+              "actions": [{
+                "type": "forward",
+                "order": 1,
+                "target_group_arn": "arn:aws:elasticloadbalancing:eu-west-1:123456789012:targetgroup/web/123",
+                "forward_groups": [{
+                  "arn": "arn:aws:elasticloadbalancing:eu-west-1:123456789012:targetgroup/web/123",
+                  "weight": 100
+                }],
+                "configuration": {"TargetGroupStickinessConfig": {"Enabled": false}}
+              }],
+              "evidence_ids": ["listener-action"],
+              "fact_evidence": {"/actions/0": ["listener-action"]},
+              "children": [
+                {
+                  "identity": {
+                    "account_id": "123456789012",
+                    "region": "eu-west-1",
+                    "service": "elasticloadbalancing",
+                    "physical_id": "arn:aws:elasticloadbalancing:eu-west-1:123456789012:listener-rule/app/web/123/456/789"
+                  },
+                  "resource_type": "AWS::ElasticLoadBalancingV2::ListenerRule",
+                  "arn": "arn:aws:elasticloadbalancing:eu-west-1:123456789012:listener-rule/app/web/123/456/789",
+                  "listener_arn": "arn:aws:elasticloadbalancing:eu-west-1:123456789012:listener/app/web/123/456",
+                  "priority": "10",
+                  "is_default": false,
+                  "conditions": [{
+                    "field": "path-pattern",
+                    "configuration": {"Values": ["/api/*"]}
+                  }],
+                  "actions": [{
+                    "type": "forward",
+                    "target_group_arn": "arn:aws:elasticloadbalancing:eu-west-1:123456789012:targetgroup/web/123"
+                  }],
+                  "evidence_ids": ["rule-condition"],
+                  "fact_evidence": {"/conditions/0": ["rule-condition"]}
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "identity": {
+            "account_id": "123456789012",
+            "region": "eu-west-1",
+            "service": "elasticloadbalancing",
+            "physical_id": "arn:aws:elasticloadbalancing:eu-west-1:123456789012:targetgroup/web/123"
+          },
+          "resource_type": "AWS::ElasticLoadBalancingV2::TargetGroup",
+          "arn": "arn:aws:elasticloadbalancing:eu-west-1:123456789012:targetgroup/web/123",
+          "vpc_id": "vpc-main",
+          "protocol": "HTTP",
+          "port": 80,
+          "target_type": "instance",
+          "health_check": {"Enabled": true, "Path": "/health", "Protocol": "HTTP"},
+          "targets": [{
+            "id": "i-web",
+            "port": 8080,
+            "availability_zone": "eu-west-1a",
+            "health_state": "healthy"
+          }],
+          "evidence_ids": ["target-health"],
+          "fact_evidence": {"/targets/0": ["target-health"]}
+        }
+      ]
+    }
+  },
+  "evidence": {
+    "listener-action": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000009",
+      "resource_id": "123456789012/eu-west-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aeu-west-1%3A123456789012%3Alistener%2Fapp%2Fweb%2F123%2F456",
+      "source": "aws",
+      "locator": "DescribeListeners",
+      "configuration_path": "Listeners[0].DefaultActions[0]",
+      "value": {
+        "Type": "forward",
+        "Order": 1,
+        "TargetGroupArn": "arn:aws:elasticloadbalancing:eu-west-1:123456789012:targetgroup/web/123"
+      }
+    },
+    "rule-condition": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000009",
+      "resource_id": "123456789012/eu-west-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aeu-west-1%3A123456789012%3Alistener-rule%2Fapp%2Fweb%2F123%2F456%2F789",
+      "source": "aws",
+      "locator": "DescribeRules",
+      "configuration_path": "Rules[0].Conditions[0]",
+      "value": {"Field": "path-pattern", "PathPatternConfig": {"Values": ["/api/*"]}}
+    },
+    "target-health": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000009",
+      "resource_id": "123456789012/eu-west-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aeu-west-1%3A123456789012%3Atargetgroup%2Fweb%2F123",
+      "source": "aws",
+      "locator": "DescribeTargetHealth",
+      "configuration_path": "TargetHealthDescriptions[0]",
+      "value": {
+        "Target": {"Id": "i-web", "Port": 8080, "AvailabilityZone": "eu-west-1a"},
+        "TargetHealth": {"State": "healthy"}
+      }
+    }
+  }
+}

@@ -1,0 +1,305 @@
+{
+  "schema_version": "2",
+  "snapshot_id": "00000000-0000-4000-8000-000000000007",
+  "account_id": "123456789012",
+  "collection_started_at": "2026-10-13T08:00:00Z",
+  "collection_completed_at": "2026-10-13T08:01:00Z",
+  "source": {
+    "kind": "mock",
+    "label": "network"
+  },
+  "coverage": {
+    "regions": [
+      "eu-west-1"
+    ],
+    "account_wide": true
+  },
+  "regions": {
+    "eu-west-1": {
+      "resources": [
+        {
+          "identity": {
+            "account_id": "123456789012",
+            "region": "eu-west-1",
+            "service": "ec2",
+            "physical_id": "vpc-main"
+          },
+          "resource_type": "AWS::EC2::VPC",
+          "cidr_blocks": [
+            "10.0.0.0/16"
+          ],
+          "children": [
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "subnet-app"
+              },
+              "resource_type": "AWS::EC2::Subnet",
+              "cidr_blocks": [
+                "10.0.1.0/24"
+              ],
+              "children": [
+                {
+                  "identity": {
+                    "account_id": "123456789012",
+                    "region": "eu-west-1",
+                    "service": "ec2",
+                    "physical_id": "eni-web"
+                  },
+                  "resource_type": "AWS::EC2::NetworkInterface",
+                  "mac_address": "0a:1b:2c:3d:4e:5f",
+                  "public_ip": "203.0.113.10",
+                  "private_ip_addresses": [
+                    {
+                      "address": "10.0.1.5",
+                      "primary": true
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "rtb-main"
+              },
+              "resource_type": "AWS::EC2::RouteTable",
+              "routes": [
+                {
+                  "destination": "10.0.0.0/16",
+                  "target_kind": "local",
+                  "state": "active"
+                },
+                {
+                  "destination": "0.0.0.0/0",
+                  "target_kind": "internet_gateway",
+                  "target_id": "igw-main",
+                  "state": "active"
+                },
+                {
+                  "destination": "10.8.0.0/16",
+                  "target_kind": "vpc_peering",
+                  "target_id": "pcx-1",
+                  "state": "active"
+                }
+              ],
+              "evidence_ids": [
+                "rtb"
+              ],
+              "fact_evidence": {
+                "/routes/1": [
+                  "rtb-igw"
+                ]
+              }
+            },
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "igw-main"
+              },
+              "resource_type": "AWS::EC2::InternetGateway"
+            },
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "acl-main"
+              },
+              "resource_type": "AWS::EC2::NetworkAcl",
+              "entries": [
+                {
+                  "rule_number": 100,
+                  "direction": "ingress",
+                  "action": "allow",
+                  "protocol": "6",
+                  "from_port": 443,
+                  "to_port": 443,
+                  "cidr": "0.0.0.0/0"
+                }
+              ]
+            },
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "sg-web"
+              },
+              "resource_type": "AWS::EC2::SecurityGroup",
+              "evidence_ids": [
+                "sg"
+              ],
+              "fact_evidence": {
+                "/ingress_rules/0": [
+                  "sg-rule"
+                ]
+              },
+              "ingress_rules": [
+                {
+                  "direction": "ingress",
+                  "rule_id": "sgr-1",
+                  "protocol": "tcp",
+                  "from_port": 443,
+                  "to_port": 443,
+                  "cidr": "0.0.0.0/0"
+                },
+                {
+                  "direction": "ingress",
+                  "rule_id": "sgr-2",
+                  "protocol": "tcp",
+                  "from_port": 5432,
+                  "to_port": 5432,
+                  "referenced_group_id": "sg-db"
+                }
+              ],
+              "egress_rules": [
+                {
+                  "direction": "egress",
+                  "protocol": "-1"
+                }
+              ]
+            },
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "sg-db"
+              },
+              "resource_type": "AWS::EC2::SecurityGroup"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "dependencies_by_region": {
+    "eu-west-1": [
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/rtb-main",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/igw-main"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_target",
+          "target_kind": "internet_gateway"
+        },
+        "evidence_ids": [
+          "rtb-igw"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/rtb-main",
+        "target": {
+          "kind": "external",
+          "identifier": "pcx-1",
+          "aws_resource_type": "AWS::EC2::VPCPeeringConnection"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_target",
+          "target_kind": "vpc_peering"
+        },
+        "evidence_ids": [
+          "rtb"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/sg-web",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/sg-db"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_reference",
+          "protocol": "tcp",
+          "from_port": 5432,
+          "to_port": 5432
+        },
+        "evidence_ids": [
+          "sg"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/eni-web",
+        "target": {
+          "kind": "unresolved",
+          "reason": "Instance i-gone was not present in the collected results",
+          "source_path": "NetworkInterfaces[0].Attachment.InstanceId"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "instance_interface"
+        },
+        "evidence_ids": [
+          "eni"
+        ]
+      }
+    ]
+  },
+  "evidence": {
+    "rtb": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000007",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-main",
+      "source": "mock",
+      "locator": "network.json",
+      "configuration_path": "RouteTables[0]",
+      "value": {
+        "RouteTableId": "rtb-main"
+      }
+    },
+    "rtb-igw": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000007",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-main",
+      "source": "mock",
+      "locator": "network.json",
+      "configuration_path": "RouteTables[0].Routes[1]",
+      "value": {
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "GatewayId": "igw-main"
+      }
+    },
+    "sg": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000007",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/sg-web",
+      "source": "mock",
+      "locator": "network.json",
+      "configuration_path": "SecurityGroups[0]",
+      "value": {
+        "GroupId": "sg-web"
+      }
+    },
+    "sg-rule": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000007",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/sg-web",
+      "source": "mock",
+      "locator": "network.json",
+      "configuration_path": "SecurityGroups[0].IpPermissions[0]",
+      "value": {
+        "IpProtocol": "tcp",
+        "FromPort": 443,
+        "ToPort": 443
+      }
+    },
+    "eni": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000007",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/eni-web",
+      "source": "mock",
+      "locator": "network.json",
+      "configuration_path": "NetworkInterfaces[0]",
+      "value": {
+        "NetworkInterfaceId": "eni-web"
+      }
+    }
+  }
+}

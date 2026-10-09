@@ -1,0 +1,63 @@
+{
+  "schema_version": "1",
+  "snapshot_id": "00000000-0000-4000-8000-000000000005",
+  "account_id": "123456789012",
+  "collection_started_at": "2026-10-13T08:00:00Z",
+  "collection_completed_at": "2026-10-13T08:01:00Z",
+  "source": {"kind": "mock", "label": "hierarchy"},
+  "coverage": {"regions": ["eu-west-1"], "account_wide": true},
+  "regions": {
+    "eu-west-1": {
+      "resources": [{
+        "identity": {"account_id": "123456789012", "region": "eu-west-1", "service": "ec2", "physical_id": "vpc-main"},
+        "resource_type": "AWS::EC2::VPC",
+        "cidr_blocks": ["10.0.0.0/16"],
+        "children": [{
+          "identity": {"account_id": "123456789012", "region": "eu-west-1", "service": "ec2", "physical_id": "subnet-app"},
+          "resource_type": "AWS::EC2::Subnet",
+          "availability_zone": "eu-west-1a",
+          "cidr_blocks": ["10.0.1.0/24"],
+          "children": [{
+            "identity": {"account_id": "123456789012", "region": "eu-west-1", "service": "ec2", "physical_id": "i-web"},
+            "resource_type": "AWS::EC2::Instance",
+            "instance_type": "t3.micro",
+            "evidence_ids": ["instance"],
+            "fact_evidence": {"/instance_type": ["instance"]}
+          }]
+        }, {
+          "identity": {"account_id": "123456789012", "region": "eu-west-1", "service": "ec2", "physical_id": "sg-app"},
+          "resource_type": "unknown",
+          "aws_resource_type": "AWS::EC2::SecurityGroup",
+          "attributes": {"description": "Application security group"}
+        }]
+      }]
+    }
+  },
+  "global_resources": [{
+    "identity": {"account_id": "123456789012", "region": "global", "service": "iam", "physical_id": "role-app"},
+    "resource_type": "unknown",
+    "aws_resource_type": "AWS::IAM::Role"
+  }],
+  "dependencies_by_region": {
+    "eu-west-1": [{
+      "source_id": "123456789012/eu-west-1/ec2/physical/i-web",
+      "target_id": "123456789012/global/iam/physical/role-app",
+      "relationship": "assumes_role",
+      "evidence_ids": ["instance"]
+    }]
+  },
+  "evidence": {
+    "instance": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000005",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/i-web",
+      "source": "mock", "locator": "hierarchy.json",
+      "configuration_path": "Instance", "value": {"InstanceType": "t3.micro", "RoleName": "role-app"}
+    },
+    "role": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000005",
+      "resource_id": "123456789012/global/iam/physical/role-app",
+      "source": "mock", "locator": "hierarchy.json",
+      "configuration_path": "RoleName", "value": "role-app"
+    }
+  }
+}

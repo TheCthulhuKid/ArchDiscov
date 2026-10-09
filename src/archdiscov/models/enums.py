@@ -1,0 +1,270 @@
+from enum import StrEnum
+
+
+class AwsRegion(StrEnum):
+    """AWS region codes and account-wide scope; availability depends on the account."""
+
+    GLOBAL = "global"
+
+    # Commercial regions (aws).
+    AF_SOUTH_1 = "af-south-1"
+    AP_EAST_1 = "ap-east-1"
+    AP_EAST_2 = "ap-east-2"
+    AP_NORTHEAST_1 = "ap-northeast-1"
+    AP_NORTHEAST_2 = "ap-northeast-2"
+    AP_NORTHEAST_3 = "ap-northeast-3"
+    AP_SOUTH_1 = "ap-south-1"
+    AP_SOUTH_2 = "ap-south-2"
+    AP_SOUTHEAST_1 = "ap-southeast-1"
+    AP_SOUTHEAST_2 = "ap-southeast-2"
+    AP_SOUTHEAST_3 = "ap-southeast-3"
+    AP_SOUTHEAST_4 = "ap-southeast-4"
+    AP_SOUTHEAST_5 = "ap-southeast-5"
+    AP_SOUTHEAST_6 = "ap-southeast-6"
+    AP_SOUTHEAST_7 = "ap-southeast-7"
+    CA_CENTRAL_1 = "ca-central-1"
+    CA_WEST_1 = "ca-west-1"
+    EU_CENTRAL_1 = "eu-central-1"
+    EU_CENTRAL_2 = "eu-central-2"
+    EU_NORTH_1 = "eu-north-1"
+    EU_SOUTH_1 = "eu-south-1"
+    EU_SOUTH_2 = "eu-south-2"
+    EU_WEST_1 = "eu-west-1"
+    EU_WEST_2 = "eu-west-2"
+    EU_WEST_3 = "eu-west-3"
+    IL_CENTRAL_1 = "il-central-1"
+    ME_CENTRAL_1 = "me-central-1"
+    ME_SOUTH_1 = "me-south-1"
+    MX_CENTRAL_1 = "mx-central-1"
+    SA_EAST_1 = "sa-east-1"
+    US_EAST_1 = "us-east-1"
+    US_EAST_2 = "us-east-2"
+    US_WEST_1 = "us-west-1"
+    US_WEST_2 = "us-west-2"
+
+    # China regions (aws-cn).
+    CN_NORTH_1 = "cn-north-1"
+    CN_NORTHWEST_1 = "cn-northwest-1"
+
+    # GovCloud regions (aws-us-gov).
+    US_GOV_EAST_1 = "us-gov-east-1"
+    US_GOV_WEST_1 = "us-gov-west-1"
+
+    # Isolated regions (aws-iso, aws-iso-b, aws-iso-e, aws-iso-f).
+    US_ISO_EAST_1 = "us-iso-east-1"
+    US_ISO_WEST_1 = "us-iso-west-1"
+    US_ISOB_EAST_1 = "us-isob-east-1"
+    US_ISOB_WEST_1 = "us-isob-west-1"
+    EU_ISOE_WEST_1 = "eu-isoe-west-1"
+    US_ISOF_EAST_1 = "us-isof-east-1"
+    US_ISOF_SOUTH_1 = "us-isof-south-1"
+
+    # European Sovereign Cloud (aws-eusc).
+    EUSC_DE_EAST_1 = "eusc-de-east-1"
+
+
+class AwsService(StrEnum):
+    """AWS ARN service namespaces used by resource identities, not Boto3 client names."""
+
+    EC2 = "ec2"
+    ELASTIC_LOAD_BALANCING = "elasticloadbalancing"
+    ECS = "ecs"
+    LAMBDA = "lambda"
+    RDS = "rds"
+    SQS = "sqs"
+    IAM = "iam"
+    STS = "sts"
+    CLOUDFORMATION = "cloudformation"
+
+
+class DependencyRelationship(StrEnum):
+    """Normalized relationship kinds between resources."""
+
+    ATTACHED_TO = "attached_to"
+    FORWARDS_TO = "forwards_to"
+    ASSUMES_ROLE = "assumes_role"
+
+
+class LifecycleAction(StrEnum):
+    """Terraform plan actions retained in order; replacement is two actions, not an update."""
+
+    NO_OP = "no-op"
+    CREATE = "create"
+    READ = "read"
+    UPDATE = "update"
+    DELETE = "delete"
+
+
+class SourceType(StrEnum):
+    """Source families for evidence, independent of snapshot source kinds."""
+
+    AWS = "aws"
+    TERRAFORM = "terraform"
+    CLOUDFORMATION = "cloudformation"
+    MOCK = "mock"
+
+
+class SnapshotSourceKind(StrEnum):
+    """Snapshot inputs, distinguishing Terraform state from planned changes."""
+
+    AWS = "aws"
+    TERRAFORM_STATE = "terraform_state"
+    TERRAFORM_PLAN = "terraform_plan"
+    CLOUDFORMATION = "cloudformation"
+    MOCK = "mock"
+
+
+class CoverageStatus(StrEnum):
+    SUCCESS = "success"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+    UNSUPPORTED = "unsupported"
+    INCOMPLETE = "incomplete"
+
+
+class EvidenceValueStatus(StrEnum):
+    PRESENT = "present"
+    REDACTED = "redacted"
+    OMITTED = "omitted"
+    UNRESOLVED = "unresolved"
+
+
+class AnalysisStatus(StrEnum):
+    SUPPORTED = "supported"
+    PARTIAL = "partial"
+    INSUFFICIENT_EVIDENCE = "insufficient_evidence"
+
+
+class ResourceType(StrEnum):
+    VPC = "AWS::EC2::VPC"
+    SUBNET = "AWS::EC2::Subnet"
+    EC2_INSTANCE = "AWS::EC2::Instance"
+    ROUTE_TABLE = "AWS::EC2::RouteTable"
+    INTERNET_GATEWAY = "AWS::EC2::InternetGateway"
+    NETWORK_ACL = "AWS::EC2::NetworkAcl"
+    SECURITY_GROUP = "AWS::EC2::SecurityGroup"
+    NETWORK_INTERFACE = "AWS::EC2::NetworkInterface"
+    IAM_ROLE = "AWS::IAM::Role"
+    INSTANCE_PROFILE = "AWS::IAM::InstanceProfile"
+    MANAGED_POLICY = "AWS::IAM::ManagedPolicy"
+    ELBV2_LOAD_BALANCER = "AWS::ElasticLoadBalancingV2::LoadBalancer"
+    ELBV2_LISTENER = "AWS::ElasticLoadBalancingV2::Listener"
+    ELBV2_LISTENER_RULE = "AWS::ElasticLoadBalancingV2::ListenerRule"
+    ELBV2_TARGET_GROUP = "AWS::ElasticLoadBalancingV2::TargetGroup"
+    ECS_CLUSTER = "AWS::ECS::Cluster"
+    ECS_SERVICE = "AWS::ECS::Service"
+    ECS_TASK = "AWS::ECS::Task"
+    ECS_TASK_DEFINITION = "AWS::ECS::TaskDefinition"
+    LAMBDA_FUNCTION = "AWS::Lambda::Function"
+    RDS_INSTANCE = "AWS::RDS::DBInstance"
+    RDS_CLUSTER = "AWS::RDS::DBCluster"
+    RDS_SUBNET_GROUP = "AWS::RDS::DBSubnetGroup"
+    SQS_QUEUE = "AWS::SQS::Queue"
+    UNKNOWN = "unknown"
+
+
+class AttachmentKind(StrEnum):
+    """Value of attributes["kind"] on attached_to dependencies."""
+
+    ROUTE_TABLE_ASSOCIATION = "route_table_association"
+    INTERNET_GATEWAY_ATTACHMENT = "internet_gateway_attachment"
+    NETWORK_ACL_ASSOCIATION = "network_acl_association"
+    SECURITY_GROUP_MEMBERSHIP = "security_group_membership"
+    SECURITY_GROUP_REFERENCE = "security_group_reference"
+    ROUTE_TARGET = "route_target"
+    INSTANCE_INTERFACE = "instance_interface"
+    INSTANCE_PROFILE = "instance_profile"
+    PROFILE_ROLE = "profile_role"
+    ROLE_POLICY = "role_policy"
+    PERMISSIONS_BOUNDARY = "permissions_boundary"
+    TRUST_PRINCIPAL = "trust_principal"
+    SUBNET_MEMBERSHIP = "subnet_membership"
+    LISTENER_LOAD_BALANCER = "listener_load_balancer"
+    RULE_LISTENER = "rule_listener"
+    CLUSTER_MEMBERSHIP = "cluster_membership"
+    TASK_DEFINITION = "task_definition"
+    EXECUTION_ROLE = "execution_role"
+    TASK_ROLE = "task_role"
+    FUNCTION_ROLE = "function_role"
+    DATABASE_CLUSTER = "database_cluster"
+    DATABASE_SUBNET_GROUP = "database_subnet_group"
+    ASSOCIATED_ROLE = "associated_role"
+    DEAD_LETTER_QUEUE = "dead_letter_queue"
+
+
+class TrustPrincipalKind(StrEnum):
+    AWS = "aws"
+    SERVICE = "service"
+    FEDERATED = "federated"
+    UNKNOWN = "unknown"
+
+
+class RouteTargetKind(StrEnum):
+    INTERNET_GATEWAY = "internet_gateway"
+    NETWORK_INTERFACE = "network_interface"
+    INSTANCE = "instance"
+    NAT_GATEWAY = "nat_gateway"
+    TRANSIT_GATEWAY = "transit_gateway"
+    VPC_PEERING = "vpc_peering"
+    VPC_ENDPOINT = "vpc_endpoint"
+    PREFIX_LIST = "prefix_list"
+    LOCAL = "local"
+    UNKNOWN = "unknown"
+
+
+class RuleDirection(StrEnum):
+    INGRESS = "ingress"
+    EGRESS = "egress"
+
+
+class NaclAction(StrEnum):
+    ALLOW = "allow"
+    DENY = "deny"
+
+
+class LoadBalancerType(StrEnum):
+    APPLICATION = "application"
+    NETWORK = "network"
+    GATEWAY = "gateway"
+
+
+class LoadBalancerScheme(StrEnum):
+    INTERNET_FACING = "internet-facing"
+    INTERNAL = "internal"
+
+
+class LoadBalancerProtocol(StrEnum):
+    HTTP = "HTTP"
+    HTTPS = "HTTPS"
+    TCP = "TCP"
+    TLS = "TLS"
+    UDP = "UDP"
+    TCP_UDP = "TCP_UDP"
+    GENEVE = "GENEVE"
+    QUIC = "QUIC"
+    TCP_QUIC = "TCP_QUIC"
+
+
+class ListenerActionType(StrEnum):
+    FORWARD = "forward"
+    AUTHENTICATE_OIDC = "authenticate-oidc"
+    AUTHENTICATE_COGNITO = "authenticate-cognito"
+    REDIRECT = "redirect"
+    FIXED_RESPONSE = "fixed-response"
+
+
+class TargetType(StrEnum):
+    INSTANCE = "instance"
+    IP = "ip"
+    ALB = "alb"
+    LAMBDA = "lambda"
+
+
+class TargetHealthState(StrEnum):
+    INITIAL = "initial"
+    HEALTHY = "healthy"
+    UNHEALTHY = "unhealthy"
+    UNHEALTHY_DRAINING = "unhealthy.draining"
+    UNUSED = "unused"
+    DRAINING = "draining"
+    UNAVAILABLE = "unavailable"

@@ -1,0 +1,135 @@
+"""Shared JSON redaction and source-path sensitivity policy."""
+
+from copy import deepcopy
+
+import pytest
+from pydantic import JsonValue
+
+from archdiscov.models.sanitization import is_sensitive_path, sanitize_value
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "password",
+        "MasterUserPassword",
+        "secret",
+        "SecretAccessKey",
+        "AWSSecretAccessKey",
+        "AccessKeyId",
+        "AWSAccessKeyId",
+        "SessionToken",
+        "AWSSessionToken",
+        "token",
+        "api_key",
+        "PRIVATE-KEY",
+        "credentials",
+        "Authorization",
+        "user_data",
+        "UserData",
+        "ConnectionString",
+        "DATABASE_PASSWORD",
+        "OAuth.Token",
+        "client-secret",
+        "tls_private_key",
+        "serviceApiKey",
+        "AWS.SECRET_ACCESS-KEY",
+    ],
+)
+def test_sensitive_keys(key: str) -> None:
+    assert sanitize_value({key: "sensitive"}) == ({key: "[REDACTED]"}, [f"/{key}"])
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["IpProtocol", "FromPort", "ToPort", "CidrIp", "SecretArn", "SecretName", "TokenArn"],
+)
+def test_network_fields_and_references_are_not_sensitive(key: str) -> None:
+    assert sanitize_value({key: "ordinary"}) == ({key: "ordinary"}, [])
+    assert not is_sensitive_path(f"Properties.{key}")
+    assert not is_sensitive_path(f"/Properties/{key}")
+
+
+def test_recursive_redaction_and_nonmutation() -> None:
+    value: JsonValue = {
+        "items": [
+            {"password": "hidden", "IpProtocol": "tcp", "FromPort": 443},
+            [None, True, 1, 1.5, "normal", {"credentials": {"nested": "hidden"}}],
+        ],
+        "UserData": ["hidden", {"password": "also hidden"}],
+    }
+    original = deepcopy(value)
+    sanitized, paths = sanitize_value(value)
+    assert sanitized == {
+        "items": [
+            {"password": "[REDACTED]", "IpProtocol": "tcp", "FromPort": 443},
+            [None, True, 1, 1.5, "normal", {"credentials": "[REDACTED]"}],
+        ],
+        "UserData": "[REDACTED]",
+    }
+    assert paths == ["/items/0/password", "/items/1/5/credentials", "/UserData"]
+    assert value == original
+    assert sanitized is not value
+    assert isinstance(sanitized, dict)
+    assert isinstance(value, dict)
+    assert sanitized["items"] is not value["items"]
+    assert sanitize_value(sanitized) == (sanitized, paths)
+
+
+def test_json_pointer_escaping() -> None:
+    value: JsonValue = {"a/b~c": {"": [{"db/password": "hidden", "~token": "hidden"}]}}
+    assert sanitize_value(value) == (
+        {"a/b~c": {"": [{"db/password": "[REDACTED]", "~token": "[REDACTED]"}]}},
+        ["/a~1b~0c//0/db~1password", "/a~1b~0c//0/~0token"],
+    )
+
+
+@pytest.mark.parametrize("value", [None, True, 0, 1.5, "plain", [], {}])
+def test_nonsensitive_root(value: JsonValue) -> None:
+    assert sanitize_value(value) == (value, [])
+
+
+@pytest.mark.parametrize("value", [None, False, 0, "secret", [], {}, {"password": "secret"}])
+def test_explicit_sensitive_root(value: JsonValue) -> None:
+    original = deepcopy(value)
+    assert sanitize_value(value, sensitive=True) == ("[REDACTED]", [""])
+    assert value == original
+    assert sanitize_value("[REDACTED]", sensitive=True) == ("[REDACTED]", [""])
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "password",
+        "Resources.Database.Properties.MasterUserPassword",
+        "items[0].credentials.username",
+        "items[0]['api-key']",
+        'items[0]["user_data"]',
+        'Properties["aws.secret-access_key"]',
+        "Properties[session_token]",
+        "/Resources/Database/Properties/MasterUserPassword",
+        "/items/0/credentials/username",
+        "/Properties/db~1password",
+        "/Properties/~0token",
+        "/Properties/UserData/0",
+        "/Properties/secret/../name",
+    ],
+)
+def test_sensitive_source_paths(path: str) -> None:
+    assert is_sensitive_path(path)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "",
+        "/",
+        "items[0].name",
+        "/items/0/name",
+        'Properties["SecretArn"]',
+        "Properties.passwordPolicy",
+        "/Properties/passwordPolicy",
+    ],
+)
+def test_nonsensitive_source_paths(path: str) -> None:
+    assert not is_sensitive_path(path)

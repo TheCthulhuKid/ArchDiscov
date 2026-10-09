@@ -1,0 +1,41 @@
+[project]
+name = "archdiscov"
+version = "0.1.0"
+description = "Evidence-backed AWS architecture discovery and analysis"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "boto3>=1.43.108",
+    "mcp>=2.3.0",
+    "openai>=3.26.1",
+    "pydantic>=2.13.5",
+    "typer>=0.15.1",
+]
+
+[project.scripts]
+archdiscov = "archdiscov.cli:app"
+
+[build-system]
+requires = ["hatchling>=1.27.0,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/archdiscov"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.16.10",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--import-mode=importlib -ra"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]

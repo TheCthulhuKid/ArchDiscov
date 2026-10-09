@@ -1,0 +1,66 @@
+{
+  "schema_version": "2",
+  "snapshot_id": "00000000-0000-4000-8000-000000000008",
+  "account_id": "123456789012",
+  "collection_started_at": "2026-10-13T08:00:00Z",
+  "collection_completed_at": "2026-10-13T08:01:00Z",
+  "source": {"kind": "mock", "label": "iam"},
+  "coverage": {"regions": [], "account_wide": true},
+  "global_resources": [
+    {
+      "identity": {
+        "account_id": "123456789012",
+        "region": "global",
+        "service": "iam",
+        "physical_id": "arn:aws:iam::123456789012:role/application"
+      },
+      "resource_type": "AWS::IAM::Role",
+      "name": "application",
+      "arn": "arn:aws:iam::123456789012:role/application",
+      "trust_document": {
+        "Version": "2012-10-17",
+        "Statement": [{
+          "Effect": "Allow",
+          "Principal": {"Service": "ec2.amazonaws.com"},
+          "Action": "sts:AssumeRole"
+        }]
+      },
+      "inline_policies": [{
+        "name": "queue-reader",
+        "document": {
+          "Statement": {
+            "Effect": "Allow",
+            "Action": "sqs:ReceiveMessage",
+            "Resource": "arn:aws:sqs:eu-west-1:123456789012:jobs"
+          }
+        }
+      }],
+      "boundary_arn": "arn:aws:iam::123456789012:policy/application-boundary"
+    },
+    {
+      "identity": {
+        "account_id": "123456789012",
+        "region": "global",
+        "service": "iam",
+        "physical_id": "arn:aws:iam::123456789012:instance-profile/application"
+      },
+      "resource_type": "AWS::IAM::InstanceProfile",
+      "arn": "arn:aws:iam::123456789012:instance-profile/application",
+      "role_arns": ["arn:aws:iam::123456789012:role/application"]
+    },
+    {
+      "identity": {
+        "account_id": "123456789012",
+        "region": "global",
+        "service": "iam",
+        "physical_id": "arn:aws:iam::123456789012:policy/application-boundary"
+      },
+      "resource_type": "AWS::IAM::ManagedPolicy",
+      "arn": "arn:aws:iam::123456789012:policy/application-boundary",
+      "default_version_id": "v1",
+      "document": {
+        "Statement": [{"Effect": "Allow", "Action": "sqs:*", "Resource": "*"}]
+      }
+    }
+  ]
+}

@@ -1,0 +1,163 @@
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+from typer.testing import CliRunner
+
+from archdiscov import cli
+from archdiscov.ingestion.requests import COLLECTABLE_SERVICES, RegionScope
+
+ACCOUNT = "123456789012"
+
+
+def arguments(path):
+    return ["collect", "--account", f"dev:{ACCOUNT}", "-o", str(path), "--json"]
+
+
+@pytest.mark.parametrize(
+    "flags,services,scope,regions",
+    [
+        (["--all-services"], COLLECTABLE_SERVICES, RegionScope.ENABLED, ()),
+        (
+            ["--all-services", "--region", "us-west-2"],
+            COLLECTABLE_SERVICES,
+            RegionScope.EXPLICIT,
+            ("us-west-2",),
+        ),
+        (["--region", "us-east-1"], {"ec2"}, RegionScope.EXPLICIT, ("us-east-1",)),
+        (["--service", "iam"], {"iam"}, RegionScope.EXPLICIT, ()),
+        (["--service", "lambda", "--region-scope", "enabled"], {"lambda"}, RegionScope.ENABLED, ()),
+    ],
+)
+def test_cli_selects_scope_without_changing_selective_defaults(
+    monkeypatch, tmp_path, flags, services, scope, regions
+):
+    seen = []
+    monkeypatch.setattr(cli, "collect_and_save", lambda request, paths: seen.append(request) or [])
+    result = CliRunner().invoke(cli.app, [*arguments(tmp_path / "snapshot.json"), *flags])
+    assert result.exit_code == 0, result.output
+    (request,) = seen
+    (account,) = request.accounts
+    assert set(account.services) == services
+    assert account.region_scope is scope
+    assert account.regions == regions
+    assert account.all_services == ("--all-services" in flags)
+
+
+def test_cli_forwards_execution_and_bootstrap_controls(monkeypatch, tmp_path):
+    seen = []
+    paths = []
+
+    def collect(request, outputs):
+        seen.append(request)
+        paths.extend(outputs)
+        return []
+
+    monkeypatch.setattr(cli, "collect_and_save", collect)
+    output = tmp_path / "snapshot.json"
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            *arguments(output),
+            "--all-services",
+            "--bootstrap-region",
+            "us-west-2",
+            "--max-in-flight-calls",
+            "7",
+            "--account-max-in-flight-calls",
+            "3",
+            "--max-active-accounts",
+            "1",
+            "--max-collector-jobs",
+            "5",
+            "--max-concurrency",
+            "2",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    (request,) = seen
+    assert paths == [output]
+    assert request.max_in_flight_calls == 7
+    assert request.max_active_accounts == 1
+    assert request.max_collector_jobs == 5
+    account = request.accounts[0]
+    assert account.bootstrap_region == "us-west-2"
+    assert account.max_in_flight_calls == 3
+    assert account.max_concurrency == 2
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [
+        ["--all-services", "--service", "ec2"],
+        ["--all-services", "--service", "iam"],
+        ["--all-services", "--region-scope", "explicit"],
+        ["--all-services", "--region", "us-east-1", "--region-scope", "enabled"],
+        ["--all-services", "--region", "global"],
+        ["--all-services", "--bootstrap-region", "global"],
+        ["--all-services", "--bootstrap-region", "invalid-private-value"],
+        ["--all-services", "--max-in-flight-calls", "0"],
+        ["--all-services", "--max-in-flight-calls", "65"],
+        ["--all-services", "--account-max-in-flight-calls", "17"],
+        ["--all-services", "--max-active-accounts", "0"],
+        ["--all-services", "--max-collector-jobs", "65"],
+        ["--all-services", "--max-concurrency", "0"],
+    ],
+)
+def test_invalid_scope_and_limits_are_rejected_before_collection(monkeypatch, tmp_path, flags):
+    def unexpected(*args):
+        pytest.fail("invalid CLI request reached collection")
+
+    monkeypatch.setattr(cli, "collect_and_save", unexpected)
+    output = tmp_path / "not-created.json"
+    result = CliRunner().invoke(cli.app, [*arguments(output), *flags])
+    assert result.exit_code == 2, result.output
+    assert json.loads(result.output)["error"]["code"] == "invalid_request"
+    assert "invalid-private-value" not in result.output
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("entry_point", ["script", "module"])
+def test_installed_whole_architecture_controls_outside_checkout(tmp_path, entry_point):
+    command = (
+        [str(Path(sys.executable).with_name("archdiscov"))]
+        if entry_point == "script"
+        else [sys.executable, "-m", "archdiscov"]
+    )
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key != "PYTHONPATH" and not key.startswith("AWS_")
+    }
+    env.update(AWS_EC2_METADATA_DISABLED="true", NO_COLOR="1", COLUMNS="200")
+    help_result = subprocess.run(
+        [*command, "collect", "--help"],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert help_result.returncode == 0, help_result.stderr
+    for flag in (
+        "--all-services",
+        "--region-scope",
+        "--max-in-flight-calls",
+        "--max-active-accounts",
+    ):
+        assert flag in help_result.stdout
+    output = tmp_path / "not-created.json"
+    result = subprocess.run(
+        [*command, *arguments(output), "--all-services", "--service", "iam"],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert result.returncode == 2, result.stderr
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_request"
+    assert not output.exists()

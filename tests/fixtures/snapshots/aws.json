@@ -1,0 +1,35 @@
+{
+  "schema_version": "1",
+  "snapshot_id": "00000000-0000-4000-8000-000000000001",
+  "account_id": "123456789012",
+  "collection_started_at": "2026-10-13T08:00:00Z",
+  "collection_completed_at": "2026-10-13T08:01:00Z",
+  "source": {"kind": "aws", "profile": "development"},
+  "coverage": {"regions": ["eu-west-1"], "account_wide": true},
+  "regions": {
+    "eu-west-1": {
+      "resources": [{
+        "identity": {
+          "account_id": "123456789012",
+          "region": "eu-west-1",
+          "service": "ec2",
+          "physical_id": "vpc-example"
+        },
+        "name": "main",
+        "resource_type": "AWS::EC2::VPC",
+        "cidr_blocks": ["10.0.0.0/16"]
+      }]
+    }
+  },
+  "global_resources": [{
+    "identity": {
+      "account_id": "123456789012",
+      "region": "global",
+      "service": "iam",
+      "physical_id": "arn:aws:iam::123456789012:role/application"
+    },
+    "name": "application",
+    "resource_type": "unknown",
+    "aws_resource_type": "AWS::IAM::Role"
+  }]
+}

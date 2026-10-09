@@ -1,0 +1,22 @@
+name: archdiscov
+
+services:
+  dev:
+    image: archdiscov-dev
+    build:
+      context: .
+      target: development
+      args:
+        DEV_UID: ${DEV_UID:-1000}
+        DEV_GID: ${DEV_GID:-1000}
+    init: true
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - uv-cache:/home/dev/.cache/uv
+    stdin_open: true
+    tty: true
+    command: ["bash"]
+
+volumes:
+  uv-cache:

@@ -1,0 +1,53 @@
+{
+  "schema_version": "1",
+  "snapshot_id": "00000000-0000-4000-8000-000000000004",
+  "account_id": "123456789012",
+  "collection_started_at": "2026-10-13T08:00:00Z",
+  "collection_completed_at": "2026-10-13T08:01:00Z",
+  "source": {"kind": "aws", "profile": "development"},
+  "coverage": {
+    "regions": ["eu-west-1"],
+    "account_wide": false,
+    "operations": [
+      {
+        "account_id": "123456789012", "region": "eu-west-1", "service": "ec2",
+        "operation": "DescribeSecurityGroups", "status": "success", "result_count": 1,
+        "started_at": "2026-10-13T08:00:00Z", "completed_at": "2026-10-13T08:00:20Z"
+      },
+      {
+        "account_id": "123456789012", "region": "eu-west-1", "service": "ec2",
+        "operation": "DescribeRouteTables", "status": "failed",
+        "started_at": "2026-10-13T08:00:20Z", "completed_at": "2026-10-13T08:00:30Z",
+        "failures": [{"code": "UnauthorizedOperation", "message": "Route-table collection denied"}]
+      },
+      {
+        "account_id": "123456789012", "region": "eu-west-1", "service": "ec2",
+        "operation": "DescribeInstances", "status": "success", "result_count": 0,
+        "started_at": "2026-10-13T08:00:30Z", "completed_at": "2026-10-13T08:01:00Z"
+      }
+    ]
+  },
+  "regions": {
+    "eu-west-1": {
+      "resources": [{
+        "identity": {
+          "account_id": "123456789012", "region": "eu-west-1", "service": "ec2",
+          "physical_id": "sg-example"
+        },
+        "name": "web", "resource_type": "unknown", "aws_resource_type": "AWS::EC2::SecurityGroup",
+        "attributes": {"ingress": [{"protocol": "tcp", "from_port": 443, "to_port": 443, "cidr": "0.0.0.0/0"}]},
+        "evidence_ids": ["sg-rule"],
+        "fact_evidence": {"/attributes/ingress/0": ["sg-rule"]}
+      }]
+    }
+  },
+  "evidence": {
+    "sg-rule": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000004",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/sg-example",
+      "source": "aws", "locator": "DescribeSecurityGroups",
+      "configuration_path": "SecurityGroups[0].IpPermissions[0]",
+      "value": {"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443, "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}
+    }
+  }
+}

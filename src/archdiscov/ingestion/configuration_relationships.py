@@ -1,0 +1,182 @@
+"""Observed configuration references, never effective access or inferred attachments."""
+
+from collections.abc import Iterable
+
+from ..models.architecture import (
+    Dependency,
+    Evidence,
+    ExternalTarget,
+    LocalTarget,
+    Resource,
+    UnresolvedTarget,
+)
+from ..models.enums import (
+    AttachmentKind,
+    AwsRegion,
+    AwsService,
+    DependencyRelationship,
+    ResourceType,
+)
+
+
+def walk_resources(roots: Iterable[Resource]) -> Iterable[Resource]:
+    for resource in roots:
+        yield resource
+        yield from walk_resources(resource.children)
+
+
+def merge_resources(roots: list[Resource], resources: list[Resource]) -> None:
+    index = {
+        (r.resource_type, r.identity.physical_id): r for r in [*walk_resources(roots), *resources]
+    }
+    stored = {r.id for r in walk_resources(roots)}
+    for resource in resources:
+        if resource.id in stored:
+            continue
+        parent_kind, parent_ref = ResourceType.VPC, getattr(resource, "vpc_id", None)
+        if resource.resource_type in {ResourceType.ECS_SERVICE, ResourceType.ECS_TASK}:
+            parent_kind, parent_ref = (
+                ResourceType.ECS_CLUSTER,
+                getattr(resource, "cluster_arn", None),
+            )
+        parent = index.get((parent_kind, parent_ref)) if parent_ref else None
+        if parent is not None:
+            parent.children.append(resource)
+        else:
+            if parent_ref:
+                resource.attributes["unresolved_parent"] = {
+                    "identifier": parent_ref,
+                    "resource_type": parent_kind.value,
+                    "reason": "parent was not collected",
+                }
+            roots.append(resource)
+        stored.add(resource.id)
+
+
+_SCALAR_REFERENCES = (
+    ("cluster_arn", ResourceType.ECS_CLUSTER, AwsService.ECS, AttachmentKind.CLUSTER_MEMBERSHIP),
+    (
+        "task_definition_arn",
+        ResourceType.ECS_TASK_DEFINITION,
+        AwsService.ECS,
+        AttachmentKind.TASK_DEFINITION,
+    ),
+    ("execution_role_arn", ResourceType.IAM_ROLE, AwsService.IAM, AttachmentKind.EXECUTION_ROLE),
+    ("task_role_arn", ResourceType.IAM_ROLE, AwsService.IAM, AttachmentKind.TASK_ROLE),
+    ("role_arn", ResourceType.IAM_ROLE, AwsService.IAM, AttachmentKind.FUNCTION_ROLE),
+    (
+        "cluster_identifier",
+        ResourceType.RDS_CLUSTER,
+        AwsService.RDS,
+        AttachmentKind.DATABASE_CLUSTER,
+    ),
+    (
+        "db_subnet_group_name",
+        ResourceType.RDS_SUBNET_GROUP,
+        AwsService.RDS,
+        AttachmentKind.DATABASE_SUBNET_GROUP,
+    ),
+    (
+        "dead_letter_target_arn",
+        ResourceType.SQS_QUEUE,
+        AwsService.SQS,
+        AttachmentKind.DEAD_LETTER_QUEUE,
+    ),
+)
+_LIST_REFERENCES = (
+    ("subnet_ids", ResourceType.SUBNET, AwsService.EC2, AttachmentKind.SUBNET_MEMBERSHIP),
+    (
+        "security_group_ids",
+        ResourceType.SECURITY_GROUP,
+        AwsService.EC2,
+        AttachmentKind.SECURITY_GROUP_MEMBERSHIP,
+    ),
+    (
+        "network_interface_ids",
+        ResourceType.NETWORK_INTERFACE,
+        AwsService.EC2,
+        AttachmentKind.INSTANCE_INTERFACE,
+    ),
+    ("associated_role_arns", ResourceType.IAM_ROLE, AwsService.IAM, AttachmentKind.ASSOCIATED_ROLE),
+)
+_SERVICES = {AwsService.ECS, AwsService.LAMBDA, AwsService.RDS, AwsService.SQS}
+
+
+def resolve_relationships(
+    roots: Iterable[Resource], evidence: dict[str, Evidence]
+) -> dict[AwsRegion, list[Dependency]]:
+    resources = list(walk_resources(roots))
+    index: dict[tuple[ResourceType, str], list[Resource]] = {}
+    for resource in resources:
+        identifiers = {
+            resource.identity.physical_id,
+            getattr(resource, "arn", None),
+            getattr(resource, "identifier", None),
+            resource.name if resource.resource_type == ResourceType.RDS_SUBNET_GROUP else None,
+        }
+        for identifier in identifiers - {None}:
+            index.setdefault((resource.resource_type, identifier), []).append(resource)
+    result: dict[AwsRegion, list[Dependency]] = {}
+
+    def link(
+        resource: Resource,
+        pointer: str,
+        ref: str,
+        kind: ResourceType,
+        service: AwsService,
+        attachment: AttachmentKind,
+    ) -> None:
+        citations = resource.fact_evidence.get(pointer, [])
+        if not citations:
+            return
+        path = evidence[citations[0]].configuration_path
+        matches = [
+            match
+            for match in index.get((kind, ref), [])
+            if match.identity.account_id == resource.identity.account_id
+            and (service == AwsService.IAM or match.identity.region == resource.identity.region)
+        ]
+        if len(matches) == 1:
+            target = LocalTarget(resource_id=matches[0].id)
+        else:
+            parts = ref.split(":", 5)
+            account = (
+                parts[4] if len(parts) == 6 and parts[4].isdigit() and len(parts[4]) == 12 else None
+            )
+            region = parts[3] if len(parts) == 6 else None
+            if account and (
+                account != resource.identity.account_id
+                or (region and region != resource.identity.region.value)
+            ):
+                target = ExternalTarget(
+                    identifier=ref,
+                    account_id=account,
+                    service=service,
+                    aws_resource_type=kind.value,
+                )
+            else:
+                target = UnresolvedTarget(
+                    reason="target was not uniquely collected with the expected resource type",
+                    source_path=path,
+                )
+        result.setdefault(resource.identity.region, []).append(
+            Dependency(
+                source_id=resource.id,
+                target=target,
+                relationship=DependencyRelationship.ATTACHED_TO,
+                evidence_ids=citations,
+                attributes={"kind": attachment.value, "observed_identifier": ref},
+            )
+        )
+
+    for resource in resources:
+        if resource.identity.service not in _SERVICES:
+            continue
+        for field, kind, service, attachment in _SCALAR_REFERENCES:
+            ref = getattr(resource, field, None)
+            if ref:
+                link(resource, f"/{field}", ref, kind, service, attachment)
+        for field, kind, service, attachment in _LIST_REFERENCES:
+            for index_, ref in enumerate(getattr(resource, field, None) or []):
+                link(resource, f"/{field}/{index_}", ref, kind, service, attachment)
+    return result
