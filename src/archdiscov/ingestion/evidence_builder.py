@@ -8,6 +8,7 @@ from uuid import UUID
 
 from ..models.architecture import Evidence, Resource, ResourceIdentity
 from ..models.enums import AwsRegion, AwsService, SourceType
+from ..models.json_pointer import escape_pointer_token as _escape
 from ..models.sanitization import is_sensitive_path
 
 REDACTED = "[REDACTED]"
@@ -21,10 +22,6 @@ def _default(value: Any) -> str:
 
 def json_safe(value: Any) -> Any:
     return json.loads(json.dumps(value, default=_default))
-
-
-def _escape(key: Any) -> str:
-    return str(key).replace("~", "~0").replace("/", "~1")
 
 
 def redact_tag_pairs(value: Any, path: str = "") -> tuple[Any, list[str]]:

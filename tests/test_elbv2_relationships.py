@@ -17,7 +17,14 @@ from archdiscov.models.architecture import (
     Subnet,
     Vpc,
 )
-from archdiscov.models.enums import AwsRegion, DependencyRelationship, TargetType
+from archdiscov.models.enums import (
+    AwsRegion,
+    AwsService,
+    DependencyRelationship,
+    LoadBalancerType,
+    ResourceType,
+    TargetType,
+)
 from archdiscov.models.load_balancing import Listener, ListenerRule, LoadBalancer, TargetGroup
 from archdiscov.models.network import SecurityGroup
 from archdiscov.services import load_snapshot, save_snapshot
@@ -145,6 +152,130 @@ def test_target_kinds_do_not_infer_ip_ownership(target_type, identifier, expecte
     assert group.targets[0].id == identifier
     if target_type == TargetType.IP:
         assert "ownership is not inferred" in link.target.reason
+
+
+@pytest.mark.parametrize("target_type", [TargetType.INSTANCE, None, TargetType.ALB])
+@pytest.mark.parametrize("observation", ["missing", "wrong_type", "unique", "duplicate"])
+def test_registration_requires_unique_expected_resource_type(target_type, observation):
+    result = normalized()
+    group = next(r for r in result.resources if isinstance(r, TargetGroup))
+    group.target_type = target_type
+    identifier = LB if target_type == TargetType.ALB else "i-web"
+    group.targets[0].id = identifier
+    expected = (
+        next(r for r in result.resources if isinstance(r, LoadBalancer))
+        if target_type == TargetType.ALB
+        else Ec2Instance(identity=identity(identifier))
+    )
+    candidates = {
+        "missing": [],
+        "wrong_type": [Subnet(identity=identity(identifier))],
+        "unique": [expected, Subnet(identity=identity(identifier))],
+        "duplicate": [expected, expected.model_copy(deep=True)],
+    }[observation]
+    resources = [group, *candidates]
+    resource_ids = [r.id for r in resources]
+    citations = group.fact_evidence["/targets/0/id"]
+    links = [
+        link
+        for link in resolve_relationships(resources, result.evidence)
+        if link.source_id == group.id
+    ]
+    assert len(links) == 1
+    link = links[0]
+    assert link.evidence_ids == citations
+    assert link.attributes == {
+        "observed_identifier": identifier,
+        "port": 8080,
+        "availability_zone": "us-east-1a",
+        "health_state": "unhealthy",
+        "health_reason": "Target.FailedHealthChecks",
+    }
+    if observation == "unique":
+        assert link.target.kind == "local"
+        assert link.target.resource_id == expected.id
+    else:
+        assert link.target.kind == "unresolved"
+        assert link.target.reason == (
+            "target was not uniquely observed with the expected resource type"
+        )
+        assert link.target.source_path == result.evidence[citations[0]].configuration_path
+    assert [r.id for r in resources] == resource_ids
+
+
+@pytest.mark.parametrize(
+    "lb_types,expected",
+    [
+        ([LoadBalancerType.NETWORK], "unresolved"),
+        ([None], "unresolved"),
+        ([LoadBalancerType.APPLICATION, LoadBalancerType.NETWORK], "local"),
+    ],
+)
+def test_alb_registration_filters_load_balancer_type_before_uniqueness(lb_types, expected):
+    result = normalized()
+    group = next(r for r in result.resources if isinstance(r, TargetGroup))
+    group.target_type = TargetType.ALB
+    group.targets[0].id = LB
+    load_balancer = next(r for r in result.resources if isinstance(r, LoadBalancer))
+    candidates = [load_balancer.model_copy(update={"lb_type": kind}) for kind in lb_types]
+    link = next(
+        link
+        for link in resolve_relationships([group, *candidates], result.evidence)
+        if link.source_id == group.id
+    )
+    assert link.target.kind == expected
+
+
+@pytest.mark.parametrize(
+    "identifier,account_id",
+    [
+        (f"arn:aws:lambda:us-east-1:{ACCOUNT}:function:worker", ACCOUNT),
+        ("arn:aws:lambda:us-east-1:invalid:function:worker", None),
+        ("arn:aws:lambda:us-east-1:123:function:worker", None),
+        ("worker", None),
+    ],
+)
+def test_lambda_registration_remains_external_without_fabricating_resources(identifier, account_id):
+    result = normalized()
+    group = next(r for r in result.resources if isinstance(r, TargetGroup))
+    group.target_type = TargetType.LAMBDA
+    group.targets[0].id = identifier
+    roots = [group, Ec2Instance(identity=identity(identifier))]
+    resource_ids = [r.id for r in roots]
+    link = resolve_relationships(roots, result.evidence)[0]
+    assert link.target.model_dump() == {
+        "kind": "external",
+        "identifier": identifier,
+        "service": AwsService.LAMBDA,
+        "region": None,
+        "account_id": account_id,
+        "aws_resource_type": ResourceType.LAMBDA_FUNCTION,
+    }
+    assert link.evidence_ids == group.fact_evidence["/targets/0/id"]
+    assert [r.id for r in roots] == resource_ids
+
+
+def test_ip_registration_does_not_resolve_matching_physical_identifier():
+    result = normalized()
+    group = next(r for r in result.resources if isinstance(r, TargetGroup))
+    group.target_type = TargetType.IP
+    group.targets[0].id = "10.0.0.7"
+    roots = [group, Ec2Instance(identity=identity("10.0.0.7"))]
+    link = resolve_relationships(roots, result.evidence)[0]
+    assert link.target.kind == "unresolved"
+    assert link.target.reason == "IP registration is observed; resource ownership is not inferred"
+    assert link.target.source_path == (
+        result.evidence[group.fact_evidence["/targets/0/id"][0]].configuration_path
+    )
+
+
+@pytest.mark.parametrize("target_type", list(TargetType))
+def test_registration_without_citations_never_creates_an_edge(target_type):
+    result = normalized()
+    group = next(r for r in result.resources if isinstance(r, TargetGroup))
+    group.target_type = target_type
+    group.fact_evidence.clear()
+    assert resolve_relationships([group], {}) == []
 
 
 @pytest.mark.parametrize(
