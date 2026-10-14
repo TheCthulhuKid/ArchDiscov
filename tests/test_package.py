@@ -7,12 +7,15 @@ from importlib.metadata import version
 from pathlib import Path
 
 import pytest
+from click import unstyle
 
 
 @pytest.mark.parametrize("entry_point", ["script", "module"])
-def test_cli_outside_repository(tmp_path: Path, entry_point: str) -> None:
+@pytest.mark.parametrize("styled", [False, True], ids=["plain", "styled"])
+def test_cli_outside_repository(tmp_path: Path, entry_point: str, styled: bool) -> None:
     env = os.environ.copy()
     env.pop("PYTHONPATH", None)
+    env.update(TERM="xterm", TTY_COMPATIBLE="1" if styled else "0")
     command = (
         [str(Path(sys.executable).with_name("archdiscov"))]
         if entry_point == "script"
@@ -31,8 +34,9 @@ def test_cli_outside_repository(tmp_path: Path, entry_point: str) -> None:
         if arguments == ["--version"]:
             assert result.stdout.strip() == f"archdiscov {version('archdiscov')}"
         else:
-            assert "--help" in result.stdout
-            assert "--version" in result.stdout
+            help_text = unstyle(result.stdout)
+            assert "--help" in help_text
+            assert "--version" in help_text
 
 
 def test_model_imports_outside_repository(tmp_path: Path) -> None:

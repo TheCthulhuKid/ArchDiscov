@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from click import unstyle
 from typer.testing import CliRunner
 
 from archdiscov.cli import app
@@ -254,10 +255,13 @@ def test_ingest_does_not_create_parent_directories(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("command", ["ingest", "evidence"])
-def test_command_help_and_usage(command: str) -> None:
+@pytest.mark.parametrize("styled", [False, True], ids=["plain", "styled"])
+def test_command_help_and_usage(command: str, styled: bool, monkeypatch) -> None:
+    monkeypatch.setenv("TERM", "xterm")
+    monkeypatch.setenv("TTY_COMPATIBLE", "1" if styled else "0")
     help_result = runner.invoke(app, [command, "--help"])
     assert help_result.exit_code == 0
-    assert "--json" in help_result.stdout
+    assert "--json" in unstyle(help_result.stdout)
     assert runner.invoke(app, [command]).exit_code == 2
 
 

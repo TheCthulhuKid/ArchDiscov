@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from click import unstyle
 from typer.testing import CliRunner
 
 from archdiscov import cli
@@ -121,7 +122,8 @@ def test_invalid_scope_and_limits_are_rejected_before_collection(monkeypatch, tm
 
 
 @pytest.mark.parametrize("entry_point", ["script", "module"])
-def test_installed_whole_architecture_controls_outside_checkout(tmp_path, entry_point):
+@pytest.mark.parametrize("styled", [False, True], ids=["plain", "styled"])
+def test_installed_whole_architecture_controls_outside_checkout(tmp_path, entry_point, styled):
     command = (
         [str(Path(sys.executable).with_name("archdiscov"))]
         if entry_point == "script"
@@ -133,6 +135,7 @@ def test_installed_whole_architecture_controls_outside_checkout(tmp_path, entry_
         if key != "PYTHONPATH" and not key.startswith("AWS_")
     }
     env.update(AWS_EC2_METADATA_DISABLED="true", NO_COLOR="1", COLUMNS="200")
+    env.update(TERM="xterm", TTY_COMPATIBLE="1" if styled else "0")
     help_result = subprocess.run(
         [*command, "collect", "--help"],
         cwd=tmp_path,
@@ -142,13 +145,14 @@ def test_installed_whole_architecture_controls_outside_checkout(tmp_path, entry_
         timeout=20,
     )
     assert help_result.returncode == 0, help_result.stderr
+    help_text = unstyle(help_result.stdout)
     for flag in (
         "--all-services",
         "--region-scope",
         "--max-in-flight-calls",
         "--max-active-accounts",
     ):
-        assert flag in help_result.stdout
+        assert flag in help_text
     output = tmp_path / "not-created.json"
     result = subprocess.run(
         [*command, *arguments(output), "--all-services", "--service", "iam"],
