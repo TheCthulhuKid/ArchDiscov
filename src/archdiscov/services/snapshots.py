@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 from pydantic_core import PydanticSerializationError
 
 from archdiscov.models.architecture import ArchitectureSnapshot
@@ -17,6 +17,7 @@ from archdiscov.models.cloud_snapshot import CloudSnapshot
 from archdiscov.models.validation_errors import SAFE_VALIDATION_MESSAGES
 
 from .snapshot_access import SupportedSnapshot
+from .validation_data import detach_data as _detach_data
 
 SnapshotInput = SupportedSnapshot | Mapping[str, Any]
 
@@ -275,16 +276,6 @@ def _safe_validation_message(error: dict[str, Any]) -> str:
         "model_type": "Expected snapshot object data.",
     }
     return messages.get(error["type"], "Invalid snapshot field.")
-
-
-def _detach_data(data: Any) -> Any:
-    if isinstance(data, BaseModel):
-        return data.model_dump(mode="json", warnings="error")
-    if isinstance(data, Mapping):
-        return {key: _detach_data(value) for key, value in data.items()}
-    if isinstance(data, (list, tuple)):
-        return [_detach_data(value) for value in data]
-    return data
 
 
 def validate_snapshot(data: SnapshotInput) -> SupportedSnapshot:

@@ -6,6 +6,14 @@ class CloudPlatform(StrEnum):
     AZURE = "azure"
 
 
+class AnalyzerKind(StrEnum):
+    OWNERSHIP = "ownership"
+    SECURITY_GROUP_IMPACT = "security_group_impact"
+    CROSS_ACCOUNT_TRUST = "cross_account_trust"
+    DATABASE_ACCESS = "database_access"
+    INTERNET_EXPOSURE = "internet_exposure"
+
+
 class AwsPartition(StrEnum):
     AWS = "aws"
     AWS_CN = "aws-cn"

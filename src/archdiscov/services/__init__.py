@@ -1,5 +1,10 @@
 """Public application services used by the CLI and future interfaces."""
 
+from .analysis_validation import (
+    AnalysisValidationError,
+    AnalysisValidationIssue,
+    validate_analysis_result,
+)
 from .async_ingestion import collect_and_save_async, collect_snapshots_async
 from .evidence import EvidenceInspection, EvidenceNotFoundError, get_evidence
 from .importing import IngestFormat, IngestResult, ingest_snapshot
@@ -20,6 +25,8 @@ from .snapshots import (
 
 __all__ = [
     "AccountOutcome",
+    "AnalysisValidationError",
+    "AnalysisValidationIssue",
     "EvidenceInspection",
     "EvidenceNotFoundError",
     "IngestFormat",
@@ -43,5 +50,6 @@ __all__ = [
     "save_snapshot",
     "select_adapter",
     "validate_snapshot",
+    "validate_analysis_result",
     "upgrade_snapshot",
 ]
