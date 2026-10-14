@@ -3,24 +3,9 @@ from typing import Any
 from ..models.architecture import Coverage
 from ..models.enums import AwsRegion, AwsService, CoverageStatus
 from .adapter import AdapterContext
-from .operations import (
-    Ec2Operation,
-    EcsOperation,
-    Elbv2Operation,
-    LambdaOperation,
-    RdsOperation,
-    SqsOperation,
-)
 from .region_scope import RegionResolution, endpoint_regions
-
-REGIONAL_OPERATIONS = {
-    AwsService.EC2: tuple(op for op in Ec2Operation if op is not Ec2Operation.DESCRIBE_REGIONS),
-    AwsService.ELASTIC_LOAD_BALANCING: tuple(Elbv2Operation),
-    AwsService.ECS: tuple(EcsOperation),
-    AwsService.LAMBDA: tuple(LambdaOperation),
-    AwsService.RDS: tuple(RdsOperation),
-    AwsService.SQS: tuple(SqsOperation),
-}
+from .service_catalog import REGIONAL_OPERATIONS as REGIONAL_OPERATIONS
+from .service_catalog import client_name
 
 
 def resolve_service_availability(
@@ -32,7 +17,7 @@ def resolve_service_availability(
     for service in resolution.scope.services:
         if service not in REGIONAL_OPERATIONS:
             continue
-        name = "elbv2" if service is AwsService.ELASTIC_LOAD_BALANCING else service.value
+        name = client_name(service)
         lookup = getattr(session, "get_available_regions", None)
         known = set(
             lookup(name, partition_name=resolution.partition)

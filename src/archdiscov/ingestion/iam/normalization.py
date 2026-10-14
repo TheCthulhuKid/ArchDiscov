@@ -16,6 +16,7 @@ from ...models.iam import (
 )
 from ...models.json_pointer import escape_pointer_token
 from ...models.sanitization import sanitize_value
+from ..coverage_updates import with_unresolved_value
 from ..evidence_builder import EvidenceBuilder, json_safe, redact_tag_pairs, tags_of
 from ..operations import IamOperation as Op
 from .collector import IamInventory
@@ -107,13 +108,7 @@ class _Normalizer(EvidenceBuilder):
             configuration_path=path,
             reason=reason,
         )
-        if unresolved in coverage.unresolved_values:
-            return
-        data = coverage.model_dump()
-        data["unresolved_values"] = [*coverage.unresolved_values, unresolved]
-        if coverage.status == CoverageStatus.SUCCESS:
-            data["status"] = CoverageStatus.INCOMPLETE
-        self.coverage[op] = Coverage.model_validate(data)
+        self.coverage[op] = with_unresolved_value(coverage, unresolved, deduplicate=True)
 
     def unavailable(self, resource: Resource, op: Op, reason: str) -> None:
         limitation = f"{op}: {reason}"

@@ -5,7 +5,12 @@ from ..ingestion.adapter import AdapterContext, IngestionError, SnapshotAdapter
 from ..ingestion.async_runtime import run_sync
 from ..ingestion.aws import AwsAdapter
 from ..ingestion.requests import AwsCollectionRequest, SourceRequest
-from ..ingestion.terraform import TerraformStateAdapter, TerraformStateRequest
+from ..ingestion.terraform import (
+    TerraformPlanAdapter,
+    TerraformPlanRequest,
+    TerraformStateAdapter,
+    TerraformStateRequest,
+)
 from ..models.architecture import ArchitectureSnapshot
 from .snapshots import SnapshotError
 
@@ -13,6 +18,8 @@ from .snapshots import SnapshotError
 def select_adapter(request: SourceRequest) -> SnapshotAdapter:
     if isinstance(request, AwsCollectionRequest):
         return AwsAdapter()
+    if isinstance(request, TerraformPlanRequest):
+        return TerraformPlanAdapter()
     if isinstance(request, TerraformStateRequest):
         return TerraformStateAdapter()
     raise IngestionError("invalid_request", f"no adapter for request kind {request.kind!r}")

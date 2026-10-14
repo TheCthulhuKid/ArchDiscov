@@ -254,7 +254,7 @@ def test_sdk_config_and_shared_client_across_operations():
 
 @pytest.mark.parametrize(
     "error",
-    [RuntimeError(SECRET), EndpointConnectionError(endpoint_url=SECRET), failure(SECRET)],
+    [EndpointConnectionError(endpoint_url=SECRET), failure(SECRET)],
 )
 def test_client_creation_failure_is_safe(error):
     run, session, _ = runner(error)

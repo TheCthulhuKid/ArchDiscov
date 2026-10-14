@@ -4,6 +4,7 @@ from urllib.parse import quote
 from uuid import UUID
 
 import pytest
+from botocore.exceptions import EndpointConnectionError
 
 from archdiscov.ingestion.iam.collector import collect_inventory
 from archdiscov.ingestion.iam.execution import IamResult
@@ -119,7 +120,7 @@ def test_encoded_documents_equivalent_and_no_secrets_anywhere():
 @pytest.mark.parametrize("failed", ["get_role", "get_role_policy", "get_policy_version"])
 def test_detail_failures_preserve_discovered_resources_and_names(failed):
     data = responses()
-    data[failed] = RuntimeError("protected-error")
+    data[failed] = EndpointConnectionError(endpoint_url="protected-error")
     result, inventory = normalize(data)
     role = by_id(result, "AROAEXAMPLE")
     assert role.attributes["inline_policy_names"] == ["inline"]
@@ -254,7 +255,7 @@ def test_invalid_role_identity_skipped_without_inventing_source_id(identity):
 
 def test_policy_detail_failure_does_not_invent_managed_policy_identity():
     data = responses()
-    data["get_policy"] = RuntimeError("protected-policy-error")
+    data["get_policy"] = EndpointConnectionError(endpoint_url="protected-policy-error")
     result, _ = normalize(data)
     assert not any(r.identity.physical_id == "ANPAEXAMPLE" for r in result.resources)
     role = by_id(result, "AROAEXAMPLE")
@@ -268,7 +269,7 @@ def test_attachment_partial_failure_preserves_observed_policy_and_exact_page_pat
 
     def attached(params):
         if "Marker" in params:
-            raise RuntimeError("protected-page-error")
+            raise EndpointConnectionError(endpoint_url="protected-page-error")
         return {
             **responses()["list_attached_role_policies"],
             "IsTruncated": True,

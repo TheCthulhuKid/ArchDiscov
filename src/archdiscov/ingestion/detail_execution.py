@@ -10,7 +10,13 @@ from ..models.architecture import CollectionFailure, Coverage
 from ..models.enums import AwsRegion, AwsService, CoverageStatus
 from .adapter import AdapterContext, IngestionError
 from .detail_pagination import PAGINATION_POLICIES, PAGINATION_TOKENS, PaginationMode
-from .execution_common import client_config, require_allowed, sanitize_failure
+from .execution_common import (
+    COLLECTION_ERRORS,
+    MalformedResponse,
+    client_config,
+    require_allowed,
+    sanitize_failure,
+)
 from .requests import AwsAccountConfig
 
 
@@ -101,11 +107,13 @@ class DetailRunner:
                     page = method(**params)
                 path = f"Request[{canonical}].Page[{pages}]"
                 pages += 1
+                if not isinstance(page, dict):
+                    raise MalformedResponse("response must be an object")
                 if call.result_key is None:
                     responses.append(DetailResponse(call, page, path))
                 else:
                     if call.result_key not in page:
-                        raise ValueError("response omitted the requested result field")
+                        raise MalformedResponse("response omitted the requested result field")
                     value = page[call.result_key]
                     path += f".{call.result_key}"
                     if isinstance(value, list):
@@ -121,10 +129,10 @@ class DetailRunner:
                 if marker is None:
                     break
                 if marker in markers:
-                    raise ValueError(f"{self._client_name.upper()} pagination did not advance")
+                    raise MalformedResponse("pagination did not advance")
                 markers.add(marker)
                 params[token_key] = marker
-        except Exception as error:
+        except COLLECTION_ERRORS as error:
             return _CallResult(responses, pages, sanitize_failure(error, call.operation))
         return _CallResult(responses, pages)
 
@@ -178,7 +186,7 @@ class DetailRunner:
         if ordered:
             try:
                 client = self._client()
-            except Exception as error:
+            except COLLECTION_ERRORS as error:
                 failures.append(sanitize_failure(error, operation))
             else:
                 with ThreadPoolExecutor(max_workers=self._account.max_concurrency) as executor:

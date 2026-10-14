@@ -13,6 +13,7 @@ from ...models.functions import (
 )
 from ..adapter import AdapterContext
 from ..configuration_common import ServiceCollection
+from ..coverage_updates import with_unresolved_value
 from ..detail_execution import DetailCall, DetailRunner
 from ..evidence_builder import EvidenceBuilder
 from ..operations import LambdaOperation as Op
@@ -46,11 +47,7 @@ class _Normalizer(EvidenceBuilder):
             configuration_path=path,
             reason="Missing, malformed, or unsupported Lambda value",
         )
-        fields = coverage.model_dump()
-        fields["unresolved_values"] = [*coverage.unresolved_values, unresolved]
-        if coverage.status == CoverageStatus.SUCCESS:
-            fields["status"] = CoverageStatus.INCOMPLETE
-        self.coverage[op] = Coverage(**fields)
+        self.coverage[op] = with_unresolved_value(coverage, unresolved)
 
     def normalize(self, response, *, detail=False):
         op, path, raw = response.call.operation, response.path, response.value

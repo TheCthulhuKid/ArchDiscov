@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from .execution_common import MalformedResponse
+
 PaginationMode = Literal["iam", "elbv2", "nextToken", "lambda", "rds", "sqs"]
 
 
@@ -17,7 +19,9 @@ class PaginationPolicy:
             return None
         marker = page.get(self.response_token)
         if self.more_results is not None and not marker:
-            raise ValueError("truncated pagination response omitted its marker")
+            raise MalformedResponse("truncated pagination response omitted its marker")
+        if marker is not None and not isinstance(marker, str):
+            raise MalformedResponse("pagination marker must be a string")
         return marker or None
 
 

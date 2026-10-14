@@ -125,12 +125,17 @@ def test_new_operations_are_allowlisted_and_others_rejected_before_any_call():
             return super().client(name, region_name=region_name, **kwargs)
 
     account = request(ACCOUNT).accounts[0]
-    runner = OperationRunner(Spy(ACCOUNT, pages()), account, make_context(pages()))
+
+    def region_pages(region):
+        return {**pages()(region), "describe_regions": [{"Regions": []}]}
+
+    runner = OperationRunner(Spy(ACCOUNT, region_pages), account, make_context(region_pages))
     with pytest.raises(IngestionError) as exc:
         runner.run(OperationTask(AwsRegion.US_EAST_1, AwsService.EC2, "TerminateInstances"))
     assert exc.value.code == "operation_not_allowed" and calls == []
     for operation in Op:
-        runner.run(OperationTask(AwsRegion.US_EAST_1, AwsService.EC2, operation.value))
+        result = runner.run(OperationTask(AwsRegion.US_EAST_1, AwsService.EC2, operation.value))
+        assert result.coverage.status == "success"
 
 
 def test_secrets_in_descriptions_and_tags_never_reach_the_saved_file(tmp_path):

@@ -13,6 +13,7 @@ from ...models.database import (
 from ...models.enums import AwsService, CoverageStatus
 from ...models.sanitization import sanitize_value
 from ..configuration_common import ServiceCollection
+from ..coverage_updates import with_unresolved_value
 from ..evidence_builder import EvidenceBuilder
 from ..operations import RdsOperation as Op
 
@@ -168,12 +169,7 @@ class _Normalizer(EvidenceBuilder):
             configuration_path=path,
             reason=reason,
         )
-        outcome = self.coverage[op]
-        fields = outcome.model_dump()
-        fields["unresolved_values"] = [*outcome.unresolved_values, unresolved]
-        if outcome.status == CoverageStatus.SUCCESS:
-            fields["status"] = CoverageStatus.INCOMPLETE
-        self.coverage[op] = Coverage(**fields)
+        self.coverage[op] = with_unresolved_value(self.coverage[op], unresolved)
         if resource is not None:
             resource.attributes.setdefault("limitations", []).append(f"{op}: {path}: {reason}")
 

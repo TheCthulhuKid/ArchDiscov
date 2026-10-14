@@ -4,7 +4,7 @@ import json
 from typing import Any
 from uuid import UUID
 
-from ...models.architecture import Coverage, Evidence, UnknownResource, UnresolvedValue
+from ...models.architecture import Evidence, UnknownResource, UnresolvedValue
 from ...models.enums import (
     AwsRegion,
     AwsService,
@@ -19,6 +19,7 @@ from ...models.queues import SqsQueue, safe_policy
 from ...models.resource_base import Resource, ResourceIdentity
 from ..adapter import AdapterContext
 from ..configuration_common import ServiceCollection
+from ..coverage_updates import with_unresolved_value
 from ..detail_execution import DetailCall, DetailRunner
 from ..evidence_builder import EvidenceBuilder
 from ..operations import SqsOperation as Op
@@ -54,17 +55,12 @@ class _Collector(EvidenceBuilder):
     def issue(self, op, path, resource=None):
         reason = "Configuration value unavailable or malformed"
         coverage = self.coverage[op]
-        fields = coverage.model_dump()
-        fields["unresolved_values"].append(
-            UnresolvedValue(
-                resource_id=resource.id if resource else None,
-                configuration_path=path,
-                reason=reason,
-            )
+        unresolved = UnresolvedValue(
+            resource_id=resource.id if resource else None,
+            configuration_path=path,
+            reason=reason,
         )
-        if coverage.status == CoverageStatus.SUCCESS:
-            fields["status"] = CoverageStatus.INCOMPLETE
-        self.coverage[op] = Coverage(**fields)
+        self.coverage[op] = with_unresolved_value(coverage, unresolved)
         if resource:
             resource.attributes.setdefault("limitations", []).append(f"{op}: {path}: {reason}")
             key = f"sqs/{self.region}/{op}/{resource.identity.physical_id}#{path}"

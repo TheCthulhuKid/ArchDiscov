@@ -1,3 +1,4 @@
+from importlib import import_module
 from typing import Any
 from uuid import UUID
 
@@ -5,8 +6,8 @@ from ..models.enums import AwsRegion, AwsService
 from .adapter import AdapterContext, IngestionError
 from .configuration_common import ServiceCollection
 from .requests import AwsAccountConfig
-
-CONFIGURATION_SERVICES = (AwsService.ECS, AwsService.LAMBDA, AwsService.RDS, AwsService.SQS)
+from .service_catalog import CONFIGURATION_SERVICES as CONFIGURATION_SERVICES
+from .service_catalog import SERVICE_CATALOG
 
 
 def collect_configuration_service(
@@ -18,17 +19,9 @@ def collect_configuration_service(
     account_id: str,
     region: AwsRegion,
 ) -> ServiceCollection:
-    from .database import collect_rds
-    from .ecs import collect_ecs
-    from .functions import collect_lambda
-    from .queues import collect_sqs
-
-    collectors = {
-        AwsService.ECS: collect_ecs,
-        AwsService.LAMBDA: collect_lambda,
-        AwsService.RDS: collect_rds,
-        AwsService.SQS: collect_sqs,
-    }
-    if service not in collectors:
+    definition = SERVICE_CATALOG.get(service)
+    if definition is None or definition.configuration_collector is None:
         raise IngestionError("invalid_request", "service has no configuration collector")
-    return collectors[service](session, account, context, snapshot_id, account_id, region)
+    module, name = definition.configuration_collector
+    collector = getattr(import_module(f".{module}", package=__package__), name)
+    return collector(session, account, context, snapshot_id, account_id, region)

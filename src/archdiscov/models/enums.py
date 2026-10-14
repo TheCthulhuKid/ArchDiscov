@@ -97,6 +97,11 @@ class LifecycleAction(StrEnum):
     DELETE = "delete"
 
 
+class LifecycleValueScope(StrEnum):
+    BEFORE = "before"
+    AFTER = "after"
+
+
 class SourceType(StrEnum):
     """Source families for evidence, independent of snapshot source kinds."""
 

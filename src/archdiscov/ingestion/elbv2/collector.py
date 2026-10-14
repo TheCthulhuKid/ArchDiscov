@@ -1,7 +1,6 @@
 """Staged, bounded ELBv2 reads with source-local discovery limitations."""
 
 import json
-import re
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -11,6 +10,7 @@ from ..adapter import AdapterContext
 from ..detail_execution import DetailCall, DetailResponse, DetailResult, DetailRunner
 from ..operations import Elbv2Operation as Op
 from ..requests import AwsAccountConfig
+from .identity import valid_arn
 
 _KEYS = {
     Op.DESCRIBE_LOAD_BALANCERS: "LoadBalancers",
@@ -19,12 +19,6 @@ _KEYS = {
     Op.DESCRIBE_RULES: "Rules",
     Op.DESCRIBE_TARGET_HEALTH: "TargetHealthDescriptions",
     Op.DESCRIBE_TAGS: "TagDescriptions",
-}
-_SHAPES = {
-    "LoadBalancerArn": r"loadbalancer/(?:app|net|gwy)/[A-Za-z0-9-]+/[A-Za-z0-9]+",
-    "ListenerArn": r"listener/(?:app|net)/[A-Za-z0-9-]+/[A-Za-z0-9]+/[A-Za-z0-9]+",
-    "RuleArn": r"listener-rule/app/[A-Za-z0-9-]+/[A-Za-z0-9]+/[A-Za-z0-9]+/[A-Za-z0-9]+",
-    "TargetGroupArn": r"targetgroup/[A-Za-z0-9-]+/[A-Za-z0-9]+",
 }
 
 
@@ -124,14 +118,10 @@ def collect_inventory(
         candidates: dict[str, list[DetailResponse]] = {}
         unsafe: set[int] = set()
         tainted: set[str] = set()
-        prefix = (
-            rf"arn:aws[a-z-]*:elasticloadbalancing:{re.escape(region.value)}:"
-            rf"{account.expected_account_id}:"
-        )
         for index, response in enumerate(result.responses):
             value = response.value
             arn = value.get(field) if isinstance(value, dict) else None
-            valid = isinstance(arn, str) and re.fullmatch(prefix + _SHAPES[field], arn)
+            valid = valid_arn(arn, field, account.expected_account_id, region)
             if valid and field == "LoadBalancerArn":
                 lb_type = value.get("Type")
                 kind = {"application": "app", "network": "net", "gateway": "gwy"}.get(
@@ -152,7 +142,7 @@ def collect_inventory(
                 ] == parent.split(":", 5)[5].removeprefix("listener/")
             if not valid:
                 unsafe.add(index)
-                if isinstance(arn, str) and re.fullmatch(prefix + _SHAPES[field], arn):
+                if valid_arn(arn, field, account.expected_account_id, region):
                     tainted.add(arn)
                 problems.append(_problem(f"{response.path}.{field}", "Invalid resource identity"))
             else:

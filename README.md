@@ -16,9 +16,10 @@ collection across seven service families, with one immutable snapshot file per a
 | EC2/network, IAM, ALB/NLB, ECS, Lambda, RDS/Aurora, and SQS configuration collection | Implemented |
 | Multi-account `collect --all-services`, enabled-region discovery, shared call budgets, async APIs, and cancellation-safe draining | Implemented |
 | Offline Terraform `show -json` state import through Python services | Implemented; [mapping and limitations](docs/terraform-state-mapping.md) |
+| Offline Terraform `show -json` plan import through Python services | Implemented; [mapping and limitations](docs/terraform-plan-mapping.md) |
 | Docker development environment and GitHub Actions pytest/Ruff checks | Implemented |
 | `Finding`/`Answer` models | Implemented contracts only; no analyzers or answer generation |
-| Terraform plans, CloudFormation templates, raw-source CLI ingestion, graph queries, comparisons, and LLM assistant/providers | Planned |
+| CloudFormation templates, raw-source CLI ingestion, graph queries, comparisons, and LLM assistant/providers | Planned |
 
 [PLAN.md](PLAN.md) records delivery progress and the remaining roadmap. “All services”
 means the supported inventory, not every AWS resource type or proof of reachability/effective
@@ -64,7 +65,7 @@ The source package separates shared models, ingestion adapters, public applicati
 ```text
 src/archdiscov/
 ├── models/       # Normalized resources, snapshots, dependencies, and evidence
-├── ingestion/    # Allowlisted AWS collectors and offline Terraform state adapter
+├── ingestion/    # Allowlisted AWS collectors and offline Terraform state/plan adapters
 ├── services/     # Sync/async collection, persistence, and evidence inspection
 ├── cli.py        # Typer presentation and entry point
 └── __main__.py   # python -m archdiscov
@@ -331,8 +332,10 @@ Schema `1` keeps strict local dependency targets. Schema `2` dependencies may us
 discriminated target: `local` (must resolve to a stored resource), `external` (a known
 identifier outside the snapshot, with optional account, region, service, and AWS type), or
 `unresolved` (a sanitized reason and source path). Targets never create resources. Schema `2`
-also allows `lifecycle` (planned actions) on resources, for Terraform plan snapshots only. The
-`dependency-targets.json` fixture demonstrates all target kinds.
+also allows `lifecycle` on resources, for Terraform plan snapshots only. Its ordered
+`actions` preserve the plan sequence; optional `value_scope` identifies `before` for
+pure deletion or `after` otherwise. Historical action-only snapshots remain valid.
+The `dependency-targets.json` fixture demonstrates all target kinds.
 
 An account snapshot has this shape:
 
@@ -736,11 +739,47 @@ unsupported types remain summaries with coverage limitations. See the
 [Terraform state mapping](docs/terraform-state-mapping.md) for exact fields, evidence,
 scope rules, and omitted rules/routes/policy documents.
 
+#### Terraform plan API (implemented)
+
+Import a local **public `terraform show -json` plan export**, format major `1`, using
+`TerraformPlanRequest`. This separate adapter accepts neither state exports/internal
+state nor HCL, and never executes Terraform, loads providers, or makes network calls.
+From the repository root, run this example with `.venv/bin/python` after installation:
+
+```python
+from archdiscov.ingestion.terraform import TerraformPlanRequest
+from archdiscov.services import collect_snapshots, get_evidence, save_snapshot
+
+request = TerraformPlanRequest(
+    path="tests/fixtures/terraform/plan.json",
+    account_id="123456789012",
+    region="eu-west-1",
+)
+snapshot = collect_snapshots(request)[0]
+save_snapshot(snapshot, "snapshots/terraform-plan-example.json")
+evidence_id = next(iter(snapshot.evidence))
+print(get_evidence(snapshot, evidence_id))
+```
+
+`collect_snapshots_async` supports the same request; optional `context` injection and
+immutable saving follow the state API. Output uses schema `2` and `terraform_plan`.
+Create/read/update/no-op/replacement resources use sanitized `after` facts; pure
+deletions retain `before` facts with separate containment. Ordered `lifecycle.actions`
+and `lifecycle.value_scope` distinguish these views, not deployed observations.
+
+Unknown planned facts are omitted, never filled from old values. Sensitive masks and
+generic secret-key scrubbing run before mapping and evidence. The adapter inherits
+the state fact allowlist and complex-mapping limitations; uniquely matched exported
+configuration references can resolve locally, but expressions are not evaluated.
+See [Terraform plan mapping](docs/terraform-plan-mapping.md) for exact lifecycle,
+scope, unknown-value evidence, and unresolved-reference rules. Schema `1` historical
+snapshots remain readable; historical action-only plan snapshots remain valid.
+
 #### Planned IaC work
 
-- Terraform plan imports, including unknown values and planned create/update/delete actions.
-- CloudFormation JSON/YAML templates, including intrinsic tags and locally resolvable references using supplied parameters.
+- CloudFormation JSON/YAML templates (step 20), including intrinsic tags and locally resolvable references using supplied parameters.
 - Raw-source CLI ingestion (step 21). `archdiscov ingest` still accepts only the project's own snapshot JSON, not Terraform exports or templates.
+- Phase-2 acceptance and closure (step 22).
 - No Terraform execution, infrastructure apply, stack deployment, or arbitrary template code evaluation.
 
 ### Deterministic findings (planned)
@@ -844,7 +883,7 @@ Every factual conclusion must cite discovered resources or configuration evidenc
 | Increment | Current status |
 | --- | --- |
 | 1. Models, snapshots, fixtures, persistence, evidence inspection, and CLI foundation | Complete (steps 1–9) |
-| 2. AWS and infrastructure-as-code ingestion | AWS collection complete through step 17; Terraform state Python API implemented in step 18; plans, CloudFormation, raw-source CLI ingestion, and phase closure planned in steps 19–22 |
+| 2. AWS and infrastructure-as-code ingestion | Implemented through step 19: AWS collection and Terraform state/plan Python APIs; CloudFormation, raw-source CLI ingestion, and phase closure planned in steps 20–22 |
 | 3. Graph queries, deterministic findings, and snapshot comparisons | Planned |
 | 4. Provider adapters, orchestration, validated answers, and evaluations | Planned |
 
@@ -884,8 +923,8 @@ docker compose run --rm -T dev archdiscov evidence sg-rule \
 
 Choose another output path if it already exists. Saved files are written as the configured
 non-root user. Installation, snapshot schema/source formats, fixture purposes, Python APIs,
-and supported command/error behavior are documented above. AWS and Terraform state adapters
-use these contracts today; raw-source CLI ingestion, other IaC formats, analysis, and
+and supported command/error behavior are documented above. AWS and Terraform state/plan adapters
+use these contracts today; raw-source CLI ingestion, CloudFormation, analysis, and
 providers remain later work.
 
 ### AWS collection acceptance

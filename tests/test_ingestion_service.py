@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
+from botocore.exceptions import EndpointConnectionError
 
 from archdiscov.ingestion.adapter import AdapterContext, IngestionError
 from archdiscov.ingestion.aws import EC2_OPERATIONS, AwsAdapter
@@ -17,6 +18,12 @@ class Client:
 
     def get_caller_identity(self):
         return {"Account": self.account}
+
+    def can_paginate(self, method):
+        return True
+
+    def get_paginator(self, method):
+        raise EndpointConnectionError(endpoint_url="https://unavailable.test")
 
 
 class Session:

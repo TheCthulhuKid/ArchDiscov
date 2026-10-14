@@ -1,7 +1,6 @@
 """Evidence-backed, flat ELBv2 inventory normalization."""
 
 import json
-import re
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -26,9 +25,11 @@ from ...models.enums import (
     TargetType,
 )
 from ...models.load_balancing import Listener, ListenerRule, LoadBalancer, TargetGroup
+from ..coverage_updates import with_unresolved_value
 from ..evidence_builder import EvidenceBuilder
 from ..operations import Elbv2Operation as Op
 from .collector import Elbv2Inventory
+from .identity import valid_arn
 from .sanitization import sanitize_source
 from .values import actions, conditions, enum_value, port, target, text
 
@@ -83,13 +84,7 @@ class _Normalizer(EvidenceBuilder):
             configuration_path=path,
             reason=reason,
         )
-        if unresolved in coverage.unresolved_values:
-            return
-        fields = coverage.model_dump()
-        fields["unresolved_values"] = [*coverage.unresolved_values, unresolved]
-        if coverage.status == CoverageStatus.SUCCESS:
-            fields["status"] = CoverageStatus.INCOMPLETE
-        self.coverage[op] = Coverage(**fields)
+        self.coverage[op] = with_unresolved_value(coverage, unresolved, deduplicate=True)
 
     def read(self, resource, op, item, path, key, validator, *, required=True):
         if key not in item and not required:
@@ -118,20 +113,10 @@ class _Normalizer(EvidenceBuilder):
         if result is None:
             return
         candidates = {}
-        kind = {
-            "LoadBalancerArn": r"loadbalancer/(?:app|net|gwy)/[A-Za-z0-9-]+/[A-Za-z0-9]+",
-            "ListenerArn": r"listener/(?:app|net)/[A-Za-z0-9-]+/[A-Za-z0-9]+/[A-Za-z0-9]+",
-            "RuleArn": r"listener-rule/app/[A-Za-z0-9-]+/[A-Za-z0-9]+/[A-Za-z0-9]+/[A-Za-z0-9]+",
-            "TargetGroupArn": r"targetgroup/[A-Za-z0-9-]+/[A-Za-z0-9]+",
-        }[id_field]
-        prefix = (
-            rf"arn:aws[a-z-]*:elasticloadbalancing:{re.escape(self.region.value)}:"
-            rf"{self.account_id}:"
-        )
         for response in result.responses:
             item = response.value
             arn = item.get(id_field) if isinstance(item, dict) else None
-            if not text(arn) or not re.fullmatch(prefix + kind, arn):
+            if not valid_arn(arn, id_field, self.account_id, self.region):
                 self.issue(op, f"{response.path}.{id_field}", "Invalid resource identity; omitted")
                 continue
             candidates.setdefault(arn, []).append(response)

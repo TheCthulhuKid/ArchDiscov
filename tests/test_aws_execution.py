@@ -13,6 +13,7 @@ from archdiscov.ingestion.aws import (
     OperationRunner,
     OperationTask,
     create_session,
+    sanitize_failure,
     verify_identity,
 )
 from archdiscov.ingestion.requests import AwsAccountConfig
@@ -328,10 +329,9 @@ def test_non_paginated_call_and_exhausted_retries():
 
 
 def test_unknown_exception_text_not_leaked():
-    run, _ = runner(FakeClient(error=RuntimeError(SECRET)))
-    result = run.run(task())
-    assert result.coverage.failures[0].code == "UnexpectedError"
-    assert SECRET not in result.coverage.model_dump_json()
+    failure = sanitize_failure(RuntimeError(SECRET), "DescribeVpcs")
+    assert failure.code == "UnexpectedError"
+    assert SECRET not in failure.model_dump_json()
 
 
 def test_unsafe_client_error_code_is_replaced():
