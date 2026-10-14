@@ -75,6 +75,8 @@ class AwsService(StrEnum):
     IAM = "iam"
     STS = "sts"
     CLOUDFORMATION = "cloudformation"
+    S3 = "s3"
+    UNKNOWN = "unknown"
 
 
 class DependencyRelationship(StrEnum):
@@ -190,6 +192,7 @@ class AttachmentKind(StrEnum):
     DATABASE_SUBNET_GROUP = "database_subnet_group"
     ASSOCIATED_ROLE = "associated_role"
     DEAD_LETTER_QUEUE = "dead_letter_queue"
+    TERRAFORM_REFERENCE = "terraform_configuration_reference"
 
 
 class TrustPrincipalKind(StrEnum):

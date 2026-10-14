@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from ...models.json_pointer import escape_pointer_token
 from ...models.sanitization import sanitize_value
 from ..evidence_builder import REDACTED, json_safe, redact_tag_pairs
 
@@ -19,7 +20,7 @@ def sanitize_source(value: Any) -> tuple[Any, list[str]]:
         out = {}
         condition = item.get("Field") in ("http-header", "query-string")
         for key, child in item.items():
-            pointer = f"{path}/{str(key).replace('~', '~0').replace('/', '~1')}"
+            pointer = f"{path}/{escape_pointer_token(key)}"
             if key in ("ClientSecret", "MessageBody") or (
                 protected and key in ("Values", "Value", "RegexValues")
             ):
@@ -27,9 +28,7 @@ def sanitize_source(value: Any) -> tuple[Any, list[str]]:
                 paths.append(pointer)
             elif key == "AuthenticationRequestExtraParams" and isinstance(child, dict):
                 out[key] = {name: REDACTED for name in child}
-                paths.extend(
-                    f"{pointer}/{str(name).replace('~', '~0').replace('/', '~1')}" for name in child
-                )
+                paths.extend(f"{pointer}/{escape_pointer_token(name)}" for name in child)
             elif key == "Certificates":
                 # TLS certificate configuration is outside this collection boundary.
                 out[key] = REDACTED

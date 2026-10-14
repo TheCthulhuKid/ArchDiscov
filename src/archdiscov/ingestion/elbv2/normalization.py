@@ -21,6 +21,7 @@ from ...models.enums import (
     LoadBalancerProtocol,
     LoadBalancerScheme,
     LoadBalancerType,
+    ResourceType,
     SourceType,
     TargetType,
 )
@@ -204,7 +205,7 @@ class _Normalizer(EvidenceBuilder):
                     UnknownResource,
                     arn,
                     entries[0],
-                    aws_resource_type="AWS::ElasticLoadBalancingV2::LoadBalancer",
+                    aws_resource_type=ResourceType.ELBV2_LOAD_BALANCER,
                 )
             for response in entries:
                 item, path = response.value, response.path

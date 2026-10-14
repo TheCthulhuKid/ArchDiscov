@@ -4,6 +4,8 @@ import re
 
 from pydantic import JsonValue
 
+from .json_pointer import escape_pointer_token
+
 __all__ = ["is_sensitive_path", "sanitize_value"]
 
 _SENSITIVE_KEYS = frozenset(
@@ -63,7 +65,7 @@ def sanitize_value(value: JsonValue, *, sensitive: bool = False) -> tuple[JsonVa
             return {
                 key: visit(
                     child,
-                    f"{path}/{key.replace('~', '~0').replace('/', '~1')}",
+                    f"{path}/{escape_pointer_token(key)}",
                     _is_sensitive_key(key),
                 )
                 for key, child in item.items()

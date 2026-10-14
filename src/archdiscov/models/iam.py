@@ -8,6 +8,7 @@ from urllib.parse import unquote
 from pydantic import Field, JsonValue, field_validator
 
 from .enums import ResourceType
+from .json_pointer import escape_pointer_token
 from .resource_base import Model, NonEmptyString, Resource
 from .sanitization import is_sensitive_path, sanitize_value
 
@@ -52,10 +53,6 @@ def normalize_document(value: Any) -> dict[str, JsonValue]:
     return document
 
 
-def _escape(key: str) -> str:
-    return key.replace("~", "~0").replace("/", "~1")
-
-
 def _sensitive_context(key: str) -> bool:
     component = key.rsplit(":", 1)[-1].rsplit("/", 1)[-1]
     normalized = "".join(character for character in component.lower() if character.isalnum())
@@ -76,7 +73,7 @@ def sanitize_document(value: Any) -> tuple[dict[str, JsonValue], list[str]]:
             tag_key = item.get("Key")
             sensitive_tag = isinstance(tag_key, str) and is_sensitive_path(tag_key)
             for key, child in item.items():
-                pointer = f"{path}/{_escape(key)}"
+                pointer = f"{path}/{escape_pointer_token(key)}"
                 if (key == "Value" and sensitive_tag) or (condition and _sensitive_context(key)):
                     result[key] = "[REDACTED]"
                     paths.append(pointer)

@@ -1,6 +1,7 @@
 """Containment and observed forwarding references, without reachability inference."""
 
 from collections.abc import Iterable
+from enum import Enum
 from typing import Any
 
 from ...models.architecture import (
@@ -22,6 +23,50 @@ from ...models.enums import (
     TargetType,
 )
 from ...models.load_balancing import Listener, ListenerRule, LoadBalancer, TargetGroup
+
+
+class _ResolutionMode(Enum):
+    LOCAL = "local"
+    IP = "ip"
+    EXTERNAL_LAMBDA = "external_lambda"
+    APPLICATION_LOAD_BALANCER = "application_load_balancer"
+
+
+def _resolve_target(
+    index: dict[tuple[ResourceType, str], list[Resource]],
+    kind: ResourceType,
+    ref: str,
+    path: str,
+    mode: _ResolutionMode,
+) -> DependencyTarget:
+    if mode == _ResolutionMode.IP:
+        return UnresolvedTarget(
+            reason="IP registration is observed; resource ownership is not inferred",
+            source_path=path,
+        )
+    if mode == _ResolutionMode.EXTERNAL_LAMBDA:
+        parts = ref.split(":", 5)
+        return ExternalTarget(
+            identifier=ref,
+            service=AwsService.LAMBDA,
+            account_id=parts[4]
+            if len(parts) == 6 and len(parts[4]) == 12 and parts[4].isdigit()
+            else None,
+            aws_resource_type=ResourceType.LAMBDA_FUNCTION,
+        )
+    matches = index.get((kind, ref), [])
+    if mode == _ResolutionMode.APPLICATION_LOAD_BALANCER:
+        matches = [
+            r
+            for r in matches
+            if isinstance(r, LoadBalancer) and r.lb_type == LoadBalancerType.APPLICATION
+        ]
+    if len(matches) == 1:
+        return LocalTarget(resource_id=matches[0].id)
+    return UnresolvedTarget(
+        reason="target was not uniquely observed with the expected resource type",
+        source_path=path,
+    )
 
 
 def walk_resources(roots: Iterable[Resource]) -> Iterable[Resource]:
@@ -67,21 +112,6 @@ def resolve_relationships(roots: list[Resource], evidence: dict[str, Evidence]) 
             )
     dependencies: list[Dependency] = []
 
-    def resolve(kind: ResourceType, ref: str, path: str, *, alb: bool = False) -> DependencyTarget:
-        matches = index.get((kind, ref), [])
-        if alb:
-            matches = [
-                r
-                for r in matches
-                if isinstance(r, LoadBalancer) and r.lb_type == LoadBalancerType.APPLICATION
-            ]
-        if len(matches) == 1:
-            return LocalTarget(resource_id=matches[0].id)
-        return UnresolvedTarget(
-            reason="target was not uniquely observed with the expected resource type",
-            source_path=path,
-        )
-
     def link(
         resource: Resource,
         pointer: str,
@@ -90,31 +120,13 @@ def resolve_relationships(roots: list[Resource], evidence: dict[str, Evidence]) 
         relationship: DependencyRelationship,
         attributes: dict[str, Any],
         *,
-        external: bool = False,
-        ip: bool = False,
-        alb: bool = False,
+        mode: _ResolutionMode = _ResolutionMode.LOCAL,
     ) -> None:
         citations = resource.fact_evidence.get(pointer, [])
         if not citations:
             return
         path = evidence[citations[0]].configuration_path
-        if ip:
-            target: DependencyTarget = UnresolvedTarget(
-                reason="IP registration is observed; resource ownership is not inferred",
-                source_path=path,
-            )
-        elif external:
-            parts = ref.split(":", 5)
-            target = ExternalTarget(
-                identifier=ref,
-                service=AwsService.LAMBDA,
-                account_id=parts[4]
-                if len(parts) == 6 and len(parts[4]) == 12 and parts[4].isdigit()
-                else None,
-                aws_resource_type="AWS::Lambda::Function",
-            )
-        else:
-            target = resolve(kind, ref, path, alb=alb)
+        target = _resolve_target(index, kind, ref, path, mode)
         dependencies.append(
             Dependency(
                 source_id=resource.id,
@@ -192,6 +204,11 @@ def resolve_relationships(roots: list[Resource], evidence: dict[str, Evidence]) 
                         {"action_index": position, "action_order": action.order, "weight": weight},
                     )
         if isinstance(resource, TargetGroup):
+            mode = {
+                TargetType.IP: _ResolutionMode.IP,
+                TargetType.LAMBDA: _ResolutionMode.EXTERNAL_LAMBDA,
+                TargetType.ALB: _ResolutionMode.APPLICATION_LOAD_BALANCER,
+            }.get(resource.target_type, _ResolutionMode.LOCAL)
             for position, target in enumerate(resource.targets or []):
                 kind = (
                     ResourceType.ELBV2_LOAD_BALANCER
@@ -210,8 +227,6 @@ def resolve_relationships(roots: list[Resource], evidence: dict[str, Evidence]) 
                         "health_state": target.health_state,
                         "health_reason": target.health_reason,
                     },
-                    external=resource.target_type == TargetType.LAMBDA,
-                    ip=resource.target_type == TargetType.IP,
-                    alb=resource.target_type == TargetType.ALB,
+                    mode=mode,
                 )
     return dependencies

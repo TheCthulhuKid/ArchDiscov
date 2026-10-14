@@ -45,7 +45,6 @@ _AWS_TYPES = {
     RouteTargetKind.VPC_ENDPOINT: "AWS::EC2::VPCEndpoint",
     RouteTargetKind.PREFIX_LIST: "AWS::EC2::PrefixList",
 }
-SECURITY_GROUP_TYPE = "AWS::EC2::SecurityGroup"
 
 
 class RelationshipBuilder:
@@ -272,9 +271,7 @@ class RelationshipBuilder:
                 if rule.referenced_group_id:
                     ref = rule.referenced_group_id
                     if rule.referenced_account_id not in (None, self.builder.account_id):
-                        target = self._external(
-                            ref, SECURITY_GROUP_TYPE, rule.referenced_account_id
-                        )
+                        target = self._external(ref, RT.SECURITY_GROUP, rule.referenced_account_id)
                     else:
                         target = self._resolve(
                             ResourceType.SECURITY_GROUP,

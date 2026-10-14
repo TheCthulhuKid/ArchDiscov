@@ -2,13 +2,14 @@ import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any
 
 from botocore import xform_name
 
 from ..models.architecture import CollectionFailure, Coverage
 from ..models.enums import AwsRegion, AwsService, CoverageStatus
 from .adapter import AdapterContext, IngestionError
+from .detail_pagination import PAGINATION_POLICIES, PAGINATION_TOKENS, PaginationMode
 from .execution_common import client_config, require_allowed, sanitize_failure
 from .requests import AwsAccountConfig
 
@@ -53,9 +54,9 @@ class DetailRunner:
         service: AwsService,
         region: AwsRegion,
         client_name: str,
-        pagination: Literal["iam", "elbv2", "nextToken", "lambda", "rds", "sqs"] = "iam",
+        pagination: PaginationMode = "iam",
     ) -> None:
-        if pagination not in {"iam", "elbv2", "nextToken", "lambda", "rds", "sqs"}:
+        if pagination not in PAGINATION_POLICIES:
             raise ValueError("unsupported detail pagination")
         self._session = session
         self._account = account
@@ -63,7 +64,7 @@ class DetailRunner:
         self._service = service
         self._region = region
         self._client_name = client_name
-        self._pagination = pagination
+        self._pagination = PAGINATION_POLICIES[pagination]
         self._client_obj: Any = None
         self._lock = threading.Lock()
         self._seen: set[str] = set()
@@ -90,9 +91,7 @@ class DetailRunner:
         pages = 0
         try:
             params = dict(call.params)
-            token_key = {"nextToken": "nextToken", "sqs": "NextToken"}.get(
-                self._pagination, "Marker"
-            )
+            token_key = self._pagination.request_token
             markers = {params[token_key]} if token_key in params else set()
             method = getattr(client, xform_name(call.operation))
             while True:
@@ -118,19 +117,10 @@ class DetailRunner:
                         responses.append(DetailResponse(call, value, path))
                 if not call.paginate:
                     break
-                if self._pagination == "iam":
-                    if not page.get("IsTruncated", False):
-                        break
-                    marker = page.get("Marker")
-                elif self._pagination in {"elbv2", "lambda"}:
-                    marker = page.get("NextMarker")
-                    if not marker:
-                        break
-                else:
-                    marker = page.get(token_key)
-                    if not marker:
-                        break
-                if not marker or marker in markers:
+                marker = self._pagination.next_marker(page)
+                if marker is None:
+                    break
+                if marker in markers:
                     raise ValueError(f"{self._client_name.upper()} pagination did not advance")
                 markers.add(marker)
                 params[token_key] = marker
@@ -165,7 +155,7 @@ class DetailRunner:
                     {
                         key: value
                         for key, value in call.params.items()
-                        if key not in {"Marker", "nextToken", "NextToken"}
+                        if key not in PAGINATION_TOKENS
                     },
                     sort_keys=True,
                     separators=(",", ":"),

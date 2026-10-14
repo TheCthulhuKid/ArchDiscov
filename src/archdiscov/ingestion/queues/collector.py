@@ -5,8 +5,16 @@ from typing import Any
 from uuid import UUID
 
 from ...models.architecture import Coverage, Evidence, UnknownResource, UnresolvedValue
-from ...models.enums import AwsRegion, AwsService, CoverageStatus, EvidenceValueStatus, SourceType
+from ...models.enums import (
+    AwsRegion,
+    AwsService,
+    CoverageStatus,
+    EvidenceValueStatus,
+    ResourceType,
+    SourceType,
+)
 from ...models.iam import sanitize_document
+from ...models.json_pointer import escape_pointer_token
 from ...models.queues import SqsQueue, safe_policy
 from ...models.resource_base import Resource, ResourceIdentity
 from ..adapter import AdapterContext
@@ -178,7 +186,7 @@ class _Collector(EvidenceBuilder):
                         yield from tag_paths(
                             before[key],
                             after[key],
-                            f"{pointer}/{key.replace('~', '~0').replace('/', '~1')}",
+                            f"{pointer}/{escape_pointer_token(key)}",
                         )
                 elif isinstance(before, list) and isinstance(after, list):
                     for index, (left, right) in enumerate(zip(before, after)):
@@ -251,7 +259,7 @@ class _Collector(EvidenceBuilder):
             else:
                 resource = UnknownResource(
                     identity=identity,
-                    aws_resource_type="AWS::SQS::Queue",
+                    aws_resource_type=ResourceType.SQS_QUEUE,
                     attributes={"queue_url": url},
                 )
             self.whole(resource, Op.LIST_QUEUES, source_path, url)
@@ -298,7 +306,7 @@ class _Collector(EvidenceBuilder):
             self.cite(
                 resource, "/attributes/tags", Op.LIST_QUEUE_TAGS, f"{response.path}.Tags", safe
             )
-            paths = [f"/{key.replace('~', '~0').replace('/', '~1')}" for key in safe]
+            paths = [f"/{escape_pointer_token(key)}" for key in safe]
             self.redactions([whole_id], paths, "/Tags")
             self.redactions(resource.fact_evidence["/attributes/tags"], paths)
         return ServiceCollection(self.resources, self.evidence, list(self.coverage.values()))

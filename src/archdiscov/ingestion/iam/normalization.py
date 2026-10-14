@@ -14,6 +14,7 @@ from ...models.iam import (
     normalize_document,
     sanitize_document,
 )
+from ...models.json_pointer import escape_pointer_token
 from ...models.sanitization import sanitize_value
 from ..evidence_builder import EvidenceBuilder, json_safe, redact_tag_pairs, tags_of
 from ..operations import IamOperation as Op
@@ -45,7 +46,7 @@ def safe_tree(value: Any) -> tuple[Any, list[str], list[str]]:
         if isinstance(item, dict):
             result = {}
             for key, child in item.items():
-                escaped = key.replace("~", "~0").replace("/", "~1")
+                escaped = escape_pointer_token(key)
                 child_pointer = f"{pointer}/{escaped}"
                 child_path = f"{source_path}.{key}"
                 if key in _DOCUMENT_KEYS:
