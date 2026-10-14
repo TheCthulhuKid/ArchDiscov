@@ -1,12 +1,16 @@
 from uuid import UUID
 
+from archdiscov.models.cloud_contracts import CloudEvidence, CloudOperationCoverage
 from archdiscov.models.cloud_scope import SupportedScope
+from archdiscov.models.coverage_key import CoverageKey
 from archdiscov.models.enums import AttachmentKind, DependencyRelationship
 from archdiscov.models.resource_base import Resource
 from archdiscov.services.snapshot_access import SnapshotAccess, SupportedSnapshot
 
 from .containment import ContainmentEdge
+from .coverage import CoverageIndex
 from .dependencies import DependencyEdge, DependencyIndex, TerminalTarget
+from .evidence import EvidenceIndex
 from .identity import PhysicalResourceKey
 
 
@@ -36,7 +40,10 @@ class GraphIndex:
             children.setdefault(edge.source_id, []).append(edge.target_id)
         self._children = {key: tuple(ids) for key, ids in children.items()}
         self._root_ids = tuple(key for key in self._resource_ids if key not in self._parents)
-        self._dependencies = DependencyIndex(self._access._borrow_snapshot().dependencies)
+        owned = self._access._borrow_snapshot()
+        self._dependencies = DependencyIndex(owned.dependencies)
+        self._evidence = EvidenceIndex(owned.evidence, self._resources)
+        self._coverage = CoverageIndex(owned.coverage.operations)
 
     @property
     def snapshot_id(self) -> UUID:
@@ -115,3 +122,32 @@ class GraphIndex:
         return tuple(
             self._resources[item].model_copy(deep=True) for item in self._physical.get(key, ())
         )
+
+    @property
+    def evidence_ids(self) -> tuple[str, ...]:
+        return self._evidence.ids
+
+    def get_evidence(self, evidence_id: str) -> CloudEvidence | None:
+        return self._evidence.get(evidence_id)
+
+    def resource_evidence_ids(self, resource_id: str) -> tuple[str, ...]:
+        return self._evidence.owner_ids(resource_id)
+
+    def fact_evidence_ids(self, resource_id: str, pointer: str) -> tuple[str, ...]:
+        return self._evidence.fact_ids(resource_id, pointer)
+
+    def evidence_for_resource(self, resource_id: str) -> tuple[CloudEvidence, ...]:
+        return self._evidence.records(self.resource_evidence_ids(resource_id))
+
+    def evidence_for_fact(self, resource_id: str, pointer: str) -> tuple[CloudEvidence, ...]:
+        return self._evidence.records(self.fact_evidence_ids(resource_id, pointer))
+
+    @property
+    def coverage_keys(self) -> tuple[CoverageKey, ...]:
+        return self._coverage.keys
+
+    def get_coverage(self, key: CoverageKey) -> CloudOperationCoverage | None:
+        return self._coverage.get(key)
+
+    def coverage_records(self) -> tuple[CloudOperationCoverage, ...]:
+        return self._coverage.records()

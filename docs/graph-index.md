@@ -1,8 +1,9 @@
 # Snapshot graph index foundation
 
-Steps 24.1–24.3 implement resource ownership, lookup, explicit containment,
-and dependency adjacency with terminal targets. Evidence/coverage indexes,
-traversal, query services, and analyzers remain subsequent steps.
+Steps 24.1–24.4 implement resource ownership, lookup, explicit containment,
+dependency adjacency with terminal targets, and evidence/coverage indexes.
+Composed acceptance/profiling, traversal, query services, and analyzers remain
+subsequent steps.
 
 ```python
 from archdiscov.graph import GraphIndex, PhysicalResourceKey
@@ -132,7 +133,7 @@ The outer edge/terminal records are frozen, but their nested target models and
 attribute dictionaries are mutable **detached copies**. Every public lookup
 returns independent copies; changing these values or the original snapshot cannot
 change any index state. Do not use mutated returned copies as authoritative edge
-records. Evidence lookup and traversal remain later steps.
+records. Traversal remains a later step.
 
 ```python
 from archdiscov.models.enums import AttachmentKind, DependencyRelationship
@@ -152,4 +153,65 @@ for edge in routes:
         assert terminal.edge_id == edge.id
         assert network_index.get_resource(terminal.id) is None
         assert network_index.outgoing_edges(terminal.id) == ()
+```
+
+## Evidence and exact fact citations
+
+- `evidence_ids` lists all stored evidence IDs in sorted order, including uncited
+  records. `get_evidence(id)` returns a detached `CloudEvidence` or `None`.
+- `resource_evidence_ids(resource_id)` returns all evidence owned by that stored
+  resource, in evidence-ID order. This is not restricted to its broad
+  `resource.evidence_ids` citations. `evidence_for_resource(id)` returns those
+  records as a tuple.
+- `fact_evidence_ids(resource_id, pointer)` returns the explicitly stored
+  citations for that exact resource-relative JSON Pointer, in original citation
+  order. `evidence_for_fact(id, pointer)` returns the corresponding records.
+
+Fact lookups do not expand parent/child pointers, decode source configuration
+paths, or infer citations from resource-level evidence. Use the exact escaped
+pointer stored in `fact_evidence` (for example `/attributes/a~1b~0c` for key
+`a/b~c`). Unknown resources, uncited facts, and unmatched pointers return `()`.
+An empty lookup means no explicit citation, not that a fact is absent or false.
+
+Values, source paths, redaction paths, limitations, and value statuses are retained
+unchanged after snapshot validation. A present `null` remains distinguishable
+from unresolved/omitted evidence. All returned records, scopes, and nested values
+are detached; caller mutations cannot alter subsequent lookups.
+
+## Complete-context operation coverage
+
+`CoverageKey`, exported from `archdiscov.graph`, is a frozen, hashable lookup key
+shared with analysis integrity validation. Build it using
+`CoverageKey.from_values(scope, location, service, operation)` or
+`CoverageKey.from_record(record)`. It includes the platform and complete immutable
+scope (AWS account/partition or Azure subscription/tenant), location, canonical
+service key, and exact operation name. Azure service casing is folded using the
+existing context rule; AWS service casing and operation names remain exact. Both
+direct construction and factories canonicalize service casing and scope ordering.
+Scope-wide operations use `location=None`, not the legacy `global` sentinel.
+
+- `coverage_keys` lists recorded keys ordered by location (scope-wide first),
+  canonical service, then operation. Each graph owns a single snapshot scope.
+- `get_coverage(key)` returns a detached `CloudOperationCoverage` or `None` when
+  no record matches the complete context.
+- `coverage_records()` returns all recorded outcomes in key order, retaining
+  timestamps, counts, reasons, failures, and unresolved values.
+
+Successful-zero, failed, incomplete, skipped, and unsupported outcomes remain
+distinct. Absent records never become successful-zero results, and these lookups
+do not infer completeness or qualify analyzer conclusions. Legacy snapshots are
+normalized through `SnapshotAccess`; the graph API stays the same for schemas
+`1`–`3` and does not migrate saved files.
+
+```python
+from archdiscov.graph import CoverageKey
+
+partial = GraphIndex(load_snapshot("tests/fixtures/snapshots/partial-coverage.json"))
+owner_id = partial.get_evidence("sg-rule").resource_id
+assert partial.fact_evidence_ids(owner_id, "/attributes/ingress/0") == ("sg-rule",)
+assert partial.evidence_for_fact(owner_id, "/attributes/ingress/0")[0].value["FromPort"] == 443
+key = CoverageKey.from_values(partial.scope, "eu-west-1", "ec2", "DescribeInstances")
+assert partial.get_coverage(key).result_count == 0
+missing = CoverageKey.from_values(partial.scope, "eu-west-1", "ec2", "DescribeNetworkInterfaces")
+assert partial.get_coverage(missing) is None
 ```
