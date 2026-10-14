@@ -4,6 +4,7 @@ from pathlib import Path
 from ..ingestion.adapter import AdapterContext, IngestionError, SnapshotAdapter
 from ..ingestion.async_runtime import run_sync
 from ..ingestion.aws import AwsAdapter
+from ..ingestion.cloudformation import CloudFormationAdapter, CloudFormationRequest
 from ..ingestion.requests import AwsCollectionRequest, SourceRequest
 from ..ingestion.terraform import (
     TerraformPlanAdapter,
@@ -18,6 +19,8 @@ from .snapshots import SnapshotError
 def select_adapter(request: SourceRequest) -> SnapshotAdapter:
     if isinstance(request, AwsCollectionRequest):
         return AwsAdapter()
+    if isinstance(request, CloudFormationRequest):
+        return CloudFormationAdapter()
     if isinstance(request, TerraformPlanRequest):
         return TerraformPlanAdapter()
     if isinstance(request, TerraformStateRequest):

@@ -17,9 +17,10 @@ collection across seven service families, with one immutable snapshot file per a
 | Multi-account `collect --all-services`, enabled-region discovery, shared call budgets, async APIs, and cancellation-safe draining | Implemented |
 | Offline Terraform `show -json` state import through Python services | Implemented; [mapping and limitations](docs/terraform-state-mapping.md) |
 | Offline Terraform `show -json` plan import through Python services | Implemented; [mapping and limitations](docs/terraform-plan-mapping.md) |
+| Offline CloudFormation JSON/YAML import through Python services | Implemented; [mapping and limitations](docs/cloudformation-mapping.md) |
 | Docker development environment and GitHub Actions pytest/Ruff checks | Implemented |
 | `Finding`/`Answer` models | Implemented contracts only; no analyzers or answer generation |
-| CloudFormation templates, raw-source CLI ingestion, graph queries, comparisons, and LLM assistant/providers | Planned |
+| Raw-source CLI ingestion, graph queries, comparisons, and LLM assistant/providers | Planned |
 
 [PLAN.md](PLAN.md) records delivery progress and the remaining roadmap. “All services”
 means the supported inventory, not every AWS resource type or proof of reachability/effective
@@ -65,7 +66,7 @@ The source package separates shared models, ingestion adapters, public applicati
 ```text
 src/archdiscov/
 ├── models/       # Normalized resources, snapshots, dependencies, and evidence
-├── ingestion/    # Allowlisted AWS collectors and offline Terraform state/plan adapters
+├── ingestion/    # Allowlisted AWS collectors and offline Terraform/CloudFormation adapters
 ├── services/     # Sync/async collection, persistence, and evidence inspection
 ├── cli.py        # Typer presentation and entry point
 └── __main__.py   # python -m archdiscov
@@ -775,9 +776,34 @@ See [Terraform plan mapping](docs/terraform-plan-mapping.md) for exact lifecycle
 scope, unknown-value evidence, and unresolved-reference rules. Schema `1` historical
 snapshots remain readable; historical action-only plan snapshots remain valid.
 
-#### Planned IaC work
+#### CloudFormation API (implemented)
 
-- CloudFormation JSON/YAML templates (step 20), including intrinsic tags and locally resolvable references using supplied parameters.
+Import JSON/YAML declarations without deploying stacks or fetching external templates:
+
+```python
+from archdiscov.ingestion.cloudformation import CloudFormationRequest
+from archdiscov.services import collect_snapshots, save_snapshot
+
+request = CloudFormationRequest(
+    path="tests/fixtures/cloudformation/template.yaml",
+    account_id="123456789012",
+    region="eu-west-1",
+    stack_name="demo",
+    parameters={"Stage": "test"},
+)
+snapshot = collect_snapshots(request)[0]
+save_snapshot(snapshot, "snapshots/cloudformation-example.json")
+```
+
+Use `.venv/bin/python` after installation and a fresh output path. The async service
+accepts the same request. Logical-only identities, locally evaluated intrinsics,
+NoEcho/sensitive-path redaction, source-owned references, and qualified coverage
+survive immutable persistence. Missing physical values, nested-stack contents, external
+imports, unsupported intrinsics and mappings remain explicit limitations. See
+[CloudFormation mapping](docs/cloudformation-mapping.md) for the supported subset,
+exact facts, safety limits, and evidence behavior.
+
+#### Planned IaC work
 - Raw-source CLI ingestion (step 21). `archdiscov ingest` still accepts only the project's own snapshot JSON, not Terraform exports or templates.
 - Phase-2 acceptance and closure (step 22).
 - No Terraform execution, infrastructure apply, stack deployment, or arbitrary template code evaluation.
@@ -883,7 +909,7 @@ Every factual conclusion must cite discovered resources or configuration evidenc
 | Increment | Current status |
 | --- | --- |
 | 1. Models, snapshots, fixtures, persistence, evidence inspection, and CLI foundation | Complete (steps 1–9) |
-| 2. AWS and infrastructure-as-code ingestion | Implemented through step 19: AWS collection and Terraform state/plan Python APIs; CloudFormation, raw-source CLI ingestion, and phase closure planned in steps 20–22 |
+| 2. AWS and infrastructure-as-code ingestion | Implemented through step 20: AWS collection, Terraform state/plan and CloudFormation Python APIs; raw-source CLI ingestion and phase closure planned in steps 21–22 |
 | 3. Graph queries, deterministic findings, and snapshot comparisons | Planned |
 | 4. Provider adapters, orchestration, validated answers, and evaluations | Planned |
 
@@ -923,8 +949,8 @@ docker compose run --rm -T dev archdiscov evidence sg-rule \
 
 Choose another output path if it already exists. Saved files are written as the configured
 non-root user. Installation, snapshot schema/source formats, fixture purposes, Python APIs,
-and supported command/error behavior are documented above. AWS and Terraform state/plan adapters
-use these contracts today; raw-source CLI ingestion, CloudFormation, analysis, and
+and supported command/error behavior are documented above. AWS, Terraform, and CloudFormation adapters
+use these contracts today; raw-source CLI ingestion, analysis, and
 providers remain later work.
 
 ### AWS collection acceptance
@@ -962,7 +988,7 @@ Future increments will add supported IaC formats, analyzer limitations, and prov
 
 ## Assumptions and defaults
 
-- Use Python 3.13, uv, boto3, Pydantic, Typer, and pytest. PyYAML is planned for CloudFormation ingestion.
+- Use Python 3.13, uv, boto3, Pydantic, Typer, PyYAML, and pytest.
 - Accounts are explicitly configured; regions are selected explicitly or discovered after identity verification. AWS Organizations discovery is deferred.
 - Terraform HCL parsing, additional AWS services, web UI, historical monitoring, and automatic remediation are deferred.
 - Saved paths are immutable through the persistence API; loaded models remain mutable. Collection creates a new snapshot, and future answers must identify the snapshot they analyze.

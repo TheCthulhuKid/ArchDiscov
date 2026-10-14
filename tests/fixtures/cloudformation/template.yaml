@@ -1,0 +1,42 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+  Protected:
+    Type: String
+    NoEcho: true
+    Default: fixture-secret-must-not-persist
+Resources:
+  Network:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.20.0.0/16
+      Tags:
+        - Key: Name
+          Value: !Sub '${Stage}-network'
+  Subnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Network
+      CidrBlock: 10.20.1.0/24
+      AvailabilityZone: !Sub '${AWS::Region}a'
+  Server:
+    Type: AWS::EC2::Instance
+    Properties:
+      SubnetId: !Ref Subnet
+      InstanceType: t3.micro
+      Tags:
+        - Key: private
+          Value: !Ref Protected
+  Nested:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://example.invalid/nested.yaml
+      Parameters:
+        Protected: !Ref Protected
+  Imported:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !ImportValue SharedVpc
+      GroupDescription: not retained
