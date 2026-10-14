@@ -26,7 +26,7 @@ evidence inspection; it does not provide live Azure collection or analysis.
 | Phase 2 permissions, setup, and offline acceptance | [Consolidated permissions](docs/aws-permissions.md) and [acceptance workflow](#phase-2-offline-acceptance) |
 | Docker development environment and GitHub Actions pytest/Ruff checks | Implemented |
 | Analysis result contracts and `Finding`/`Answer` compatibility | Implemented snapshot-backed integrity checks; no analyzers or answer generation |
-| Graph resource ownership and lookup | [Implemented across schemas 1–3](docs/graph-index.md); adjacency and queries remain planned |
+| Graph resource ownership, lookup, and containment | [Implemented across schemas 1–3](docs/graph-index.md); dependency adjacency and queries remain planned |
 | Graph queries, comparisons, and LLM assistant/providers | Planned |
 
 [PLAN.md](PLAN.md) records delivery progress and the remaining roadmap. “All services”
@@ -141,7 +141,7 @@ For future LLM-provider integration (phase 4, separate from cloud platforms), fo
 ## Architecture and interfaces
 
 The snapshot, ingestion, persistence, and CLI boundaries below are implemented.
-Graph resource ownership and lookup are implemented; graph adjacency, queries,
+Graph resource ownership, lookup, and containment are implemented; dependency adjacency, queries,
 deterministic analyzers, comparisons, and provider interfaces remain planned.
 
 - Organize the application into ingestion adapters, normalized models, graph queries, deterministic analyzers, provider adapters, and CLI presentation.
@@ -999,8 +999,8 @@ cloud-aware references, ordered cited paths, typed analyzer parameters, and
 structured coverage/unresolved-target limitations. Validate results against a selected
 snapshot with `validate_analysis_result`; model construction alone checks only shape.
 See [analysis result contracts](docs/analysis-results.md) for the API, ID rules,
-fixtures, and integrity boundary. [Graph resource lookup](docs/graph-index.md)
-is implemented; adjacency, analyzer execution, immutable result persistence,
+fixtures, and integrity boundary. [Graph resource lookup and containment](docs/graph-index.md)
+are implemented; dependency adjacency, analyzer execution, immutable result persistence,
 and analysis CLI commands remain later steps.
 
 ### Planned assistant behavior

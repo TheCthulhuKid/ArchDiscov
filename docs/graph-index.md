@@ -1,8 +1,8 @@
 # Snapshot graph index foundation
 
-Step 24.1 implements resource ownership and lookup only. Containment/dependency
-adjacency, terminal nodes, evidence/coverage indexes, traversal, query services,
-and analyzers remain subsequent steps.
+Steps 24.1–24.2 implement resource ownership, lookup, and explicit containment.
+Dependency adjacency, terminal nodes, evidence/coverage indexes, traversal, query
+services, and analyzers remain subsequent steps.
 
 ```python
 from archdiscov.graph import GraphIndex, PhysicalResourceKey
@@ -62,3 +62,35 @@ Matching deliberately does not select a region: region-local AWS identifiers can
 have several candidates within an account. Inspect their recorded identities to
 disambiguate. Stable-ID lookup retains the existing AWS region/service identity
 rules. No cross-scope or cross-platform matches are inferred.
+
+## Explicit containment
+
+Containment is indexed once from `SnapshotAccess.containment()`, which traverses
+stored `children` using the shared resource-tree walker. It works identically for
+regional and scope-wide trees across schemas `1`–`3`.
+
+- `root_ids` lists parentless stored resources in stable-ID order. Snapshot,
+  region, and scope envelopes are not invented graph nodes.
+- `parent_id(id)` returns the stored parent ID, or `None` for a root or unknown ID.
+- `child_ids(id)` returns direct child IDs in stable-ID order, or `()` for a leaf
+  or unknown ID. It does not perform recursive traversal.
+- `containment_edges` is an immutable tuple of frozen `ContainmentEdge` values,
+  ordered by `(source_id, target_id)`, from parent to child. Reverse lookup uses
+  the same edges; it does not assert an additional relationship.
+
+Structural edges have `evidence_ids == ()`: resource and dependency citations do
+not prove containment and are not copied onto these edges. Containment remains
+distinct from evidence-backed dependencies. An `unresolved_parent` attribute,
+physical identifier, or attachment never creates an edge or a missing parent.
+Input mutations and changes to returned resource trees cannot change adjacency.
+
+```python
+subnet_id = next(
+    child_id
+    for child_id in index.child_ids(vpc.id)
+    if index.get_resource(child_id).resource_type == ResourceType.SUBNET
+)
+assert index.parent_id(subnet_id) == vpc.id
+assert index.parent_id(vpc.id) is None
+assert all(edge.evidence_ids == () for edge in index.containment_edges)
+```

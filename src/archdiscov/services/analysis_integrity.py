@@ -68,11 +68,7 @@ class _IntegrityContext:
             resources,
             snapshot.evidence,
             dependencies,
-            {
-                (resource.id, child.id)
-                for resource in resources.values()
-                for child in resource.children
-            },
+            set(access.containment()),
             {_coverage_key(record) for record in snapshot.coverage.operations},
         )
 
