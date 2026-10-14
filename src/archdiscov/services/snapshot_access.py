@@ -139,6 +139,10 @@ class SnapshotAccess:
         )
         return cls(model)
 
+    def _borrow_snapshot(self) -> CloudSnapshot:
+        """Internal read-only borrowing; never expose or mutate this owned detached model."""
+        return self._snapshot
+
     @property
     def scope(self):
         return self._snapshot.scope.model_copy(deep=True)

@@ -25,7 +25,7 @@ evidence inspection; it does not provide live Azure collection or analysis.
 | Explicit snapshot/Terraform state/Terraform plan/CloudFormation CLI ingestion | Implemented (step 21); [usage and contracts](docs/raw-source-ingestion.md) |
 | Phase 2 permissions, setup, and offline acceptance | [Consolidated permissions](docs/aws-permissions.md) and [acceptance workflow](#phase-2-offline-acceptance) |
 | Docker development environment and GitHub Actions pytest/Ruff checks | Implemented |
-| `Finding`/`Answer` models | Implemented contracts only; no analyzers or answer generation |
+| Analysis result contracts and `Finding`/`Answer` compatibility | Implemented snapshot-backed integrity checks; no analyzers or answer generation |
 | Graph queries, comparisons, and LLM assistant/providers | Planned |
 
 [PLAN.md](PLAN.md) records delivery progress and the remaining roadmap. “All services”
@@ -945,8 +945,9 @@ map, not globally unique identifiers.
 Finding IDs are scoped to the selected snapshot's analysis results; resource IDs use the
 existing stable identity contract. An answer references findings rather than embedding
 provider-authored factual prose. A future renderer will obtain conclusions from validated
-findings. There are no analyzer-specific categories, severity scores, graph paths, provider
-messages, or query/ask commands yet.
+findings. These legacy contracts remain unchanged. Separate analysis contracts now
+describe analyzer kinds, typed parameters, paths and structured limitations; there are
+no analyzer execution, severity scores, provider messages, or query/ask commands yet.
 
 | Status | Meaning and required limitations |
 | --- | --- |
@@ -988,6 +989,17 @@ references, and the tool-returned allowlist, and reject unsupported claims. Resu
 mutable and are not persisted by the snapshot service. Free-form summaries and limitations
 must not contain secrets; these are not automatically sanitized or treated as instructions.
 
+### Analysis result contracts (implemented)
+
+`AnalysisResult` and `AnalysisFinding` in `archdiscov.models.analysis_results`
+define a separate versioned result document with deterministic finding IDs,
+cloud-aware references, ordered cited paths, typed analyzer parameters, and
+structured coverage/unresolved-target limitations. Validate results against a selected
+snapshot with `validate_analysis_result`; model construction alone checks only shape.
+See [analysis result contracts](docs/analysis-results.md) for the API, ID rules,
+fixtures, and integrity boundary. Analyzer execution, graph indexing, immutable
+result persistence, and analysis CLI commands remain later steps.
+
 ### Planned assistant behavior
 
 - Define a provider-neutral interface for messages, tool calls, results, and final answers.
@@ -1018,7 +1030,7 @@ Every factual conclusion must cite discovered resources or configuration evidenc
 | 1. Models, snapshots, fixtures, persistence, evidence inspection, and CLI foundation | Complete (steps 1–9) |
 | 2. AWS and infrastructure-as-code ingestion | Complete (steps 10–22): supported AWS inventory, offline IaC imports, explicit CLI formats, permissions and offline acceptance |
 | Pre-phase-3 cloud boundary bridge (22.1–22.4) | Implemented foundation: scopes/identities/resources, schema `3` and conversion, offline Azure workflows, and common access/compatibility documentation; not live Azure support |
-| 3. Graph queries, deterministic findings, and snapshot comparisons | Planned |
+| 3. Graph queries, deterministic findings, and snapshot comparisons | Result contracts/integrity implemented (step 23); execution and subsequent steps planned |
 | 4. LLM-provider adapters, orchestration, validated answers, and evaluations | Planned; separate from cloud platforms |
 
 The bridge prepares phase 3 to build common graph/query and ownership contracts.

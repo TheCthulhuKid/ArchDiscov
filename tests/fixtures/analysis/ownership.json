@@ -1,0 +1,13 @@
+{
+  "schema_version": "1",
+  "snapshot_id": "00000000-0000-4000-8000-000000000023",
+  "analyzer": "ownership", "analyzer_version": "1",
+  "parameters": {"kind": "ownership", "ownership_keys": ["Owner", "Team"]},
+  "created_at": "2026-10-13T09:00:00Z",
+  "findings": [{
+    "snapshot_id": "00000000-0000-4000-8000-000000000023",
+    "summary": "Recorded tags contain neither Owner nor Team; this is an ownership signal, not proof of no owner.",
+    "status": "supported", "evidence_ids": ["tags"],
+    "resources": [{"resource_id": "123456789012/eu-west-1/ec2/physical/vpc-owner", "scope": {"platform": "aws", "account_id": "123456789012"}}]
+  }]
+}
