@@ -4,19 +4,18 @@ from collections import defaultdict
 
 from ...models.architecture import (
     ArchitectureSnapshot,
-    Coverage,
-    Evidence,
     RegionArchitecture,
     ResourceIdentity,
     SnapshotCoverage,
     UnresolvedValue,
 )
-from ...models.enums import AwsRegion, AwsService, CoverageStatus, EvidenceValueStatus, SourceType
+from ...models.enums import AwsRegion, AwsService, SourceType
+from ...models.json_pointer import read_pointer
 from ..adapter import IngestionError
+from ..import_records import cite_source, import_coverage
 from .catalog import service_for_type
 from .mapping import map_resource
 from .scope import identifier
-from .sensitivity import read_pointer
 
 
 class SnapshotBuilder:
@@ -33,22 +32,17 @@ class SnapshotBuilder:
         self.seen = set()
 
     def cite(self, resource, path, value, *, redacted=False, unresolved=False):
-        evidence_id = f"terraform:{len(self.evidence)}"
-        self.evidence[evidence_id] = Evidence(
+        return cite_source(
+            self.evidence,
+            resource,
             snapshot_id=self.snapshot_id,
-            resource_id=resource.id,
             source=SourceType.TERRAFORM,
             locator=str(self.request.path),
-            configuration_path=path,
+            path=path,
             value=value,
-            redacted_paths=[""] if redacted else [],
-            value_status=EvidenceValueStatus.UNRESOLVED
-            if unresolved
-            else EvidenceValueStatus.PRESENT,
-            limitation="Planned source value is unknown" if unresolved else None,
+            redacted=redacted,
+            reason="Planned source value is unknown" if unresolved else None,
         )
-        resource.evidence_ids.append(evidence_id)
-        return [evidence_id]
 
     def limit(self, resource, path, reason):
         self.limitations[(resource.identity.region, resource.identity.service)].append(
@@ -136,22 +130,14 @@ class SnapshotBuilder:
         for region in self.scope.regions:
             regions.setdefault(region, RegionArchitecture())
         completed = self.context.clock()
-        operations = [
-            Coverage(
-                account_id=self.scope.account_id,
-                region=region,
-                service=service,
-                operation=operation,
-                status=CoverageStatus.INCOMPLETE
-                if self.limitations[(region, service)]
-                else CoverageStatus.SUCCESS,
-                result_count=count,
-                unresolved_values=self.limitations[(region, service)],
-                started_at=self.started,
-                completed_at=completed,
-            )
-            for (region, service), count in sorted(self.counts.items())
-        ]
+        operations = import_coverage(
+            account_id=self.scope.account_id,
+            operation=operation,
+            counts=self.counts,
+            limitations=self.limitations,
+            started=self.started,
+            completed=completed,
+        )
         return ArchitectureSnapshot(
             schema_version="2",
             snapshot_id=self.snapshot_id,

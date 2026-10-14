@@ -3,6 +3,7 @@
 from typing import Any
 
 from ...models.json_pointer import escape_pointer_token
+from ...models.json_pointer import read_pointer as read_pointer
 from ...models.sanitization import sanitize_value
 from ..adapter import IngestionError
 
@@ -42,10 +43,3 @@ def sanitize_values(values: dict, mask: Any) -> tuple[dict, list[str]]:
         return {}, [""]
     safe, generic_paths = sanitize_value(masked)
     return safe, sorted(set(paths + generic_paths))
-
-
-def read_pointer(value: Any, pointer: str) -> Any:
-    for part in pointer.split("/")[1:]:
-        key = part.replace("~1", "/").replace("~0", "~")
-        value = value[int(key)] if isinstance(value, list) else value[key]
-    return value
