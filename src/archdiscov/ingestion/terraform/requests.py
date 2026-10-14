@@ -21,3 +21,7 @@ class TerraformStateRequest(SourceRequest):
         if self.region == AwsRegion.GLOBAL:
             raise ValueError("region must name a concrete AWS region")
         return self
+
+
+class TerraformPlanRequest(TerraformStateRequest):
+    kind: Literal["terraform_plan"] = "terraform_plan"

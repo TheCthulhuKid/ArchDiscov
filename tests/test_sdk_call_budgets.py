@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from threading import Condition, Event, Lock
 
 import pytest
+from botocore.exceptions import EndpointConnectionError
 
 from archdiscov.ingestion.adapter import AdapterContext, IngestionError
 from archdiscov.ingestion.aws import OperationRunner, OperationTask, create_session
@@ -84,7 +85,7 @@ class Client:
     def get_role(self, **params):
         self.calls.invoke(self.account_id)
         if params["RoleName"] == "bad":
-            raise RuntimeError("protected-secret")
+            raise EndpointConnectionError(endpoint_url="protected-secret")
         return {"Role": params["RoleName"]}
 
 

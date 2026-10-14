@@ -23,6 +23,7 @@ from .adapter import AdapterContext, IngestionError
 from .async_collection import AccountCollection, AsyncCollectionCoordinator
 from .async_runtime import run_sync
 from .collection_jobs import CollectedJob, CollectionJob, collect_job, collection_jobs
+from .execution_common import COLLECTION_ERRORS, MalformedResponse
 from .execution_common import client_config as client_config
 from .execution_common import require_allowed as require_allowed
 from .execution_common import sanitize_failure as sanitize_failure
@@ -38,6 +39,7 @@ from .requests import (
     SourceRequest,
 )
 from .service_availability import resolve_service_availability
+from .service_catalog import client_name as _client_name
 
 EC2_OPERATIONS = (
     (Ec2Operation.DESCRIBE_VPCS, "Vpcs"),
@@ -50,17 +52,12 @@ EC2_OPERATIONS = (
     (Ec2Operation.DESCRIBE_SECURITY_GROUP_RULES, "SecurityGroupRules"),
     (Ec2Operation.DESCRIBE_NETWORK_INTERFACES, "NetworkInterfaces"),
 )
-CLIENT_NAMES = {AwsService.ELASTIC_LOAD_BALANCING: "elbv2"}
 
 
 def default_session_factory(**kwargs: Any) -> Any:
     import boto3
 
     return boto3.Session(**kwargs)
-
-
-def _client_name(service: AwsService) -> str:
-    return CLIENT_NAMES.get(service, service.value)
 
 
 def _snake(operation: str) -> str:
@@ -211,11 +208,15 @@ class OperationRunner:
                     responses = [getattr(client, method)(**task.params)]
             for page in responses:
                 pages += 1
+                if not isinstance(page, dict):
+                    raise MalformedResponse("response must be an object")
                 if task.result_key is None:
                     items.append(page)
                 else:
-                    items.extend(page.get(task.result_key, []))
-        except Exception as error:
+                    if not isinstance(page.get(task.result_key), list):
+                        raise MalformedResponse("response omitted the requested result list")
+                    items.extend(page[task.result_key])
+        except COLLECTION_ERRORS as error:
             failure = sanitize_failure(error, task.operation)
             if pages == 0:
                 coverage = self._coverage(

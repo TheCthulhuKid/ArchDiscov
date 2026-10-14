@@ -12,7 +12,7 @@ from pydantic import (
     model_validator,
 )
 
-from .enums import AwsRegion, AwsService, LifecycleAction, ResourceType
+from .enums import AwsRegion, AwsService, LifecycleAction, LifecycleValueScope, ResourceType
 from .sanitization import sanitize_value
 
 NonEmptyString = Annotated[str, Field(min_length=1, pattern=r"\S")]
@@ -67,11 +67,27 @@ class ResourceLifecycle(Model):
     """Planned change for a resource (schema 2, Terraform plans only)."""
 
     actions: list[LifecycleAction] = Field(min_length=1)
+    value_scope: LifecycleValueScope | None = None
+
+    @model_serializer(mode="wrap")
+    def omit_absent_scope(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        if self.value_scope is None:
+            data.pop("value_scope", None)
+        return data
 
     @model_validator(mode="after")
     def validate_action_sequence(self) -> Self:
         if tuple(self.actions) not in _LIFECYCLE_SEQUENCES:
             raise ValueError("unsupported lifecycle action sequence")
+        if self.value_scope is not None:
+            expected = (
+                LifecycleValueScope.BEFORE
+                if self.actions == [LifecycleAction.DELETE]
+                else LifecycleValueScope.AFTER
+            )
+            if self.value_scope != expected:
+                raise ValueError("lifecycle value_scope does not match its action sequence")
         return self
 
 

@@ -12,6 +12,13 @@ from .requests import AwsAccountConfig
 _SAFE_CODE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
 
 
+class MalformedResponse(ValueError):
+    """An explicitly detected invalid AWS response, not an implementation defect."""
+
+
+COLLECTION_ERRORS = (BotoCoreError, ClientError, MalformedResponse)
+
+
 def client_config(account: AwsAccountConfig) -> Config:
     return Config(
         connect_timeout=account.connect_timeout_seconds,
@@ -35,6 +42,8 @@ def sanitize_failure(error: BaseException, operation: str) -> CollectionFailure:
             code = "ClientError"
     elif isinstance(error, BotoCoreError):
         code = type(error).__name__
+    elif isinstance(error, MalformedResponse):
+        code = "MalformedResponse"
     else:
         code = "UnexpectedError"
     return CollectionFailure(code=code, message=f"{operation} failed with {code}")

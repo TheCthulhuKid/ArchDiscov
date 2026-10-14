@@ -1,6 +1,7 @@
 from copy import deepcopy
 
 import pytest
+from botocore.exceptions import EndpointConnectionError
 
 from archdiscov.ingestion.adapter import AdapterContext
 from archdiscov.ingestion.elbv2 import Elbv2Inventory, collect_inventory
@@ -128,7 +129,7 @@ def test_zero_discovery_and_blocked_discovery():
     inventory, session = collect(values)
     assert all(c.status == "success" and c.result_count == 0 for c in inventory.coverage)
     assert len(session.elb.calls) == 2
-    values["describe_load_balancers"] = RuntimeError("private source error")
+    values["describe_load_balancers"] = EndpointConnectionError(endpoint_url="private source error")
     inventory, _ = collect(values)
     assert inventory.results[Op.DESCRIBE_LISTENERS].coverage.status == "skipped"
     assert inventory.results[Op.DESCRIBE_RULES].coverage.status == "skipped"
@@ -144,7 +145,7 @@ def test_partial_inventory_keeps_known_reads_and_groups_are_independent():
 
     def pages(params):
         return (
-            RuntimeError("private")
+            EndpointConnectionError(endpoint_url="private")
             if "Marker" in params
             else {
                 **data()["describe_load_balancers"],
@@ -175,14 +176,14 @@ def test_failed_sibling_retains_successful_reads(failed):
         {"LoadBalancerArn": lb2, "Type": "application"}
     )
     values["describe_listeners"] = lambda p: (
-        RuntimeError("private")
+        EndpointConnectionError(endpoint_url="private")
         if failed == "describe_listeners" and p["LoadBalancerArn"] == lb2
         else {
             "Listeners": [{"ListenerArn": listener2 if p["LoadBalancerArn"] == lb2 else LISTENER}]
         }
     )
     values["describe_rules"] = lambda p: (
-        RuntimeError("private")
+        EndpointConnectionError(endpoint_url="private")
         if failed == "describe_rules" and p["ListenerArn"] == listener2
         else {"Rules": [{"RuleArn": RULE}]}
     )
@@ -200,7 +201,9 @@ def test_nlb_rules_are_legitimate_zero_and_unrelated_listener_failure_does_not_q
         {"LoadBalancerArn": nlb, "Type": "network"}
     )
     values["describe_listeners"] = lambda p: (
-        RuntimeError("private") if p["LoadBalancerArn"] == nlb else data()["describe_listeners"]
+        EndpointConnectionError(endpoint_url="private")
+        if p["LoadBalancerArn"] == nlb
+        else data()["describe_listeners"]
     )
     inventory, _ = collect(values)
     assert inventory.results[Op.DESCRIBE_RULES].coverage.status == "success"
@@ -309,7 +312,7 @@ def test_failed_tag_batch_retains_sibling_batch_and_qualifies_missing_resource()
         "TargetGroups": [{"TargetGroupArn": arn, "TargetType": "ip"} for arn in groups]
     }
     values["describe_tags"] = lambda p: (
-        RuntimeError("private")
+        EndpointConnectionError(endpoint_url="private")
         if len(p["ResourceArns"]) == 1
         else {"TagDescriptions": [{"ResourceArn": arn, "Tags": []} for arn in p["ResourceArns"]]}
     )
@@ -324,7 +327,7 @@ def test_failed_tag_batch_retains_sibling_batch_and_qualifies_missing_resource()
 
 def test_failed_health_does_not_qualify_independent_tags():
     values = data()
-    values["describe_target_health"] = RuntimeError("private")
+    values["describe_target_health"] = EndpointConnectionError(endpoint_url="private")
     inventory, _ = collect(values)
     assert inventory.results[Op.DESCRIBE_TARGET_HEALTH].coverage.status == "failed"
     assert inventory.results[Op.DESCRIBE_TAGS].coverage.status == "success"

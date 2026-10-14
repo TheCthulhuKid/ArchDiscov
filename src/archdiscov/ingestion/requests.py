@@ -13,20 +13,10 @@ from pydantic import (
 )
 
 from ..models.enums import AwsRegion, AwsService
+from .service_catalog import ACCOUNT_WIDE_SERVICES as ACCOUNT_WIDE_SERVICES
+from .service_catalog import COLLECTABLE_SERVICES as COLLECTABLE_SERVICES
 
-ACCOUNT_WIDE_SERVICES = frozenset({AwsService.IAM})
 MAX_CONCURRENCY_LIMIT = 16
-COLLECTABLE_SERVICES = frozenset(
-    {
-        AwsService.EC2,
-        AwsService.ELASTIC_LOAD_BALANCING,
-        AwsService.ECS,
-        AwsService.LAMBDA,
-        AwsService.RDS,
-        AwsService.SQS,
-        AwsService.IAM,
-    }
-)
 
 NonBlank = Annotated[str, Field(min_length=1, pattern=r"\S")]
 

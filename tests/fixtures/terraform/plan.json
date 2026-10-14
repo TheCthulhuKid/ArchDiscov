@@ -1,0 +1,52 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.11.4",
+  "planned_values": {"root_module": {}},
+  "resource_changes": [
+    {
+      "address": "aws_vpc.main", "mode": "managed", "type": "aws_vpc",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {"actions": ["no-op"], "before": {"id": "vpc-plan", "cidr_block": "10.0.0.0/16"}, "after": {"id": "vpc-plan", "cidr_block": "10.0.0.0/16"}, "after_unknown": {}, "before_sensitive": {}, "after_sensitive": {}}
+    },
+    {
+      "address": "module.app.aws_subnet.main[0]", "mode": "managed", "type": "aws_subnet",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {"actions": ["create"], "before": null, "after": {"vpc_id": "vpc-plan", "cidr_block": "10.0.1.0/24", "availability_zone": "eu-west-1a", "tags": {"Name": "planned", "owner": "sensitive-plan-tag"}}, "after_unknown": {"id": true}, "before_sensitive": false, "after_sensitive": {"tags": {"owner": true}}}
+    },
+    {
+      "address": "module.app.aws_instance.web[\"blue/green\"]", "mode": "managed", "type": "aws_instance",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {"actions": ["update"], "before": {"id": "i-update", "instance_type": "t3.micro"}, "after": {"id": "i-update", "instance_type": "t3.small", "subnet_id": null}, "after_unknown": {"subnet_id": true}, "before_sensitive": {}, "after_sensitive": {}}
+    },
+    {
+      "address": "aws_instance.removed", "mode": "managed", "type": "aws_instance",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {"actions": ["delete"], "before": {"id": "i-delete", "instance_type": "t3.nano", "tags": {"owner": "sensitive-before-tag"}}, "after": null, "after_unknown": false, "before_sensitive": {"tags": {"owner": true}}, "after_sensitive": false}
+    },
+    {
+      "address": "aws_instance.replace_before", "mode": "managed", "type": "aws_instance",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {"actions": ["delete", "create"], "before": {"id": "i-old", "instance_type": "t2.micro"}, "after": {"instance_type": "t3.micro"}, "after_unknown": {"id": true}, "before_sensitive": {}, "after_sensitive": {}}
+    },
+    {
+      "address": "aws_instance.replace_after", "mode": "managed", "type": "aws_instance",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {"actions": ["create", "delete"], "before": {"id": "i-old-other", "instance_type": "t2.micro"}, "after": {"instance_type": "t3.small"}, "after_unknown": {"id": true}, "before_sensitive": {}, "after_sensitive": {}}
+    }
+  ],
+  "configuration": {
+    "root_module": {
+      "module_calls": {
+        "app": {
+          "module": {
+            "resources": [
+              {"address": "aws_instance.web", "mode": "managed", "expressions": {"subnet_id": {"references": ["aws_subnet.main.id"]}, "instance_type": {"references": ["var.instance_type"]}}}
+            ]
+          }
+        }
+      }
+    }
+  },
+  "variables": {"never_copy": {"value": "plan-variable-secret"}},
+  "output_changes": {"never_copy": {"after": "plan-output-secret"}}
+}

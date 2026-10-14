@@ -2,6 +2,7 @@ import asyncio
 from threading import Event
 
 import pytest
+from botocore.exceptions import EndpointConnectionError
 
 from archdiscov.ingestion import aws
 from archdiscov.ingestion.adapter import IngestionError
@@ -223,7 +224,9 @@ def test_cancellation_preserves_earlier_commits_and_does_not_start_later_saves(
 def test_async_collection_retains_evidence_and_partial_coverage_on_disk(tmp_path):
     def pages(region):
         result = default_pages(region)
-        result["describe_route_tables"] = [RuntimeError("safe injected failure")]
+        result["describe_route_tables"] = [
+            EndpointConnectionError(endpoint_url="safe injected failure")
+        ]
         return result
 
     ctx = make_context(pages)

@@ -6,6 +6,9 @@ Terraform plans, or HCL. It never executes Terraform, loads providers, contacts 
 or makes network calls. State describes exported configuration, not live observations
 or proof of deployment, reachability, or effective access.
 
+Plans use the separate implemented [Terraform plan adapter](terraform-plan-mapping.md);
+they are still not accepted by this state adapter.
+
 ## Python API
 
 Import `TerraformStateRequest` from `archdiscov.ingestion.terraform` and pass it to
@@ -22,8 +25,9 @@ optional Terraform version, and supplied workspace. Saving requires an existing
 parent directory and never overwrites a destination.
 
 There is no raw-state CLI command yet: `archdiscov ingest` accepts only Archdiscov
-snapshot JSON. Raw-source CLI ingestion is deferred to step 21; plans and
-CloudFormation templates are separate planned adapters.
+snapshot JSON. Raw-source CLI ingestion is deferred to step 21. State and
+[plans](terraform-plan-mapping.md) use separate implemented Python adapters;
+CloudFormation templates remain planned for step 20.
 
 ## Input, identity, and scope
 

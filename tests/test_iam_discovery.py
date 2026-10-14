@@ -1,4 +1,4 @@
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, EndpointConnectionError
 
 from archdiscov.ingestion.iam.collector import collect_inventory
 from archdiscov.ingestion.operations import IamOperation as Op
@@ -45,7 +45,7 @@ def test_empty_discovery_is_successful_zero_and_failed_discovery_skips_details()
     assert all(r.coverage.status == "success" for r in inventory.results.values())
     assert inventory.results[Op.GET_ROLE].coverage.result_count == 0
     assert len(calls) == 2
-    data["list_roles"] = RuntimeError("secret")
+    data["list_roles"] = EndpointConnectionError(endpoint_url="secret")
     inventory, calls = collect(data)
     assert inventory.results[Op.GET_ROLE].coverage.status == "skipped"
     assert inventory.results[Op.GET_POLICY_VERSION].coverage.status == "skipped"

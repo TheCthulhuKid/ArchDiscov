@@ -128,6 +128,11 @@ unexpected collector/assembly/validation failures propagate after sibling work
 settles, never becoming successful empty data. Assembly runs only after all
 selected jobs finish and receives results in planned order regardless of completion.
 
+Both execution runners translate SDK failures and explicitly detected malformed
+responses into sanitized coverage failures (`MalformedResponse` for invalid
+response shapes or pagination). Unexpected programming exceptions propagate rather
+than being mislabeled as ordinary AWS failures.
+
 `AwsAdapter.collect` invokes this coordinator synchronously and raises the first
 request-ordered account error after accounts settle, preserving its existing
 all-snapshots-or-error contract. It rejects use inside a running event loop.
