@@ -1,8 +1,8 @@
 # Snapshot graph index foundation
 
-Steps 24.1–24.2 implement resource ownership, lookup, and explicit containment.
-Dependency adjacency, terminal nodes, evidence/coverage indexes, traversal, query
-services, and analyzers remain subsequent steps.
+Steps 24.1–24.3 implement resource ownership, lookup, explicit containment,
+and dependency adjacency with terminal targets. Evidence/coverage indexes,
+traversal, query services, and analyzers remain subsequent steps.
 
 ```python
 from archdiscov.graph import GraphIndex, PhysicalResourceKey
@@ -93,4 +93,63 @@ subnet_id = next(
 assert index.parent_id(subnet_id) == vpc.id
 assert index.parent_id(vpc.id) is None
 assert all(edge.evidence_ids == () for edge in index.containment_edges)
+```
+
+## Dependencies and terminal targets
+
+`dependency_edges` returns all recorded directed dependencies as a tuple of frozen
+`DependencyEdge` values. Each edge retains its source ID, full typed target,
+source location (`None` for scope-wide), relationship, attributes, and original
+source-owned evidence IDs as a tuple. Dependencies are separate from containment:
+configuration fields, child placement, and matching names never create edges.
+
+- `outgoing_edges(resource_id)` and `incoming_edges(target_id)` return recorded
+  edges, optionally filtered by `relationship=DependencyRelationship.…` and/or
+  `attachment_kind=AttachmentKind.…`. Reverse lookup returns the original edge,
+  not a reversed assertion. Unknown IDs and unmatched filters return `()`.
+- `attachment_kind` recognizes existing enum values in `attributes["kind"]`.
+  Absent, custom, or non-string details remain in attributes and yield `None`;
+  they are still available through unfiltered and relationship-only lookups.
+- `get_dependency_edge(edge_id)` returns an edge or `None`. Edge IDs are
+  snapshot-local handles derived from SHA-256 of the full normalized dependency
+  JSON (sorted object keys), plus a duplicate occurrence number. Ordering follows
+  that canonical JSON, not input list order. Distinct parallel edges and even
+  identical stored occurrences remain separate; their citations are never merged.
+- For local targets, `edge.target_id` is the stored resource ID. External and
+  unresolved targets instead have an edge-specific terminal ID. `terminal_ids`
+  lists those IDs in sorted order; `get_terminal(id)` returns a `TerminalTarget`
+  retaining the originating `edge_id` and complete typed target, or `None`.
+
+External terminals keep their own platform/scope, identifier, location, service,
+and native type, including unknown context; source scope is never substituted.
+Unresolved terminals preserve their reason and source path. Repeated references
+to the same external identifier have distinct terminals tied to their own edges.
+Terminals are not resources: `get_resource(terminal_id)` returns `None`, incoming
+lookup returns the originating edge, and outgoing lookup is always empty.
+Dependency cycles and self-edges are indexed without traversal or inference.
+
+The outer edge/terminal records are frozen, but their nested target models and
+attribute dictionaries are mutable **detached copies**. Every public lookup
+returns independent copies; changing these values or the original snapshot cannot
+change any index state. Do not use mutated returned copies as authoritative edge
+records. Evidence lookup and traversal remain later steps.
+
+```python
+from archdiscov.models.enums import AttachmentKind, DependencyRelationship
+
+network_index = GraphIndex(load_snapshot("tests/fixtures/snapshots/network.json"))
+routes = network_index.outgoing_edges(
+    "123456789012/eu-west-1/ec2/physical/rtb-main",
+    relationship=DependencyRelationship.ATTACHED_TO,
+    attachment_kind=AttachmentKind.ROUTE_TARGET,
+)
+assert len(routes) == 2
+for edge in routes:
+    assert edge in network_index.incoming_edges(edge.target_id)
+    assert edge.evidence_ids
+    if edge.target.kind != "local":
+        terminal = network_index.get_terminal(edge.target_id)
+        assert terminal.edge_id == edge.id
+        assert network_index.get_resource(terminal.id) is None
+        assert network_index.outgoing_edges(terminal.id) == ()
 ```
