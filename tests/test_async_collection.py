@@ -209,8 +209,8 @@ def test_cross_account_session_reuse_is_rejected(monkeypatch):
     )
     assert outcomes[0].snapshot is not None
     assert outcomes[1].snapshot is None
-    assert outcomes[1].error.code == "identity_failed"
-    assert outcomes[1].error.__cause__.code == "invalid_request"
+    assert outcomes[1].error.code == "invalid_request"
+    assert "reused a session across accounts" in outcomes[1].error.message
 
 
 def test_scheduled_nested_detail_pools_share_sdk_budget(monkeypatch):

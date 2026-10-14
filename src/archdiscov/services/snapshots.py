@@ -79,9 +79,19 @@ def save_snapshot(snapshot: SnapshotInput, path: str | Path) -> Path:
     path = Path(path)
     try:
         validated = validate_snapshot(snapshot)
+    except SnapshotValidationError as exc:
+        exc.path = path
+        raise
+    return _save_validated_snapshot(validated, path)
+
+
+def _save_validated_snapshot(snapshot: ArchitectureSnapshot, path: str | Path) -> Path:
+    """Publish an already detached, validated snapshot without validating it again."""
+    path = Path(path)
+    try:
         text = (
             json.dumps(
-                validated.model_dump(mode="json"), indent=2, ensure_ascii=False, allow_nan=False
+                snapshot.model_dump(mode="json"), indent=2, ensure_ascii=False, allow_nan=False
             )
             + "\n"
         )

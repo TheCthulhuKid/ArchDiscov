@@ -6,7 +6,7 @@ from botocore.session import Session
 
 from ..models.enums import AwsRegion, AwsService
 from .adapter import AdapterContext, IngestionError
-from .execution_common import client_config, require_allowed, sanitize_failure
+from .execution_common import COLLECTION_ERRORS, client_config, require_allowed, sanitize_failure
 from .operations import Ec2Operation
 from .requests import AwsAccountConfig, RegionScope
 from .scope import ResolvedAwsScope
@@ -127,12 +127,14 @@ def resolve_region_scope(
         client = session.client("ec2", region_name=bootstrap.value, config=client_config(account))
         with context.sdk_calls.permit(account.expected_account_id, account.max_in_flight_calls):
             response = client.describe_regions(AllRegions=True)
-    except Exception as error:
+    except COLLECTION_ERRORS as error:
         failure = sanitize_failure(error, operation)
         raise IngestionError(
             "region_discovery_failed", f"{failure.message}; enabled-region scope was not collected"
         ) from error
     try:
+        if not isinstance(response, dict):
+            raise ValueError("invalid region response")
         entries = response["Regions"]
         if not isinstance(entries, list) or not entries:
             raise ValueError("missing regions")
@@ -140,6 +142,8 @@ def resolve_region_scope(
         disabled = set()
         seen = set()
         for entry in entries:
+            if not isinstance(entry, dict):
+                raise ValueError("invalid region entry")
             name, status = entry["RegionName"], entry["OptInStatus"]
             if not isinstance(name, str) or name in seen:
                 raise ValueError("invalid region")

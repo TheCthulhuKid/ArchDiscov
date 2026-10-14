@@ -17,12 +17,7 @@ from ..models.enums import (
     DependencyRelationship,
     ResourceType,
 )
-
-
-def walk_resources(roots: Iterable[Resource]) -> Iterable[Resource]:
-    for resource in roots:
-        yield resource
-        yield from walk_resources(resource.children)
+from ..models.resource_tree import walk_resources as walk_resources
 
 
 def merge_resources(roots: list[Resource], resources: list[Resource]) -> None:

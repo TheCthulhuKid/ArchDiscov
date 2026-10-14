@@ -5,7 +5,7 @@ from botocore.session import Session
 
 from ..models.enums import AwsService
 from .adapter import AdapterContext, IngestionError
-from .execution_common import client_config, require_allowed
+from .execution_common import COLLECTION_ERRORS, MalformedResponse, client_config, require_allowed
 from .region_scope import authentication_region
 from .requests import AwsAccountConfig
 
@@ -28,17 +28,21 @@ def verify_account_identity(
         )
         with context.sdk_calls.permit(account.expected_account_id, account.max_in_flight_calls):
             identity = client.get_caller_identity()
-        actual = identity["Account"]
+        if not isinstance(identity, dict):
+            raise MalformedResponse("invalid account identity")
+        actual = identity.get("Account")
         if (
             not isinstance(actual, str)
             or len(actual) != 12
             or not actual.isascii()
             or not actual.isdigit()
         ):
-            raise ValueError("invalid account identity")
+            raise MalformedResponse("invalid account identity")
         arn = identity.get("Arn")
         partition = None
         if arn is not None:
+            if not isinstance(arn, str):
+                raise MalformedResponse("invalid identity ARN")
             parts = arn.split(":", 5)
             if (
                 len(parts) != 6
@@ -46,9 +50,9 @@ def verify_account_identity(
                 or parts[4] != actual
                 or parts[1] not in Session().get_available_partitions()
             ):
-                raise ValueError("invalid identity ARN")
+                raise MalformedResponse("invalid identity ARN")
             partition = parts[1]
-    except Exception as error:
+    except COLLECTION_ERRORS as error:
         raise IngestionError("identity_failed", "STS GetCallerIdentity failed") from error
     if actual != account.expected_account_id:
         raise IngestionError(

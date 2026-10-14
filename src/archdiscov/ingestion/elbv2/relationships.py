@@ -1,6 +1,5 @@
 """Containment and observed forwarding references, without reachability inference."""
 
-from collections.abc import Iterable
 from enum import Enum
 from typing import Any
 
@@ -23,6 +22,7 @@ from ...models.enums import (
     TargetType,
 )
 from ...models.load_balancing import Listener, ListenerRule, LoadBalancer, TargetGroup
+from ...models.resource_tree import walk_resources as walk_resources
 
 
 class _ResolutionMode(Enum):
@@ -67,12 +67,6 @@ def _resolve_target(
         reason="target was not uniquely observed with the expected resource type",
         source_path=path,
     )
-
-
-def walk_resources(roots: Iterable[Resource]) -> Iterable[Resource]:
-    for resource in roots:
-        yield resource
-        yield from walk_resources(resource.children)
 
 
 def merge_resources(roots: list[Resource], resources: list[Resource]) -> list[Resource]:

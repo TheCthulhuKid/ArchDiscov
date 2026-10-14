@@ -9,7 +9,7 @@ from ..ingestion.async_runtime import await_settled
 from ..ingestion.requests import AwsCollectionRequest, SourceRequest
 from ..models.architecture import ArchitectureSnapshot
 from .ingestion import AccountOutcome, select_adapter
-from .snapshots import SnapshotError, save_snapshot, validate_snapshot
+from .snapshots import SnapshotError, _save_validated_snapshot, validate_snapshot
 
 
 async def _accounts(
@@ -96,8 +96,9 @@ async def collect_and_save_async(
             return outcome
         try:
             outcome.snapshot = validate_snapshot(result.snapshot)
-            outcome.path = save_snapshot(outcome.snapshot, path)
+            outcome.path = _save_validated_snapshot(outcome.snapshot, path)
         except SnapshotError as error:
+            error.path = path
             outcome.error = error
         return outcome
 

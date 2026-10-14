@@ -220,7 +220,7 @@ def test_identity_discovery_and_assume_role_share_budget(operation, failed):
         def invoke(self):
             calls.invoke(ACCOUNT)
             if failed:
-                raise RuntimeError("protected-secret")
+                raise EndpointConnectionError(endpoint_url="protected-secret")
 
         def get_caller_identity(self):
             self.invoke()

@@ -19,6 +19,7 @@ collection across seven service families, with one immutable snapshot file per a
 | Offline Terraform `show -json` plan import through Python services | Implemented; [mapping and limitations](docs/terraform-plan-mapping.md) |
 | Offline CloudFormation JSON/YAML import through Python services | Implemented; [mapping and limitations](docs/cloudformation-mapping.md) |
 | Explicit snapshot/Terraform state/Terraform plan/CloudFormation CLI ingestion | Implemented (step 21); [usage and contracts](docs/raw-source-ingestion.md) |
+| Phase 2 permissions, setup, and offline acceptance | [Consolidated permissions](docs/aws-permissions.md) and [acceptance workflow](#phase-2-offline-acceptance) |
 | Docker development environment and GitHub Actions pytest/Ruff checks | Implemented |
 | `Finding`/`Answer` models | Implemented contracts only; no analyzers or answer generation |
 | Graph queries, comparisons, and LLM assistant/providers | Planned |
@@ -611,7 +612,10 @@ Only allowlisted operations can be called (`ALLOWED_OPERATIONS` in `archdiscov.i
 in `Ec2Operation` (steps 12–13), plus the eight IAM reads in `IamOperation` (step 14) and six
 ELB reads in `Elbv2Operation` (step 15), and the configuration reads in `EcsOperation`,
 `LambdaOperation`, `RdsOperation`, and `SqsOperation` (step 16). Exact permissions are
-listed in the service mapping documents below. Other operations raise `operation_not_allowed`
+published in [the consolidated policy and setup guide](docs/aws-permissions.md), with
+resource-scoping constraints, profile/SSO/assume-role examples, and runtime credential
+mounts. The policy is checked against the executable allowlist in normal tests.
+Other operations raise `operation_not_allowed`
 before any client is created. `OperationRunner` paginates, keeps pages gathered before a failure
 (`incomplete`), reports first-call failures as `failed`, supports `skipped`/`unsupported`, bounds
 concurrency, and emits sanitized diagnostics with no raw exception text. The shared
@@ -723,10 +727,15 @@ committed files remain intact.
 
 Service-local contracts, exact operations/permissions, source paths, and limitations:
 
-- [ECS](docs/ecs-mapping.md): clusters, services, running tasks, and referenced task definitions.
-- [Lambda](docs/lambda-mapping.md): function configuration, networking, and execution-role references.
-- [RDS/Aurora](docs/rds-mapping.md): instances, clusters, subnet groups, endpoints/ports, and networking.
-- [SQS](docs/sqs-mapping.md): queue configuration, sanitized policies, and dead-letter references.
+| Family | Collected facts | Explicit limits |
+| --- | --- | --- |
+| [EC2/network](docs/network-mapping.md) | VPC/subnet/instance configuration, routes, rules, ENIs, attachments | No NAT/transit/peering inventory or reachability analysis; nonlocal/missing targets remain explicit |
+| [IAM](docs/iam-mapping.md) | Roles, profiles, trust/inline policies, referenced managed policies | Default policy versions only; no users/groups inventory or effective-permission evaluation |
+| [ALB/NLB](docs/load-balancing-mapping.md) | Listeners, rules, ordered forwarding, registrations and reported health | No classic ELB; Gateway LB summaries only; health is not reachability and IP ownership is not inferred |
+| [ECS](docs/ecs-mapping.md) | Clusters, services, desired-running tasks, referenced task definitions | No stopped-task inventory, workload commands, or environment values |
+| [Lambda](docs/lambda-mapping.md) | Function configuration, networking, execution-role references | No function code or environment values |
+| [RDS/Aurora](docs/rds-mapping.md) | Instances, clusters, subnet groups, endpoints/ports, networking | No database contents or credentials; configured public flags are not exposure conclusions |
+| [SQS](docs/sqs-mapping.md) | Queue configuration, sanitized policies, dead-letter references | No messages or effective-access conclusions |
 
 Each selected service has regional aggregate coverage with retained partial results and
 source-owned fact citations. References resolve after all selected inventories are collected;
@@ -943,7 +952,7 @@ Every factual conclusion must cite discovered resources or configuration evidenc
 | Increment | Current status |
 | --- | --- |
 | 1. Models, snapshots, fixtures, persistence, evidence inspection, and CLI foundation | Complete (steps 1–9) |
-| 2. AWS and infrastructure-as-code ingestion | Implemented through step 21: AWS collection, Terraform state/plan and CloudFormation APIs and explicit raw-source CLI ingestion; phase closure remains planned in step 22 |
+| 2. AWS and infrastructure-as-code ingestion | Complete (steps 10–22): supported AWS inventory, offline IaC imports, explicit CLI formats, permissions and offline acceptance |
 | 3. Graph queries, deterministic findings, and snapshot comparisons | Planned |
 | 4. Provider adapters, orchestration, validated answers, and evaluations | Planned |
 
@@ -1002,6 +1011,47 @@ deterministic assembly, and cancellation. Run the collection journey with:
 
 GitHub Actions runs the full offline suite and quality checks, not live account scans.
 Real-AWS checks require explicit runtime credentials and remain opt-in.
+
+### Phase 2 offline acceptance
+
+The phase closes with complementary journeys rather than live-AWS requirements:
+
+- `tests/test_phase_two_acceptance.py`: real Botocore Stubber requests through
+  collection, validated persistence and exact evidence inspection; a denied read
+  remains partial while successful zero inventory stays distinguishable. Explicit
+  local/external/unresolved targets retain their identifiers, reasons and citations.
+- `tests/test_whole_architecture_acceptance.py`: populated seven-family collection
+  across accounts/regions, with discovery, isolated failures, redaction and immutable files.
+- `tests/test_raw_ingestion_acceptance.py`: both installed entry points outside the
+  checkout for every source format, context/format failures, protected parameters,
+  partial summaries, evidence inspection and no overwrite.
+- `tests/test_offline_acceptance.py` and the fixture persistence suite preserve
+  historical schema `1`, typed children, citations and qualified coverage.
+- `tests/test_permissions_documentation.py` prevents the published inventory policy
+  from drifting from the executable allowlist, including the separate STS rules.
+
+Run the full acceptance and regression suite without any credential mounts:
+
+```bash
+.venv/bin/python -m pytest -q
+docker compose build dev
+docker run --rm --network none \
+  --mount "type=bind,src=$PWD,dst=/workspace" \
+  archdiscov-dev /opt/venv/bin/python -m pytest -q
+```
+
+The host uses `.venv/bin/python`; Docker uses `/opt/venv/bin/python` and no host
+virtual environment. Installation/builds may need network access, test execution
+does not. Do not mount AWS credentials for these checks. Live smoke collection is
+opt-in: authenticate a runtime profile and deliberately choose scope and a fresh
+output using [the setup guide](docs/aws-permissions.md). It is not part of pytest
+or CI and is not needed to pass acceptance.
+
+Completeness remains relative to selected supported inventory and operation coverage,
+not all AWS services or a transactionally consistent view. IaC exports/declarations
+are not deployed observations; complex mappings, unknown expressions and unfetched
+nested templates stay explicit limitations in the linked format guides. Graph
+queries, analyzers, comparisons and providers remain phases 3–4.
 
 ### Later acceptance scenarios
 
