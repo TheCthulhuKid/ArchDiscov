@@ -76,7 +76,7 @@ def create_session(account: AwsAccountConfig, context: AdapterContext) -> Any:
             profile_name=account.profile,
             **({"region_name": account.bootstrap_region.value} if account.bootstrap_region else {}),
         )
-    except Exception as error:
+    except COLLECTION_ERRORS as error:
         raise IngestionError("identity_failed", "could not create the AWS session") from error
     if account.role_arn is None:
         return base
@@ -95,14 +95,20 @@ def create_session(account: AwsAccountConfig, context: AdapterContext) -> Any:
             **({"region_name": auth_region} if auth_region else {}),
         )
         with context.sdk_calls.permit(account.expected_account_id, account.max_in_flight_calls):
-            credentials = sts.assume_role(**params)["Credentials"]
+            response = sts.assume_role(**params)
+        credentials = response.get("Credentials") if isinstance(response, dict) else None
+        if not isinstance(credentials, dict) or any(
+            not isinstance(credentials.get(key), str) or not credentials[key].strip()
+            for key in ("AccessKeyId", "SecretAccessKey", "SessionToken")
+        ):
+            raise MalformedResponse("invalid assume-role credentials")
         return factory(
             aws_access_key_id=credentials["AccessKeyId"],
             aws_secret_access_key=credentials["SecretAccessKey"],
             aws_session_token=credentials["SessionToken"],
             **({"region_name": auth_region} if auth_region else {}),
         )
-    except Exception as error:
+    except COLLECTION_ERRORS as error:
         raise IngestionError("identity_failed", "could not assume the configured role") from error
 
 

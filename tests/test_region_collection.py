@@ -100,7 +100,10 @@ def test_identity_failure_does_not_discover_regions_or_publish(tmp_path):
     session = Session()
 
     def fail():
-        raise RuntimeError("secret authentication text")
+        raise ClientError(
+            {"Error": {"Code": "AccessDenied", "Message": "secret authentication text"}},
+            "GetCallerIdentity",
+        )
 
     session.get_caller_identity = fail
     path = tmp_path / "no-snapshot.json"
@@ -108,6 +111,23 @@ def test_identity_failure_does_not_discover_regions_or_publish(tmp_path):
     assert outcome.error.code == "identity_failed"
     assert "secret authentication text" not in outcome.error.message
     assert session.calls == [("sts", "us-east-1")]
+    assert not path.exists()
+
+
+@pytest.mark.parametrize("stage", ["identity", "discovery"])
+def test_programming_failure_propagates_without_publishing(tmp_path, stage):
+    error = TypeError("implementation defect")
+    session = Session(discovery_error=error if stage == "discovery" else None)
+    if stage == "identity":
+
+        def fail():
+            raise error
+
+        session.get_caller_identity = fail
+    path = tmp_path / "no-snapshot.json"
+    with pytest.raises(TypeError) as caught:
+        collect_and_save(request(), [path], context=context(session))
+    assert caught.value is error
     assert not path.exists()
 
 

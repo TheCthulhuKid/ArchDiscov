@@ -21,13 +21,8 @@ from ...models.enums import (
     TrustPrincipalKind,
 )
 from ...models.iam import IamInstanceProfile, IamManagedPolicy, IamRole, sanitize_document
+from ...models.resource_tree import walk_resources
 from ..evidence_builder import EvidenceBuilder
-
-
-def _walk(resources: Iterable[Resource]) -> Iterable[Resource]:
-    for resource in resources:
-        yield resource
-        yield from _walk(resource.children)
 
 
 def resolve_relationships(
@@ -72,7 +67,7 @@ def resolve_relationships(
                 target = ExternalTarget(identifier=arn, account_id=match[1], service=AwsService.IAM)
         emit(source, kind, target, citations)
 
-    for resource in _walk(regional_resources):
+    for resource in walk_resources(regional_resources):
         arn = resource.attributes.get("iam_instance_profile_arn")
         if isinstance(arn, str):
             reference(

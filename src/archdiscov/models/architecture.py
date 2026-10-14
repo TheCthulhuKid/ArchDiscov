@@ -482,11 +482,15 @@ class ArchitectureSnapshot(AccountArchitecture):
                 raise ValueError(
                     f"evidence {evidence_id!r}: unknown resource owner {evidence.resource_id!r}"
                 )
+        representations: dict[str, dict[str, Any]] = {}
         for resource in resources.values():
             _validate_citations(resource.evidence_ids, resource.id, self.evidence)
-            representation = resource.model_dump(mode="json") if resource.fact_evidence else None
+            if resource.fact_evidence and resource.id not in representations:
+                _cache_fact_representations(
+                    resource, resource.model_dump(mode="json"), representations
+                )
             for pointer, evidence_ids in resource.fact_evidence.items():
-                _validate_fact_pointer(representation, pointer, resource.id)
+                _validate_fact_pointer(representations[resource.id], pointer, resource.id)
                 _validate_citations(evidence_ids, resource.id, self.evidence)
         for position, operation in enumerate(self.coverage.operations):
             for unresolved in operation.unresolved_values:
@@ -553,6 +557,18 @@ def _index_resources(
         _index_resources(
             resource.children, account_id, region, f"{current}.children", resources, locations
         )
+
+
+def _cache_fact_representations(
+    resource: Resource,
+    representation: dict[str, Any],
+    representations: dict[str, dict[str, Any]],
+) -> None:
+    representations[resource.id] = representation
+    for child, child_representation in zip(
+        resource.children, representation["children"], strict=True
+    ):
+        _cache_fact_representations(child, child_representation, representations)
 
 
 def _validate_citations(

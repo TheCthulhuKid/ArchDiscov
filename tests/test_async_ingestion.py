@@ -187,7 +187,7 @@ def test_cancellation_preserves_earlier_commits_and_does_not_start_later_saves(
     monkeypatch, tmp_path
 ):
     entered, release = Event(), Event()
-    save = async_ingestion.save_snapshot
+    save = async_ingestion._save_validated_snapshot
     ids = (ACCOUNT, OTHER, "111111111111")
     req = request().model_copy(
         update={"accounts": tuple(account(value) for value in ids), "max_active_accounts": 1}
@@ -201,7 +201,7 @@ def test_cancellation_preserves_earlier_commits_and_does_not_start_later_saves(
             assert release.wait(5)
         return save(snapshot, path)
 
-    monkeypatch.setattr(async_ingestion, "save_snapshot", blocking_save)
+    monkeypatch.setattr(async_ingestion, "_save_validated_snapshot", blocking_save)
 
     async def run():
         task = asyncio.create_task(collect_and_save_async(req, paths, context=context()))
