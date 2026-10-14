@@ -9,7 +9,10 @@ from archdiscov.models.architecture import (
     SupportedResource,
     SupportedSource,
 )
+from archdiscov.models.cloud_context import evidence_context_matches
+from archdiscov.models.cloud_contracts import CloudEvidence, CloudOperationCoverage, CloudSource
 
+from .snapshot_access import _resources_from_validated_snapshot
 from .snapshots import SnapshotError, SnapshotInput, validate_snapshot
 
 
@@ -22,12 +25,12 @@ class EvidenceNotFoundError(SnapshotError):
 
 class EvidenceInspection(Model):
     snapshot_id: UUID
-    snapshot_source: SupportedSource
+    snapshot_source: SupportedSource | CloudSource
     evidence_id: str
     resource: SupportedResource
-    evidence: Evidence
+    evidence: CloudEvidence | Evidence
     fact_paths: list[str]
-    coverage: list[Coverage]
+    coverage: list[CloudOperationCoverage | Coverage]
 
 
 def get_evidence(snapshot: SnapshotInput, evidence_id: str) -> EvidenceInspection:
@@ -40,11 +43,7 @@ def get_evidence(snapshot: SnapshotInput, evidence_id: str) -> EvidenceInspectio
     if evidence_id not in validated.evidence:
         raise EvidenceNotFoundError()
     evidence = validated.evidence[evidence_id]
-    pending = list(validated.global_resources)
-    for region in validated.regions.values():
-        pending.extend(region.resources)
-    while pending:
-        resource = pending.pop()
+    for resource in _resources_from_validated_snapshot(validated):
         if resource.id == evidence.resource_id:
             return EvidenceInspection(
                 snapshot_id=validated.snapshot_id,
@@ -58,10 +57,24 @@ def get_evidence(snapshot: SnapshotInput, evidence_id: str) -> EvidenceInspectio
                 coverage=[
                     operation
                     for operation in validated.coverage.operations
-                    if operation.region == resource.identity.region
-                    and operation.service == resource.identity.service
+                    if _matches_context(operation, resource, validated)
                 ],
             )
-        pending.extend(resource.children)
     # Snapshot integrity validation guarantees every evidence owner is stored.
     raise AssertionError("Validated evidence owner was not found")
+
+
+def _matches_context(operation, resource, snapshot) -> bool:
+    if isinstance(operation, CloudOperationCoverage):
+        return evidence_context_matches(
+            resource.identity,
+            snapshot.scope,
+            operation.scope,
+            operation.location,
+            operation.service,
+        )
+    return (
+        operation.account_id == snapshot.account_id
+        and operation.region == resource.identity.region
+        and operation.service == resource.identity.service
+    )

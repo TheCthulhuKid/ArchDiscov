@@ -9,6 +9,7 @@ from click import unstyle
 from typer.testing import CliRunner
 
 from archdiscov.cli import app
+from archdiscov.models.cloud_snapshot import CloudSnapshot
 from archdiscov.services import load_snapshot
 
 FIXTURES = Path(__file__).parent / "fixtures" / "snapshots"
@@ -28,8 +29,16 @@ def test_ingest_preserves_every_fixture(tmp_path: Path, fixture: Path) -> None:
     assert payload["complete"] == all(op.status == "success" for op in snapshot.coverage.operations)
     assert payload["operations"] == [
         {
-            "region": op.region.value,
-            "service": op.service.value,
+            **(
+                {
+                    "platform": op.scope.platform.value,
+                    "scope": op.scope.model_dump(mode="json"),
+                    "location": op.location,
+                    "service": op.service,
+                }
+                if isinstance(snapshot, CloudSnapshot)
+                else {"region": op.region.value, "service": op.service.value}
+            ),
             "operation": op.operation,
             "status": op.status.value,
             "result_count": op.result_count,

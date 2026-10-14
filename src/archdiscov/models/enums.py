@@ -1,6 +1,17 @@
 from enum import StrEnum
 
 
+class CloudPlatform(StrEnum):
+    AWS = "aws"
+    AZURE = "azure"
+
+
+class AwsPartition(StrEnum):
+    AWS = "aws"
+    AWS_CN = "aws-cn"
+    AWS_US_GOV = "aws-us-gov"
+
+
 class AwsRegion(StrEnum):
     """AWS region codes and account-wide scope; availability depends on the account."""
 
@@ -105,6 +116,8 @@ class LifecycleValueScope(StrEnum):
 class SourceType(StrEnum):
     """Source families for evidence, independent of snapshot source kinds."""
 
+    AZURE = "azure"
+
     AWS = "aws"
     TERRAFORM = "terraform"
     CLOUDFORMATION = "cloudformation"
@@ -115,6 +128,7 @@ class SnapshotSourceKind(StrEnum):
     """Snapshot inputs, distinguishing Terraform state from planned changes."""
 
     AWS = "aws"
+    AZURE_FIXTURE = "azure_fixture"
     TERRAFORM_STATE = "terraform_state"
     TERRAFORM_PLAN = "terraform_plan"
     CLOUDFORMATION = "cloudformation"
@@ -168,6 +182,10 @@ class ResourceType(StrEnum):
     RDS_SUBNET_GROUP = "AWS::RDS::DBSubnetGroup"
     SQS_QUEUE = "AWS::SQS::Queue"
     UNKNOWN = "unknown"
+    AZURE_VIRTUAL_NETWORK = "Microsoft.Network/virtualNetworks"
+    AZURE_SUBNET = "Microsoft.Network/virtualNetworks/subnets"
+    AZURE_VIRTUAL_MACHINE = "Microsoft.Compute/virtualMachines"
+    CLOUD_UNKNOWN = "cloud_unknown"
 
 
 class AttachmentKind(StrEnum):

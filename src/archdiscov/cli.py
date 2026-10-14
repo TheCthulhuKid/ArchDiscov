@@ -1,6 +1,5 @@
 """CLI presentation; architecture operations belong in application services."""
 
-import json
 from dataclasses import asdict
 from importlib.metadata import version
 from pathlib import Path
@@ -12,11 +11,11 @@ from pydantic import ValidationError
 from archdiscov.cli_collection import collection_request, outcome_data, print_outcomes
 from archdiscov.cli_diagnostics import json_output as _json_output
 from archdiscov.cli_diagnostics import print_error
+from archdiscov.cli_evidence import print_evidence
 from archdiscov.cli_ingestion import ingestion_data, print_ingestion
 from archdiscov.ingestion.adapter import IngestionError
 from archdiscov.ingestion.requests import RegionScope
 from archdiscov.services import (
-    EvidenceInspection,
     EvidenceNotFoundError,
     IngestFormat,
     SnapshotConflictError,
@@ -134,40 +133,6 @@ def ingest(
         print_ingestion(result)
 
 
-def _print_evidence(result: EvidenceInspection, path: Path) -> None:
-    evidence = result.evidence
-    resource = result.resource
-    typer.echo(f"Snapshot: {result.snapshot_id} ({path})")
-    typer.echo(f"Snapshot source: {result.snapshot_source.model_dump_json()}")
-    typer.echo(f"Evidence: {result.evidence_id}")
-    typer.echo(f"Resource: {resource.id} (name: {resource.name or '<unnamed>'})")
-    typer.echo(f"Source: {evidence.source}; operation/file: {evidence.locator}")
-    typer.echo(f"Configuration path: {evidence.configuration_path}")
-    typer.echo(f"Fact citations: {', '.join(result.fact_paths) or '<none>'}")
-    typer.echo(f"Value status: {evidence.value_status}")
-    typer.echo("Sanitized value:")
-    typer.echo(json.dumps(evidence.value, indent=2, ensure_ascii=False, allow_nan=False))
-    if evidence.redacted_paths:
-        typer.echo(f"Redacted paths: {json.dumps(evidence.redacted_paths)}")
-    if evidence.limitation:
-        typer.echo(f"Limitation: {evidence.limitation}")
-    typer.echo("Coverage context (same region/service; not a completeness guarantee):")
-    if not result.coverage:
-        typer.echo("  No operation coverage recorded for this resource's region/service.")
-    for operation in result.coverage:
-        count = "" if operation.result_count is None else f"; results: {operation.result_count}"
-        typer.echo(f"  {operation.operation}: {operation.status}{count}")
-        if operation.reason:
-            typer.echo(f"    Reason: {operation.reason}")
-        for failure in operation.failures:
-            typer.echo(f"    Failure [{failure.code}]: {failure.message}")
-        for unresolved in operation.unresolved_values:
-            owner = unresolved.resource_id or "<unspecified resource>"
-            typer.echo(
-                f"    Unresolved {owner} {unresolved.configuration_path}: {unresolved.reason}"
-            )
-
-
 @app.command()
 def evidence(
     evidence_id: Annotated[str, typer.Argument(help="Evidence-map ID in the selected snapshot.")],
@@ -188,7 +153,7 @@ def evidence(
     if json_output:
         _json_output({"snapshot_path": str(snapshot_path), **result.model_dump(mode="json")})
     else:
-        _print_evidence(result, snapshot_path)
+        print_evidence(result, snapshot_path)
 
 
 @app.command()

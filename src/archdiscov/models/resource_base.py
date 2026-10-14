@@ -1,5 +1,4 @@
-from typing import Annotated, Any, Self
-from urllib.parse import quote
+from typing import Annotated, Any, ClassVar, Self
 
 from pydantic import (
     BaseModel,
@@ -12,7 +11,8 @@ from pydantic import (
     model_validator,
 )
 
-from .enums import AwsRegion, AwsService, LifecycleAction, LifecycleValueScope, ResourceType
+from .cloud_identity import ResourceIdentity, SupportedIdentity, parse_identity  # noqa: F401
+from .enums import CloudPlatform, LifecycleAction, LifecycleValueScope, ResourceType
 from .sanitization import sanitize_value
 
 NonEmptyString = Annotated[str, Field(min_length=1, pattern=r"\S")]
@@ -28,28 +28,6 @@ class Model(BaseModel):
     def sanitize_generic_values(cls, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
         sanitized, _ = sanitize_value(value)
         return sanitized
-
-
-class ResourceIdentity(Model):
-    """Matching inputs independent of a particular snapshot or resource name."""
-
-    account_id: str = Field(pattern=r"^[0-9]{12}$")
-    region: AwsRegion
-    service: AwsService
-    physical_id: str | None = Field(default=None, min_length=1, pattern=r"\S")
-    logical_address: str | None = Field(default=None, min_length=1, pattern=r"\S")
-
-    @model_validator(mode="after")
-    def require_identifier(self) -> Self:
-        if self.physical_id is None and self.logical_address is None:
-            raise ValueError("resource identity requires a physical_id or logical_address")
-        return self
-
-    @property
-    def stable_id(self) -> str:
-        kind = "physical" if self.physical_id is not None else "logical"
-        identifier = self.physical_id if self.physical_id is not None else self.logical_address
-        return f"{self.account_id}/{self.region}/{self.service}/{kind}/{quote(identifier, safe='')}"
 
 
 _LIFECYCLE_SEQUENCES = {
@@ -94,8 +72,9 @@ class ResourceLifecycle(Model):
 class Resource(Model):
     """Common resource data and a recursively typed containment tree."""
 
+    cloud_platform: ClassVar[CloudPlatform | None] = CloudPlatform.AWS
     id: str
-    identity: ResourceIdentity
+    identity: SupportedIdentity
     name: str | None = None
     resource_type: ResourceType
     attributes: dict[str, JsonValue] = Field(default_factory=dict)
@@ -115,12 +94,14 @@ class Resource(Model):
     @classmethod
     def supply_stable_id(cls, data: Any) -> Any:
         if isinstance(data, dict) and "id" not in data and "identity" in data:
-            identity = ResourceIdentity.model_validate(data["identity"])
+            identity = parse_identity(data["identity"])
             return {**data, "id": identity.stable_id}
         return data
 
     @model_validator(mode="after")
     def validate_stable_id(self) -> Self:
+        if self.cloud_platform is not None and self.identity.platform != self.cloud_platform:
+            raise ValueError("resource identity platform must match resource type")
         if self.id != self.identity.stable_id:
             raise ValueError("resource id must match identity.stable_id")
         return self

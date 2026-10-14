@@ -1,4 +1,3 @@
-import re
 from typing import Annotated, Any, Literal, Self
 from uuid import UUID
 
@@ -14,12 +13,14 @@ from pydantic import (
 )
 from pydantic_core import PydanticCustomError
 
+from .azure import AzureSubnet, AzureVirtualMachine, AzureVirtualNetwork
+from .cloud_unknown import CloudUnknownResource
+from .coverage_outcomes import AwsCoverageContext, CoverageOutcome
 from .database import DbCluster, DbInstance, DbSubnetGroup
 from .ecs import EcsCluster, EcsService, EcsTask, EcsTaskDefinition
 from .enums import (
     AwsRegion,
     AwsService,
-    CoverageStatus,
     DependencyRelationship,
     EvidenceValueStatus,
     ResourceType,
@@ -47,6 +48,16 @@ from .resource_base import (  # noqa: F401  (re-exported for existing importers)
     ResourceLifecycle,
 )
 from .sanitization import is_sensitive_path, sanitize_value
+from .snapshot_integrity import (
+    _cache_fact_representations,  # noqa: F401 (backwards-compatible helper imports)
+    _validate_citations,
+    _validate_fact_pointer,  # noqa: F401 (backwards-compatible helper imports)
+    index_resources,
+    validate_collection_window,
+    validate_evidence,
+    validate_resource_facts,
+    validate_unresolved_resources,
+)
 
 
 class Ec2Instance(Resource):
@@ -101,7 +112,11 @@ SupportedResource = Annotated[
     | DbCluster
     | DbSubnetGroup
     | SqsQueue
-    | UnknownResource,
+    | UnknownResource
+    | AzureVirtualNetwork
+    | AzureSubnet
+    | AzureVirtualMachine
+    | CloudUnknownResource,
     Field(discriminator="resource_type"),
 ]
 
@@ -134,6 +149,10 @@ for resource_model in (
     DbSubnetGroup,
     SqsQueue,
     UnknownResource,
+    AzureVirtualNetwork,
+    AzureSubnet,
+    AzureVirtualMachine,
+    CloudUnknownResource,
 ):
     resource_model.model_rebuild()
 
@@ -338,46 +357,8 @@ class UnresolvedValue(Model):
     reason: NonEmptyString
 
 
-class Coverage(Model):
+class Coverage(CoverageOutcome[CollectionFailure, UnresolvedValue], AwsCoverageContext):
     """One aggregate outcome per account, region, service, and operation."""
-
-    account_id: str = Field(pattern=r"^[0-9]{12}$")
-    region: AwsRegion
-    service: AwsService
-    operation: NonEmptyString
-    status: CoverageStatus
-    started_at: AwareDatetime
-    completed_at: AwareDatetime
-    result_count: int | None = Field(default=None, ge=0, strict=True)
-    failures: list[CollectionFailure] = Field(default_factory=list)
-    unresolved_values: list[UnresolvedValue] = Field(default_factory=list)
-    reason: NonEmptyString | None = None
-
-    @model_validator(mode="after")
-    def validate_outcome(self) -> Self:
-        if self.completed_at < self.started_at:
-            raise ValueError("coverage completed_at must not precede started_at")
-        if self.status == CoverageStatus.SUCCESS:
-            if self.result_count is None or self.failures or self.unresolved_values:
-                raise ValueError(
-                    "successful coverage requires a count and no failures/unresolved values"
-                )
-        elif self.status == CoverageStatus.INCOMPLETE:
-            if self.result_count is None or not (
-                self.failures or self.unresolved_values or self.reason
-            ):
-                raise ValueError("incomplete coverage requires a retained count and a limitation")
-        else:
-            if self.result_count is not None:
-                raise ValueError("only successful or incomplete coverage can have a result_count")
-            if self.status == CoverageStatus.FAILED:
-                if not self.failures:
-                    raise ValueError("failed coverage requires a failure")
-            elif not self.reason or self.failures or self.unresolved_values:
-                raise ValueError(
-                    "skipped/unsupported coverage requires a reason and no collected data"
-                )
-        return self
 
 
 class SnapshotCoverage(Model):
@@ -434,8 +415,7 @@ class ArchitectureSnapshot(AccountArchitecture):
 
     @model_validator(mode="after")
     def validate_collection_window(self) -> Self:
-        if self.collection_completed_at < self.collection_started_at:
-            raise ValueError("collection_completed_at must not precede collection_started_at")
+        validate_collection_window(self.collection_started_at, self.collection_completed_at, ())
         if set(self.regions) - set(self.coverage.regions):
             raise ValueError("snapshot regions must be included in coverage.regions")
         if self.global_resources and not self.coverage.account_wide:
@@ -443,15 +423,9 @@ class ArchitectureSnapshot(AccountArchitecture):
         for item in self.coverage.operations:
             if item.account_id != self.account_id:
                 raise ValueError("operation coverage account must match snapshot account")
-            if not (
-                self.collection_started_at
-                <= item.started_at
-                <= item.completed_at
-                <= self.collection_completed_at
-            ):
-                raise ValueError(
-                    "operation coverage timestamps must fall within snapshot collection"
-                )
+            validate_collection_window(
+                self.collection_started_at, self.collection_completed_at, (item,)
+            )
         return self
 
     @model_validator(mode="after")
@@ -475,30 +449,9 @@ class ArchitectureSnapshot(AccountArchitecture):
             resources,
             locations,
         )
-        for evidence_id, evidence in self.evidence.items():
-            if evidence.snapshot_id != self.snapshot_id:
-                raise ValueError(f"evidence {evidence_id!r}: snapshot_id must match snapshot")
-            if evidence.resource_id not in resources:
-                raise ValueError(
-                    f"evidence {evidence_id!r}: unknown resource owner {evidence.resource_id!r}"
-                )
-        representations: dict[str, dict[str, Any]] = {}
-        for resource in resources.values():
-            _validate_citations(resource.evidence_ids, resource.id, self.evidence)
-            if resource.fact_evidence and resource.id not in representations:
-                _cache_fact_representations(
-                    resource, resource.model_dump(mode="json"), representations
-                )
-            for pointer, evidence_ids in resource.fact_evidence.items():
-                _validate_fact_pointer(representations[resource.id], pointer, resource.id)
-                _validate_citations(evidence_ids, resource.id, self.evidence)
-        for position, operation in enumerate(self.coverage.operations):
-            for unresolved in operation.unresolved_values:
-                if unresolved.resource_id is not None and unresolved.resource_id not in resources:
-                    raise ValueError(
-                        f"coverage.operations[{position}]: unknown unresolved resource "
-                        f"{unresolved.resource_id!r}"
-                    )
+        validate_evidence(self.snapshot_id, resources, self.evidence)
+        validate_resource_facts(resources, self.evidence)
+        validate_unresolved_resources(self.coverage.operations, resources)
         for resource in resources.values():
             if resource.lifecycle is not None and not (
                 self.schema_version == "2" and self.source.kind == SnapshotSourceKind.TERRAFORM_PLAN
@@ -536,12 +489,13 @@ def _index_resources(
     resources: dict[str, Resource],
     locations: dict[str, str],
 ) -> None:
-    for position, resource in enumerate(roots):
-        current = f"{location}[{position}]"
-        if resource.id in resources:
-            raise ValueError(
-                f"duplicate resource {resource.id!r} at {locations[resource.id]} and {current}"
-            )
+    def validate_placement(resource: Resource, current: str) -> None:
+        if not isinstance(resource.identity, ResourceIdentity):
+            raise ValueError(f"resource at {current}: legacy snapshots require AWS identities")
+        if isinstance(
+            resource, (CloudUnknownResource, AzureVirtualNetwork, AzureSubnet, AzureVirtualMachine)
+        ):
+            raise ValueError(f"resource at {current}: legacy snapshots require AWS resource models")
         if resource.identity.account_id != account_id:
             raise ValueError(
                 f"resource {resource.id!r} at {current}: "
@@ -552,54 +506,5 @@ def _index_resources(
                 f"resource {resource.id!r} at {current}: "
                 f"region must match enclosing region {region}"
             )
-        resources[resource.id] = resource
-        locations[resource.id] = current
-        _index_resources(
-            resource.children, account_id, region, f"{current}.children", resources, locations
-        )
 
-
-def _cache_fact_representations(
-    resource: Resource,
-    representation: dict[str, Any],
-    representations: dict[str, dict[str, Any]],
-) -> None:
-    representations[resource.id] = representation
-    for child, child_representation in zip(
-        resource.children, representation["children"], strict=True
-    ):
-        _cache_fact_representations(child, child_representation, representations)
-
-
-def _validate_citations(
-    evidence_ids: list[str], resource_id: str, evidence: dict[str, Evidence]
-) -> None:
-    for evidence_id in evidence_ids:
-        if evidence_id not in evidence:
-            raise ValueError(f"resource {resource_id!r}: unknown evidence citation {evidence_id!r}")
-        if evidence[evidence_id].resource_id != resource_id:
-            raise ValueError(
-                f"resource {resource_id!r}: evidence citation {evidence_id!r} "
-                "belongs to another resource"
-            )
-
-
-def _validate_fact_pointer(value: JsonValue, pointer: str, resource_id: str) -> None:
-    for encoded in pointer.split("/")[1:]:
-        token = encoded.replace("~1", "/").replace("~0", "~")
-        if isinstance(value, dict):
-            if token in value:
-                value = value[token]
-                continue
-            reason = f"missing key {token!r}"
-        elif isinstance(value, list):
-            if re.fullmatch(r"0|[1-9][0-9]*", token) is None:
-                reason = f"invalid array index {token!r}"
-            elif len(token) > len(str(len(value))) or int(token) >= len(value):
-                reason = f"array index out of bounds {token!r}"
-            else:
-                value = value[int(token)]
-                continue
-        else:
-            reason = "cannot traverse scalar"
-        raise ValueError(f"resource {resource_id!r}: fact pointer {pointer!r}: {reason}")
+    index_resources(roots, location, resources, locations, validate_placement)
