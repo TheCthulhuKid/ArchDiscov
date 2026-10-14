@@ -23,8 +23,9 @@ print(get_evidence(snapshot, next(iter(snapshot.evidence))))
 
 Run examples with `.venv/bin/python` from the checkout after locked installation.
 Choose a new destination in an existing directory: persistence never overwrites.
-Raw-template CLI format selection remains step 21; `ingest` still accepts only
-project snapshot JSON.
+The [raw-source CLI](raw-source-ingestion.md) exposes this adapter through
+`ingest --format cloudformation`, with explicit account/region and optional
+stack, parameter-file, and sensitive-path context.
 
 ## Context and identity
 

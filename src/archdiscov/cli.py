@@ -10,11 +10,15 @@ import typer
 from pydantic import ValidationError
 
 from archdiscov.cli_collection import collection_request, outcome_data, print_outcomes
+from archdiscov.cli_diagnostics import json_output as _json_output
+from archdiscov.cli_diagnostics import print_error
+from archdiscov.cli_ingestion import ingestion_data, print_ingestion
 from archdiscov.ingestion.adapter import IngestionError
 from archdiscov.ingestion.requests import RegionScope
 from archdiscov.services import (
     EvidenceInspection,
     EvidenceNotFoundError,
+    IngestFormat,
     SnapshotConflictError,
     SnapshotError,
     SnapshotIOError,
@@ -22,8 +26,8 @@ from archdiscov.services import (
     SnapshotValidationError,
     collect_and_save,
     get_evidence,
+    ingest_snapshot,
     load_snapshot,
-    save_snapshot,
 )
 
 app = typer.Typer(
@@ -48,10 +52,6 @@ def main(
         typer.echo(ctx.get_help())
 
 
-def _json_output(data: dict) -> None:
-    typer.echo(json.dumps(data, indent=2, ensure_ascii=False, allow_nan=False))
-
-
 def _fail(error: SnapshotError, json_output: bool) -> None:
     diagnostic = {"code": error.code, "message": str(error)}
     if error.path is not None:
@@ -60,16 +60,7 @@ def _fail(error: SnapshotError, json_output: bool) -> None:
         diagnostic["details"] = [asdict(issue) for issue in error.details]
     if isinstance(error, SnapshotJSONError):
         diagnostic.update(line=error.line, column=error.column)
-    if json_output:
-        _json_output({"error": diagnostic})
-    else:
-        typer.echo(f"Error [{error.code}]: {error}", err=True)
-        if error.path is not None:
-            typer.echo(f"Path: {error.path}", err=True)
-        if isinstance(error, SnapshotValidationError):
-            for issue in error.details:
-                location = ".".join(map(str, issue.location)) or "<snapshot>"
-                typer.echo(f"  {location}: {issue.message} ({issue.type})", err=True)
+    print_error(diagnostic, as_json=json_output)
     exit_code = 2
     if isinstance(error, SnapshotIOError):
         exit_code = 1
@@ -83,25 +74,64 @@ def _fail(error: SnapshotError, json_output: bool) -> None:
 @app.command()
 def ingest(
     input_path: Annotated[
-        Path, typer.Argument(help="Project snapshot JSON to validate and import.")
+        Path, typer.Argument(help="Snapshot JSON or an explicitly selected local IaC export.")
     ],
     output: Annotated[
         Path, typer.Option("--output", "-o", help="New snapshot path; never overwritten.")
     ],
+    source_format: Annotated[
+        IngestFormat, typer.Option("--format", help="Source format; never inferred from the file.")
+    ] = IngestFormat.SNAPSHOT,
+    account_id: Annotated[
+        str | None, typer.Option("--account-id", help="AWS account context for IaC imports.")
+    ] = None,
+    region: Annotated[
+        str | None, typer.Option("--region", help="Concrete AWS region context for IaC imports.")
+    ] = None,
+    workspace: Annotated[
+        str | None, typer.Option("--workspace", help="Terraform workspace provenance.")
+    ] = None,
+    stack_name: Annotated[
+        str | None, typer.Option("--stack-name", help="CloudFormation stack name context.")
+    ] = None,
+    stack_id: Annotated[
+        str | None, typer.Option("--stack-id", help="CloudFormation stack ARN context.")
+    ] = None,
+    parameters_file: Annotated[
+        Path | None,
+        typer.Option("--parameters-file", help="CloudFormation parameter-name/value JSON object."),
+    ] = None,
+    sensitive_path: Annotated[
+        list[str] | None,
+        typer.Option("--sensitive-path", help="CloudFormation sensitive JSON Pointer; repeatable."),
+    ] = None,
     json_output: Annotated[
         bool, typer.Option("--json", help="Emit JSON results and service errors.")
     ] = (False),
 ) -> None:
-    """Import the project's own snapshot JSON (not raw AWS or IaC exports)."""
+    """Import snapshot JSON, Terraform state/plan exports, or CloudFormation JSON/YAML."""
     try:
-        snapshot = load_snapshot(input_path)
-        destination = save_snapshot(snapshot, output)
+        result = ingest_snapshot(
+            input_path,
+            output,
+            source_format=source_format,
+            account_id=account_id,
+            region=region,
+            workspace=workspace,
+            stack_name=stack_name,
+            stack_id=stack_id,
+            parameters_file=parameters_file,
+            sensitive_paths=tuple(sensitive_path or ()),
+        )
     except SnapshotError as error:
         _fail(error, json_output)
+    except IngestionError as error:
+        print_error({"code": error.code, "message": str(error)}, as_json=json_output)
+        raise typer.Exit(2) from None
     if json_output:
-        _json_output({"snapshot_id": str(snapshot.snapshot_id), "path": str(destination)})
+        _json_output(ingestion_data(result))
     else:
-        typer.echo(f"Saved snapshot {snapshot.snapshot_id} to {destination}")
+        print_ingestion(result)
 
 
 def _print_evidence(result: EvidenceInspection, path: Path) -> None:
@@ -245,10 +275,7 @@ def collect(
         code = error.code if isinstance(error, IngestionError) else "invalid_request"
         if isinstance(error, IngestionError):
             message = str(error)
-        if json_output:
-            _json_output({"error": {"code": code, "message": message}})
-        else:
-            typer.echo(f"Error [{code}]: {message}", err=True)
+        print_error({"code": code, "message": message}, as_json=json_output)
         raise typer.Exit(2) from None
     results = [outcome_data(o) for o in outcomes]
     if json_output:

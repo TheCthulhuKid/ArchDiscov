@@ -21,8 +21,8 @@ Terraform version, and supplied workspace. Persist separately with
 `save_snapshot(snapshot, new_path)`; the parent directory must exist and the target
 must be new. Inspect citations with `get_evidence(snapshot, evidence_id)`.
 
-There are no new CLI commands: `archdiscov ingest` accepts only Archdiscov snapshot
-JSON. Raw-source CLI ingestion remains step 21. Schema `1` historical fixtures remain
+The [raw-source CLI](raw-source-ingestion.md) exposes this adapter through
+`archdiscov ingest --format terraform-plan`. Schema `1` historical fixtures remain
 readable, and historical schema `2` action-only lifecycle records remain valid.
 
 ## Selected values and lifecycle

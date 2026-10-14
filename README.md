@@ -18,9 +18,10 @@ collection across seven service families, with one immutable snapshot file per a
 | Offline Terraform `show -json` state import through Python services | Implemented; [mapping and limitations](docs/terraform-state-mapping.md) |
 | Offline Terraform `show -json` plan import through Python services | Implemented; [mapping and limitations](docs/terraform-plan-mapping.md) |
 | Offline CloudFormation JSON/YAML import through Python services | Implemented; [mapping and limitations](docs/cloudformation-mapping.md) |
+| Explicit snapshot/Terraform state/Terraform plan/CloudFormation CLI ingestion | Implemented (step 21); [usage and contracts](docs/raw-source-ingestion.md) |
 | Docker development environment and GitHub Actions pytest/Ruff checks | Implemented |
 | `Finding`/`Answer` models | Implemented contracts only; no analyzers or answer generation |
-| Raw-source CLI ingestion, graph queries, comparisons, and LLM assistant/providers | Planned |
+| Graph queries, comparisons, and LLM assistant/providers | Planned |
 
 [PLAN.md](PLAN.md) records delivery progress and the remaining roadmap. “All services”
 means the supported inventory, not every AWS resource type or proof of reachability/effective
@@ -35,7 +36,7 @@ Use Python 3.13 and uv. From the repository root, install the package and develo
 uv sync --locked --python 3.13
 ```
 
-The CLI provides help, installed-version output, AWS collection, snapshot ingestion, and evidence inspection:
+The CLI provides help, installed-version output, AWS collection, snapshot and raw IaC ingestion, and evidence inspection:
 
 ```bash
 uv run --locked archdiscov --help
@@ -499,8 +500,32 @@ The same arguments work with `python -m archdiscov`. `--output` (`-o`) and `--sn
 are required explicit paths; parents must exist. Ingestion validates and sanitizes the
 input, preserving its UUID, typed children, citations, and coverage. It never replaces
 an existing destination, including identical snapshots and symlinks. Choose a new path
-for each import. Raw AWS exports, Terraform show JSON, and CloudFormation templates are
-not supported yet; a normalized snapshot with one of those source kinds is supported.
+for each import. `--format snapshot` is the default and preserves this workflow; formats
+are never guessed from filenames or contents. Raw AWS exports are not accepted.
+
+For offline IaC input, select an explicit format and a fresh destination:
+
+```bash
+uv run --locked archdiscov ingest tests/fixtures/terraform/state.json \
+  -o snapshots/state-example.json --format terraform-state \
+  --account-id 123456789012 --region eu-west-1
+uv run --locked archdiscov ingest tests/fixtures/terraform/plan.json \
+  -o snapshots/plan-example.json --format terraform-plan \
+  --account-id 123456789012 --region eu-west-1
+uv run --locked archdiscov ingest tests/fixtures/cloudformation/template.yaml \
+  -o snapshots/template-example.json --format cloudformation \
+  --account-id 123456789012 --region eu-west-1 --stack-name demo
+```
+
+Terraform account/region context may be omitted only when source facts resolve it
+unambiguously; CloudFormation requires both. `--workspace` is Terraform-only;
+`--stack-name`, `--stack-id`, `--parameters-file`, and repeatable `--sensitive-path`
+are CloudFormation-only. Irrelevant source-specific flags fail with `invalid_request`.
+Parameter files are bounded strict UTF-8 JSON objects mapping parameter names to JSON
+values, not AWS `ParameterKey` lists. Keep secrets in protected local files: there is
+no inline parameter-value flag, and parameter values must not be echoed to the shell.
+See [raw-source ingestion](docs/raw-source-ingestion.md) for the full flag matrix,
+Python service, sensitivity guidance, output contract, and adapter limitations.
 
 Evidence inspection shows the selected path/UUID and snapshot source, associated resource,
 source operation/file, configuration path, explicit fact citations, sanitized value/status,
@@ -512,8 +537,14 @@ make no completeness claim. Inspection does not infer relationships or architect
 Evidence IDs are scoped to the selected file, and even uncited stored records are inspectable.
 
 Both commands accept `--json`. Success writes a single JSON object to standard output:
-ingestion returns `snapshot_id` and `path`; evidence returns `snapshot_path`, `snapshot_id`,
+ingestion preserves `snapshot_id` and `path`, adding `complete`, `source_kind`, and an
+`operations` list of operation scope, status, count, and failure codes; evidence returns `snapshot_path`, `snapshot_id`,
 `snapshot_source`, `evidence_id`, `resource`, `evidence`, `fact_paths`, and `coverage`.
+Saved partial imports still exit `0` with `complete: false`. Readable ingestion retains
+`Saved snapshot ...` and qualifies completeness, including `PARTIAL (see operation coverage)`
+for partial results. This reports ingestion coverage, not architecture analysis.
+Readable ingestion also lists recorded operations with their scope, status, available counts,
+and failure codes, using the same presentation as collection.
 Service failures in JSON mode also write a single object to standard output, with an `error`
 containing `code`, `message`, optional `path`, validation `details`, or JSON syntax
 `line`/`column`. No raw input values, exception contexts, or tracebacks are rendered.
@@ -522,11 +553,15 @@ standard readable usage diagnostics, even with `--json`; help/version remain rea
 
 | Exit code | Meaning |
 | --- | --- |
-| `0` | Success |
-| `1` | Filesystem/read/write failure |
-| `2` | Invalid JSON/encoding/snapshot, unsupported version, or CLI usage error |
+| `0` | Saved successfully, including partial ingestion; inspect completeness and operation coverage |
+| `1` | Snapshot filesystem/read/write failure |
+| `2` | Invalid JSON/encoding/snapshot, unsupported version, invalid raw-source format/shape/context (`invalid_request`), or CLI usage error |
 | `3` | Destination already exists |
 | `4` | Evidence ID is absent from the selected snapshot |
+
+Raw-adapter input-read failures, including missing files, retain their existing
+`invalid_request` classification and exit `2`, not snapshot filesystem exit `1`.
+Live `collect` ingestion/identity failure exit `5` is unchanged.
 
 Python callers can use `get_evidence(snapshot, evidence_id)` from `archdiscov.services`.
 It returns a detached `EvidenceInspection` after revalidation and raises
@@ -540,7 +575,6 @@ Beyond the implemented offline workflow and live `collect` command below, these 
 
 | Command | Purpose |
 | --- | --- |
-| `ingest` | Extend project snapshot JSON imports with raw IaC adapters. |
 | `query` | Run deterministic exposure, database-access, security-group-impact, trust, and ownership queries. |
 | `ask` | Ask a natural-language question against a selected snapshot. |
 | `compare` | Compare selected snapshots and their coverage. |
@@ -803,9 +837,9 @@ imports, unsupported intrinsics and mappings remain explicit limitations. See
 [CloudFormation mapping](docs/cloudformation-mapping.md) for the supported subset,
 exact facts, safety limits, and evidence behavior.
 
-#### Planned IaC work
-- Raw-source CLI ingestion (step 21). `archdiscov ingest` still accepts only the project's own snapshot JSON, not Terraform exports or templates.
-- Phase-2 acceptance and closure (step 22).
+#### IaC delivery status
+- Raw-source CLI ingestion is implemented (step 21); see [formats, flags, and service contracts](docs/raw-source-ingestion.md).
+- Phase-2 acceptance and closure remains planned (step 22).
 - No Terraform execution, infrastructure apply, stack deployment, or arbitrary template code evaluation.
 
 ### Deterministic findings (planned)
@@ -909,7 +943,7 @@ Every factual conclusion must cite discovered resources or configuration evidenc
 | Increment | Current status |
 | --- | --- |
 | 1. Models, snapshots, fixtures, persistence, evidence inspection, and CLI foundation | Complete (steps 1–9) |
-| 2. AWS and infrastructure-as-code ingestion | Implemented through step 20: AWS collection, Terraform state/plan and CloudFormation Python APIs; raw-source CLI ingestion and phase closure planned in steps 21–22 |
+| 2. AWS and infrastructure-as-code ingestion | Implemented through step 21: AWS collection, Terraform state/plan and CloudFormation APIs and explicit raw-source CLI ingestion; phase closure remains planned in step 22 |
 | 3. Graph queries, deterministic findings, and snapshot comparisons | Planned |
 | 4. Provider adapters, orchestration, validated answers, and evaluations | Planned |
 
@@ -950,7 +984,7 @@ docker compose run --rm -T dev archdiscov evidence sg-rule \
 Choose another output path if it already exists. Saved files are written as the configured
 non-root user. Installation, snapshot schema/source formats, fixture purposes, Python APIs,
 and supported command/error behavior are documented above. AWS, Terraform, and CloudFormation adapters
-use these contracts today; raw-source CLI ingestion, analysis, and
+and raw-source CLI ingestion use these contracts today; analysis and
 providers remain later work.
 
 ### AWS collection acceptance

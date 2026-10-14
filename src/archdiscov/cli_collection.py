@@ -2,6 +2,7 @@
 
 import typer
 
+from .cli_operations import operations_data, print_operations
 from .ingestion.requests import AwsAccountConfig, AwsCollectionRequest, RegionScope
 from .models.enums import AwsRegion, AwsService
 from .services import AccountOutcome
@@ -65,17 +66,7 @@ def outcome_data(outcome: AccountOutcome) -> dict:
         path=str(outcome.path),
         complete=outcome.complete,
         collection_scope=outcome.snapshot.metadata.get("collection_scope"),
-        operations=[
-            {
-                "region": op.region.value,
-                "service": op.service.value,
-                "operation": op.operation,
-                "status": op.status.value,
-                "result_count": op.result_count,
-                "failures": [f.code for f in op.failures],
-            }
-            for op in outcome.snapshot.coverage.operations
-        ],
+        operations=operations_data(outcome.snapshot.coverage.operations),
     )
     return data
 
@@ -101,9 +92,4 @@ def print_outcomes(results: list[dict]) -> None:
             )
             if AwsService.IAM in scope["services"]:
                 typer.echo("  Account-wide: iam (global)")
-        for op in result["operations"]:
-            count = "" if op["result_count"] is None else f" ({op['result_count']} results)"
-            failed = f" [{', '.join(op['failures'])}]" if op["failures"] else ""
-            typer.echo(
-                f"  {op['region']} {op['service']} {op['operation']}: {op['status']}{count}{failed}"
-            )
+        print_operations(result["operations"])

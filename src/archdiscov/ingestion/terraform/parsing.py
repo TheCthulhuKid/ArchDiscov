@@ -2,10 +2,12 @@
 
 import json
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Any
 
 from ..adapter import IngestionError
+from ..strict_json import reject_constant, unique_object
 from .parsing_common import parse_versions, resource_identity, walk_resources
 from .sensitivity import sanitize_values
 
@@ -32,22 +34,17 @@ def _invalid(message: str) -> IngestionError:
 
 
 def load_json(path: Path) -> Any:
-    def unique_object(pairs: list[tuple[str, Any]]) -> dict:
-        result = {}
-        for key, value in pairs:
-            if key in result:
-                raise _invalid("Terraform JSON contains duplicate object keys")
-            result[key] = value
-        return result
-
-    def invalid_constant(value: str) -> None:
-        raise _invalid("Terraform JSON must contain finite JSON values")
-
     try:
         data = json.loads(
             path.read_text(encoding="utf-8"),
-            object_pairs_hook=unique_object,
-            parse_constant=invalid_constant,
+            object_pairs_hook=partial(
+                unique_object,
+                error_factory=lambda: _invalid("Terraform JSON contains duplicate object keys"),
+            ),
+            parse_constant=partial(
+                reject_constant,
+                error_factory=lambda: _invalid("Terraform JSON must contain finite JSON values"),
+            ),
         )
     except UnicodeError as error:
         raise _invalid("Terraform export must be UTF-8 JSON") from error

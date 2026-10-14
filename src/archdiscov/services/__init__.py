@@ -2,6 +2,7 @@
 
 from .async_ingestion import collect_and_save_async, collect_snapshots_async
 from .evidence import EvidenceInspection, EvidenceNotFoundError, get_evidence
+from .importing import IngestFormat, IngestResult, ingest_snapshot
 from .ingestion import AccountOutcome, collect_and_save, collect_snapshots, select_adapter
 from .snapshots import (
     SnapshotConflictError,
@@ -20,6 +21,8 @@ __all__ = [
     "AccountOutcome",
     "EvidenceInspection",
     "EvidenceNotFoundError",
+    "IngestFormat",
+    "IngestResult",
     "SnapshotConflictError",
     "SnapshotError",
     "SnapshotInput",
@@ -32,6 +35,7 @@ __all__ = [
     "collect_snapshots",
     "collect_snapshots_async",
     "get_evidence",
+    "ingest_snapshot",
     "load_snapshot",
     "save_snapshot",
     "select_adapter",
