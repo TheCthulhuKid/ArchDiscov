@@ -143,6 +143,10 @@ class SnapshotAccess:
         """Internal read-only borrowing; never expose or mutate this owned detached model."""
         return self._snapshot
 
+    def _borrow_resources(self) -> Iterator[Resource]:
+        """Internal traversal of owned resources; public accessors remain detached."""
+        yield from _resources_from_validated_snapshot(self._snapshot)
+
     @property
     def scope(self):
         return self._snapshot.scope.model_copy(deep=True)
