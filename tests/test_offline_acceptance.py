@@ -58,7 +58,10 @@ def test_offline_acceptance(tmp_path: Path, fixture_name: str, evidence_id: str)
     output = tmp_path / "snapshot.json"
     imported = run("ingest", str(source), "--output", str(output))
     saved = load_snapshot(output)
-    assert imported == {"snapshot_id": str(saved.snapshot_id), "path": str(output)}
+    assert imported["snapshot_id"] == str(saved.snapshot_id)
+    assert imported["path"] == str(output)
+    assert imported["source_kind"] == saved.source.kind
+    assert imported["complete"] == all(op.status == "success" for op in saved.coverage.operations)
     assert saved == load_snapshot(fixture)
     saved_bytes = output.read_bytes()
 

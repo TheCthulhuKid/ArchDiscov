@@ -24,10 +24,10 @@ schema `2` and source kind `terraform_state`, recording the path, format version
 optional Terraform version, and supplied workspace. Saving requires an existing
 parent directory and never overwrites a destination.
 
-There is no raw-state CLI command yet: `archdiscov ingest` accepts only Archdiscov
-snapshot JSON. Raw-source CLI ingestion is deferred to step 21. State and
-[plans](terraform-plan-mapping.md) use separate implemented Python adapters;
-CloudFormation templates remain planned for step 20.
+The [raw-source CLI](raw-source-ingestion.md) exposes this adapter through
+`archdiscov ingest --format terraform-state`. State,
+[plans](terraform-plan-mapping.md), and [CloudFormation](cloudformation-mapping.md)
+use separate implemented adapters and explicit CLI formats.
 
 ## Input, identity, and scope
 

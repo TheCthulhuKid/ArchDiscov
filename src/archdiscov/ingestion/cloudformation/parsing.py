@@ -7,6 +7,7 @@ from yaml.events import CollectionEndEvent, CollectionStartEvent
 from yaml.nodes import MappingNode, ScalarNode, SequenceNode
 
 from ..adapter import IngestionError
+from ..strict_json import reject_constant, unique_object
 from .evaluation_limits import MAX_BYTES, MAX_DEPTH, MAX_NODES, validate_json
 
 _MESSAGE = "Invalid CloudFormation template."
@@ -66,19 +67,6 @@ def _intrinsic(loader: _TemplateLoader, node: Any) -> dict:
 
 for _name in _INTRINSICS:
     _TemplateLoader.add_constructor(f"!{_name}", _intrinsic)
-
-
-def _json_mapping(pairs: list[tuple[str, Any]]) -> dict:
-    result = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError
-        result[key] = value
-    return result
-
-
-def _invalid_constant(value: str) -> None:
-    raise ValueError
 
 
 def _validate_template(template: Any) -> None:
@@ -150,7 +138,7 @@ def parse_template(text: str) -> dict:
                 raise ValueError
         try:
             template = json.loads(
-                text, object_pairs_hook=_json_mapping, parse_constant=_invalid_constant
+                text, object_pairs_hook=unique_object, parse_constant=reject_constant
             )
         except json.JSONDecodeError:
             template = yaml.load(text, Loader=_TemplateLoader)

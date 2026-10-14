@@ -22,7 +22,21 @@ def test_ingest_preserves_every_fixture(tmp_path: Path, fixture: Path) -> None:
     assert result.exit_code == 0, result.output
     payload = json.loads(result.stdout)
     snapshot = load_snapshot(fixture)
-    assert payload == {"snapshot_id": str(snapshot.snapshot_id), "path": str(output)}
+    assert payload["snapshot_id"] == str(snapshot.snapshot_id)
+    assert payload["path"] == str(output)
+    assert payload["source_kind"] == snapshot.source.kind
+    assert payload["complete"] == all(op.status == "success" for op in snapshot.coverage.operations)
+    assert payload["operations"] == [
+        {
+            "region": op.region.value,
+            "service": op.service.value,
+            "operation": op.operation,
+            "status": op.status.value,
+            "result_count": op.result_count,
+            "failures": [failure.code for failure in op.failures],
+        }
+        for op in snapshot.coverage.operations
+    ]
     assert load_snapshot(output) == snapshot
     assert result.stderr == ""
 
