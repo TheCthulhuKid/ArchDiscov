@@ -135,7 +135,7 @@ def test_offline_acceptance(tmp_path: Path, fixture_name: str, evidence_id: str)
     error = rejected["error"]
     assert error["path"] == str(invalid_source)
     assert any(
-        issue["type"] == "value_error"
+        issue["type"] == "snapshot_evidence_owner_unknown"
         and issue["message"] == "Snapshot constraint failed: unknown resource owner."
         for issue in error["details"]
     )

@@ -1,4 +1,4 @@
-# Archdiscov: Evidence-backed AWS architecture assistant
+# Archdiscov: Evidence-backed cloud architecture snapshots
 
 ## Summary
 
@@ -6,13 +6,17 @@ Archdiscov is a Python CLI and reusable core for collecting AWS architecture con
 saving validated evidence-backed snapshots, and inspecting their facts and limitations.
 It supports explicitly configured accounts, enabled-region discovery, and bounded async
 collection across seven service families, with one immutable snapshot file per account.
+The cloud-neutral snapshot boundary also supports offline Azure fixture ingestion and
+evidence inspection; it does not provide live Azure collection or analysis.
 
 ### Current state
 
 | Capability | Status |
 | --- | --- |
-| Snapshot models, evidence/fact citations, coverage, sanitization, and schema `1`/`2` validation | Implemented |
+| Snapshot models, evidence/fact citations, coverage, sanitization, and schema `1`–`3` validation | Implemented; legacy AWS schemas `1`/`2` unchanged |
 | Local no-overwrite persistence, snapshot JSON `ingest`, and `evidence` inspection | Implemented |
+| Cloud scopes/identities, schema `3`, explicit AWS upgrade, and detached `SnapshotAccess` | Implemented; [contracts and APIs](docs/cloud-snapshots.md) |
+| Azure VNet/subnet/VM snapshots | Offline fixture only; no Azure SDK, authentication, or live collector |
 | EC2/network, IAM, ALB/NLB, ECS, Lambda, RDS/Aurora, and SQS configuration collection | Implemented |
 | Multi-account `collect --all-services`, enabled-region discovery, shared call budgets, async APIs, and cancellation-safe draining | Implemented |
 | Offline Terraform `show -json` state import through Python services | Implemented; [mapping and limitations](docs/terraform-state-mapping.md) |
@@ -131,7 +135,7 @@ docker compose run --rm \
 
 For SSO, authenticate on the host first with `aws sso login --profile development`. The read-only mount exposes the host configuration and cached tokens; refresh them on the host when needed. Configured assume-role profiles can use the mounted source profiles. Profiles using `credential_process` need the referenced executable and any supporting files inside the container; host-only executables do not automatically become available. Use `archdiscov collect` for the seven implemented service families below.
 
-For future provider integration, forward a variable already set in your host environment, for example `docker compose run --rm --env OPENAI_API_KEY dev bash`. Credentials belong in runtime configuration and are excluded from the image build context. Keep snapshots in the ignored `snapshots/` directory; committed test fixtures belong under `tests/`.
+For future LLM-provider integration (phase 4, separate from cloud platforms), forward a variable already set in your host environment, for example `docker compose run --rm --env OPENAI_API_KEY dev bash`. Credentials belong in runtime configuration and are excluded from the image build context. Keep snapshots in the ignored `snapshots/` directory; committed test fixtures belong under `tests/`.
 
 ## Architecture and interfaces
 
@@ -150,9 +154,17 @@ Graph indexes, deterministic analyzers, comparisons, and provider interfaces rem
 - Track collection coverage by account, region, service, and operation, including failures, unsupported resources, timestamps, and unresolved values.
 - Keep live observations, Terraform state, Terraform planned changes, and CloudFormation declarations distinguishable. Compare explicitly selected snapshots; match physical identifiers first and report unmatched resources without guessing from names.
 
+These account/region examples describe the legacy AWS contract. Schema `3` uses
+`CloudSnapshot`, an explicit AWS or Azure scope, location-keyed `regions`, separate
+`scope_resources`, and flat dependencies. `SnapshotAccess` supplies a common detached
+read-only view for both contracts, without graph inference or file migration. See
+[cloud snapshots](docs/cloud-snapshots.md) for identities, provenance, and extension rules.
+
 ### Resource hierarchy
 
-Each snapshot is rooted in one account. Regions contain top-level resources, and every resource can contain further resources through its `children` list:
+Each legacy AWS snapshot is rooted in one account. Schema `3` instead has an explicit
+cloud scope. Regions contain top-level resources, and every resource can contain further
+resources through its `children` list; the following example is AWS:
 
 ```text
 Account snapshot
@@ -182,12 +194,26 @@ values are rejected. Extend the enum when introducing another relationship kind.
 
 ### Snapshot format
 
-Both supported schemas require an explicit UUID `snapshot_id`, a timezone-aware collection start/end,
+All supported schemas require an explicit UUID `snapshot_id`, a timezone-aware collection start/end,
 one typed `source`, and `coverage` describing the requested scope. Collection completion
-must not precede its start. `source.exported_at` separately retains the optional source
-export timestamp; it does not replace the collection window.
+must not precede its start. The optional source export timestamp does not replace the
+collection window: it is `source.exported_at` in legacy schemas and
+`source.provenance.exported_at` in schema `3`.
 
-Each snapshot represents one account and one source kind:
+| Schema | Model and scope | Compatibility |
+| --- | --- | --- |
+| `1` | `ArchitectureSnapshot`, AWS account/regions | Strict local dependencies; existing wire format and stable IDs retained |
+| `2` | `ArchitectureSnapshot`, AWS account/regions | External/unresolved targets and Terraform-plan lifecycle; AWS collectors and raw importers still emit this schema |
+| `3` | `CloudSnapshot`, AWS account/partition or Azure subscription/optional tenant | Explicit platform/provenance, locations, scope-wide resources, context-bearing evidence and coverage |
+
+Public `validate_snapshot`, `load_snapshot`, `save_snapshot`, and snapshot-format
+`ingest_snapshot` support all three. Direct `ArchitectureSnapshot` validation still
+accepts only `1`/`2` and rejects Azure and `cloud_unknown`. Conversion is explicit through
+`upgrade_snapshot`; [the cloud guide](docs/cloud-snapshots.md) documents schema `3`.
+
+Each snapshot represents one scope and one source kind. The following legacy AWS
+`source.kind` table also describes schema `3`'s `source.provenance.kind`, except that
+schema `3` additionally supports `azure_fixture` with a required offline fixture `label`:
 
 | `source.kind` | Meaning | Source-specific fields |
 | --- | --- | --- |
@@ -202,7 +228,7 @@ are validated rather than hidden in generic `metadata`. File paths identify inpu
 not permission to open files. Optional profile/role fields identify collection context, not secrets.
 `source.kind` uses `SnapshotSourceKind`, with a fixed enum literal for each source model
 to preserve discriminated validation. `Evidence.source` uses the separate `SourceType` enum:
-`aws`, `terraform`, `cloudformation`, or `mock`. Evidence groups Terraform as one source family,
+`aws`, `terraform`, `cloudformation`, `mock`, or `azure` (schema `3`). Evidence groups Terraform as one source family,
 while snapshot kinds distinguish state from plans. Both enums serialize as the existing JSON strings.
 When supplied, `role_arn` must be an IAM role ARN such as
 `arn:aws:iam::123456789012:role/team/Discovery`. Validation requires an empty region,
@@ -210,7 +236,7 @@ a 12-digit account ID, and IAM role-name/path character and length constraints. 
 names such as `aws-cn` and `aws-us-gov` are supported; user and STS assumed-role session ARNs
 are not role ARNs. This validates syntax only, not role existence or permission to assume it.
 
-`coverage.regions` lists unique requested regions, and `coverage.account_wide` explicitly
+In legacy AWS schemas, `coverage.regions` lists unique requested regions, and `coverage.account_wide` explicitly
 requests account-wide collection. At least one region or account-wide scope is required.
 `global` is reserved for account-wide resource identity and dependency grouping, not a regional
 scope entry. Regional contents must be within the requested regions, and global resources
@@ -297,7 +323,7 @@ do not invent an account or put regional resources under `global`. Region fields
 `AwsRegion` enum, including `AwsRegion.GLOBAL` for account-wide identities and dependencies.
 New AWS regions must be added to the enum before use; JSON still stores region codes as strings.
 
-Resources carry a separate `identity` with account, region (or `global`), service, and at least
+AWS resources carry a separate `identity` with account, region (or `global`), service, and at least
 one of `physical_id` or `logical_address`. Services use the `AwsService` enum of ARN service
 namespaces; extend it when adding another service namespace. For example, load balancers use
 `elasticloadbalancing`, not the Boto3 client name `elbv2`. Collection adapters must map service
@@ -327,9 +353,10 @@ each dependency's nonempty evidence list must resolve to source-owned evidence. 
 and evidence IDs must be nonblank. Schema `2` additionally supports explicit external
 and unresolved targets, never inferred or silently repaired by validation.
 
-Schema versions `"1"` and `"2"` are supported. Missing or other versions are rejected;
-unsupported versions report the supplied and supported versions. There is no automatic
-migration or fallback, and historical files are never rewritten implicitly.
+Public snapshot services support schema versions `"1"`, `"2"`, and `"3"`. Missing or
+other versions are rejected with safe diagnostics, without echoing arbitrary raw values.
+There is no automatic file migration or fallback; historical files are never rewritten
+implicitly. Direct legacy model validation remains limited to `"1"` and `"2"`.
 
 Schema `1` keeps strict local dependency targets. Schema `2` dependencies may use a
 discriminated target: `local` (must resolve to a stored resource), `external` (a known
@@ -406,25 +433,21 @@ This example demonstrates structure only; evidence-backed answers require popula
 
 Small reusable JSON examples are in [tests/fixtures/snapshots](tests/fixtures/snapshots):
 
-- [aws.json](tests/fixtures/snapshots/aws.json): AWS-source regional and account-wide resources.
-- [hierarchy.json](tests/fixtures/snapshots/hierarchy.json): typed VPC → subnet → EC2 containment,
-  a VPC-contained unknown security group, unnamed resources, a global unknown IAM role,
-  and a source-evidenced dependency. Containment does not imply an attachment or dependency.
-- [terraform-plan.json](tests/fixtures/snapshots/terraform-plan.json): a logical-only Terraform
-  declaration without a physical ID.
-- [cloudformation.json](tests/fixtures/snapshots/cloudformation.json): a logical-only
-  CloudFormation declaration whose stable ID escapes the address's slash.
-- [partial-coverage.json](tests/fixtures/snapshots/partial-coverage.json): a retained, cited
-  security-group ingress rule, denied route-table collection, and successful zero-result
-  instance collection.
-- [iam.json](tests/fixtures/snapshots/iam.json): synthetic typed account-wide role,
-  instance profile, and managed policy, with trust and inline-policy documents.
-- [network.json](tests/fixtures/snapshots/network.json): typed network configuration,
-  rule citations, and attachment dependencies.
-- [dependency-targets.json](tests/fixtures/snapshots/dependency-targets.json): schema `2`
-  local, external, and unresolved relationship targets.
-- [load-balancing.json](tests/fixtures/snapshots/load-balancing.json): synthetic typed ELBv2
-  resources, listener actions/rule conditions, and target-health observations.
+| Fixture | Purpose |
+| --- | --- |
+| [aws.json](tests/fixtures/snapshots/aws.json) | AWS-source regional and account-wide resources |
+| [hierarchy.json](tests/fixtures/snapshots/hierarchy.json) | Typed VPC → subnet → EC2 containment, unknown resources, unnamed resources, and an evidenced dependency |
+| [terraform-plan.json](tests/fixtures/snapshots/terraform-plan.json) | Logical-only declaration without a physical ID |
+| [cloudformation.json](tests/fixtures/snapshots/cloudformation.json) | Logical address with an escaped slash in its stable ID |
+| [partial-coverage.json](tests/fixtures/snapshots/partial-coverage.json) | Cited ingress, denied route-table collection, and successful zero-result instance collection |
+| [iam.json](tests/fixtures/snapshots/iam.json) | Typed account-wide role, instance profile, managed policy, trust and inline-policy documents |
+| [network.json](tests/fixtures/snapshots/network.json) | Typed network configuration, rule citations, and attachments |
+| [dependency-targets.json](tests/fixtures/snapshots/dependency-targets.json) | Schema `2` local, external, and unresolved targets |
+| [load-balancing.json](tests/fixtures/snapshots/load-balancing.json) | Typed ELBv2 resources, listener actions/rules, and target-health observations |
+| [azure.json](tests/fixtures/snapshots/azure.json) | Schema `3` offline VNet → subnet → VM, explicit fixture attachment, known-null/unavailable facts, and success-zero/incomplete/failed coverage |
+
+Containment never implies an attachment or dependency. Azure fixture provenance is
+synthetic, not live observation metadata.
 
 Contract tests also cover Terraform state and mock sources, plus incomplete coverage with
 failures, unresolved values, or reasons. Unresolved values describe unavailable facts;
@@ -451,6 +474,31 @@ saved_path = save_snapshot(validated_copy, "snapshots/new-account.json")
 Validation returns a fresh, sanitized model and rechecks current mutable model data,
 including nested identities and references; it does not invent UUIDs or migrate versions.
 Loading applies the same schema, integrity, and sanitization checks.
+
+For common read-only traversal or an explicit legacy-to-schema-`3` conversion, use
+`SnapshotAccess` and `upgrade_snapshot`. They return detached data and never rewrite
+files; saving an upgrade requires a new path:
+
+```python
+from pathlib import Path
+
+from archdiscov.services import SnapshotAccess, load_snapshot, save_snapshot, upgrade_snapshot
+
+legacy = load_snapshot("tests/fixtures/snapshots/hierarchy.json")
+upgraded = upgrade_snapshot(legacy)
+Path("snapshots").mkdir(exist_ok=True)
+save_snapshot(upgraded, "snapshots/aws-schema3-example.json")
+access = SnapshotAccess.from_snapshot(legacy)  # Internal normalization; no file migration.
+print(access.scope.model_dump(mode="json"))
+print([resource.id for resource in access.resources()])
+print(list(access.containment()))
+print(list(access.dependencies()))
+print(list(access.evidence))
+print(access.coverage.model_dump(mode="json"))
+```
+
+The [cloud guide](docs/cloud-snapshots.md#python-services-and-normalized-access) also
+demonstrates location-aware roots and Azure evidence. Choose a fresh output path on reruns.
 
 Saving revalidates detached data and writes normalized, sanitized, indented UTF-8 JSON
 with a trailing newline, preserving nulls, defaults, subtype fields, citations, and
@@ -496,6 +544,22 @@ uv run --locked archdiscov ingest tests/fixtures/snapshots/partial-coverage.json
 uv run --locked archdiscov evidence sg-rule --snapshot snapshots/example.json
 uv run --locked archdiscov evidence sg-rule --snapshot snapshots/example.json --json
 ```
+
+The offline Azure fixture uses the same commands, without Azure credentials or SDK calls:
+
+```bash
+mkdir -p snapshots
+uv run --locked archdiscov ingest tests/fixtures/snapshots/azure.json \
+  --output snapshots/azure-example.json
+uv run --locked archdiscov evidence vm-size --snapshot snapshots/azure-example.json
+uv run --locked archdiscov evidence vm-unavailable \
+  --snapshot snapshots/azure-example.json --json
+```
+
+`vm-size` cites the present `/vm_size` null fact; `vm-unavailable` records a separate
+unresolved limitation, not an invented fact. Azure output uses subscription context,
+`location`, and native service namespaces, not AWS region enums. Choose fresh paths
+if either example has already been run.
 
 The same arguments work with `python -m archdiscov`. `--output` (`-o`) and `--snapshot`
 are required explicit paths; parents must exist. Ingestion validates and sanitizes the
@@ -953,8 +1017,15 @@ Every factual conclusion must cite discovered resources or configuration evidenc
 | --- | --- |
 | 1. Models, snapshots, fixtures, persistence, evidence inspection, and CLI foundation | Complete (steps 1–9) |
 | 2. AWS and infrastructure-as-code ingestion | Complete (steps 10–22): supported AWS inventory, offline IaC imports, explicit CLI formats, permissions and offline acceptance |
+| Pre-phase-3 cloud boundary bridge (22.1–22.4) | Implemented foundation: scopes/identities/resources, schema `3` and conversion, offline Azure workflows, and common access/compatibility documentation; not live Azure support |
 | 3. Graph queries, deterministic findings, and snapshot comparisons | Planned |
-| 4. Provider adapters, orchestration, validated answers, and evaluations | Planned |
+| 4. LLM-provider adapters, orchestration, validated answers, and evaluations | Planned; separate from cloud platforms |
+
+The bridge prepares phase 3 to build common graph/query and ownership contracts.
+Security, network, and trust analyzers are initially planned for AWS; unsupported Azure
+analysis must return actionable limitations rather than reuse AWS semantics. No graph,
+analyzer, GCP, Terraform HCL parser, Azure authentication, or live Azure collection is
+implemented by this bridge. See [boundary validation and extension guidance](docs/cloud-snapshots.md#validation-and-future-extensions).
 
 ### Offline increment acceptance
 

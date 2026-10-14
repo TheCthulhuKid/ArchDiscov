@@ -80,8 +80,36 @@ def test_hierarchy_round_trip(data: dict) -> None:
         assert model.evidence["role"].value == "role-app"
 
 
-@pytest.mark.parametrize("placement", ["roots", "ancestor", "siblings", "global"])
-def test_duplicate_storage_is_rejected(data: dict, placement: str) -> None:
+@pytest.mark.parametrize(
+    "placement,locations",
+    [
+        (
+            "roots",
+            (
+                "regions[eu-west-1].resources[0].children[0].children[0]",
+                "regions[eu-west-1].resources[1]",
+            ),
+        ),
+        (
+            "ancestor",
+            (
+                "regions[eu-west-1].resources[0]",
+                "regions[eu-west-1].resources[0].children[0].children[0].children[0]",
+            ),
+        ),
+        (
+            "siblings",
+            (
+                "regions[eu-west-1].resources[0].children[0].children[0]",
+                "regions[eu-west-1].resources[0].children[2].children[0]",
+            ),
+        ),
+        ("global", ("global_resources[0]", "global_resources[1]")),
+    ],
+)
+def test_duplicate_storage_is_rejected(
+    data: dict, placement: str, locations: tuple[str, str]
+) -> None:
     vpc, subnet, instance = tree(data)
     if placement == "roots":
         data["regions"]["eu-west-1"]["resources"].append(deepcopy(instance))
@@ -97,8 +125,7 @@ def test_duplicate_storage_is_rejected(data: dict, placement: str) -> None:
         data["global_resources"].append(deepcopy(data["global_resources"][0]))
     with pytest.raises(ValidationError, match="duplicate resource") as error:
         ArchitectureSnapshot.model_validate(data)
-    assert " and " in str(error.value)
-    assert "[0]" in str(error.value)
+    assert f"at {locations[0]} and {locations[1]}" in str(error.value)
 
 
 @pytest.mark.parametrize("depth", [0, 1, 2, 3, 4])

@@ -13,8 +13,12 @@ from pydantic import BaseModel, ValidationError
 from pydantic_core import PydanticSerializationError
 
 from archdiscov.models.architecture import ArchitectureSnapshot
+from archdiscov.models.cloud_snapshot import CloudSnapshot
+from archdiscov.models.validation_errors import SAFE_VALIDATION_MESSAGES
 
-SnapshotInput = ArchitectureSnapshot | Mapping[str, Any]
+from .snapshot_access import SupportedSnapshot
+
+SnapshotInput = SupportedSnapshot | Mapping[str, Any]
 
 _logger = logging.getLogger(__name__)
 
@@ -85,7 +89,7 @@ def save_snapshot(snapshot: SnapshotInput, path: str | Path) -> Path:
     return _save_validated_snapshot(validated, path)
 
 
-def _save_validated_snapshot(snapshot: ArchitectureSnapshot, path: str | Path) -> Path:
+def _save_validated_snapshot(snapshot: SupportedSnapshot, path: str | Path) -> Path:
     """Publish an already detached, validated snapshot without validating it again."""
     path = Path(path)
     try:
@@ -151,7 +155,7 @@ def _reject_json_constant(value: str) -> None:
     raise ValueError("Nonstandard JSON constant")
 
 
-def load_snapshot(path: str | Path) -> ArchitectureSnapshot:
+def load_snapshot(path: str | Path) -> SupportedSnapshot:
     """Read a UTF-8 JSON snapshot and apply the shared validation contract."""
     path = Path(path)
     try:
@@ -187,10 +191,32 @@ def load_snapshot(path: str | Path) -> ArchitectureSnapshot:
 
 def _safe_validation_message(error: dict[str, Any]) -> str:
     # Pydantic messages can interpolate raw discriminator tags, values, and contexts.
+    if error["type"] in SAFE_VALIDATION_MESSAGES:
+        return SAFE_VALIDATION_MESSAGES[error["type"]]
     if error["type"] == "unsupported_schema_version":
-        return 'Unsupported snapshot schema version; supported versions: "1", "2".'
+        return 'Unsupported snapshot schema version; supported versions: "1", "2", "3".'
     if error["type"] == "value_error":
+        # Incremental compatibility for validators not yet migrated to custom codes.
+        # Migrated checks above never inspect validator text or context.
         for rule in (
+            "ARM resource type must match identity native_type",
+            "platform must match",
+            "native_type must match",
+            "scope must match",
+            "subscription/tenant must match",
+            "account must match snapshot scope",
+            "location must match enclosing location",
+            "evidence context must match owning resource",
+            "coverage locations must be unique",
+            "scope-wide placement uses null location",
+            "AWS location must match scope partition",
+            "resource ARN partition must match snapshot scope",
+            "Azure location must be a canonical lowercase location",
+            "operation coverage location must be included in requested scope",
+            "snapshot locations must be included in coverage",
+            "scope_resources require scope_wide coverage",
+            "dependency grouping must match source resource location",
+            "lifecycle requires AWS Terraform plan source semantics",
             "resource identity requires a physical_id or logical_address",
             "resource id must match identity.stable_id",
             "duplicate resource",
@@ -248,7 +274,7 @@ def _safe_validation_message(error: dict[str, Any]) -> str:
         "enum": "Value is not a supported enum member.",
         "model_type": "Expected snapshot object data.",
     }
-    return messages.get(error["type"], f"Invalid snapshot field ({error['type']}).")
+    return messages.get(error["type"], "Invalid snapshot field.")
 
 
 def _detach_data(data: Any) -> Any:
@@ -261,10 +287,28 @@ def _detach_data(data: Any) -> Any:
     return data
 
 
-def validate_snapshot(data: SnapshotInput) -> ArchitectureSnapshot:
+def validate_snapshot(data: SnapshotInput) -> SupportedSnapshot:
     """Validate detached current data, never trusting an already mutable model."""
     try:
-        return ArchitectureSnapshot.model_validate(_detach_data(data))
+        detached = _detach_data(data)
+        if isinstance(detached, Mapping):
+            version = detached.get("schema_version")
+            if "schema_version" in detached and version not in ("1", "2", "3"):
+                raise SnapshotValidationError(
+                    (
+                        SnapshotValidationIssue(
+                            ("schema_version",),
+                            "unsupported_schema_version",
+                            "Unsupported snapshot schema version; "
+                            'supported versions: "1", "2", "3".',
+                        ),
+                    ),
+                    code="unsupported_schema_version",
+                )
+            model = CloudSnapshot if version == "3" else ArchitectureSnapshot
+        else:
+            model = ArchitectureSnapshot
+        return model.model_validate(detached)
     except ValidationError as exc:
         errors = exc.errors(include_input=False, include_context=False, include_url=False)
         details = tuple(

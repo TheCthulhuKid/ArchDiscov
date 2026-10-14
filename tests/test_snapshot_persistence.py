@@ -61,7 +61,7 @@ def test_validation_rechecks_nested_mutations(
     assert error.value.__cause__ is not None
 
 
-@pytest.mark.parametrize("version", [2, "3", "private-secret", None])
+@pytest.mark.parametrize("version", [2, "4", "private-secret", None])
 def test_unsupported_versions_have_safe_diagnostics(version: object) -> None:
     data = json.loads((FIXTURES / "hierarchy.json").read_text())
     data["schema_version"] = version
@@ -90,7 +90,12 @@ def test_validation_diagnostics_exclude_raw_inputs_and_contexts() -> None:
 @pytest.mark.parametrize("path", sorted(FIXTURES.glob("*.json")), ids=lambda path: path.name)
 def test_load_committed_fixtures(path: Path) -> None:
     loaded = load_snapshot(str(path))
-    assert loaded == ArchitectureSnapshot.model_validate_json(path.read_text())
+    if json.loads(path.read_text())["schema_version"] == "3":
+        from archdiscov.models.cloud_snapshot import CloudSnapshot
+
+        assert loaded == CloudSnapshot.model_validate_json(path.read_text())
+    else:
+        assert loaded == ArchitectureSnapshot.model_validate_json(path.read_text())
 
 
 @pytest.mark.parametrize("content", [b'{\n"private-secret": }', b"\xff", b"NaN"])
@@ -137,7 +142,7 @@ def test_load_contract_errors(tmp_path: Path, defect: str) -> None:
     if defect == "missing_version":
         del data["schema_version"]
     elif defect == "unsupported_version":
-        data["schema_version"] = "3"
+        data["schema_version"] = "4"
     elif defect == "reference":
         data["dependencies_by_region"]["eu-west-1"][0]["target_id"] = "private-secret"
     else:
@@ -456,7 +461,7 @@ def test_mapping_nested_models_cannot_bypass_validation(snapshot: ArchitectureSn
 
 
 def test_mutated_model_schema_version_has_distinct_code(snapshot: ArchitectureSnapshot) -> None:
-    snapshot.schema_version = "3"
+    snapshot.schema_version = "4"
     with pytest.raises(SnapshotValidationError) as error:
         validate_snapshot(snapshot)
     assert error.value.code == "unsupported_schema_version"
