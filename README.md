@@ -26,6 +26,7 @@ evidence inspection; it does not provide live Azure collection or analysis.
 | Phase 2 permissions, setup, and offline acceptance | [Consolidated permissions](docs/aws-permissions.md) and [acceptance workflow](#phase-2-offline-acceptance) |
 | Docker development environment and GitHub Actions pytest/Ruff checks | Implemented |
 | Analysis result contracts and `Finding`/`Answer` compatibility | Implemented snapshot-backed integrity checks; no analyzers or answer generation |
+| Graph resource ownership, lookup, containment, dependencies, and evidence/coverage | [Implemented and verified together across schemas 1–3](docs/graph-index.md#composed-graph-boundary), including external/unresolved terminals and complete-context coverage; queries remain planned |
 | Graph queries, comparisons, and LLM assistant/providers | Planned |
 
 [PLAN.md](PLAN.md) records delivery progress and the remaining roadmap. “All services”
@@ -52,10 +53,16 @@ uv run --locked archdiscov --version
 Run development checks through the project virtual environment:
 
 ```bash
-.venv/bin/python -m pytest
+.venv/bin/python -m pytest -n 4 --dist worksteal
 .venv/bin/ruff check .
 .venv/bin/ruff format --check --exclude .junie .
 ```
+
+Tests use pytest-xdist worker processes for parallel execution. Start with four
+workers locally; reduce the count on constrained machines because tests also
+create threads and subprocesses. `worksteal` balances remaining tests between
+workers. For serial debugging, use `.venv/bin/python -m pytest -n 0` (plain
+`pytest` also remains serial); no worker count is forced in project defaults.
 
 These tests require neither AWS/provider credentials nor network calls. Package installation requires access to the dependency registry unless dependencies are already cached.
 
@@ -64,7 +71,8 @@ These tests require neither AWS/provider credentials nor network calls. Package 
 [GitHub Actions](.github/workflows/ci.yml) runs the full offline pytest suite and
 Ruff lint/format checks in separate jobs on every push and pull request, with manual
 runs available too. CI uses Python 3.13, uv 0.5.29, and locked development dependencies;
-it requires no AWS/provider secrets. Formatting excludes `.junie` plan artifacts,
+the test job uses two pytest-xdist workers with `--dist worksteal` to limit nested
+concurrency. It requires no AWS/provider secrets. Formatting excludes `.junie` plan artifacts,
 matching the local commands above. Superseded runs are cancelled automatically.
 
 The source package separates shared models, ingestion adapters, public application services, and CLI presentation:
@@ -140,7 +148,8 @@ For future LLM-provider integration (phase 4, separate from cloud platforms), fo
 ## Architecture and interfaces
 
 The snapshot, ingestion, persistence, and CLI boundaries below are implemented.
-Graph indexes, deterministic analyzers, comparisons, and provider interfaces remain planned.
+Graph resource ownership, lookup, containment, and dependency adjacency are implemented; queries,
+deterministic analyzers, comparisons, and provider interfaces remain planned.
 
 - Organize the application into ingestion adapters, normalized models, graph queries, deterministic analyzers, provider adapters, and CLI presentation.
 - Define Pydantic models for `AccountArchitecture`, `RegionArchitecture`, typed resources, `Dependency`, `Evidence`, `Coverage`, `Finding`, and `Answer`. Version serialized snapshots.
@@ -997,8 +1006,9 @@ cloud-aware references, ordered cited paths, typed analyzer parameters, and
 structured coverage/unresolved-target limitations. Validate results against a selected
 snapshot with `validate_analysis_result`; model construction alone checks only shape.
 See [analysis result contracts](docs/analysis-results.md) for the API, ID rules,
-fixtures, and integrity boundary. Analyzer execution, graph indexing, immutable
-result persistence, and analysis CLI commands remain later steps.
+fixtures, and integrity boundary. [Graph resource lookup, containment, dependencies, and evidence/coverage](docs/graph-index.md)
+are implemented; queries, analyzer execution, immutable result persistence,
+and analysis CLI commands remain later steps.
 
 ### Planned assistant behavior
 

@@ -6,30 +6,19 @@ from dataclasses import dataclass
 from archdiscov.models.analysis_references import (
     AnalysisLimitation,
     ContainmentPathStep,
-    CoverageReference,
     PathStep,
 )
 from archdiscov.models.analysis_results import AnalysisFinding, AnalysisResult
 from archdiscov.models.architecture import LocalTarget
-from archdiscov.models.cloud_context import canonical_service_key
-from archdiscov.models.cloud_contracts import CloudDependency, CloudEvidence, CloudOperationCoverage
+from archdiscov.models.cloud_contracts import CloudDependency, CloudEvidence
 from archdiscov.models.cloud_scope import SupportedScope
+from archdiscov.models.coverage_key import CoverageKey
 from archdiscov.models.resource_base import Resource
 
 from .analysis_diagnostics import reject
 from .snapshot_access import SnapshotAccess, _resources_from_validated_snapshot
 
 Location = tuple[str | int, ...]
-CoverageKey = tuple[str, str | None, str, str]
-
-
-def _coverage_key(record: CoverageReference | CloudOperationCoverage) -> CoverageKey:
-    return (
-        record.scope.model_dump_json(),
-        record.location,
-        canonical_service_key(record.scope.platform, record.service),
-        record.operation,
-    )
 
 
 @dataclass(frozen=True)
@@ -68,12 +57,8 @@ class _IntegrityContext:
             resources,
             snapshot.evidence,
             dependencies,
-            {
-                (resource.id, child.id)
-                for resource in resources.values()
-                for child in resource.children
-            },
-            {_coverage_key(record) for record in snapshot.coverage.operations},
+            set(access.containment()),
+            {CoverageKey.from_record(record) for record in snapshot.coverage.operations},
         )
 
     def require_resource(self, resource_id: str, location: Location) -> None:
@@ -149,7 +134,7 @@ def _validate_limitations(
         context.require_evidence(limitation.evidence_ids, (*location, "evidence_ids"))
         if (
             limitation.coverage is not None
-            and _coverage_key(limitation.coverage) not in context.coverage
+            and CoverageKey.from_record(limitation.coverage) not in context.coverage
         ):
             reject(
                 (*location, "coverage"),

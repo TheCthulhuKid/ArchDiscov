@@ -15,8 +15,8 @@ from .architecture import (
     UnresolvedTarget,
     UnresolvedValue,
 )
-from .cloud_context import canonical_service_key
 from .cloud_scope import AzureScope, SupportedScope
+from .coverage_key import CoverageKey
 from .coverage_outcomes import CloudCoverageContext, CoverageOutcome
 from .enums import (
     AwsPartition,
@@ -85,14 +85,7 @@ class CloudCoverage(Model):
             raise ValueError("coverage locations must be unique")
         if not self.locations and not self.scope_wide:
             raise ValueError("coverage requires locations or scope_wide collection")
-        keys = [
-            (
-                item.location,
-                canonical_service_key(item.scope.platform, item.service),
-                item.operation,
-            )
-            for item in self.operations
-        ]
+        keys = [CoverageKey.from_record(item) for item in self.operations]
         if len(keys) != len(set(keys)):
             raise ValueError("coverage operation outcomes must be unique")
         for item in self.operations:
