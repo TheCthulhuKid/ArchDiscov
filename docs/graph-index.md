@@ -1,9 +1,10 @@
 # Snapshot graph index foundation
 
-Steps 24.1–24.4 implement resource ownership, lookup, explicit containment,
-dependency adjacency with terminal targets, and evidence/coverage indexes.
-Composed acceptance/profiling, traversal, query services, and analyzers remain
-subsequent steps.
+Step 24 implements the complete in-memory index boundary: resource ownership,
+lookup, explicit containment, dependency adjacency with terminal targets, and
+evidence/coverage indexes. Composed fixture acceptance and reproducible synthetic
+profiling verify these pieces together. Traversal, query services, and analyzers
+remain subsequent steps; there is no graph CLI command yet.
 
 ```python
 from archdiscov.graph import GraphIndex, PhysicalResourceKey
@@ -215,3 +216,56 @@ assert partial.get_coverage(key).result_count == 0
 missing = CoverageKey.from_values(partial.scope, "eu-west-1", "ec2", "DescribeNetworkInterfaces")
 assert partial.get_coverage(missing) is None
 ```
+
+## Composed graph boundary
+
+Build one index for a selected snapshot and reuse it across lookups. Containment,
+dependency, fact, and coverage indexes refer to that same detached snapshot, but
+they answer different questions. For example, this joins a recorded network route
+to its source-owned evidence and local target without inferring a network path:
+
+```python
+route = next(edge for edge in routes if edge.target.kind == "local")
+route_table = network_index.get_resource(route.source_id)
+gateway = network_index.get_resource(route.target_id)
+assert route_table.resource_type == ResourceType.ROUTE_TABLE
+assert gateway.resource_type == ResourceType.INTERNET_GATEWAY
+assert network_index.parent_id(route_table.id) == network_index.parent_id(gateway.id)
+assert all(
+    network_index.get_evidence(evidence_id).resource_id == route_table.id
+    for evidence_id in route.evidence_ids
+)
+# No operation coverage was supplied by this small fixture.
+assert network_index.coverage_records() == ()
+```
+
+Sharing a parent does not establish the route; the stored dependency does. Missing
+coverage does not establish completeness, and neither a route nor its citation is
+a reachability conclusion. Caller-selected snapshots are never merged by the index.
+
+Ordering is deterministic, not source-list ordering: IDs, direct children and roots
+are sorted, dependencies use their canonical records and occurrence numbers, and
+coverage uses complete-context keys. Fact citation order and child order **inside
+returned resource models** deliberately retain the stored order. Reordering a
+snapshot's storage lists does not change adjacency or edge handles; changing an
+ordered fact or a dependency's citation list can change its canonical edge handle.
+
+`tests/test_graph_acceptance.py` checks the composed boundary against exact fixture
+inventories and normalized records, including resource/physical lookup, containment,
+dependency/evidence joins, terminals, coverage, reordered storage and mutation
+isolation. It covers AWS hierarchy, network, IAM, load-balancing, dependency-target,
+partial-coverage and Azure snapshots, plus explicit AWS schema-3 upgrades. The
+IAM/load-balancing fixtures intentionally contain no dependencies: the index must
+not manufacture them from configuration. Schemas `1`–`3` are represented.
+
+Run the focused offline checks with:
+
+```bash
+.venv/bin/python -m pytest tests/test_graph_*.py -q
+```
+
+See [profiling the graph index](graph-index-profile.md) for larger/deeper synthetic
+inputs, construction and repeated-lookup measurements, reproduction instructions,
+and limitations. Measurements are diagnostic observations, not performance gates
+or promises of constant-time detached model copying. No graph server, new dependency,
+or speculative optimization is introduced.

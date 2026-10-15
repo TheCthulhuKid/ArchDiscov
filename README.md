@@ -26,7 +26,7 @@ evidence inspection; it does not provide live Azure collection or analysis.
 | Phase 2 permissions, setup, and offline acceptance | [Consolidated permissions](docs/aws-permissions.md) and [acceptance workflow](#phase-2-offline-acceptance) |
 | Docker development environment and GitHub Actions pytest/Ruff checks | Implemented |
 | Analysis result contracts and `Finding`/`Answer` compatibility | Implemented snapshot-backed integrity checks; no analyzers or answer generation |
-| Graph resource ownership, lookup, containment, dependencies, and evidence/coverage | [Implemented across schemas 1–3](docs/graph-index.md), including external/unresolved terminals and complete-context coverage; queries remain planned |
+| Graph resource ownership, lookup, containment, dependencies, and evidence/coverage | [Implemented and verified together across schemas 1–3](docs/graph-index.md#composed-graph-boundary), including external/unresolved terminals and complete-context coverage; queries remain planned |
 | Graph queries, comparisons, and LLM assistant/providers | Planned |
 
 [PLAN.md](PLAN.md) records delivery progress and the remaining roadmap. “All services”
