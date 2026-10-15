@@ -53,10 +53,16 @@ uv run --locked archdiscov --version
 Run development checks through the project virtual environment:
 
 ```bash
-.venv/bin/python -m pytest
+.venv/bin/python -m pytest -n 4 --dist worksteal
 .venv/bin/ruff check .
 .venv/bin/ruff format --check --exclude .junie .
 ```
+
+Tests use pytest-xdist worker processes for parallel execution. Start with four
+workers locally; reduce the count on constrained machines because tests also
+create threads and subprocesses. `worksteal` balances remaining tests between
+workers. For serial debugging, use `.venv/bin/python -m pytest -n 0` (plain
+`pytest` also remains serial); no worker count is forced in project defaults.
 
 These tests require neither AWS/provider credentials nor network calls. Package installation requires access to the dependency registry unless dependencies are already cached.
 
@@ -65,7 +71,8 @@ These tests require neither AWS/provider credentials nor network calls. Package 
 [GitHub Actions](.github/workflows/ci.yml) runs the full offline pytest suite and
 Ruff lint/format checks in separate jobs on every push and pull request, with manual
 runs available too. CI uses Python 3.13, uv 0.5.29, and locked development dependencies;
-it requires no AWS/provider secrets. Formatting excludes `.junie` plan artifacts,
+the test job uses two pytest-xdist workers with `--dist worksteal` to limit nested
+concurrency. It requires no AWS/provider secrets. Formatting excludes `.junie` plan artifacts,
 matching the local commands above. Superseded runs are cancelled automatically.
 
 The source package separates shared models, ingestion adapters, public application services, and CLI presentation:

@@ -26,6 +26,7 @@ packages = ["src/archdiscov"]
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "pytest-xdist>=3.8,<4",
     "ruff>=0.16.10",
 ]
 
