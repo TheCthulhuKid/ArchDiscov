@@ -21,8 +21,8 @@ from ...models.enums import (
     ResourceType,
     TargetType,
 )
-from ...models.load_balancing import Listener, ListenerRule, LoadBalancer, TargetGroup
 from ...models.resource_tree import walk_resources as walk_resources
+from ...models.resources.load_balancing import Listener, ListenerRule, LoadBalancer, TargetGroup
 
 
 class _ResolutionMode(Enum):

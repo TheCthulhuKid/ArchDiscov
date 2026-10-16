@@ -13,11 +13,7 @@ from pydantic import (
 )
 from pydantic_core import PydanticCustomError
 
-from .azure import AzureSubnet, AzureVirtualMachine, AzureVirtualNetwork
-from .cloud_unknown import CloudUnknownResource
 from .coverage_outcomes import AwsCoverageContext, CoverageOutcome
-from .database import DbCluster, DbInstance, DbSubnetGroup
-from .ecs import EcsCluster, EcsService, EcsTask, EcsTaskDefinition
 from .enums import (
     AwsRegion,
     AwsService,
@@ -27,17 +23,6 @@ from .enums import (
     SnapshotSourceKind,
     SourceType,
 )
-from .functions import LambdaFunction
-from .iam import IamInstanceProfile, IamManagedPolicy, IamRole
-from .load_balancing import Listener, ListenerRule, LoadBalancer, TargetGroup
-from .network import (
-    InternetGateway,
-    NetworkAcl,
-    NetworkInterface,
-    RouteTable,
-    SecurityGroup,
-)
-from .queues import SqsQueue
 from .resource_base import (  # noqa: F401  (re-exported for existing importers)
     EvidenceIds,
     FactPath,
@@ -47,6 +32,21 @@ from .resource_base import (  # noqa: F401  (re-exported for existing importers)
     ResourceIdentity,
     ResourceLifecycle,
 )
+from .resources.azure import AzureSubnet, AzureVirtualMachine, AzureVirtualNetwork
+from .resources.cloud_unknown import CloudUnknownResource
+from .resources.database import DbCluster, DbInstance, DbSubnetGroup
+from .resources.ecs import EcsCluster, EcsService, EcsTask, EcsTaskDefinition
+from .resources.functions import LambdaFunction
+from .resources.iam import IamInstanceProfile, IamManagedPolicy, IamRole
+from .resources.load_balancing import Listener, ListenerRule, LoadBalancer, TargetGroup
+from .resources.network import (
+    InternetGateway,
+    NetworkAcl,
+    NetworkInterface,
+    RouteTable,
+    SecurityGroup,
+)
+from .resources.queues import SqsQueue
 from .sanitization import is_sensitive_path, sanitize_value
 from .snapshot_integrity import (
     _cache_fact_representations,  # noqa: F401 (backwards-compatible helper imports)

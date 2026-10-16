@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pydantic import JsonValue
 
 from archdiscov.models.architecture import LocalTarget, UnresolvedTarget
-from archdiscov.models.cloud_contracts import CloudDependency, CloudExternalTarget, CloudTarget
+from archdiscov.models.cloud.contracts import CloudDependency, CloudExternalTarget, CloudTarget
 from archdiscov.models.enums import AttachmentKind, DependencyRelationship
 
 

@@ -9,8 +9,8 @@ from archdiscov.models.architecture import (
     SupportedResource,
     SupportedSource,
 )
-from archdiscov.models.cloud_context import evidence_context_matches
-from archdiscov.models.cloud_contracts import CloudEvidence, CloudOperationCoverage, CloudSource
+from archdiscov.models.cloud.context import evidence_context_matches
+from archdiscov.models.cloud.contracts import CloudEvidence, CloudOperationCoverage, CloudSource
 
 from .snapshot_access import _resources_from_validated_snapshot
 from .snapshots import SnapshotError, SnapshotInput, validate_snapshot

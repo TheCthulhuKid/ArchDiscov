@@ -6,7 +6,8 @@ from uuid import UUID
 
 from ...models.architecture import Coverage, Evidence, Resource, ResourceIdentity, UnresolvedValue
 from ...models.enums import AwsRegion, AwsService, CoverageStatus
-from ...models.iam import (
+from ...models.json_pointer import escape_pointer_token
+from ...models.resources.iam import (
     IamInlinePolicy,
     IamInstanceProfile,
     IamManagedPolicy,
@@ -14,7 +15,6 @@ from ...models.iam import (
     normalize_document,
     sanitize_document,
 )
-from ...models.json_pointer import escape_pointer_token
 from ...models.sanitization import sanitize_value
 from ..coverage_updates import with_unresolved_value
 from ..evidence_builder import EvidenceBuilder, json_safe, redact_tag_pairs, tags_of

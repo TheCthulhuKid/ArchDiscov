@@ -2,9 +2,9 @@
 
 from uuid import UUID
 
-from ...models.ecs import EcsCluster, EcsService, EcsTask, EcsTaskDefinition
 from ...models.enums import AwsRegion, AwsService
 from ...models.resource_base import Resource
+from ...models.resources.ecs import EcsCluster, EcsService, EcsTask, EcsTaskDefinition
 from ..detail_execution import DetailResponse
 from ..evidence_builder import EvidenceBuilder
 from ..operations import EcsOperation as Op

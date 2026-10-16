@@ -13,7 +13,7 @@ from pydantic import ValidationError
 from pydantic_core import PydanticSerializationError
 
 from archdiscov.models.architecture import ArchitectureSnapshot
-from archdiscov.models.cloud_snapshot import CloudSnapshot
+from archdiscov.models.cloud.snapshot import CloudSnapshot
 from archdiscov.models.validation_errors import SAFE_VALIDATION_MESSAGES
 
 from .snapshot_access import SupportedSnapshot

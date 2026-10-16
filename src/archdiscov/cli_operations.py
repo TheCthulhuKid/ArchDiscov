@@ -5,7 +5,7 @@ from collections.abc import Iterable
 import typer
 
 from .models.architecture import Coverage
-from .models.cloud_contracts import CloudOperationCoverage
+from .models.cloud.contracts import CloudOperationCoverage
 
 
 def operations_data(operations: Iterable[Coverage | CloudOperationCoverage]) -> list[dict]:

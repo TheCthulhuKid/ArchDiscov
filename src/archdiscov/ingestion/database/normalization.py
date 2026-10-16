@@ -3,14 +3,14 @@
 import re
 
 from ...models.architecture import Coverage, UnresolvedValue
-from ...models.database import (
+from ...models.enums import AwsService, CoverageStatus
+from ...models.resources.database import (
     DbCluster,
     DbClusterMember,
     DbInstance,
     DbSubnetGroup,
     rds_arn_matches,
 )
-from ...models.enums import AwsService, CoverageStatus
 from ...models.sanitization import sanitize_value
 from ..configuration_common import ServiceCollection
 from ..coverage_updates import with_unresolved_value

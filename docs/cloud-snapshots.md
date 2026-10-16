@@ -13,8 +13,8 @@ support, or Terraform HCL parser is supplied by this boundary.
 | `ArchitectureSnapshot`, schemas `1`/`2` | One AWS account, AWS-enum `regions`, `global_resources`, `dependencies_by_region` | Legacy serialization and stable resource IDs unchanged; direct validation rejects schema `3` and Azure models |
 | `CloudSnapshot`, schema `3` | Explicit `scope`, location-keyed `regions`, `scope_resources`, flat `dependencies` | AWS or Azure; platform-aware identity, source, evidence, coverage, and endpoint validation |
 
-Models live in `archdiscov.models.cloud_snapshot`, `cloud_scope`, `cloud_identity`,
-`cloud_contracts`, `azure`, and `cloud_unknown`. The public services package exports
+Shared models live under `archdiscov.models.cloud`; Azure and unknown-resource models
+live under `archdiscov.models.resources`. The public services package exports
 `SupportedSnapshot = ArchitectureSnapshot | CloudSnapshot`, `validate_snapshot`,
 `load_snapshot`, `save_snapshot`, `ingest_snapshot`, `get_evidence`, `upgrade_snapshot`,
 and `SnapshotAccess`; the latter contracts are implemented in
@@ -227,10 +227,10 @@ native namespace; the incomplete/failed compute outcomes qualify VM evidence.
 
 ## Validation and future extensions
 
-Boundary regression tests include `tests/test_cloud_identity.py`,
-`tests/test_cloud_resources.py`, `tests/test_cloud_snapshot.py`,
-`tests/test_snapshot_integrity_helpers.py`, `tests/test_azure_snapshot.py`, and
-`tests/test_cloud_workflows.py`, plus legacy fact-serialization, persistence, evidence,
+Boundary regression tests include `tests/models/test_cloud_identity.py`,
+`tests/models/test_cloud_resources.py`, `tests/models/test_cloud_snapshot.py`,
+`tests/models/test_snapshot_integrity_helpers.py`, `tests/models/test_azure_snapshot.py`, and
+`tests/acceptance/test_cloud_workflows.py`, plus legacy fact-serialization, persistence, evidence,
 and CLI regressions. They cover strict scope/ARM inputs, case matching and ID stability,
 provider guards, placement/duplicates, citation ownership, exact pointers and nulls,
 dependency context, relevant coverage, detached redaction, invalid-model rejection before

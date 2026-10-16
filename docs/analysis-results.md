@@ -6,13 +6,13 @@ legacy `Finding`/`Answer` models remain unchanged.
 
 ## Models
 
-`archdiscov.models.analysis_results.AnalysisResult` has result `schema_version="1"`,
+`archdiscov.models.analysis.results.AnalysisResult` has result `schema_version="1"`,
 an explicit snapshot UUID, `AnalyzerKind`, nonblank analyzer version, typed
 parameters, timezone-aware creation time, and findings. Parameters must match the
 selected analyzer; finding UUIDs must match the envelope and IDs must be unique.
 An empty findings list is allowed, but does not by itself prove complete analysis.
 
-The discriminated parameter models in `models.analysis_parameters` cover ownership
+The discriminated parameter models in `models.analysis.parameters` cover ownership
 (default keys `Owner`, `Team`), security-group impact (resource/depth/result limit),
 cross-account trust, database access (resource/port), and internet exposure
 (depth/result limit). Defining a parameter model does not implement that analyzer.

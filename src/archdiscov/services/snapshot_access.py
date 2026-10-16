@@ -2,16 +2,16 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 
 from archdiscov.models.architecture import ArchitectureSnapshot, ExternalTarget, LocalTarget
-from archdiscov.models.cloud_context import identity_location
-from archdiscov.models.cloud_contracts import (
+from archdiscov.models.cloud.context import identity_location
+from archdiscov.models.cloud.contracts import (
     CloudCoverage,
     CloudDependency,
     CloudEvidence,
     CloudOperationCoverage,
     CloudSource,
 )
-from archdiscov.models.cloud_scope import AwsScope
-from archdiscov.models.cloud_snapshot import CloudSnapshot
+from archdiscov.models.cloud.scope import AwsScope
+from archdiscov.models.cloud.snapshot import CloudSnapshot
 from archdiscov.models.enums import AwsPartition, AwsRegion
 from archdiscov.models.resource_base import Resource
 from archdiscov.models.resource_tree import walk_resources

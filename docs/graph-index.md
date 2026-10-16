@@ -250,7 +250,7 @@ returned resource models** deliberately retain the stored order. Reordering a
 snapshot's storage lists does not change adjacency or edge handles; changing an
 ordered fact or a dependency's citation list can change its canonical edge handle.
 
-`tests/test_graph_acceptance.py` checks the composed boundary against exact fixture
+`tests/graph/test_graph_acceptance.py` checks the composed boundary against exact fixture
 inventories and normalized records, including resource/physical lookup, containment,
 dependency/evidence joins, terminals, coverage, reordered storage and mutation
 isolation. It covers AWS hierarchy, network, IAM, load-balancing, dependency-target,
@@ -261,7 +261,7 @@ not manufacture them from configuration. Schemas `1`–`3` are represented.
 Run the focused offline checks with:
 
 ```bash
-.venv/bin/python -m pytest tests/test_graph_*.py -q
+.venv/bin/python -m pytest tests/graph -q
 ```
 
 See [profiling the graph index](graph-index-profile.md) for larger/deeper synthetic

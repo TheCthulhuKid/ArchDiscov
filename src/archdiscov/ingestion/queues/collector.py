@@ -13,10 +13,10 @@ from ...models.enums import (
     ResourceType,
     SourceType,
 )
-from ...models.iam import sanitize_document
 from ...models.json_pointer import escape_pointer_token
-from ...models.queues import SqsQueue, safe_policy
 from ...models.resource_base import Resource, ResourceIdentity
+from ...models.resources.iam import sanitize_document
+from ...models.resources.queues import SqsQueue, safe_policy
 from ..adapter import AdapterContext
 from ..configuration_common import ServiceCollection
 from ..coverage_updates import with_unresolved_value

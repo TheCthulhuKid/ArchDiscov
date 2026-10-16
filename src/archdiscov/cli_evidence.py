@@ -5,7 +5,7 @@ from pathlib import Path
 
 import typer
 
-from .models.cloud_contracts import CloudEvidence
+from .models.cloud.contracts import CloudEvidence
 from .services.evidence import EvidenceInspection
 
 

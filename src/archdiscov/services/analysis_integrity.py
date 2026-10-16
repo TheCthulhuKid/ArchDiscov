@@ -3,15 +3,15 @@
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from archdiscov.models.analysis_references import (
+from archdiscov.models.analysis.references import (
     AnalysisLimitation,
     ContainmentPathStep,
     PathStep,
 )
-from archdiscov.models.analysis_results import AnalysisFinding, AnalysisResult
+from archdiscov.models.analysis.results import AnalysisFinding, AnalysisResult
 from archdiscov.models.architecture import LocalTarget
-from archdiscov.models.cloud_contracts import CloudDependency, CloudEvidence
-from archdiscov.models.cloud_scope import SupportedScope
+from archdiscov.models.cloud.contracts import CloudDependency, CloudEvidence
+from archdiscov.models.cloud.scope import SupportedScope
 from archdiscov.models.coverage_key import CoverageKey
 from archdiscov.models.resource_base import Resource
 

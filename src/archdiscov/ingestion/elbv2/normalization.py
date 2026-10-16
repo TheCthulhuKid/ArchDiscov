@@ -24,7 +24,7 @@ from ...models.enums import (
     SourceType,
     TargetType,
 )
-from ...models.load_balancing import Listener, ListenerRule, LoadBalancer, TargetGroup
+from ...models.resources.load_balancing import Listener, ListenerRule, LoadBalancer, TargetGroup
 from ..coverage_updates import with_unresolved_value
 from ..evidence_builder import EvidenceBuilder
 from ..operations import Elbv2Operation as Op

@@ -5,7 +5,7 @@ from uuid import UUID
 
 from ...models.architecture import Coverage, Evidence, ResourceIdentity, UnresolvedValue
 from ...models.enums import AwsRegion, AwsService, CoverageStatus, SourceType
-from ...models.functions import (
+from ...models.resources.functions import (
     SOURCE_FIELDS,
     LambdaFunction,
     safe_configuration,

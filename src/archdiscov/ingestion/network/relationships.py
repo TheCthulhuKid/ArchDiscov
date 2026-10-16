@@ -21,7 +21,7 @@ from ...models.enums import (
     ResourceType,
     RouteTargetKind,
 )
-from ...models.network import NetworkInterface, RouteTable, SecurityGroup
+from ...models.resources.network import NetworkInterface, RouteTable, SecurityGroup
 from ..evidence_builder import EvidenceBuilder
 from ..operations import Ec2Operation as Op
 from .resources import Normalized, classify_route_target
