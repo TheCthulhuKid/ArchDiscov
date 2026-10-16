@@ -4,7 +4,7 @@ import json
 import re
 from typing import Any
 
-from ...models.queues import safe_redrive_allow
+from ...models.resources.queues import safe_redrive_allow
 
 INTEGER_FIELDS = {
     "MessageRetentionPeriod": ("retention_seconds", 60, 1209600),

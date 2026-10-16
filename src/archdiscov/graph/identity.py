@@ -1,11 +1,11 @@
 from dataclasses import dataclass
 
 from archdiscov.models.architecture import UnknownResource
-from archdiscov.models.cloud_identity import AzureResourceIdentity
-from archdiscov.models.cloud_scope import SupportedScope
-from archdiscov.models.cloud_unknown import CloudUnknownResource
+from archdiscov.models.cloud.identity import AzureResourceIdentity
+from archdiscov.models.cloud.scope import SupportedScope
 from archdiscov.models.enums import CloudPlatform
 from archdiscov.models.resource_base import Resource
+from archdiscov.models.resources.cloud_unknown import CloudUnknownResource
 
 
 def _native_resource_type(resource: Resource) -> str:

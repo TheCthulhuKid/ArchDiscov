@@ -20,8 +20,8 @@ from ...models.enums import (
     EvidenceValueStatus,
     TrustPrincipalKind,
 )
-from ...models.iam import IamInstanceProfile, IamManagedPolicy, IamRole, sanitize_document
 from ...models.resource_tree import walk_resources
+from ...models.resources.iam import IamInstanceProfile, IamManagedPolicy, IamRole, sanitize_document
 from ..evidence_builder import EvidenceBuilder
 
 

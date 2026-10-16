@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from typing import Protocol
 
-from .cloud_context import canonical_service_key
-from .cloud_scope import SupportedScope
+from .cloud.context import canonical_service_key
+from .cloud.scope import SupportedScope
 from .enums import CloudPlatform
 
 

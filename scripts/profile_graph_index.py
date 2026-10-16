@@ -22,7 +22,7 @@ from archdiscov.models.architecture import (
     UnknownResource,
     UnresolvedTarget,
 )
-from archdiscov.models.cloud_contracts import (
+from archdiscov.models.cloud.contracts import (
     AwsTargetScope,
     CloudCoverage,
     CloudDependency,
@@ -31,8 +31,8 @@ from archdiscov.models.cloud_contracts import (
     CloudOperationCoverage,
     CloudSource,
 )
-from archdiscov.models.cloud_scope import AwsScope
-from archdiscov.models.cloud_snapshot import CloudRegion, CloudSnapshot
+from archdiscov.models.cloud.scope import AwsScope
+from archdiscov.models.cloud.snapshot import CloudRegion, CloudSnapshot
 from archdiscov.models.enums import AttachmentKind, DependencyRelationship
 
 STAMP = datetime(2026, 1, 1, tzinfo=UTC)

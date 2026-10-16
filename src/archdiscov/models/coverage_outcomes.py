@@ -2,7 +2,7 @@ from typing import Self
 
 from pydantic import AwareDatetime, Field, model_validator
 
-from .cloud_scope import SupportedScope
+from .cloud.scope import SupportedScope
 from .enums import AwsRegion, AwsService, CoverageStatus
 from .resource_base import Model, NonEmptyString
 

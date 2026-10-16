@@ -1,6 +1,6 @@
 from collections.abc import Iterable
 
-from archdiscov.models.cloud_contracts import CloudOperationCoverage
+from archdiscov.models.cloud.contracts import CloudOperationCoverage
 from archdiscov.models.coverage_key import CoverageKey
 
 

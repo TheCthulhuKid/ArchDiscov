@@ -79,7 +79,12 @@ The source package separates shared models, ingestion adapters, public applicati
 
 ```text
 src/archdiscov/
-├── models/       # Normalized resources, snapshots, dependencies, and evidence
+├── models/
+│   ├── analysis/ # Finding, parameter, and reference contracts
+│   ├── cloud/    # Shared scope, identity, and schema-3 snapshot contracts
+│   ├── query/    # Query requests, results, edges, and limitations
+│   └── resources/ # Provider/service-specific resource models
+├── graph/        # Read-only resource, edge, evidence, and coverage indexes
 ├── ingestion/    # Allowlisted AWS collectors and offline Terraform/CloudFormation adapters
 ├── services/     # Sync/async collection, persistence, and evidence inspection
 ├── cli.py        # Typer presentation and entry point
@@ -87,6 +92,12 @@ src/archdiscov/
 ```
 
 Model imports use the installed package, for example `from archdiscov.models.architecture import ArchitectureSnapshot` and `from archdiscov.models.enums import AwsRegion`. CLI commands call application services; discovery and analysis logic belong outside the CLI.
+
+Tests are grouped by component under `tests/models`, `tests/analysis`, `tests/query`,
+`tests/graph`, `tests/ingestion`, `tests/services`, `tests/cli`, and `tests/acceptance`.
+Shared fakes/data builders live in `tests/support`; committed input files remain in
+`tests/fixtures`. See [the layout guide](docs/project-layout.md) for placement rules,
+updated model import paths, and focused test commands.
 
 Packaging tests execute both CLI entry points and model imports from a temporary directory outside the repository.
 
@@ -1000,7 +1011,7 @@ must not contain secrets; these are not automatically sanitized or treated as in
 
 ### Analysis result contracts (implemented)
 
-`AnalysisResult` and `AnalysisFinding` in `archdiscov.models.analysis_results`
+`AnalysisResult` and `AnalysisFinding` in `archdiscov.models.analysis.results`
 define a separate versioned result document with deterministic finding IDs,
 cloud-aware references, ordered cited paths, typed analyzer parameters, and
 structured coverage/unresolved-target limitations. Validate results against a selected
@@ -1051,7 +1062,7 @@ implemented by this bridge. See [boundary validation and extension guidance](doc
 
 ### Offline increment acceptance
 
-The first increment is exercised by `tests/test_offline_acceptance.py`: from outside the
+The first increment is exercised by `tests/acceptance/test_offline_acceptance.py`: from outside the
 checkout, with credential variables removed, it imports hierarchy and partial-coverage
 fixtures using the installed CLI, inspects cited evidence, confirms typed children and
 coverage survive persistence, rejects invalid references with safe diagnostics, and
@@ -1061,9 +1072,9 @@ Run the acceptance test directly and in the Docker development environment:
 
 ```bash
 uv sync --locked --python 3.13
-.venv/bin/python -m pytest tests/test_offline_acceptance.py -q
+.venv/bin/python -m pytest tests/acceptance/test_offline_acceptance.py -q
 docker compose build dev
-docker compose run --rm -T dev python -m pytest tests/test_offline_acceptance.py -q
+docker compose run --rm -T dev python -m pytest tests/acceptance/test_offline_acceptance.py -q
 docker run --rm --network none \
   --mount "type=bind,src=$PWD,dst=/workspace" \
   archdiscov-dev python -m pytest -q
@@ -1091,7 +1102,7 @@ providers remain later work.
 
 ### AWS collection acceptance
 
-`tests/test_whole_architecture_acceptance.py` exercises populated multi-account,
+`tests/acceptance/test_whole_architecture_acceptance.py` exercises populated multi-account,
 multi-region collection through the CLI using injected AWS clients, without credentials
 or network calls. It covers all seven families, IAM once per account, partial results,
 scope discovery/overrides, evidence inspection, redaction, failure isolation, and no overwrite.
@@ -1099,7 +1110,7 @@ Runner and async workflow tests additionally cover pagination, bounded concurren
 deterministic assembly, and cancellation. Run the collection journey with:
 
 ```bash
-.venv/bin/python -m pytest tests/test_whole_architecture_acceptance.py -q
+.venv/bin/python -m pytest tests/acceptance/test_whole_architecture_acceptance.py -q
 ```
 
 GitHub Actions runs the full offline suite and quality checks, not live account scans.
@@ -1109,18 +1120,18 @@ Real-AWS checks require explicit runtime credentials and remain opt-in.
 
 The phase closes with complementary journeys rather than live-AWS requirements:
 
-- `tests/test_phase_two_acceptance.py`: real Botocore Stubber requests through
+- `tests/acceptance/test_phase_two_acceptance.py`: real Botocore Stubber requests through
   collection, validated persistence and exact evidence inspection; a denied read
   remains partial while successful zero inventory stays distinguishable. Explicit
   local/external/unresolved targets retain their identifiers, reasons and citations.
-- `tests/test_whole_architecture_acceptance.py`: populated seven-family collection
+- `tests/acceptance/test_whole_architecture_acceptance.py`: populated seven-family collection
   across accounts/regions, with discovery, isolated failures, redaction and immutable files.
-- `tests/test_raw_ingestion_acceptance.py`: both installed entry points outside the
+- `tests/acceptance/test_raw_ingestion_acceptance.py`: both installed entry points outside the
   checkout for every source format, context/format failures, protected parameters,
   partial summaries, evidence inspection and no overwrite.
-- `tests/test_offline_acceptance.py` and the fixture persistence suite preserve
+- `tests/acceptance/test_offline_acceptance.py` and the fixture persistence suite preserve
   historical schema `1`, typed children, citations and qualified coverage.
-- `tests/test_permissions_documentation.py` prevents the published inventory policy
+- `tests/ingestion/aws/test_permissions_documentation.py` prevents the published inventory policy
   from drifting from the executable allowlist, including the separate STS rules.
 
 Run the full acceptance and regression suite without any credential mounts:

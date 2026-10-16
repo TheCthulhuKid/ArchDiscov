@@ -6,7 +6,8 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from ...models.enums import NaclAction, RouteTargetKind, RuleDirection
-from ...models.network import (
+from ...models.resource_base import Resource
+from ...models.resources.network import (
     InternetGateway,
     NaclEntry,
     NetworkAcl,
@@ -17,7 +18,6 @@ from ...models.network import (
     SecurityGroup,
     SecurityGroupRule,
 )
-from ...models.resource_base import Resource
 from ..evidence_builder import EvidenceBuilder, tags_of
 from ..operations import Ec2Operation as Op
 

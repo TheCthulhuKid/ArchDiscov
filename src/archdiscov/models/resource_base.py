@@ -11,7 +11,7 @@ from pydantic import (
     model_validator,
 )
 
-from .cloud_identity import ResourceIdentity, SupportedIdentity, parse_identity  # noqa: F401
+from .cloud.identity import ResourceIdentity, SupportedIdentity, parse_identity  # noqa: F401
 from .enums import CloudPlatform, LifecycleAction, LifecycleValueScope, ResourceType
 from .sanitization import sanitize_value
 

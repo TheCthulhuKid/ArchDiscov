@@ -3,7 +3,7 @@
 from collections.abc import Mapping
 from typing import Any
 
-from archdiscov.models.analysis_results import AnalysisResult
+from archdiscov.models.analysis.results import AnalysisResult
 
 from .analysis_diagnostics import (
     AnalysisValidationError,

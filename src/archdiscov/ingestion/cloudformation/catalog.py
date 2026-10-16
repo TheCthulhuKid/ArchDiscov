@@ -4,8 +4,8 @@ from dataclasses import dataclass
 
 from ...models.architecture import Ec2Instance, Subnet, Vpc
 from ...models.enums import ResourceType
-from ...models.network import InternetGateway, NetworkInterface, RouteTable, SecurityGroup
 from ...models.resource_base import Resource
+from ...models.resources.network import InternetGateway, NetworkInterface, RouteTable, SecurityGroup
 
 
 @dataclass(frozen=True)

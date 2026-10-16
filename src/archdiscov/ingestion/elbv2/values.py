@@ -3,7 +3,7 @@
 from typing import Any
 
 from ...models.enums import ListenerActionType, TargetHealthState
-from ...models.load_balancing_values import (
+from ...models.resources.load_balancing_values import (
     ListenerAction,
     RegisteredTarget,
     RuleCondition,

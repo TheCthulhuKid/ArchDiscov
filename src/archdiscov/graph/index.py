@@ -1,7 +1,7 @@
 from uuid import UUID
 
-from archdiscov.models.cloud_contracts import CloudEvidence, CloudOperationCoverage
-from archdiscov.models.cloud_scope import SupportedScope
+from archdiscov.models.cloud.contracts import CloudEvidence, CloudOperationCoverage
+from archdiscov.models.cloud.scope import SupportedScope
 from archdiscov.models.coverage_key import CoverageKey
 from archdiscov.models.enums import AttachmentKind, DependencyRelationship
 from archdiscov.models.resource_base import Resource

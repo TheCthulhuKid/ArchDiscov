@@ -7,14 +7,14 @@ from typing import Any, NoReturn
 from pydantic import ValidationError
 from pydantic_core import PydanticSerializationError
 
-from archdiscov.models.analysis_parameters import (
+from archdiscov.models.analysis.parameters import (
     CrossAccountTrustParameters,
     DatabaseAccessParameters,
     InternetExposureParameters,
     OwnershipParameters,
     SecurityGroupImpactParameters,
 )
-from archdiscov.models.analysis_references import (
+from archdiscov.models.analysis.references import (
     AnalysisLimitation,
     ContainmentPathStep,
     CoverageReference,
@@ -22,10 +22,10 @@ from archdiscov.models.analysis_references import (
     ResourceReference,
     UnresolvedTargetReference,
 )
-from archdiscov.models.analysis_results import AnalysisFinding, AnalysisResult
+from archdiscov.models.analysis.results import AnalysisFinding, AnalysisResult
 from archdiscov.models.architecture import LocalTarget, UnresolvedTarget
-from archdiscov.models.cloud_contracts import AwsTargetScope, CloudExternalTarget
-from archdiscov.models.cloud_scope import AwsScope, AzureScope
+from archdiscov.models.cloud.contracts import AwsTargetScope, CloudExternalTarget
+from archdiscov.models.cloud.scope import AwsScope, AzureScope
 
 from .validation_data import detach_data
 

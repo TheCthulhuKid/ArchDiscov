@@ -1,6 +1,6 @@
 from collections.abc import Mapping
 
-from archdiscov.models.cloud_contracts import CloudEvidence
+from archdiscov.models.cloud.contracts import CloudEvidence
 from archdiscov.models.resource_base import Resource
 
 
