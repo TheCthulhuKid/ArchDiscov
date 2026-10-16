@@ -303,3 +303,34 @@ class TargetHealthState(StrEnum):
     UNUSED = "unused"
     DRAINING = "draining"
     UNAVAILABLE = "unavailable"
+
+
+class QueryDirection(StrEnum):
+    OUTGOING = "outgoing"
+    INCOMING = "incoming"
+    BOTH = "both"
+
+
+class QueryEdgeSelection(StrEnum):
+    DEPENDENCIES = "dependencies"
+    CONTAINMENT = "containment"
+    BOTH = "both"
+
+
+class QueryTruncationReason(StrEnum):
+    DEPTH_LIMIT = "depth_limit"
+    RESULT_LIMIT = "result_limit"
+    WORK_LIMIT = "work_limit"
+
+
+class QueryLimitationKind(StrEnum):
+    COVERAGE_MISSING = "coverage_missing"
+    COVERAGE_LIMITED = "coverage_limited"
+    PROVENANCE_UNAVAILABLE = "provenance_unavailable"
+    EXTERNAL_TARGET = "external_target"
+    UNRESOLVED_TARGET = "unresolved_target"
+
+
+class QueryErrorCode(StrEnum):
+    INVALID_REQUEST = "invalid_request"
+    RESOURCE_NOT_FOUND = "resource_not_found"
