@@ -8,7 +8,8 @@ from archdiscov.models.resource_base import Resource
 from archdiscov.models.resources.cloud_unknown import CloudUnknownResource
 
 
-def _native_resource_type(resource: Resource) -> str:
+def native_resource_type(resource: Resource) -> str:
+    """Return the provider-native type for typed and explicit unknown resources."""
     if isinstance(resource, CloudUnknownResource):
         return resource.native_type
     if isinstance(resource, UnknownResource):
@@ -56,7 +57,7 @@ class PhysicalResourceKey:
         identity = resource.identity
         if identity.physical_id is None:
             return None
-        native_type = _native_resource_type(resource)
+        native_type = native_resource_type(resource)
         physical_id = (
             identity.canonical_arm_id
             if isinstance(identity, AzureResourceIdentity)
