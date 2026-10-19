@@ -7,10 +7,11 @@ from typing import Annotated
 import typer
 from pydantic import ValidationError
 
+from archdiscov.cli_analysis import analyze, findings
 from archdiscov.cli_collection import collection_request, outcome_data, print_outcomes
+from archdiscov.cli_diagnostics import emit_model, print_error, snapshot_exit_code
 from archdiscov.cli_diagnostics import fail_snapshot_error as _fail
 from archdiscov.cli_diagnostics import json_output as _json_output
-from archdiscov.cli_diagnostics import print_error, snapshot_exit_code
 from archdiscov.cli_evidence import print_evidence
 from archdiscov.cli_ingestion import ingestion_data, print_ingestion
 from archdiscov.cli_query import query_app
@@ -32,6 +33,8 @@ app = typer.Typer(
 )
 
 app.add_typer(query_app, name="query")
+app.command()(analyze)
+app.command()(findings)
 
 
 @app.callback(invoke_without_command=True)
@@ -130,7 +133,7 @@ def evidence(
             error.path = snapshot_path
         _fail(error, json_output)
     if json_output:
-        _json_output({"snapshot_path": str(snapshot_path), **result.model_dump(mode="json")})
+        emit_model(result, snapshot_path=str(snapshot_path))
     else:
         print_evidence(result, snapshot_path)
 

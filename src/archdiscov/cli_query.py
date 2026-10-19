@@ -6,7 +6,8 @@ from typing import Annotated, Any
 
 import typer
 
-from .cli_diagnostics import fail_snapshot_error, json_output, print_error
+from .cli_diagnostics import emit_model, fail_snapshot_error, print_error
+from .cli_options import JsonOption
 from .cli_query_output import print_inspect, print_neighbours, print_paths, print_search
 from .graph import GraphIndex
 from .models.enums import (
@@ -32,7 +33,6 @@ query_app = typer.Typer(
 )
 
 SnapshotOption = Annotated[Path, typer.Option("--snapshot", help="Snapshot JSON path to query.")]
-JsonOption = Annotated[bool, typer.Option("--json", help="Emit JSON results and errors.")]
 LimitOption = Annotated[int, typer.Option("--limit", help="Maximum results (1–10000).")]
 DirectionOption = Annotated[
     QueryDirection, typer.Option("--direction", help="outgoing, incoming, or both.")
@@ -72,7 +72,7 @@ def _run(
         print_error({"code": error.code.value, "message": error.message}, as_json=as_json)
         raise typer.Exit(_EXIT_CODES[error.code]) from None
     if as_json:
-        json_output({"snapshot_path": str(snapshot), **result.model_dump(mode="json")})
+        emit_model(result, snapshot_path=str(snapshot))
     else:
         present(result, snapshot)
 
