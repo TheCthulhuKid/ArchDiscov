@@ -14,6 +14,7 @@ from archdiscov.models.enums import AnalyzerErrorCode
 from .analyzer_errors import AnalyzerError
 from .analyzers import AnalyzerRegistry
 from .ownership import OwnershipAnalyzer
+from .security_group_impact import SecurityGroupImpactAnalyzer
 from .validation_data import detach_data
 
 if TYPE_CHECKING:
@@ -21,7 +22,7 @@ if TYPE_CHECKING:
 
 _PARAMETERS = TypeAdapter(AnalyzerParameters)
 
-DEFAULT_REGISTRY = AnalyzerRegistry([OwnershipAnalyzer()])
+DEFAULT_REGISTRY = AnalyzerRegistry([OwnershipAnalyzer(), SecurityGroupImpactAnalyzer()])
 
 
 def run_analyzer(

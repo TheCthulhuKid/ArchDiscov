@@ -69,7 +69,7 @@ def _summary(side: RuleReferenceSide, other: Resource | None) -> str:
     return OUTGOING_SUMMARY if other is not None else EXTERNAL_SUMMARY
 
 
-def _target_limitations(edge: DependencyEdge) -> list[AnalysisLimitation]:
+def target_limitations(edge: DependencyEdge) -> list[AnalysisLimitation]:
     """Nonlocal targets stay terminals: a limitation names them, no resource is invented."""
     if isinstance(edge.target, LocalTarget):
         return []
@@ -139,7 +139,7 @@ def rule_references(
                 edge=edge,
                 resources=impacted,
                 qualifying=[group, *impacted],
-                limitations=_target_limitations(edge),
+                limitations=target_limitations(edge),
             )
         )
     return findings, skipped

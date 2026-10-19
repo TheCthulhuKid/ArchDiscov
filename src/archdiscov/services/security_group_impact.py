@@ -16,6 +16,7 @@ from archdiscov.models.enums import (
     AwsService,
     CloudPlatform,
     CoverageStatus,
+    QueryTruncationReason,
 )
 from archdiscov.models.resource_base import Resource
 from archdiscov.models.resources.network import SecurityGroup
@@ -24,6 +25,7 @@ from .analysis_qualification import coverage_limitation
 from .analyzer_errors import AnalyzerError
 from .analyzers import build_result
 from .security_group_attachments import direct_attachments
+from .security_group_downstream import downstream_paths, truncation_limitations
 from .security_group_findings import resource_reference
 from .security_group_rules import rule_references
 
@@ -38,12 +40,16 @@ ATTACHING_SERVICES = (
     AwsService.LAMBDA,
     AwsService.RDS,
 )
-RESULT_LIMIT_CODE = "result_limit_reached"
 UNRECORDED_PREFIX = "coverage_unrecorded_"
 _INCOMPLETE_SUMMARY = (
     "Attachment and rule-reference completeness for the selected security group "
     "cannot be established from the recorded coverage."
 )
+
+
+def _unique(findings: list[AnalysisFinding]) -> list[AnalysisFinding]:
+    """Drop findings with identical content (such as parallel identical edges), in order."""
+    return list({finding.id: finding for finding in findings}.values())
 
 
 def _coverage_limitations(index: GraphIndex, group: Resource) -> list[AnalysisLimitation]:
@@ -97,11 +103,12 @@ def _unsupported(index: GraphIndex, selected: Resource) -> AnalysisFinding:
 
 
 class SecurityGroupImpactAnalyzer:
-    """List observed direct attachments and rule references of one selected AWS group.
+    """Observed attachments and rule references of one AWS group, plus potential downstream.
 
     Attachment is only an explicit membership edge, never VPC or subnet containment.
-    Findings cite the stored edges and are bounded by `result_limit`; a group-level
-    insufficient-evidence finding reports missing or limited attaching-service
+    Observed findings cite the stored edges; potential findings trace dependencies from
+    impacted resources to `max_depth`. Everything is bounded by `result_limit`; a
+    group-level insufficient-evidence finding reports missing or limited attaching-service
     coverage and truncation. Results are recorded structure, not reachability.
     """
 
@@ -120,18 +127,24 @@ class SecurityGroupImpactAnalyzer:
             raise AnalyzerError(AnalyzerErrorCode.UNSUPPORTED_RESOURCE)
 
         rules, skipped = rule_references(index, selected)
-        candidates = {
-            finding.id: finding for finding in [*direct_attachments(index, selected), *rules]
-        }
-        findings = list(candidates.values())[: parameters.result_limit]
-        limitations = [*_coverage_limitations(index, selected), *skipped]
-        if len(candidates) > len(findings):
-            limitations.append(
-                AnalysisLimitation(
-                    code=RESULT_LIMIT_CODE,
-                    message="More impact findings exist than the configured result limit.",
-                )
-            )
+        observed = _unique([*direct_attachments(index, selected), *rules])
+        retained = observed[: parameters.result_limit]
+        downstream, truncation = downstream_paths(
+            index,
+            selected.id,
+            (ref.resource_id for finding in retained for ref in finding.resources),
+            parameters,
+            parameters.result_limit - len(retained),
+        )
+        candidates = _unique([*retained, *downstream])
+        findings = candidates[: parameters.result_limit]
+        if len(observed) > len(retained) or len(candidates) > len(findings):
+            truncation.add(QueryTruncationReason.RESULT_LIMIT)
+        limitations = [
+            *_coverage_limitations(index, selected),
+            *skipped,
+            *truncation_limitations(truncation),
+        ]
         if limitations:
             findings.append(
                 AnalysisFinding(

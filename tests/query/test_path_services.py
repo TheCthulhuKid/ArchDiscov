@@ -147,3 +147,17 @@ def test_unknown_and_invalid_requests_are_safe_errors():
         with pytest.raises(QueryError) as error:
             query_paths(index, bad)
         assert error.value.code == QueryErrorCode.INVALID_REQUEST
+
+
+def test_excluded_resources_are_never_entered_and_never_reported_as_truncation():
+    index = graph([(RTB, SGW), (SGW, SUB)])
+    full = run(index, limits={"depth": 1})
+    assert full.truncation.reasons == [QueryTruncationReason.DEPTH_LIMIT]
+    excluded = run(index, exclude_resource_ids=[SGW], limits={"depth": 1})
+    assert SGW not in {step.edge.edge.target_id for p in excluded.paths for step in p.steps}
+    assert excluded.truncation.reasons == []
+    deep = run(index, exclude_resource_ids=[SGW], limits={"depth": 5})
+    assert all(SGW not in {s.edge.edge.target_id for s in p.steps} for p in deep.paths)
+    # Excluded candidates are still examined, so they still cost work.
+    starved = run(index, exclude_resource_ids=[SGW], limits={"work_limit": 2})
+    assert starved.truncation.reasons == [QueryTruncationReason.WORK_LIMIT]

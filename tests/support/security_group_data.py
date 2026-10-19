@@ -42,7 +42,19 @@ IDS = {
 }
 EVIDENCE = {
     name: f"ev-{name}"
-    for name in ("instance", "eni", "lb", "ecs", "lambda", "rds", "sg-app", "sg-db", "sg-cache")
+    for name in (
+        "instance",
+        "eni",
+        "lb",
+        "ecs",
+        "lambda",
+        "rds",
+        "sg-app",
+        "sg-db",
+        "sg-cache",
+        "subnet",
+        "vpc",
+    )
 }
 
 
@@ -87,6 +99,16 @@ def _reference(source: str, target: dict, **attributes: Any) -> dict:
         "target": target,
         "relationship": "attached_to",
         "attributes": {"kind": "security_group_reference", **attributes},
+        "evidence_ids": [EVIDENCE[source]],
+    }
+
+
+def _dependency(source: str, target: dict, kind: str, **attributes: Any) -> dict:
+    return {
+        "source_id": IDS[source],
+        "target": target,
+        "relationship": "attached_to",
+        "attributes": {"kind": kind, **attributes},
         "evidence_ids": [EVIDENCE[source]],
     }
 
@@ -183,6 +205,22 @@ def snapshot_data(*, services: tuple[str, ...] = SERVICES, statuses: dict | None
             direction="egress",
             target_kind="prefix_list",
         ),
+        # Downstream dependencies: a chain, a cycle, parallel edges, and a cross-account end.
+        _dependency("instance", _local("subnet"), "subnet_membership"),
+        _dependency("instance", _local("subnet"), "subnet_membership", note="secondary"),
+        _dependency("subnet", _local("vpc"), "subnet_membership"),
+        _dependency("vpc", _local("subnet"), "subnet_membership", note="cycle"),
+        _dependency(
+            "instance",
+            {
+                "kind": "external",
+                "identifier": f"arn:aws:iam::{OTHER_ACCOUNT}:role/shared",
+                "account_id": OTHER_ACCOUNT,
+                "service": "iam",
+                "aws_resource_type": "AWS::IAM::Role",
+            },
+            "instance_profile",
+        ),
         # Recorded reference whose rule direction is unavailable.
         _reference("sg-db", _local("sg-app")),
     ]
@@ -208,3 +246,21 @@ def snapshot_data(*, services: tuple[str, ...] = SERVICES, statuses: dict | None
 
 def variant(**options) -> dict:
     return deepcopy(snapshot_data(**options))
+
+
+def schema_one_data(**options) -> dict:
+    """The same snapshot as schema 1, whose dependencies can only be local `target_id`s."""
+    data = variant(**options)
+    data["schema_version"] = "1"
+    edges = []
+    for edge in data["dependencies_by_region"][REGION]:
+        if edge["target"]["kind"] != "local":
+            continue
+        edges.append(
+            {
+                **{k: v for k, v in edge.items() if k != "target"},
+                "target_id": edge["target"]["resource_id"],
+            }
+        )
+    data["dependencies_by_region"][REGION] = edges
+    return data

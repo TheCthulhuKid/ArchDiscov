@@ -45,20 +45,46 @@ def analyze(
         Path, typer.Option("--output", "-o", help="New result path; never overwritten.")
     ],
     analyzer: Annotated[
-        AnalyzerKind, typer.Option("--analyzer", help="Analyzer to run; currently ownership.")
+        AnalyzerKind,
+        typer.Option("--analyzer", help="ownership (default) or security_group_impact."),
     ] = AnalyzerKind.OWNERSHIP,
     ownership_key: Annotated[
         list[str] | None,
-        typer.Option("--ownership-key", help="Tag key counted as ownership; repeatable."),
+        typer.Option("--ownership-key", help="Ownership: tag key counted as owner; repeatable."),
+    ] = None,
+    resource_id: Annotated[
+        str | None,
+        typer.Option("--resource-id", help="Security-group impact: stable ID of the group."),
+    ] = None,
+    max_depth: Annotated[
+        int | None,
+        typer.Option(
+            "--max-depth", help="Security-group impact: downstream steps (1-10, default 3)."
+        ),
+    ] = None,
+    result_limit: Annotated[
+        int | None,
+        typer.Option(
+            "--result-limit", help="Security-group impact: findings (1-10000, default 100)."
+        ),
     ] = None,
     json_output: JsonOption = False,
 ) -> None:
-    """Run an analyzer over a snapshot and save the verified result."""
+    """Run an analyzer over a snapshot and save the verified result.
+
+    Options belong to one analyzer: --ownership-key for ownership; --resource-id,
+    --max-depth, and --result-limit for security_group_impact.
+    """
     with _safe_failures(snapshot, json_output):
         DEFAULT_REGISTRY.get(analyzer)  # fail fast, before touching any file
-        parameters: dict[str, object] = {"kind": analyzer}
-        if ownership_key:
-            parameters["ownership_keys"] = ownership_key
+        options = {
+            "ownership_keys": ownership_key or None,
+            "resource_id": resource_id,
+            "max_depth": max_depth,
+            "result_limit": result_limit,
+        }
+        # Options an analyzer does not accept are rejected by its parameter validation.
+        parameters = {"kind": analyzer, **{k: v for k, v in options.items() if v is not None}}
         loaded = load_snapshot(snapshot)
         result = run_analyzer(GraphIndex(loaded), parameters)
         save_analysis(result, output, snapshot=loaded)

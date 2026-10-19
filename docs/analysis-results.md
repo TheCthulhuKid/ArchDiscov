@@ -39,8 +39,7 @@ in [ownership analysis](ownership-analysis.md) does.
 ## Security-group impact vocabulary
 
 `AnalysisFinding.impact` (`SecurityGroupImpact`) is optional and used only by the
-security-group impact analyzer, which is not implemented yet; this step defines the
-vocabulary. It names the selected group, an `ImpactKind` and an `ImpactLabel`:
+security-group impact analyzer ([details](security-group-impact.md)). It names the selected group, an `ImpactKind` and an `ImpactLabel`:
 
 | Kind | Label | Meaning |
 |---|---|---|

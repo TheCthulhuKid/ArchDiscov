@@ -18,6 +18,7 @@ from archdiscov.services import (
     validate_analysis_result,
     validate_snapshot,
 )
+from archdiscov.services import security_group_downstream as downstream_module
 from archdiscov.services.security_group_impact import SecurityGroupImpactAnalyzer
 from tests.paths import FIXTURES_ROOT
 from tests.support.security_group_data import EVIDENCE, IDS, OTHER_ACCOUNT, variant
@@ -238,3 +239,99 @@ def test_schema_two_and_three_snapshots_give_identical_findings():
     for result, snapshot in zip(results, (legacy, modern), strict=True):
         assert validate_analysis_result(result, snapshot) == result
     assert [f.id for f in results[0].findings] == [f.id for f in results[1].findings]
+
+
+def potential(result):
+    return by_kind(result, ImpactKind.DOWNSTREAM_DEPENDENCY)
+
+
+def chain(finding):
+    return [
+        (step.source_id, getattr(step.target, "resource_id", step.target.kind))
+        for step in finding.path
+    ]
+
+
+def test_downstream_chains_are_potential_cited_and_separate_from_observed():
+    result = analyze()
+    downstream = potential(result)
+    assert downstream
+    assert all(f.impact.label == ImpactLabel.POTENTIAL for f in downstream)
+    observed = [f for f in result.findings if f.impact and f.impact.label == ImpactLabel.OBSERVED]
+    assert observed and not set(f.id for f in observed) & set(f.id for f in downstream)
+    one = next(
+        f
+        for f in downstream
+        if chain(f) == [(IDS["instance"], IDS["subnet"])] and not f.path[0].attributes.get("note")
+    )
+    assert one.resources[0].resource_id == IDS["subnet"]
+    assert one.evidence_ids == [EVIDENCE["instance"]]
+    assert "not reachability" in one.summary
+    two = [
+        f
+        for f in downstream
+        if chain(f) == [(IDS["instance"], IDS["subnet"]), (IDS["subnet"], IDS["vpc"])]
+    ]
+    assert two and all(f.resources[0].resource_id == IDS["vpc"] for f in two)
+
+
+def test_cycles_stop_and_parallel_edges_stay_distinct_paths():
+    downstream = potential(analyze(max_depth=10))
+    assert not any(
+        IDS["vpc"] == step.source_id and step.target.resource_id == IDS["subnet"]
+        for f in downstream
+        for step in f.path
+        if step.target.kind == "local"
+    )
+    to_subnet = [f for f in downstream if chain(f) == [(IDS["instance"], IDS["subnet"])]]
+    assert {f.path[0].attributes.get("note") for f in to_subnet} == {None, "secondary"}
+
+
+def test_chains_back_through_the_selected_group_are_not_downstream_impact():
+    for f in potential(analyze(max_depth=10)):
+        assert all(getattr(step.target, "resource_id", None) != IDS["sg-app"] for step in f.path)
+
+
+def test_depth_boundaries_report_truncation_only_when_structure_remains():
+    shallow = analyze(max_depth=1)
+    assert {len(f.path) for f in potential(shallow)} == {1}
+    assert "depth_limit_reached" in codes(group_finding(shallow))
+    exact = analyze(max_depth=2)
+    assert max(len(f.path) for f in potential(exact)) == 2
+    assert "depth_limit_reached" not in codes(group_finding(exact))
+
+
+def test_cross_account_end_stays_a_terminal_with_a_limitation():
+    ended = next(f for f in potential(analyze()) if f.path[-1].target.kind == "external")
+    assert ended.resources == []
+    assert ended.path[-1].target.scope.account_id == OTHER_ACCOUNT
+    assert codes(ended) == ["external_target"]
+    assert len(ended.path) == 1
+
+
+def test_downstream_results_are_deterministic_and_bounded_by_the_result_limit():
+    assert analyze().findings == analyze().findings
+    limited = analyze(result_limit=8)
+    assert len([f for f in limited.findings if f.impact]) == 8
+    assert "result_limit_reached" in codes(group_finding(limited))
+
+
+def test_work_budget_truncation_is_reported(monkeypatch):
+    monkeypatch.setattr(downstream_module, "WORK_BUDGET", 1)
+    result = analyze()
+    assert "work_limit_reached" in codes(group_finding(result))
+
+
+def test_failed_collection_along_a_traced_chain_downgrades_potential_findings():
+    result = analyze(variant(statuses={"ec2": "failed"}))
+    assert potential(result)
+    assert all(f.status == AnalysisStatus.PARTIAL for f in potential(result) if f.resources)
+
+
+@pytest.mark.parametrize("limit", [1, 2, 10_000])
+def test_result_limit_extremes_are_valid_and_respected(limit):
+    total = len([f for f in analyze().findings if f.impact])
+    result = analyze(result_limit=limit)
+    assert len([f for f in result.findings if f.impact]) == min(limit, total)
+    group = group_finding(result)
+    assert ("result_limit_reached" in codes(group)) == (limit < total)

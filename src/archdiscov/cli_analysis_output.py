@@ -4,6 +4,7 @@ from pathlib import Path
 
 import typer
 
+from .models.analysis.impact import SecurityGroupImpact
 from .models.analysis.references import AnalysisLimitation, PathStep
 from .models.analysis.results import AnalysisFinding, AnalysisResult
 from .models.architecture import LocalTarget
@@ -14,6 +15,13 @@ def _header(result: AnalysisResult, snapshot_path: Path) -> None:
     typer.echo(f"Analyzer: {result.analyzer} (version {result.analyzer_version})")
     typer.echo(f"Parameters: {result.parameters.model_dump_json()}")
     typer.echo(f"Created: {result.created_at.isoformat()}")
+
+
+def _impact_line(impact: SecurityGroupImpact) -> str:
+    line = f"{impact.label} {impact.kind} (selected group {impact.selected_group_id})"
+    if impact.rule_direction is not None and impact.reference_side is not None:
+        line += f" [{impact.rule_direction}; {impact.reference_side}]"
+    return line
 
 
 def _step_line(step: PathStep) -> str:
@@ -38,6 +46,8 @@ def _limitation_lines(limitation: AnalysisLimitation) -> list[str]:
 def _print_finding(number: int, finding: AnalysisFinding) -> None:
     typer.echo(f"  {number}. [{finding.status}] {finding.summary}")
     typer.echo(f"     Finding: {finding.id}")
+    if finding.impact is not None:
+        typer.echo(f"     Impact: {_impact_line(finding.impact)}")
     for reference in finding.resources:
         typer.echo(f"     Resource: {reference.resource_id}")
     if finding.evidence_ids:
