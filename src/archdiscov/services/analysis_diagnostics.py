@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, NoReturn
 
 from pydantic import ValidationError
@@ -66,10 +67,13 @@ class AnalysisValidationIssue:
 class AnalysisValidationError(Exception):
     """Safe diagnostics; raw input and exception contexts are not public details."""
 
-    def __init__(self, details: tuple[AnalysisValidationIssue, ...]) -> None:
+    def __init__(
+        self, details: tuple[AnalysisValidationIssue, ...], *, path: Path | None = None
+    ) -> None:
         super().__init__("Analysis result validation failed.")
         self.code = "invalid_analysis_result"
         self.details = details
+        self.path = path
 
 
 def reject(location: tuple[str | int, ...], code: str, message: str) -> NoReturn:

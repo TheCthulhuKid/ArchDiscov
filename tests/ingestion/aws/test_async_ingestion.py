@@ -16,7 +16,7 @@ from archdiscov.services import (
     collect_snapshots,
     collect_snapshots_async,
     load_snapshot,
-    snapshots,
+    publication,
 )
 from tests.services.test_ingestion_service import context as simple_context
 from tests.services.test_ingestion_service import request
@@ -145,7 +145,7 @@ def test_cancelled_save_settles_publication_and_preserves_committed_files(
     monkeypatch, tmp_path, stage
 ):
     started, release = Event(), Event()
-    link = snapshots.os.link
+    link = publication.os.link
     first, second = tmp_path / "first.json", tmp_path / "never.json"
     req = request().model_copy(
         update={"accounts": (account(), account(OTHER)), "max_active_accounts": 1}
@@ -160,7 +160,7 @@ def test_cancelled_save_settles_publication_and_preserves_committed_files(
         if stage == "before_link":
             link(source, destination)
 
-    monkeypatch.setattr(snapshots.os, "link", blocked_link)
+    monkeypatch.setattr(publication.os, "link", blocked_link)
 
     async def run():
         task = asyncio.create_task(collect_and_save_async(req, [first, second], context=context()))

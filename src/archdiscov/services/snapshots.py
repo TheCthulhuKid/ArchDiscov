@@ -1,11 +1,6 @@
 """Validation and explicit-path persistence for architecture snapshots."""
 
-import json
-import logging
-import os
-import tempfile
 from collections.abc import Mapping
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -16,67 +11,33 @@ from archdiscov.models.architecture import ArchitectureSnapshot
 from archdiscov.models.cloud.snapshot import CloudSnapshot
 from archdiscov.models.validation_errors import SAFE_VALIDATION_MESSAGES
 
+from .publication import SERIALIZATION_ERRORS, publish_text, read_json, render_json
 from .snapshot_access import SupportedSnapshot
+from .snapshot_errors import (
+    SnapshotConflictError,
+    SnapshotError,
+    SnapshotIOError,
+    SnapshotJSONError,
+    SnapshotValidationError,
+    SnapshotValidationIssue,
+)
 from .validation_data import detach_data as _detach_data
 
 SnapshotInput = SupportedSnapshot | Mapping[str, Any]
 
-_logger = logging.getLogger(__name__)
 
-
-class SnapshotError(Exception):
-    """A safe public diagnostic; the original exception remains in __cause__."""
-
-    def __init__(self, message: str, *, code: str, path: Path | None = None) -> None:
-        super().__init__(message)
-        self.code = code
-        self.path = path
-
-
-@dataclass(frozen=True)
-class SnapshotValidationIssue:
-    location: tuple[str | int, ...]
-    type: str
-    message: str
-
-
-class SnapshotValidationError(SnapshotError):
-    def __init__(
-        self,
-        details: tuple[SnapshotValidationIssue, ...],
-        *,
-        code: str = "invalid_snapshot",
-        path: Path | None = None,
-    ) -> None:
-        super().__init__("Snapshot validation failed.", code=code, path=path)
-        self.details = details
-
-
-class SnapshotJSONError(SnapshotError):
-    def __init__(
-        self,
-        message: str,
-        *,
-        code: str,
-        path: Path,
-        line: int | None = None,
-        column: int | None = None,
-    ) -> None:
-        super().__init__(message, code=code, path=path)
-        self.line = line
-        self.column = column
-
-
-class SnapshotConflictError(SnapshotError):
-    def __init__(self, path: Path) -> None:
-        super().__init__(
-            "Destination already exists; choose a new path.", code="snapshot_conflict", path=path
-        )
-
-
-class SnapshotIOError(SnapshotError):
-    def __init__(self, message: str, *, path: Path) -> None:
-        super().__init__(message, code="snapshot_io_error", path=path)
+__all__ = [
+    "SnapshotConflictError",
+    "SnapshotError",
+    "SnapshotIOError",
+    "SnapshotInput",
+    "SnapshotJSONError",
+    "SnapshotValidationError",
+    "SnapshotValidationIssue",
+    "load_snapshot",
+    "save_snapshot",
+    "validate_snapshot",
+]
 
 
 def save_snapshot(snapshot: SnapshotInput, path: str | Path) -> Path:
@@ -94,95 +55,19 @@ def _save_validated_snapshot(snapshot: SupportedSnapshot, path: str | Path) -> P
     """Publish an already detached, validated snapshot without validating it again."""
     path = Path(path)
     try:
-        text = (
-            json.dumps(
-                snapshot.model_dump(mode="json"), indent=2, ensure_ascii=False, allow_nan=False
-            )
-            + "\n"
-        )
-        # Detect incompatible text before creating a temporary file.
-        text.encode("utf-8")
-    except SnapshotValidationError as exc:
-        exc.path = path
-        raise
-    except (PydanticSerializationError, TypeError, ValueError, OverflowError) as exc:
+        text = render_json(snapshot)
+    except SERIALIZATION_ERRORS as exc:
         raise SnapshotValidationError(
             (SnapshotValidationIssue((), "serialization_error", "Snapshot is not UTF-8 JSON."),),
             path=path,
         ) from exc
-
-    temporary_path: Path | None = None
-    committed = False
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            newline="\n",
-            dir=path.parent,
-            prefix=".archdiscov-",
-            suffix=".tmp",
-            delete=False,
-        ) as temporary:
-            temporary_path = Path(temporary.name)
-            temporary.write(text)
-            temporary.flush()
-            os.fsync(temporary.fileno())
-        try:
-            os.link(temporary_path, path)
-        except FileExistsError as exc:
-            raise SnapshotConflictError(path) from exc
-        committed = True
-    except OSError as exc:
-        raise SnapshotIOError(
-            "Unable to save snapshot; check the parent directory, write permissions, "
-            "and filesystem hard-link support.",
-            path=path,
-        ) from exc
-    finally:
-        if temporary_path is not None:
-            try:
-                temporary_path.unlink()
-            except OSError:
-                # Publication is the commit point; cleanup cannot turn it into a failed save.
-                _logger.warning(
-                    "Unable to remove snapshot temporary file %s (committed=%s).",
-                    temporary_path,
-                    committed,
-                )
-    return path
-
-
-def _reject_json_constant(value: str) -> None:
-    raise ValueError("Nonstandard JSON constant")
+    return publish_text(text, path, subject="snapshot")
 
 
 def load_snapshot(path: str | Path) -> SupportedSnapshot:
     """Read a UTF-8 JSON snapshot and apply the shared validation contract."""
     path = Path(path)
-    try:
-        text = path.read_text(encoding="utf-8")
-    except UnicodeError as exc:
-        raise SnapshotJSONError(
-            "Snapshot JSON must use UTF-8 encoding.", code="invalid_encoding", path=path
-        ) from exc
-    except OSError as exc:
-        raise SnapshotIOError(
-            "Unable to read snapshot; check the path and read permissions.", path=path
-        ) from exc
-    try:
-        data = json.loads(text, parse_constant=_reject_json_constant)
-    except json.JSONDecodeError as exc:
-        raise SnapshotJSONError(
-            f"Invalid JSON syntax at line {exc.lineno}, column {exc.colno}.",
-            code="invalid_json",
-            path=path,
-            line=exc.lineno,
-            column=exc.colno,
-        ) from exc
-    except (ValueError, RecursionError) as exc:
-        raise SnapshotJSONError(
-            "Invalid JSON value or excessive nesting.", code="invalid_json", path=path
-        ) from exc
+    data = read_json(path, subject="snapshot")
     try:
         return validate_snapshot(data)
     except SnapshotValidationError as exc:

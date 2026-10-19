@@ -14,10 +14,10 @@ from archdiscov.services import (
     SnapshotJSONError,
     SnapshotValidationError,
     load_snapshot,
+    publication,
     save_snapshot,
     validate_snapshot,
 )
-from archdiscov.services import snapshots as service
 from tests.paths import FIXTURES_ROOT
 
 FIXTURES = FIXTURES_ROOT / "snapshots"
@@ -318,9 +318,9 @@ def test_precommit_faults_leave_no_output(
         raise OSError(errno.EIO, "private-secret")
 
     if operation == "create":
-        monkeypatch.setattr(service.tempfile, "NamedTemporaryFile", fail)
+        monkeypatch.setattr(publication.tempfile, "NamedTemporaryFile", fail)
     elif operation in {"write", "flush"}:
-        original = service.tempfile.NamedTemporaryFile
+        original = publication.tempfile.NamedTemporaryFile
 
         def temporary(*args, **kwargs):
             handle = original(*args, **kwargs)
@@ -336,9 +336,9 @@ def test_precommit_faults_leave_no_output(
                 handle.flush = fail
             return handle
 
-        monkeypatch.setattr(service.tempfile, "NamedTemporaryFile", temporary)
+        monkeypatch.setattr(publication.tempfile, "NamedTemporaryFile", temporary)
     else:
-        monkeypatch.setattr(service.os, operation, fail)
+        monkeypatch.setattr(publication.os, operation, fail)
     with pytest.raises(SnapshotIOError) as error:
         save_snapshot(snapshot, path)
     assert error.value.__cause__ is not None
@@ -355,7 +355,7 @@ def test_unsupported_hard_links_fail_safely(
     def unsupported(*args, **kwargs):
         raise OSError(errno.EOPNOTSUPP, "Hard links unsupported")
 
-    monkeypatch.setattr(service.os, "link", unsupported)
+    monkeypatch.setattr(publication.os, "link", unsupported)
     with pytest.raises(SnapshotIOError, match="hard-link support"):
         save_snapshot(snapshot, tmp_path / "snapshot.json")
     assert list(tmp_path.iterdir()) == []
@@ -373,7 +373,7 @@ def test_publication_handles_a_destination_created_during_save(
         path.write_bytes(b"other writer")
         link(source, destination)
 
-    monkeypatch.setattr(service.os, "link", racing_link)
+    monkeypatch.setattr(publication.os, "link", racing_link)
     with pytest.raises(SnapshotConflictError):
         save_snapshot(snapshot, path)
     assert path.read_bytes() == b"other writer"
@@ -393,7 +393,7 @@ def test_two_writers_publish_exactly_one_complete_snapshot(
         barrier.wait(timeout=5)
         link(source, destination)
 
-    monkeypatch.setattr(service.os, "link", synchronized_link)
+    monkeypatch.setattr(publication.os, "link", synchronized_link)
 
     def write():
         try:
@@ -431,7 +431,7 @@ def test_cleanup_failure_respects_commit_point(
             assert save_snapshot(snapshot, path) == path
             assert load_snapshot(path) == snapshot
         else:
-            patch.setattr(service.os, "link", fail_link)
+            patch.setattr(publication.os, "link", fail_link)
             with pytest.raises(SnapshotIOError) as error:
                 save_snapshot(snapshot, path)
             assert error.value.__cause__.errno == errno.EOPNOTSUPP
@@ -504,7 +504,7 @@ def test_complete_synced_file_exists_before_publication(
         events.append("link")
         link(source, destination)
 
-    monkeypatch.setattr(service.os, "fsync", synced)
-    monkeypatch.setattr(service.os, "link", publish)
+    monkeypatch.setattr(publication.os, "fsync", synced)
+    monkeypatch.setattr(publication.os, "link", publish)
     save_snapshot(snapshot, path)
     assert events == ["fsync", "link"]
