@@ -1,5 +1,6 @@
 """Public application services used by the CLI and future interfaces."""
 
+from .analyses import load_analysis, save_analysis
 from .analysis_qualification import Qualification, qualify_status
 from .analysis_validation import (
     AnalysisValidationError,
@@ -67,11 +68,13 @@ __all__ = [
     "get_evidence",
     "ingest_snapshot",
     "inspect_resource",
+    "load_analysis",
     "load_snapshot",
     "query_neighbours",
     "query_paths",
     "qualify_status",
     "run_analyzer",
+    "save_analysis",
     "save_snapshot",
     "search_resources",
     "select_adapter",

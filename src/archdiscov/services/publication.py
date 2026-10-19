@@ -1,0 +1,105 @@
+"""Shared UTF-8 JSON file reading and atomic, no-overwrite publication."""
+
+import json
+import logging
+import os
+import tempfile
+from pathlib import Path
+from typing import Any
+
+from pydantic import BaseModel
+from pydantic_core import PydanticSerializationError
+
+from .snapshot_errors import SnapshotConflictError, SnapshotIOError, SnapshotJSONError
+
+SERIALIZATION_ERRORS = (PydanticSerializationError, TypeError, ValueError, OverflowError)
+
+_logger = logging.getLogger(__name__)
+
+
+def render_json(model: BaseModel) -> str:
+    """Render strict UTF-8 JSON text; raises one of SERIALIZATION_ERRORS if impossible."""
+    text = (
+        json.dumps(model.model_dump(mode="json"), indent=2, ensure_ascii=False, allow_nan=False)
+        + "\n"
+    )
+    # Detect incompatible text before creating a temporary file.
+    text.encode("utf-8")
+    return text
+
+
+def publish_text(text: str, path: Path, *, subject: str) -> Path:
+    """Atomically publish text at a new path; never overwrite an existing destination."""
+    temporary_path: Path | None = None
+    committed = False
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="\n",
+            dir=path.parent,
+            prefix=".archdiscov-",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(text)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        try:
+            os.link(temporary_path, path)
+        except FileExistsError as exc:
+            raise SnapshotConflictError(path) from exc
+        committed = True
+    except OSError as exc:
+        raise SnapshotIOError(
+            f"Unable to save {subject}; check the parent directory, write permissions, "
+            "and filesystem hard-link support.",
+            path=path,
+        ) from exc
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink()
+            except OSError:
+                # Publication is the commit point; cleanup cannot turn it into a failed save.
+                _logger.warning(
+                    "Unable to remove temporary file %s (committed=%s).",
+                    temporary_path,
+                    committed,
+                )
+    return path
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError("Nonstandard JSON constant")
+
+
+def read_json(path: Path, *, subject: str) -> Any:
+    """Read UTF-8 JSON with safe diagnostics; the caller validates the content."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeError as exc:
+        raise SnapshotJSONError(
+            f"{subject.capitalize()} JSON must use UTF-8 encoding.",
+            code="invalid_encoding",
+            path=path,
+        ) from exc
+    except OSError as exc:
+        raise SnapshotIOError(
+            f"Unable to read {subject}; check the path and read permissions.", path=path
+        ) from exc
+    try:
+        return json.loads(text, parse_constant=_reject_json_constant)
+    except json.JSONDecodeError as exc:
+        raise SnapshotJSONError(
+            f"Invalid JSON syntax at line {exc.lineno}, column {exc.colno}.",
+            code="invalid_json",
+            path=path,
+            line=exc.lineno,
+            column=exc.colno,
+        ) from exc
+    except (ValueError, RecursionError) as exc:
+        raise SnapshotJSONError(
+            "Invalid JSON value or excessive nesting.", code="invalid_json", path=path
+        ) from exc
