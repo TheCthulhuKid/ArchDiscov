@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from archdiscov.models.analysis.impact import UNSUPPORTED_PLATFORM_CODE
 from archdiscov.models.analysis.parameters import AnalyzerParameters, SecurityGroupImpactParameters
-from archdiscov.models.analysis.references import AnalysisLimitation
+from archdiscov.models.analysis.references import UNSUPPORTED_PLATFORM_CODE, AnalysisLimitation
 from archdiscov.models.analysis.results import AnalysisFinding, AnalysisResult
 from archdiscov.models.cloud.context import canonical_service_key
 from archdiscov.models.enums import (

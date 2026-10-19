@@ -61,6 +61,36 @@ does not support is reported as an `insufficient_evidence` finding with an
 `unsupported_platform` limitation (`UNSUPPORTED_PLATFORM_CODE`) rather than an impact.
 Analyzer errors `resource_not_found` and `unsupported_resource` have fixed safe messages.
 
+## Cross-account trust vocabulary
+
+`AnalysisFinding.trust` (`CrossAccountTrust`) is optional and reserved for the
+cross-account trust analyzer, which is not implemented yet; this step defines the
+vocabulary. It records one configured trust principal of the finding's first resource
+(the trusting role or queue):
+
+| Field | Values |
+|---|---|
+| `source` | `role_trust_policy` (an IAM role) or `resource_policy` (an SQS queue) |
+| `classification` | `same_account`, `external_account`, `service`, `federated`, `wildcard`, `unresolved` |
+| `effect` | `Allow` or `Deny`, from the cited statement |
+| `conditional` | whether the statement carries a `Condition` |
+| `not_principal` | whether the statement used `NotPrincipal` |
+
+`NotPrincipal` names a complement that cannot be listed, so it must be classified
+`unresolved` (matching how ingestion stores it). All fields are part of finding
+identity; findings without a `trust` block keep exactly their earlier IDs. The
+principal itself is the path step's target, and unresolved or external forms remain
+terminals with limitations. This is configured policy only: it never asserts that the
+principal can assume the role or reach the queue.
+
+A finding carries at most one analyzer-specific block (`impact` or `trust`), trust
+findings must name the trusting resource, and a result carrying them must use
+`cross_account_trust` parameters. Integrity requires the trusting resource to be an IAM
+role for `role_trust_policy` and an SQS queue for `resource_policy`
+(`trust_source_mismatch`). The shared `unsupported_platform` limitation code
+(`archdiscov.models.analysis.references.UNSUPPORTED_PLATFORM_CODE`) covers clouds
+without IAM trust semantics, such as Azure.
+
 ## Deterministic IDs
 
 Finding IDs are derived from normalized finding content with SHA-256, scoped by the

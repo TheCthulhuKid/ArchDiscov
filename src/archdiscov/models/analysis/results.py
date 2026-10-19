@@ -10,6 +10,7 @@ from ..resource_base import Model, NonEmptyString
 from .impact import SecurityGroupImpact
 from .parameters import AnalyzerParameters, SecurityGroupImpactParameters
 from .references import AnalysisLimitation, PathStep, ResourceReference
+from .trust import CrossAccountTrust
 
 
 class AnalysisFinding(Model):
@@ -24,6 +25,7 @@ class AnalysisFinding(Model):
     path: list[PathStep] = Field(default_factory=list)
     limitations: list[AnalysisLimitation] = Field(default_factory=list)
     impact: SecurityGroupImpact | None = None
+    trust: CrossAccountTrust | None = None
 
     @model_validator(mode="after")
     def validate_finding(self) -> Self:
@@ -31,6 +33,10 @@ class AnalysisFinding(Model):
             raise ValueError("partial and insufficient_evidence results require limitations")
         if self.status != AnalysisStatus.INSUFFICIENT_EVIDENCE and not self.evidence_ids:
             raise ValueError("supported and partial findings require evidence_ids")
+        if self.impact is not None and self.trust is not None:
+            raise ValueError("a finding carries at most one analyzer-specific block")
+        if self.trust is not None and not self.resources:
+            raise ValueError("trust findings must name the trusting resource")
         derived_id = deterministic_finding_id(self)
         if self.id and self.id != derived_id:
             raise ValueError("finding id must match deterministic_finding_id")
@@ -51,9 +57,10 @@ def deterministic_finding_id(finding: AnalysisFinding) -> str:
     kind is envelope-only and therefore is not part of the finding identity.
     """
     exclude: dict[str, object] = {"id": True, "limitations": {"__all__": {"message"}}}
-    if finding.impact is None:
-        # Absent impact keeps identities of findings from other analyzers unchanged.
-        exclude["impact"] = True
+    for name in ("impact", "trust"):
+        if getattr(finding, name) is None:
+            # Absent blocks keep identities of findings from other analyzers unchanged.
+            exclude[name] = True
     payload = finding.model_dump(mode="json", exclude=exclude)
     payload["evidence_ids"] = sorted(payload["evidence_ids"])
     payload["resources"] = sorted(payload["resources"], key=_canonical_json)
@@ -66,6 +73,13 @@ def deterministic_finding_id(finding: AnalysisFinding) -> str:
             reference["evidence_ids"] = sorted(reference["evidence_ids"])
     payload["limitations"] = sorted(payload["limitations"], key=_canonical_json)
     return hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+# Analyzer-specific finding blocks and the only analyzer allowed to produce each.
+_BLOCK_ANALYZERS = {
+    "impact": AnalyzerKind.SECURITY_GROUP_IMPACT,
+    "trust": AnalyzerKind.CROSS_ACCOUNT_TRUST,
+}
 
 
 class AnalysisResult(Model):
@@ -83,10 +97,16 @@ class AnalysisResult(Model):
             raise ValueError("parameter kind must match analyzer")
         if any(finding.snapshot_id != self.snapshot_id for finding in self.findings):
             raise ValueError("finding snapshot_id must match result snapshot_id")
-        impacts = [finding.impact for finding in self.findings if finding.impact is not None]
-        if impacts and not isinstance(self.parameters, SecurityGroupImpactParameters):
-            raise ValueError("impact findings require security_group_impact parameters")
-        if any(impact.selected_group_id != self.parameters.resource_id for impact in impacts):
+        for block, kind in _BLOCK_ANALYZERS.items():
+            if self.parameters.kind != kind and any(
+                getattr(finding, block) is not None for finding in self.findings
+            ):
+                raise ValueError(f"{block} findings require {kind} parameters")
+        if isinstance(self.parameters, SecurityGroupImpactParameters) and any(
+            finding.impact.selected_group_id != self.parameters.resource_id
+            for finding in self.findings
+            if finding.impact is not None
+        ):
             raise ValueError("impact must describe the selected security group")
         ids = [finding.id for finding in self.findings]
         if len(ids) != len(set(ids)):

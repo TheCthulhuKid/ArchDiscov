@@ -25,6 +25,7 @@ from archdiscov.models.analysis.references import (
     UnresolvedTargetReference,
 )
 from archdiscov.models.analysis.results import AnalysisFinding, AnalysisResult
+from archdiscov.models.analysis.trust import CrossAccountTrust
 from archdiscov.models.architecture import LocalTarget, UnresolvedTarget
 from archdiscov.models.cloud.contracts import AwsTargetScope, CloudExternalTarget
 from archdiscov.models.cloud.scope import AwsScope, AzureScope
@@ -43,6 +44,7 @@ _DIAGNOSTIC_FIELDS = frozenset(
         ContainmentPathStep,
         UnresolvedTargetReference,
         SecurityGroupImpact,
+        CrossAccountTrust,
         LocalTarget,
         CloudExternalTarget,
         UnresolvedTarget,

@@ -356,6 +356,27 @@ class RuleReferenceSide(StrEnum):
     OTHER_REFERENCES_SELECTED = "other_references_selected"
 
 
+class TrustClassification(StrEnum):
+    """Who a trust principal names, as recorded; never whether access is effective."""
+
+    SAME_ACCOUNT = "same_account"
+    EXTERNAL_ACCOUNT = "external_account"
+    SERVICE = "service"
+    FEDERATED = "federated"
+    WILDCARD = "wildcard"
+    UNRESOLVED = "unresolved"
+
+
+class TrustEffect(StrEnum):
+    ALLOW = "Allow"
+    DENY = "Deny"
+
+
+class TrustSource(StrEnum):
+    ROLE_TRUST_POLICY = "role_trust_policy"
+    RESOURCE_POLICY = "resource_policy"
+
+
 class AnalyzerErrorCode(StrEnum):
     UNSUPPORTED_ANALYZER = "unsupported_analyzer"
     INVALID_PARAMETERS = "invalid_parameters"

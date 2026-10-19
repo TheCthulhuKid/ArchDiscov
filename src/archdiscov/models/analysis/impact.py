@@ -5,8 +5,6 @@ from pydantic import model_validator
 from ..enums import ImpactKind, ImpactLabel, RuleDirection, RuleReferenceSide
 from ..resource_base import Model, NonEmptyString
 
-UNSUPPORTED_PLATFORM_CODE = "unsupported_platform"
-
 
 class SecurityGroupImpact(Model):
     """Structured impact of one selected security group on the finding's resources.
