@@ -9,14 +9,18 @@ from pydantic import ValidationError
 from pydantic_core import PydanticSerializationError
 
 from archdiscov.graph.identity import PhysicalResourceKey, native_resource_type
-from archdiscov.models.cloud.context import evidence_context_matches
 from archdiscov.models.enums import CloudPlatform, QueryErrorCode, QueryTruncationReason
-from archdiscov.models.query.limitations import QueryProvenanceLimitation
 from archdiscov.models.query.requests import QueryInspectRequest, QuerySearchRequest
 from archdiscov.models.query.results import QueryInspectResult, QuerySearchResult, QueryTruncation
 from archdiscov.models.resource_base import Model, Resource
 
-from .query_context import coverage_limitations, missing_coverage, tag_provenance
+from .query_context import (
+    coverage_limitations,
+    missing_coverage,
+    no_coverage_limitation,
+    resource_coverage,
+    tag_provenance,
+)
 from .query_errors import QueryError
 from .validation_data import detach_data
 
@@ -24,7 +28,7 @@ if TYPE_CHECKING:
     from archdiscov.graph import GraphIndex
 
 
-def _validate_request[Request: Model](model: type[Request], request: Any) -> Request:
+def validate_request[Request: Model](model: type[Request], request: Any) -> Request:
     try:
         return model.model_validate(detach_data(request))
     except (ValidationError, PydanticSerializationError, ValueError) as error:
@@ -54,7 +58,7 @@ def search_resources(
     omitted match. Tag provenance is checked before tag exclusion, so uncertainty
     survives an empty result. Only omitted matches cause result truncation.
     """
-    request = _validate_request(QuerySearchRequest, request)
+    request = validate_request(QuerySearchRequest, request)
     scope = index.scope
     physical = request.physical_identifier
     key = (
@@ -110,7 +114,7 @@ def inspect_resource(
     Include uncited/unavailable owner records as well as exact fact citations.
     Same-scope/location/service coverage is context, not a completeness claim.
     """
-    request = _validate_request(QueryInspectRequest, request)
+    request = validate_request(QueryInspectRequest, request)
     resource = index.get_resource(request.resource_id)
     if resource is None:
         raise QueryError(QueryErrorCode.RESOURCE_NOT_FOUND)
@@ -119,24 +123,11 @@ def inspect_resource(
         evidence_id: index.get_evidence(evidence_id)
         for evidence_id in index.resource_evidence_ids(resource.id)
     }
-    coverage = [
-        record
-        for record in index.coverage_records()
-        if evidence_context_matches(
-            resource.identity, scope, record.scope, record.location, record.service
-        )
-    ]
+    coverage = resource_coverage(index, resource)
     limitations = coverage_limitations(coverage)
     limitations.extend(missing_coverage(index, evidence.values()))
     if not coverage:
-        limitations.append(
-            # No operation name can safely be invented when context is absent.
-            QueryProvenanceLimitation(
-                resource_id=resource.id,
-                fact_path="/identity",
-                message="No recorded coverage is available for this resource context.",
-            )
-        )
+        limitations.append(no_coverage_limitation(resource))
     tags = tag_provenance(index, resource)
     if tags is not None:
         limitations.append(tags)

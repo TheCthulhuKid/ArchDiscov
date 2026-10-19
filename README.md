@@ -28,7 +28,7 @@ evidence inspection; it does not provide live Azure collection or analysis.
 | Analysis result contracts and `Finding`/`Answer` compatibility | Implemented snapshot-backed integrity checks; no analyzers or answer generation |
 | Graph resource ownership, lookup, containment, dependencies, and evidence/coverage | [Implemented and verified together across schemas 1–3](docs/graph-index.md#composed-graph-boundary), including external/unresolved terminals and complete-context coverage |
 | Resource search and inspection | [Implemented Python services](docs/graph-queries.md) with exact filters, detached data, citations, and coverage/provenance limitations |
-| Neighbour/path queries, query CLI, comparisons, and LLM assistant/providers | Planned |
+| Path queries, query CLI, comparisons, and LLM assistant/providers | Planned |
 
 [PLAN.md](PLAN.md) records delivery progress and the remaining roadmap. “All services”
 means the supported inventory, not every AWS resource type or proof of reachability/effective
@@ -160,7 +160,7 @@ For future LLM-provider integration (phase 4, separate from cloud platforms), fo
 ## Architecture and interfaces
 
 The snapshot, ingestion, persistence, and CLI boundaries below are implemented.
-Graph indexes and Python resource search/inspection are implemented; neighbour/path
+Graph indexes and Python resource search/inspection/neighbour queries are implemented; path
 queries, the query CLI, deterministic analyzers, comparisons, and provider interfaces
 remain planned. See [recorded resource queries](docs/graph-queries.md).
 
@@ -1054,7 +1054,7 @@ Every factual conclusion must cite discovered resources or configuration evidenc
 | 1. Models, snapshots, fixtures, persistence, evidence inspection, and CLI foundation | Complete (steps 1–9) |
 | 2. AWS and infrastructure-as-code ingestion | Complete (steps 10–22): supported AWS inventory, offline IaC imports, explicit CLI formats, permissions and offline acceptance |
 | Pre-phase-3 cloud boundary bridge (22.1–22.4) | Implemented foundation: scopes/identities/resources, schema `3` and conversion, offline Azure workflows, and common access/compatibility documentation; not live Azure support |
-| 3. Graph queries, deterministic findings, and snapshot comparisons | Result contracts/integrity, graph indexes, and Python search/inspection implemented (steps 23–25.2); neighbour/path queries, CLI, and analyzers remain planned |
+| 3. Graph queries, deterministic findings, and snapshot comparisons | Result contracts/integrity, graph indexes, and Python search/inspection implemented (steps 23–25.3, including neighbours); path queries, CLI, and analyzers remain planned |
 | 4. LLM-provider adapters, orchestration, validated answers, and evaluations | Planned; separate from cloud platforms |
 
 The bridge prepares phase 3 to build common graph/query and ownership contracts.

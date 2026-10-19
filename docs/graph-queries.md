@@ -3,7 +3,7 @@
 Step 25.2 provides Python search and inspection services over an existing
 `GraphIndex`. They work with AWS schemas `1`–`2`, upgraded AWS schema `3`, and
 the offline Azure schema-3 contract. They do not collect live data or generate
-analytical conclusions. Neighbours, paths, and the `query` CLI remain later steps.
+analytical conclusions. Directional neighbours are available through `query_neighbours`; paths and the `query` CLI remain later steps.
 
 ## Python API
 
@@ -111,3 +111,18 @@ limitations are deduplicated in deterministic candidate/evidence order.
 No query declares live completeness, reachability, effective permissions, or
 absence of matching infrastructure. Returned data remains subject to the
 snapshot's source, lifecycle, redactions, and coverage limitations.
+## Neighbours
+
+`query_neighbours(index, request)` returns one oriented step per adjacent edge of a
+stored resource. Outgoing steps follow stored source to target; incoming steps are
+a reverse lookup of the same stored edge, keeping its source-owned evidence and
+asserting no new relationship. `both` returns each direction (a self-loop appears
+once per direction). Relationship and attachment-kind filters OR within a list and
+AND across lists, and apply to dependencies only. Containment is returned only when
+selected, is uncited, and never implies an attachment.
+
+Parallel edges are separate steps. Steps are ordered by edge kind, stored source,
+stored target, edge ID, then outgoing before incoming, and the result limit is
+applied afterwards. External and unresolved targets stay terminals with structured
+limitations; they are never stored resources. Coverage limitations describe the
+resource's context: recorded neighbours are not exhaustive.
