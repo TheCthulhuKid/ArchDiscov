@@ -162,7 +162,7 @@ def test_registry_is_deterministic_and_rejects_unknown_kinds():
     with pytest.raises(AnalyzerError) as error:
         registry.get(AnalyzerKind.INTERNET_EXPOSURE)
     assert error.value.code == AnalyzerErrorCode.UNSUPPORTED_ANALYZER
-    assert DEFAULT_REGISTRY.kinds == ()
+    assert DEFAULT_REGISTRY.kinds == (AnalyzerKind.OWNERSHIP,)
 
 
 @pytest.mark.parametrize(
@@ -185,7 +185,7 @@ def test_invalid_parameters_are_safe_errors(parameters):
 def test_unregistered_default_kind_is_a_safe_error():
     index = network_index()
     with pytest.raises(AnalyzerError) as error:
-        run_analyzer(index, {"kind": "ownership"})
+        run_analyzer(index, {"kind": "cross_account_trust"})
     assert error.value.code == AnalyzerErrorCode.UNSUPPORTED_ANALYZER
 
 

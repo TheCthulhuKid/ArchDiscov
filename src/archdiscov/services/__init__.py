@@ -1,6 +1,7 @@
 """Public application services used by the CLI and future interfaces."""
 
 from .analyses import load_analysis, save_analysis
+from .analysis_execution import DEFAULT_REGISTRY, run_analyzer
 from .analysis_qualification import Qualification, qualify_status
 from .analysis_validation import (
     AnalysisValidationError,
@@ -8,18 +9,13 @@ from .analysis_validation import (
     validate_analysis_result,
 )
 from .analyzer_errors import AnalyzerError
-from .analyzers import (
-    DEFAULT_REGISTRY,
-    Analyzer,
-    AnalyzerRegistry,
-    build_result,
-    run_analyzer,
-)
+from .analyzers import Analyzer, AnalyzerRegistry, build_result
 from .async_ingestion import collect_and_save_async, collect_snapshots_async
 from .evidence import EvidenceInspection, EvidenceNotFoundError, get_evidence
 from .importing import IngestFormat, IngestResult, ingest_snapshot
 from .ingestion import AccountOutcome, collect_and_save, collect_snapshots, select_adapter
 from .neighbours import query_neighbours
+from .ownership import OwnershipAnalyzer
 from .paths import query_paths
 from .queries import inspect_resource, search_resources
 from .query_errors import QueryError
@@ -45,6 +41,7 @@ __all__ = [
     "AnalyzerError",
     "AnalyzerRegistry",
     "DEFAULT_REGISTRY",
+    "OwnershipAnalyzer",
     "Qualification",
     "EvidenceInspection",
     "EvidenceNotFoundError",

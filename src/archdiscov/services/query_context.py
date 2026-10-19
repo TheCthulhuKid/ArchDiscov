@@ -72,6 +72,9 @@ def missing_coverage(index: GraphIndex, evidence: Iterable[CloudEvidence]) -> li
     ]
 
 
+TAGS_POINTER = "/attributes/tags"
+
+
 def tag_provenance(
     index: GraphIndex, resource: Resource, key: str | None = None
 ) -> QueryProvenanceLimitation | None:
@@ -81,7 +84,7 @@ def tag_provenance(
     entire tag set. A redacted/omitted/unresolved citation is not a known value.
     """
     tags = resource.attributes.get("tags")
-    pointer = "/attributes/tags"
+    pointer = TAGS_POINTER
     pointers = [pointer]
     if key is not None and isinstance(tags, dict) and key in tags:
         pointer += f"/{escape_pointer_token(key)}"
