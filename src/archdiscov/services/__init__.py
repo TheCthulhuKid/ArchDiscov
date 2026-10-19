@@ -1,9 +1,18 @@
 """Public application services used by the CLI and future interfaces."""
 
+from .analysis_qualification import Qualification, qualify_status
 from .analysis_validation import (
     AnalysisValidationError,
     AnalysisValidationIssue,
     validate_analysis_result,
+)
+from .analyzer_errors import AnalyzerError
+from .analyzers import (
+    DEFAULT_REGISTRY,
+    Analyzer,
+    AnalyzerRegistry,
+    build_result,
+    run_analyzer,
 )
 from .async_ingestion import collect_and_save_async, collect_snapshots_async
 from .evidence import EvidenceInspection, EvidenceNotFoundError, get_evidence
@@ -31,6 +40,11 @@ __all__ = [
     "AccountOutcome",
     "AnalysisValidationError",
     "AnalysisValidationIssue",
+    "Analyzer",
+    "AnalyzerError",
+    "AnalyzerRegistry",
+    "DEFAULT_REGISTRY",
+    "Qualification",
     "EvidenceInspection",
     "EvidenceNotFoundError",
     "IngestFormat",
@@ -45,6 +59,7 @@ __all__ = [
     "SnapshotJSONError",
     "SnapshotValidationError",
     "SnapshotValidationIssue",
+    "build_result",
     "collect_and_save",
     "collect_and_save_async",
     "collect_snapshots",
@@ -55,6 +70,8 @@ __all__ = [
     "load_snapshot",
     "query_neighbours",
     "query_paths",
+    "qualify_status",
+    "run_analyzer",
     "save_snapshot",
     "search_resources",
     "select_adapter",

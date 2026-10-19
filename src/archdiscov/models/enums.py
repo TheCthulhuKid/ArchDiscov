@@ -334,3 +334,9 @@ class QueryLimitationKind(StrEnum):
 class QueryErrorCode(StrEnum):
     INVALID_REQUEST = "invalid_request"
     RESOURCE_NOT_FOUND = "resource_not_found"
+
+
+class AnalyzerErrorCode(StrEnum):
+    UNSUPPORTED_ANALYZER = "unsupported_analyzer"
+    INVALID_PARAMETERS = "invalid_parameters"
+    INVALID_RESULT = "invalid_result"
