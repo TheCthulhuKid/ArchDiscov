@@ -27,8 +27,8 @@ evidence inspection; it does not provide live Azure collection or analysis.
 | Docker development environment and GitHub Actions pytest/Ruff checks | Implemented |
 | Analysis result contracts and `Finding`/`Answer` compatibility | Implemented snapshot-backed integrity checks; no analyzers or answer generation |
 | Graph resource ownership, lookup, containment, dependencies, and evidence/coverage | [Implemented and verified together across schemas 1–3](docs/graph-index.md#composed-graph-boundary), including external/unresolved terminals and complete-context coverage |
-| Resource search and inspection | [Implemented Python services](docs/graph-queries.md) with exact filters, detached data, citations, and coverage/provenance limitations |
-| Query CLI, comparisons, and LLM assistant/providers | Planned |
+| Resource search, inspection, neighbours, and paths | [Implemented Python services and `archdiscov query` CLI](docs/graph-queries.md) with exact filters, bounds, detached data, citations, and coverage/provenance limitations |
+| Comparisons and LLM assistant/providers | Planned |
 
 [PLAN.md](PLAN.md) records delivery progress and the remaining roadmap. “All services”
 means the supported inventory, not every AWS resource type or proof of reachability/effective
@@ -160,9 +160,8 @@ For future LLM-provider integration (phase 4, separate from cloud platforms), fo
 ## Architecture and interfaces
 
 The snapshot, ingestion, persistence, and CLI boundaries below are implemented.
-Graph indexes and Python resource search/inspection/neighbour/path queries are implemented; the
-query CLI, deterministic analyzers, comparisons, and provider interfaces
-remain planned. See [recorded resource queries](docs/graph-queries.md).
+Graph indexes, bounded graph queries, and the `query` CLI are implemented; deterministic
+analyzers, comparisons, and provider interfaces remain planned. See [recorded resource queries](docs/graph-queries.md).
 
 - Organize the application into ingestion adapters, normalized models, graph queries, deterministic analyzers, provider adapters, and CLI presentation.
 - Define Pydantic models for `AccountArchitecture`, `RegionArchitecture`, typed resources, `Dependency`, `Evidence`, `Coverage`, `Finding`, and `Answer`. Version serialized snapshots.
@@ -1020,9 +1019,9 @@ structured coverage/unresolved-target limitations. Validate results against a se
 snapshot with `validate_analysis_result`; model construction alone checks only shape.
 See [analysis result contracts](docs/analysis-results.md) for the API, ID rules,
 fixtures, and integrity boundary. [Graph resource lookup, containment, dependencies, and evidence/coverage](docs/graph-index.md)
-are implemented, as are [Python resource search and inspection](docs/graph-queries.md).
-Neighbour/path queries, analyzer execution, immutable result persistence,
-and analysis/query CLI commands remain later steps.
+are implemented, as are [bounded graph queries and the `query` CLI](docs/graph-queries.md).
+Analyzer execution, immutable result persistence, and analysis CLI commands remain
+later steps.
 
 ### Planned assistant behavior
 
@@ -1054,7 +1053,7 @@ Every factual conclusion must cite discovered resources or configuration evidenc
 | 1. Models, snapshots, fixtures, persistence, evidence inspection, and CLI foundation | Complete (steps 1–9) |
 | 2. AWS and infrastructure-as-code ingestion | Complete (steps 10–22): supported AWS inventory, offline IaC imports, explicit CLI formats, permissions and offline acceptance |
 | Pre-phase-3 cloud boundary bridge (22.1–22.4) | Implemented foundation: scopes/identities/resources, schema `3` and conversion, offline Azure workflows, and common access/compatibility documentation; not live Azure support |
-| 3. Graph queries, deterministic findings, and snapshot comparisons | Result contracts/integrity, graph indexes, and Python search/inspection implemented (steps 23–25.4, including neighbours and paths); CLI, and analyzers remain planned |
+| 3. Graph queries, deterministic findings, and snapshot comparisons | Result contracts/integrity, graph indexes, and Python search/inspection implemented (steps 23–25, including the `query` CLI); analyzers remain planned |
 | 4. LLM-provider adapters, orchestration, validated answers, and evaluations | Planned; separate from cloud platforms |
 
 The bridge prepares phase 3 to build common graph/query and ownership contracts.

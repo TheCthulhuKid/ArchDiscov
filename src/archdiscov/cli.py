@@ -1,6 +1,5 @@
 """CLI presentation; architecture operations belong in application services."""
 
-from dataclasses import asdict
 from importlib.metadata import version
 from pathlib import Path
 from typing import Annotated
@@ -9,20 +8,17 @@ import typer
 from pydantic import ValidationError
 
 from archdiscov.cli_collection import collection_request, outcome_data, print_outcomes
+from archdiscov.cli_diagnostics import fail_snapshot_error as _fail
 from archdiscov.cli_diagnostics import json_output as _json_output
-from archdiscov.cli_diagnostics import print_error
+from archdiscov.cli_diagnostics import print_error, snapshot_exit_code
 from archdiscov.cli_evidence import print_evidence
 from archdiscov.cli_ingestion import ingestion_data, print_ingestion
+from archdiscov.cli_query import query_app
 from archdiscov.ingestion.adapter import IngestionError
 from archdiscov.ingestion.requests import RegionScope
 from archdiscov.services import (
-    EvidenceNotFoundError,
     IngestFormat,
-    SnapshotConflictError,
     SnapshotError,
-    SnapshotIOError,
-    SnapshotJSONError,
-    SnapshotValidationError,
     collect_and_save,
     get_evidence,
     ingest_snapshot,
@@ -34,6 +30,8 @@ app = typer.Typer(
     add_completion=False,
     pretty_exceptions_enable=False,
 )
+
+app.add_typer(query_app, name="query")
 
 
 @app.callback(invoke_without_command=True)
@@ -49,25 +47,6 @@ def main(
         raise typer.Exit()
     if ctx.invoked_subcommand is None:
         typer.echo(ctx.get_help())
-
-
-def _fail(error: SnapshotError, json_output: bool) -> None:
-    diagnostic = {"code": error.code, "message": str(error)}
-    if error.path is not None:
-        diagnostic["path"] = str(error.path)
-    if isinstance(error, SnapshotValidationError):
-        diagnostic["details"] = [asdict(issue) for issue in error.details]
-    if isinstance(error, SnapshotJSONError):
-        diagnostic.update(line=error.line, column=error.column)
-    print_error(diagnostic, as_json=json_output)
-    exit_code = 2
-    if isinstance(error, SnapshotIOError):
-        exit_code = 1
-    elif isinstance(error, SnapshotConflictError):
-        exit_code = 3
-    elif isinstance(error, EvidenceNotFoundError):
-        exit_code = 4
-    raise typer.Exit(exit_code)
 
 
 @app.command()
@@ -250,11 +229,5 @@ def collect(
     failed_outcomes = [o for o in outcomes if o.error is not None]
     if failed_outcomes:
         error = failed_outcomes[0].error
-        code = 5
-        if isinstance(error, SnapshotIOError):
-            code = 1
-        elif isinstance(error, SnapshotConflictError):
-            code = 3
-        elif isinstance(error, SnapshotError):
-            code = 2
+        code = snapshot_exit_code(error) if isinstance(error, SnapshotError) else 5
         raise typer.Exit(code)
