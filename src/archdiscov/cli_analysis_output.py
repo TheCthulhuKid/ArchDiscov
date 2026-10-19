@@ -7,6 +7,7 @@ import typer
 from .models.analysis.impact import SecurityGroupImpact
 from .models.analysis.references import AnalysisLimitation, PathStep
 from .models.analysis.results import AnalysisFinding, AnalysisResult
+from .models.analysis.trust import CrossAccountTrust
 from .models.architecture import LocalTarget
 
 
@@ -22,6 +23,20 @@ def _impact_line(impact: SecurityGroupImpact) -> str:
     if impact.rule_direction is not None and impact.reference_side is not None:
         line += f" [{impact.rule_direction}; {impact.reference_side}]"
     return line
+
+
+def _trust_line(trust: CrossAccountTrust) -> str:
+    """Configured trust only; qualifiers are shown, never an access conclusion."""
+    qualifiers = [
+        text
+        for flag, text in (
+            (trust.conditional, "conditional"),
+            (trust.not_principal, "NotPrincipal"),
+        )
+        if flag
+    ]
+    suffix = f" [{', '.join(qualifiers)}]" if qualifiers else ""
+    return f"{trust.source} {trust.classification} {trust.effect}{suffix}"
 
 
 def _step_line(step: PathStep) -> str:
@@ -48,6 +63,8 @@ def _print_finding(number: int, finding: AnalysisFinding) -> None:
     typer.echo(f"     Finding: {finding.id}")
     if finding.impact is not None:
         typer.echo(f"     Impact: {_impact_line(finding.impact)}")
+    if finding.trust is not None:
+        typer.echo(f"     Trust: {_trust_line(finding.trust)}")
     for reference in finding.resources:
         typer.echo(f"     Resource: {reference.resource_id}")
     if finding.evidence_ids:

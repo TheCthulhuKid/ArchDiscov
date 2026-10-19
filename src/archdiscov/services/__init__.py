@@ -11,6 +11,7 @@ from .analysis_validation import (
 from .analyzer_errors import AnalyzerError
 from .analyzers import Analyzer, AnalyzerRegistry, build_result
 from .async_ingestion import collect_and_save_async, collect_snapshots_async
+from .cross_account_trust import CrossAccountTrustAnalyzer
 from .evidence import EvidenceInspection, EvidenceNotFoundError, get_evidence
 from .importing import IngestFormat, IngestResult, ingest_snapshot
 from .ingestion import AccountOutcome, collect_and_save, collect_snapshots, select_adapter
@@ -41,6 +42,7 @@ __all__ = [
     "Analyzer",
     "AnalyzerError",
     "AnalyzerRegistry",
+    "CrossAccountTrustAnalyzer",
     "DEFAULT_REGISTRY",
     "OwnershipAnalyzer",
     "Qualification",

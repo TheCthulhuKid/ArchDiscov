@@ -24,8 +24,8 @@ REGISTRY = AnalyzerRegistry([CrossAccountTrustAnalyzer()])
 C = TrustClassification
 
 
-def analyze(roles, *, iam_status=None, **parameters):
-    snapshot = build(roles, iam_status=iam_status)
+def analyze(roles=None, queues=None, *, iam_status="success", sqs_status="success", **parameters):
+    snapshot = build(roles, queues, iam_status=iam_status, sqs_status=sqs_status)
     result = run_analyzer(
         GraphIndex(snapshot), {"kind": "cross_account_trust", **parameters}, registry=REGISTRY
     )
@@ -126,16 +126,24 @@ def test_every_principal_entry_and_statement_gets_its_own_finding():
     assert ids == sorted(ids) and len(set(ids)) == 4
 
 
-def test_roles_without_trust_principals_produce_no_findings():
-    assert analyze({"web": None}).findings == []
+def test_roles_without_any_trust_data_produce_no_findings_but_unavailable_documents_do():
     assert analyze({}).findings == []
+    [finding] = analyze({"web": None}).findings
+    assert finding.status == AnalysisStatus.INSUFFICIENT_EVIDENCE
+    assert finding.trust is None
+    assert codes(finding) == ["trust_document_unavailable"]
+    assert "AROAweb" in finding.resources[0].resource_id
 
 
-def test_failed_iam_collection_downgrades_to_partial_with_the_recorded_operation():
-    finding = single([statement({"AWS": OTHER})], iam_status="failed")
-    assert finding.status == AnalysisStatus.PARTIAL
-    assert codes(finding) == ["external_target", "coverage_failed"]
-    ok = single([statement({"AWS": OTHER})], iam_status="success")
+def test_failed_iam_collection_downgrades_to_partial_and_is_reported_group_wide():
+    result = analyze({"web": [statement({"AWS": OTHER})]}, iam_status="failed")
+    trust = next(f for f in result.findings if f.trust is not None)
+    group = next(f for f in result.findings if f.trust is None)
+    assert trust.status == AnalysisStatus.PARTIAL
+    assert codes(trust) == ["external_target", "coverage_failed"]
+    assert codes(group) == ["coverage_failed"]
+    assert group.limitations[0].coverage.service == "iam"
+    ok = single([statement({"AWS": OTHER})])
     assert ok.status == AnalysisStatus.SUPPORTED
 
 
@@ -180,3 +188,97 @@ def test_invalid_result_limits_are_safe_errors():
                 index, {"kind": "cross_account_trust", "result_limit": value}, registry=REGISTRY
             )
         assert error.value.code == AnalyzerErrorCode.INVALID_PARAMETERS
+
+
+QUEUE = "work"
+
+
+def queue_single(statements, **options):
+    result = analyze(queues={QUEUE: statements}, **options)
+    [finding] = result.findings
+    return finding
+
+
+@pytest.mark.parametrize(
+    ("principal", "classification"),
+    [
+        ({"AWS": OTHER}, C.EXTERNAL_ACCOUNT),
+        ({"AWS": ACCOUNT}, C.SAME_ACCOUNT),
+        ({"Service": "sns.amazonaws.com"}, C.SERVICE),
+        ({"AWS": "*"}, C.WILDCARD),
+        ("*", C.WILDCARD),
+        ({"CanonicalUser": "x"}, C.UNRESOLVED),
+    ],
+)
+def test_queue_policy_principals_use_the_same_classification(principal, classification):
+    finding = queue_single([statement(principal, condition=True, effect="Deny")])
+    assert finding.trust.source == TrustSource.RESOURCE_POLICY
+    assert finding.trust.classification == classification
+    assert finding.trust.effect == TrustEffect.DENY
+    assert finding.trust.conditional is True
+    assert "queue policy" in finding.summary
+    assert "not effective access" in finding.summary
+    assert len(finding.evidence_ids) == 2
+    assert QUEUE in finding.resources[0].resource_id
+
+
+def test_queue_not_principal_is_unresolved_and_policies_and_trust_combine():
+    negative = queue_single([statement({"AWS": OTHER}, negative=True)])
+    assert negative.trust.not_principal and negative.trust.classification == C.UNRESOLVED
+    result = analyze(
+        {"web": [statement({"AWS": OTHER})]}, {QUEUE: [statement({"Service": "sns.amazonaws.com"})]}
+    )
+    assert {f.trust.source for f in result.findings} == {
+        TrustSource.ROLE_TRUST_POLICY,
+        TrustSource.RESOURCE_POLICY,
+    }
+
+
+def test_queues_without_a_policy_are_normal_but_unreadable_policies_are_insufficient():
+    assert analyze(queues={QUEUE: None}).findings == []
+    [finding] = analyze(queues={QUEUE: "omitted"}).findings
+    assert finding.status == AnalysisStatus.INSUFFICIENT_EVIDENCE
+    assert codes(finding) == ["policy_unavailable"]
+    assert finding.limitations[0].evidence_ids == ["omitted/work"]
+
+
+def test_failed_sqs_collection_downgrades_queue_findings_and_is_reported():
+    result = analyze(queues={QUEUE: [statement({"AWS": OTHER})]}, sqs_status="failed")
+    trust = next(f for f in result.findings if f.trust is not None)
+    group = next(f for f in result.findings if f.trust is None)
+    assert trust.status == AnalysisStatus.PARTIAL
+    assert codes(group) == ["coverage_failed"]
+    assert group.limitations[0].coverage.service == "sqs"
+
+
+@pytest.mark.parametrize(
+    ("options", "expected"),
+    [
+        ({"iam_status": None}, ["coverage_unrecorded_iam"]),
+        ({"sqs_status": None}, ["coverage_unrecorded_sqs"]),
+        (
+            {"iam_status": None, "sqs_status": None},
+            ["coverage_unrecorded_iam", "coverage_unrecorded_sqs"],
+        ),
+        ({"sqs_status": "skipped"}, ["coverage_skipped"]),
+    ],
+)
+def test_unrecorded_or_limited_iam_and_sqs_collection_is_reported_without_invented_operations(
+    options, expected
+):
+    result = analyze({"web": [statement({"AWS": OTHER})]}, **options)
+    group = next(f for f in result.findings if f.trust is None)
+    assert group.status == AnalysisStatus.INSUFFICIENT_EVIDENCE
+    assert codes(group) == expected
+    unrecorded = [x for x in group.limitations if x.code.startswith("coverage_unrecorded")]
+    assert all(x.coverage is None for x in unrecorded)
+
+
+def test_result_limit_spans_roles_and_queues():
+    result = analyze(
+        {"web": [statement({"AWS": [OTHER, "111111111111"]})]},
+        {QUEUE: [statement({"Service": "sns.amazonaws.com"})]},
+        result_limit=2,
+    )
+    assert len([f for f in result.findings if f.trust is not None]) == 2
+    assert "result_limit_reached" in codes(next(f for f in result.findings if f.trust is None))

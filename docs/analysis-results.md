@@ -64,8 +64,7 @@ Analyzer errors `resource_not_found` and `unsupported_resource` have fixed safe 
 ## Cross-account trust vocabulary
 
 `AnalysisFinding.trust` (`CrossAccountTrust`) is optional and reserved for the
-cross-account trust analyzer, which is not implemented yet; this step defines the
-vocabulary. It records one configured trust principal of the finding's first resource
+cross-account trust analyzer ([details](cross-account-trust.md)). It records one configured trust principal of the finding's first resource
 (the trusting role or queue):
 
 | Field | Values |

@@ -5,23 +5,18 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from archdiscov.models.analysis.parameters import AnalyzerParameters, SecurityGroupImpactParameters
-from archdiscov.models.analysis.references import AnalysisLimitation
 from archdiscov.models.analysis.results import AnalysisFinding, AnalysisResult
-from archdiscov.models.cloud.context import canonical_service_key
 from archdiscov.models.enums import (
     AnalysisStatus,
     AnalyzerErrorCode,
     AnalyzerKind,
     AwsService,
     CloudPlatform,
-    CoverageStatus,
     QueryTruncationReason,
 )
-from archdiscov.models.resource_base import Resource
 from archdiscov.models.resources.network import SecurityGroup
 
-from .analysis_limitations import unsupported_platform_finding
-from .analysis_qualification import coverage_limitation
+from .analysis_limitations import service_coverage_limitations, unsupported_platform_finding
 from .analyzer_errors import AnalyzerError
 from .analyzers import build_result
 from .security_group_attachments import direct_attachments
@@ -50,37 +45,6 @@ _INCOMPLETE_SUMMARY = (
 def _unique(findings: list[AnalysisFinding]) -> list[AnalysisFinding]:
     """Drop findings with identical content (such as parallel identical edges), in order."""
     return list({finding.id: finding for finding in findings}.values())
-
-
-def _coverage_limitations(index: GraphIndex, group: Resource) -> list[AnalysisLimitation]:
-    """Limited or unrecorded collection for every service that could attach to the group.
-
-    Only recorded operations are referenced; an absent service gets a per-service
-    code and no invented operation name.
-    """
-    region = group.identity.region
-    records = index.coverage_records()
-    limitations = []
-    for service in ATTACHING_SERVICES:
-        matching = [
-            record
-            for record in records
-            if canonical_service_key(index.scope.platform, record.service) == service
-            and record.location in (None, region)
-        ]
-        if not matching:
-            limitations.append(
-                AnalysisLimitation(
-                    code=f"{UNRECORDED_PREFIX}{service}",
-                    message=f"No {service} collection is recorded for {region}.",
-                )
-            )
-        limitations.extend(
-            coverage_limitation(record)
-            for record in matching
-            if record.status != CoverageStatus.SUCCESS
-        )
-    return limitations
 
 
 class SecurityGroupImpactAnalyzer:
@@ -125,7 +89,7 @@ class SecurityGroupImpactAnalyzer:
         if len(observed) > len(retained) or len(candidates) > len(findings):
             truncation.add(QueryTruncationReason.RESULT_LIMIT)
         limitations = [
-            *_coverage_limitations(index, selected),
+            *service_coverage_limitations(index, ATTACHING_SERVICES, selected.identity.region),
             *skipped,
             *truncation_limitations(truncation),
         ]

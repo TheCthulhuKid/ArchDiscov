@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 from archdiscov.graph.dependencies import DependencyEdge
@@ -13,7 +14,10 @@ from archdiscov.models.analysis.references import (
 )
 from archdiscov.models.analysis.results import AnalysisFinding
 from archdiscov.models.architecture import LocalTarget, UnresolvedTarget
-from archdiscov.models.enums import AnalysisStatus
+from archdiscov.models.cloud.context import canonical_service_key
+from archdiscov.models.enums import AnalysisStatus, AwsService, CoverageStatus
+
+from .analysis_qualification import coverage_limitation
 
 if TYPE_CHECKING:
     from archdiscov.graph import GraphIndex
@@ -68,3 +72,40 @@ def unsupported_platform_finding(
             )
         ],
     )
+
+
+UNRECORDED_PREFIX = "coverage_unrecorded_"
+
+
+def service_coverage_limitations(
+    index: GraphIndex, services: Iterable[AwsService], region: str | None = None
+) -> list[AnalysisLimitation]:
+    """Limited or unrecorded collection for each named service.
+
+    Only recorded operations are referenced; a service with no record gets a per-service
+    code and no invented operation name. With a region, only records for that region or
+    scope-wide ones count.
+    """
+    records = index.coverage_records()
+    limitations: list[AnalysisLimitation] = []
+    for service in services:
+        matching = [
+            record
+            for record in records
+            if canonical_service_key(index.scope.platform, record.service) == service
+            and (region is None or record.location in (None, region))
+        ]
+        if not matching:
+            where = f" for {region}" if region is not None else ""
+            limitations.append(
+                AnalysisLimitation(
+                    code=f"{UNRECORDED_PREFIX}{service}",
+                    message=f"No {service} collection is recorded{where}.",
+                )
+            )
+        limitations.extend(
+            coverage_limitation(record)
+            for record in matching
+            if record.status != CoverageStatus.SUCCESS
+        )
+    return limitations

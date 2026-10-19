@@ -94,7 +94,8 @@ locally; account, ARN, service, and federated principals are external targets; w
 its whole sanitized statement, so `Effect` and `Condition` appear only in that statement
 evidence. This uses the stored policy without new API calls, and records configured policy,
 not effective access. Terraform and CloudFormation imports do not ingest queue policies, so
-they produce no such edges.
+they produce no such edges. The [cross-account trust analyzer](cross-account-trust.md) reads
+these edges.
 
 Coverage has exactly one record for each of the three operations. Empty successful
 inventory gives three successful zero counts without detail requests. Discovery
