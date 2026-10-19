@@ -3,7 +3,7 @@
 Step 25.2 provides Python search and inspection services over an existing
 `GraphIndex`. They work with AWS schemas `1`–`2`, upgraded AWS schema `3`, and
 the offline Azure schema-3 contract. They do not collect live data or generate
-analytical conclusions. Directional neighbours are available through `query_neighbours`; bounded paths via `query_paths`; the `query` CLI remains a later step.
+analytical conclusions. Directional neighbours are available through `query_neighbours`; bounded paths via `query_paths`, and the thin `query` CLI.
 
 ## Python API
 
@@ -145,3 +145,23 @@ edges rejected by filters or cycle checks. Truncation reports `depth_limit`,
 `depth_limit` check probes beyond the last level without charging work. Coverage
 limitations cover every resource reached. A path is recorded structure, not proof of
 reachability or effective access.
+
+## Query CLI
+
+`archdiscov query` is a thin read-only front end over these services. Each call
+loads the snapshot and builds the graph index once, then runs one query:
+
+```text
+archdiscov query search --snapshot S [--type T] [--name N] [--id ID] [--tag K[=V]] [--physical-id P] [--limit N]
+archdiscov query inspect RESOURCE_ID --snapshot S
+archdiscov query neighbours RESOURCE_ID --snapshot S [--direction outgoing|incoming|both]
+    [--edges dependencies|containment|both] [--relationship R]... [--attachment-kind K]... [--limit N]
+archdiscov query paths RESOURCE_ID --snapshot S [same filters] [--depth 1-10] [--limit N] [--work-limit N]
+```
+
+`--physical-id` requires `--type` and is qualified by the snapshot's own cloud scope.
+Add `--json` for the service result (plus `snapshot_path`) or errors; readable output
+shows the same limitations and truncation. Exit codes: `0` success, `1` unreadable
+snapshot, `2` invalid snapshot or request, `4` unknown resource. Citations are those
+stored on the edge's source; pass an evidence ID to `archdiscov evidence` to inspect
+it. Nothing here analyzes, persists, or contacts a cloud provider.
