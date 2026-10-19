@@ -120,6 +120,21 @@ def no_coverage_limitation(resource: Resource) -> QueryProvenanceLimitation:
     )
 
 
+def contextual_coverage(
+    index: GraphIndex, resources: Iterable[Resource]
+) -> tuple[list[CloudOperationCoverage], list[Resource]]:
+    """Deduplicated coverage matching any resource's context, and resources with none."""
+    records: dict[CoverageKey, CloudOperationCoverage] = {}
+    uncovered = []
+    for resource in resources:
+        matching = resource_coverage(index, resource)
+        for record in matching:
+            records.setdefault(CoverageKey.from_record(record), record)
+        if not matching:
+            uncovered.append(resource)
+    return list(records.values()), uncovered
+
+
 def context_limitations(
     index: GraphIndex, resources: Iterable[Resource], evidence: Iterable[CloudEvidence]
 ) -> tuple[list[CloudOperationCoverage], list[QueryLimitation]]:
@@ -129,15 +144,8 @@ def context_limitations(
     operations that cited evidence names but no record covers, then resources with
     no contextual coverage at all.
     """
-    records: dict[CoverageKey, CloudOperationCoverage] = {}
-    uncovered = []
-    for resource in resources:
-        matching = resource_coverage(index, resource)
-        for record in matching:
-            records.setdefault(CoverageKey.from_record(record), record)
-        if not matching:
-            uncovered.append(resource)
-    limitations = coverage_limitations(records.values())
+    records, uncovered = contextual_coverage(index, resources)
+    limitations = coverage_limitations(records)
     limitations.extend(missing_coverage(index, evidence))
     limitations.extend(no_coverage_limitation(resource) for resource in uncovered)
-    return list(records.values()), limitations
+    return records, limitations
