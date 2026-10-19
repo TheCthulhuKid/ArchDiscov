@@ -1,8 +1,4 @@
 import json
-import os
-import subprocess
-import sys
-from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
@@ -11,6 +7,7 @@ from archdiscov.cli import app
 from archdiscov.graph import GraphIndex
 from archdiscov.services import load_snapshot
 from tests.paths import FIXTURES_ROOT
+from tests.support.installed_cli import ENTRY_POINTS, run_installed_json
 
 FIXTURES = FIXTURES_ROOT / "snapshots"
 NETWORK = FIXTURES / "network.json"
@@ -122,27 +119,10 @@ def test_snapshot_failures_use_snapshot_exit_codes(tmp_path):
     assert invoke("search", "--snapshot", str(broken)).exit_code == 2
 
 
-@pytest.mark.parametrize("entry_point", ["script", "module"])
+@pytest.mark.parametrize("entry_point", ENTRY_POINTS)
 def test_installed_journey_outside_repository(tmp_path, entry_point):
-    env = os.environ.copy()
-    env.pop("PYTHONPATH", None)
-    command = (
-        [str(Path(sys.executable).with_name("archdiscov"))]
-        if entry_point == "script"
-        else [sys.executable, "-m", "archdiscov"]
-    )
-
     def run(*arguments):
-        result = subprocess.run(
-            [*command, *arguments],
-            cwd=tmp_path,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        assert result.returncode == 0, result.stderr
-        return json.loads(result.stdout)
+        return run_installed_json(entry_point, tmp_path, *arguments)
 
     snapshot = str(NETWORK)
     neighbours = run("query", "neighbours", RTB, "--snapshot", snapshot, "--json")

@@ -1,7 +1,8 @@
 # Analysis result contracts
 
-Step 23 implements contracts and snapshot-backed integrity, not analyzers, graph
-queries, result persistence, or analysis CLI commands. Snapshot schemas 1–3 and
+Step 23 implements contracts and snapshot-backed integrity. Analyzer execution,
+persistence, and the ownership analyzer are described in
+[ownership analysis](ownership-analysis.md). Snapshot schemas 1–3 and
 legacy `Finding`/`Answer` models remain unchanged.
 
 ## Models
@@ -32,7 +33,8 @@ External and unresolved targets terminate a path; they never imply invented node
 Limitations have a nonblank code/message and optional evidence, complete operation
 coverage context, or a source-owned unresolved dependency reference. Noncoverage
 scope caveats are allowed even for supported findings. These contracts do not
-automatically downgrade findings based on coverage; qualification is step 26.
+automatically downgrade findings based on coverage; the shared qualification helper
+in [ownership analysis](ownership-analysis.md) does.
 
 ## Deterministic IDs
 
