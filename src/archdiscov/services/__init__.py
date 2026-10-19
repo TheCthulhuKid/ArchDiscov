@@ -9,6 +9,7 @@ from .async_ingestion import collect_and_save_async, collect_snapshots_async
 from .evidence import EvidenceInspection, EvidenceNotFoundError, get_evidence
 from .importing import IngestFormat, IngestResult, ingest_snapshot
 from .ingestion import AccountOutcome, collect_and_save, collect_snapshots, select_adapter
+from .neighbours import query_neighbours
 from .queries import inspect_resource, search_resources
 from .query_errors import QueryError
 from .snapshot_access import SnapshotAccess, SupportedSnapshot, upgrade_snapshot
@@ -51,6 +52,7 @@ __all__ = [
     "ingest_snapshot",
     "inspect_resource",
     "load_snapshot",
+    "query_neighbours",
     "save_snapshot",
     "search_resources",
     "select_adapter",

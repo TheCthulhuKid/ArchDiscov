@@ -6,6 +6,7 @@ import re
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
+from archdiscov.models.cloud.context import evidence_context_matches
 from archdiscov.models.cloud.contracts import CloudEvidence, CloudOperationCoverage
 from archdiscov.models.coverage_key import CoverageKey
 from archdiscov.models.enums import CoverageStatus, EvidenceValueStatus, SourceType
@@ -96,4 +97,24 @@ def tag_provenance(
         resource_id=resource.id,
         fact_path=pointer,
         message="Tag provenance is unavailable or incomplete; missing tags do not prove absence.",
+    )
+
+
+def resource_coverage(index: GraphIndex, resource: Resource) -> list[CloudOperationCoverage]:
+    """Recorded coverage whose full scope, location, and service match the resource."""
+    return [
+        record
+        for record in index.coverage_records()
+        if evidence_context_matches(
+            resource.identity, index.scope, record.scope, record.location, record.service
+        )
+    ]
+
+
+def no_coverage_limitation(resource: Resource) -> QueryProvenanceLimitation:
+    # No operation name can safely be invented when context is absent.
+    return QueryProvenanceLimitation(
+        resource_id=resource.id,
+        fact_path="/identity",
+        message="No recorded coverage is available for this resource context.",
     )
