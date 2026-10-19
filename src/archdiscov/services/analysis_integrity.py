@@ -13,8 +13,11 @@ from archdiscov.models.architecture import LocalTarget
 from archdiscov.models.cloud.contracts import CloudDependency, CloudEvidence
 from archdiscov.models.cloud.scope import SupportedScope
 from archdiscov.models.coverage_key import CoverageKey
+from archdiscov.models.enums import TrustSource
 from archdiscov.models.resource_base import Resource
+from archdiscov.models.resources.iam import IamRole
 from archdiscov.models.resources.network import SecurityGroup
+from archdiscov.models.resources.queues import SqsQueue
 
 from .analysis_diagnostics import reject
 from .snapshot_access import SnapshotAccess, _resources_from_validated_snapshot
@@ -165,6 +168,23 @@ def _validate_limitations(
                 )
 
 
+_TRUST_SOURCES = {
+    TrustSource.ROLE_TRUST_POLICY: IamRole,
+    TrustSource.RESOURCE_POLICY: SqsQueue,
+}
+
+
+def _validate_trust(finding: AnalysisFinding, base: Location, context: _IntegrityContext) -> None:
+    """The trusting resource must be of the kind that owns this kind of policy."""
+    trusting = context.resources.get(finding.resources[0].resource_id)
+    if trusting is not None and not isinstance(trusting, _TRUST_SOURCES[finding.trust.source]):
+        reject(
+            (*base, "trust", "source"),
+            "trust_source_mismatch",
+            "Trust source must match the type of the trusting resource.",
+        )
+
+
 def _validate_finding(finding: AnalysisFinding, index: int, context: _IntegrityContext) -> None:
     base = ("findings", index)
     context.require_evidence(finding.evidence_ids, (*base, "evidence_ids"))
@@ -177,6 +197,8 @@ def _validate_finding(finding: AnalysisFinding, index: int, context: _IntegrityC
                 "resource_scope_mismatch",
                 "Resource reference scope must match the snapshot.",
             )
+    if finding.trust is not None:
+        _validate_trust(finding, base, context)
     _validate_path(finding.path, base, context)
     _validate_limitations(finding.limitations, base, context)
 

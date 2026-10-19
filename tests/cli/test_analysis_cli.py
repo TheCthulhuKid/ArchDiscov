@@ -83,7 +83,7 @@ def test_existing_output_is_never_overwritten(tmp_path):
     [
         (["--ownership-key", ""], "invalid_parameters"),
         (["--ownership-key", "SECRET", "--ownership-key", "SECRET"], "invalid_parameters"),
-        (["--analyzer", "cross_account_trust"], "unsupported_analyzer"),
+        (["--analyzer", "internet_exposure"], "unsupported_analyzer"),
     ],
 )
 def test_invalid_requests_exit_safely_and_write_nothing(tmp_path, extra, code):
@@ -209,4 +209,60 @@ def test_missing_resource_id_and_bad_selections_are_safe_errors(tmp_path, group_
     assert json.loads(missing.stdout)["error"]["code"] == "resource_not_found"
     not_group = run(*group_arguments(group_snapshot, output, "instance"), "--json")
     assert json.loads(not_group.stdout)["error"]["code"] == "unsupported_resource"
+    assert not output.exists()
+
+
+@pytest.fixture
+def trust_snapshot(tmp_path):
+    from archdiscov.services import save_snapshot
+    from tests.support.trust_data import OTHER, build, statement
+
+    snapshot = build(
+        {"web": [statement({"AWS": OTHER}, condition=True), statement({"AWS": "*"}, effect="Deny")]}
+    )
+    return save_snapshot(snapshot, tmp_path / "trust.json")
+
+
+def trust_arguments(snapshot, output, *extra):
+    return [
+        "analyze",
+        "--snapshot",
+        str(snapshot),
+        "--output",
+        str(output),
+        "--analyzer",
+        "cross_account_trust",
+        *extra,
+    ]
+
+
+def test_trust_findings_show_classification_effect_and_conditionality(tmp_path, trust_snapshot):
+    output = tmp_path / "result.json"
+    saved = run(*trust_arguments(trust_snapshot, output, "--result-limit", "10"))
+    assert saved.exit_code == 0, saved.output
+    shown = run("findings", str(output), "--snapshot", str(trust_snapshot))
+    assert shown.exit_code == 0, shown.output
+    assert "Trust: role_trust_policy external_account Allow [conditional]" in shown.stdout
+    assert "Trust: role_trust_policy wildcard Deny" in shown.stdout
+    assert "not effective access" in shown.stdout
+    assert '"result_limit":10' in shown.stdout
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ["--resource-id", "x"],
+        ["--max-depth", "2"],
+        ["--ownership-key", "Owner"],
+        ["--result-limit", "0"],
+    ],
+    ids=["resource-id", "max-depth", "ownership-key", "limit-range"],
+)
+def test_options_for_other_analyzers_or_out_of_range_are_rejected_for_trust(
+    tmp_path, trust_snapshot, extra
+):
+    output = tmp_path / "result.json"
+    result = run(*trust_arguments(trust_snapshot, output, *extra), "--json")
+    assert result.exit_code == 2
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_parameters"
     assert not output.exists()

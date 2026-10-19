@@ -20,10 +20,10 @@ from archdiscov.models.enums import (
 )
 from archdiscov.models.query.results import QueryPath
 
+from .analysis_limitations import RESULT_LIMIT_CODE, target_limitations
 from .analysis_qualification import qualify_status
 from .paths import query_paths
 from .security_group_findings import edge_step, resource_reference
-from .security_group_rules import target_limitations
 
 if TYPE_CHECKING:
     from archdiscov.graph import GraphIndex
@@ -41,7 +41,7 @@ _TRUNCATION = {
         "Dependencies continue beyond the configured maximum depth.",
     ),
     QueryTruncationReason.RESULT_LIMIT: (
-        "result_limit_reached",
+        RESULT_LIMIT_CODE,
         "More impact findings exist than the configured result limit.",
     ),
     QueryTruncationReason.WORK_LIMIT: (
@@ -85,7 +85,10 @@ def _finding(
         evidence_ids=evidence,
         resources=[resource_reference(index, local)] if local is not None else [],
         path=[edge_step(edge) for edge in edges],
-        limitations=[*target_limitations(last), *qualified.limitations],
+        limitations=[
+            *target_limitations(last, "referenced security group"),
+            *qualified.limitations,
+        ],
         impact=SecurityGroupImpact(
             selected_group_id=group_id,
             kind=ImpactKind.DOWNSTREAM_DEPENDENCY,

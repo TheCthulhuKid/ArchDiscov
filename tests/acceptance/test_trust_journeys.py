@@ -1,0 +1,123 @@
+"""Credential-free fixture -> analyze -> save -> findings -> evidence journeys."""
+
+import pytest
+
+from archdiscov.graph import GraphIndex
+from archdiscov.services import load_analysis, load_snapshot, save_snapshot, upgrade_snapshot
+from tests.paths import FIXTURES_ROOT
+from tests.support.installed_cli import ENTRY_POINTS, run_installed_json
+from tests.support.trust_data import OTHER, build, role_arn, schema_one, statement
+
+
+def aws_snapshot(schema: str):
+    snapshot = build(
+        {
+            "web": [
+                statement({"AWS": OTHER}, condition=True),
+                statement({"AWS": role_arn("api")}),
+                statement({"AWS": "*"}, effect="Deny"),
+            ],
+            "api": [statement({"Service": "ec2.amazonaws.com"})],
+        },
+        {"work": [statement({"Service": "sns.amazonaws.com"}, condition=True)]},
+    )
+    if schema == "1":
+        return schema_one(snapshot)
+    return upgrade_snapshot(snapshot) if schema == "3" else snapshot
+
+
+def analyze_arguments(snapshot_path, result_path, *extra):
+    return [
+        "analyze",
+        "--snapshot",
+        str(snapshot_path),
+        "--output",
+        str(result_path),
+        "--analyzer",
+        "cross_account_trust",
+        *extra,
+        "--json",
+    ]
+
+
+@pytest.mark.parametrize("entry_point", ENTRY_POINTS)
+@pytest.mark.parametrize("schema", ["1", "2", "3"])
+def test_installed_trust_journey(tmp_path, entry_point, schema):
+    snapshot = aws_snapshot(schema)
+    snapshot_path = save_snapshot(snapshot, tmp_path / "snapshot.json")
+    result_path = tmp_path / "result.json"
+
+    saved = run_installed_json(
+        entry_point,
+        tmp_path,
+        *analyze_arguments(snapshot_path, result_path, "--result-limit", "50"),
+    )
+    shown = run_installed_json(
+        entry_point,
+        tmp_path,
+        "findings",
+        str(result_path),
+        "--snapshot",
+        str(snapshot_path),
+        "--json",
+    )
+    assert shown["findings"] == saved["findings"]
+    result = load_analysis(result_path, snapshot=load_snapshot(snapshot_path))
+    assert result.parameters.result_limit == 50
+
+    trust = [f["trust"] for f in shown["findings"] if f["trust"]]
+    classifications = {item["classification"] for item in trust}
+    # Schema 1 holds only local dependencies, so only the stored-role principal survives.
+    assert "same_account" in classifications
+    if schema != "1":
+        assert {"service", "external_account", "wildcard"} <= classifications
+        assert any(item["conditional"] for item in trust)
+        assert any(item["effect"] == "Deny" for item in trust)
+        assert {item["source"] for item in trust} == {"role_trust_policy", "resource_policy"}
+
+    cited = next(
+        f
+        for f in shown["findings"]
+        if f["trust"] and f["trust"]["classification"] == "same_account"
+    )
+    statement_id = cited["evidence_ids"][1]
+    inspected = run_installed_json(
+        entry_point,
+        tmp_path,
+        "evidence",
+        statement_id,
+        "--snapshot",
+        str(snapshot_path),
+        "--json",
+    )
+    assert inspected["resource"]["id"] == cited["resources"][0]["resource_id"]
+    assert inspected["evidence"]["value"]["Effect"] == "Allow"
+
+    before = result_path.read_bytes()
+    conflict = run_installed_json(
+        entry_point, tmp_path, *analyze_arguments(snapshot_path, result_path), expect=3
+    )
+    assert conflict["error"]["code"] == "snapshot_conflict"
+    assert result_path.read_bytes() == before
+
+
+@pytest.mark.parametrize("entry_point", ENTRY_POINTS)
+def test_installed_azure_journey_returns_an_actionable_unsupported_result(tmp_path, entry_point):
+    azure = FIXTURES_ROOT / "snapshots" / "azure.json"
+    assert GraphIndex(load_snapshot(azure)).resource_ids
+    result_path = tmp_path / "result.json"
+    run_installed_json(entry_point, tmp_path, *analyze_arguments(azure, result_path))
+    shown = run_installed_json(
+        entry_point,
+        tmp_path,
+        "findings",
+        str(result_path),
+        "--snapshot",
+        str(azure),
+        "--json",
+    )
+    [finding] = shown["findings"]
+    assert finding["status"] == "insufficient_evidence"
+    assert finding["trust"] is None
+    assert finding["limitations"][0]["code"] == "unsupported_platform"
+    assert "IAM trust policies" in finding["limitations"][0]["message"]

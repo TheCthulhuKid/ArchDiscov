@@ -46,7 +46,9 @@ def analyze(
     ],
     analyzer: Annotated[
         AnalyzerKind,
-        typer.Option("--analyzer", help="ownership (default) or security_group_impact."),
+        typer.Option(
+            "--analyzer", help="ownership (default), security_group_impact, or cross_account_trust."
+        ),
     ] = AnalyzerKind.OWNERSHIP,
     ownership_key: Annotated[
         list[str] | None,
@@ -65,15 +67,17 @@ def analyze(
     result_limit: Annotated[
         int | None,
         typer.Option(
-            "--result-limit", help="Security-group impact: findings (1-10000, default 100)."
+            "--result-limit",
+            help="Security-group impact or trust: findings (1-10000, default 100).",
         ),
     ] = None,
     json_output: JsonOption = False,
 ) -> None:
     """Run an analyzer over a snapshot and save the verified result.
 
-    Options belong to one analyzer: --ownership-key for ownership; --resource-id,
-    --max-depth, and --result-limit for security_group_impact.
+    Options belong to specific analyzers: --ownership-key for ownership; --resource-id and
+    --max-depth for security_group_impact; --result-limit for security_group_impact and
+    cross_account_trust.
     """
     with _safe_failures(snapshot, json_output):
         DEFAULT_REGISTRY.get(analyzer)  # fail fast, before touching any file

@@ -8,6 +8,8 @@ from ..cloud.scope import SupportedScope
 from ..enums import DependencyRelationship
 from ..resource_base import Model, NonEmptyString
 
+UNSUPPORTED_PLATFORM_CODE = "unsupported_platform"  # snapshot cloud the analyzer lacks
+
 
 class ResourceReference(Model):
     resource_id: NonEmptyString

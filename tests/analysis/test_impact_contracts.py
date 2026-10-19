@@ -5,8 +5,12 @@ from itertools import product
 import pytest
 from pydantic import ValidationError
 
-from archdiscov.models.analysis.impact import UNSUPPORTED_PLATFORM_CODE, SecurityGroupImpact
-from archdiscov.models.analysis.references import AnalysisLimitation, ResourceReference
+from archdiscov.models.analysis.impact import SecurityGroupImpact
+from archdiscov.models.analysis.references import (
+    UNSUPPORTED_PLATFORM_CODE,
+    AnalysisLimitation,
+    ResourceReference,
+)
 from archdiscov.models.analysis.results import AnalysisFinding, AnalysisResult
 from archdiscov.models.enums import (
     AnalysisStatus,

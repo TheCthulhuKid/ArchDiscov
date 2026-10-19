@@ -31,6 +31,7 @@ class SecurityGroupImpactParameters(Model):
 
 class CrossAccountTrustParameters(Model):
     kind: Literal[AnalyzerKind.CROSS_ACCOUNT_TRUST] = AnalyzerKind.CROSS_ACCOUNT_TRUST
+    result_limit: AnalysisResultLimit = 100
 
 
 class DatabaseAccessParameters(Model):

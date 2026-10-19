@@ -4,24 +4,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from archdiscov.models.analysis.impact import UNSUPPORTED_PLATFORM_CODE
 from archdiscov.models.analysis.parameters import AnalyzerParameters, SecurityGroupImpactParameters
-from archdiscov.models.analysis.references import AnalysisLimitation
 from archdiscov.models.analysis.results import AnalysisFinding, AnalysisResult
-from archdiscov.models.cloud.context import canonical_service_key
 from archdiscov.models.enums import (
     AnalysisStatus,
     AnalyzerErrorCode,
     AnalyzerKind,
     AwsService,
     CloudPlatform,
-    CoverageStatus,
     QueryTruncationReason,
 )
-from archdiscov.models.resource_base import Resource
 from archdiscov.models.resources.network import SecurityGroup
 
-from .analysis_qualification import coverage_limitation
+from .analysis_limitations import service_coverage_limitations, unsupported_platform_finding
 from .analyzer_errors import AnalyzerError
 from .analyzers import build_result
 from .security_group_attachments import direct_attachments
@@ -52,56 +47,6 @@ def _unique(findings: list[AnalysisFinding]) -> list[AnalysisFinding]:
     return list({finding.id: finding for finding in findings}.values())
 
 
-def _coverage_limitations(index: GraphIndex, group: Resource) -> list[AnalysisLimitation]:
-    """Limited or unrecorded collection for every service that could attach to the group.
-
-    Only recorded operations are referenced; an absent service gets a per-service
-    code and no invented operation name.
-    """
-    region = group.identity.region
-    records = index.coverage_records()
-    limitations = []
-    for service in ATTACHING_SERVICES:
-        matching = [
-            record
-            for record in records
-            if canonical_service_key(index.scope.platform, record.service) == service
-            and record.location in (None, region)
-        ]
-        if not matching:
-            limitations.append(
-                AnalysisLimitation(
-                    code=f"{UNRECORDED_PREFIX}{service}",
-                    message=f"No {service} collection is recorded for {region}.",
-                )
-            )
-        limitations.extend(
-            coverage_limitation(record)
-            for record in matching
-            if record.status != CoverageStatus.SUCCESS
-        )
-    return limitations
-
-
-def _unsupported(index: GraphIndex, selected: Resource) -> AnalysisFinding:
-    platform = index.scope.platform
-    return AnalysisFinding(
-        snapshot_id=index.snapshot_id,
-        summary=f"Security-group impact is not analyzed for {platform} snapshots.",
-        status=AnalysisStatus.INSUFFICIENT_EVIDENCE,
-        resources=[resource_reference(index, selected)],
-        limitations=[
-            AnalysisLimitation(
-                code=UNSUPPORTED_PLATFORM_CODE,
-                message=(
-                    f"Only AWS security groups are supported; {platform} semantics are not "
-                    "reused. Analyze an AWS snapshot instead."
-                ),
-            )
-        ],
-    )
-
-
 class SecurityGroupImpactAnalyzer:
     """Observed attachments and rule references of one AWS group, plus potential downstream.
 
@@ -122,7 +67,10 @@ class SecurityGroupImpactAnalyzer:
         if selected is None:
             raise AnalyzerError(AnalyzerErrorCode.RESOURCE_NOT_FOUND)
         if index.scope.platform != CloudPlatform.AWS:
-            return build_result(self, index, parameters, [_unsupported(index, selected)])
+            finding = unsupported_platform_finding(
+                index, "security groups", [resource_reference(index, selected)]
+            )
+            return build_result(self, index, parameters, [finding])
         if not isinstance(selected, SecurityGroup):
             raise AnalyzerError(AnalyzerErrorCode.UNSUPPORTED_RESOURCE)
 
@@ -141,7 +89,7 @@ class SecurityGroupImpactAnalyzer:
         if len(observed) > len(retained) or len(candidates) > len(findings):
             truncation.add(QueryTruncationReason.RESULT_LIMIT)
         limitations = [
-            *_coverage_limitations(index, selected),
+            *service_coverage_limitations(index, ATTACHING_SERVICES, selected.identity.region),
             *skipped,
             *truncation_limitations(truncation),
         ]

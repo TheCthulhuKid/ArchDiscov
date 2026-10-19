@@ -8,10 +8,9 @@ from archdiscov.graph.dependencies import DependencyEdge
 from archdiscov.models.analysis.impact import SecurityGroupImpact
 from archdiscov.models.analysis.references import (
     AnalysisLimitation,
-    UnresolvedTargetReference,
 )
 from archdiscov.models.analysis.results import AnalysisFinding
-from archdiscov.models.architecture import LocalTarget, UnresolvedTarget
+from archdiscov.models.architecture import LocalTarget
 from archdiscov.models.enums import (
     AttachmentKind,
     ImpactKind,
@@ -22,6 +21,7 @@ from archdiscov.models.enums import (
 )
 from archdiscov.models.resource_base import Resource
 
+from .analysis_limitations import target_limitations
 from .security_group_findings import impact_finding
 
 if TYPE_CHECKING:
@@ -69,31 +69,6 @@ def _summary(side: RuleReferenceSide, other: Resource | None) -> str:
     return OUTGOING_SUMMARY if other is not None else EXTERNAL_SUMMARY
 
 
-def target_limitations(edge: DependencyEdge) -> list[AnalysisLimitation]:
-    """Nonlocal targets stay terminals: a limitation names them, no resource is invented."""
-    if isinstance(edge.target, LocalTarget):
-        return []
-    if isinstance(edge.target, UnresolvedTarget):
-        return [
-            AnalysisLimitation(
-                code="unresolved_target",
-                message="The referenced security group could not be resolved.",
-                unresolved_target=UnresolvedTargetReference(
-                    source_id=edge.source_id,
-                    target=edge.target,
-                    evidence_ids=list(edge.evidence_ids),
-                ),
-            )
-        ]
-    return [
-        AnalysisLimitation(
-            code=EXTERNAL_CODE,
-            message="The referenced security group is outside this snapshot.",
-            evidence_ids=list(edge.evidence_ids),
-        )
-    ]
-
-
 def rule_references(
     index: GraphIndex, group: Resource
 ) -> tuple[list[AnalysisFinding], list[AnalysisLimitation]]:
@@ -139,7 +114,7 @@ def rule_references(
                 edge=edge,
                 resources=impacted,
                 qualifying=[group, *impacted],
-                limitations=target_limitations(edge),
+                limitations=target_limitations(edge, "referenced security group"),
             )
         )
     return findings, skipped

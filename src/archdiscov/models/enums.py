@@ -223,6 +223,7 @@ class AttachmentKind(StrEnum):
     DATABASE_SUBNET_GROUP = "database_subnet_group"
     ASSOCIATED_ROLE = "associated_role"
     DEAD_LETTER_QUEUE = "dead_letter_queue"
+    RESOURCE_POLICY_PRINCIPAL = "resource_policy_principal"
     TERRAFORM_REFERENCE = "terraform_configuration_reference"
     CLOUDFORMATION_REFERENCE = "cloudformation_configuration_reference"
 
@@ -354,6 +355,27 @@ class RuleReferenceSide(StrEnum):
 
     SELECTED_REFERENCES_OTHER = "selected_references_other"
     OTHER_REFERENCES_SELECTED = "other_references_selected"
+
+
+class TrustClassification(StrEnum):
+    """Who a trust principal names, as recorded; never whether access is effective."""
+
+    SAME_ACCOUNT = "same_account"
+    EXTERNAL_ACCOUNT = "external_account"
+    SERVICE = "service"
+    FEDERATED = "federated"
+    WILDCARD = "wildcard"
+    UNRESOLVED = "unresolved"
+
+
+class TrustEffect(StrEnum):
+    ALLOW = "Allow"
+    DENY = "Deny"
+
+
+class TrustSource(StrEnum):
+    ROLE_TRUST_POLICY = "role_trust_policy"
+    RESOURCE_POLICY = "resource_policy"
 
 
 class AnalyzerErrorCode(StrEnum):

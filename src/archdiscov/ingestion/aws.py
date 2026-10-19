@@ -340,6 +340,7 @@ class AwsAdapter:
         from .elbv2.relationships import merge_resources as merge_elbv2
         from .elbv2.relationships import resolve_relationships as resolve_elbv2
         from .iam.relationships import resolve_relationships as resolve_iam
+        from .queues.relationships import resolve_relationships as resolve_queue_policies
 
         order = {job: index for index, job in enumerate(jobs)}
         results = list(results)
@@ -394,6 +395,15 @@ class AwsAdapter:
             evidence,
         )
         for region, links in iam_dependencies.items():
+            dependencies.setdefault(region, []).extend(links)
+        queue_dependencies = resolve_queue_policies(
+            snapshot_id,
+            account.expected_account_id,
+            global_resources,
+            (resource for region in regions.values() for resource in region.resources),
+            evidence,
+        )
+        for region, links in queue_dependencies.items():
             dependencies.setdefault(region, []).extend(links)
         return ArchitectureSnapshot(
             schema_version="2",
