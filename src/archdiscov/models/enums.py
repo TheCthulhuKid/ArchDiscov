@@ -336,7 +336,29 @@ class QueryErrorCode(StrEnum):
     RESOURCE_NOT_FOUND = "resource_not_found"
 
 
+class ImpactLabel(StrEnum):
+    """Observed means recorded structure; potential means a traced downstream possibility."""
+
+    OBSERVED = "observed"
+    POTENTIAL = "potential"
+
+
+class ImpactKind(StrEnum):
+    DIRECT_ATTACHMENT = "direct_attachment"
+    RULE_REFERENCE = "rule_reference"
+    DOWNSTREAM_DEPENDENCY = "downstream_dependency"
+
+
+class RuleReferenceSide(StrEnum):
+    """Which group's rule holds a security-group reference."""
+
+    SELECTED_REFERENCES_OTHER = "selected_references_other"
+    OTHER_REFERENCES_SELECTED = "other_references_selected"
+
+
 class AnalyzerErrorCode(StrEnum):
     UNSUPPORTED_ANALYZER = "unsupported_analyzer"
     INVALID_PARAMETERS = "invalid_parameters"
     INVALID_RESULT = "invalid_result"
+    RESOURCE_NOT_FOUND = "resource_not_found"
+    UNSUPPORTED_RESOURCE = "unsupported_resource"

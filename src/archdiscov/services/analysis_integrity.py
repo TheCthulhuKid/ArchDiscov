@@ -14,6 +14,7 @@ from archdiscov.models.cloud.contracts import CloudDependency, CloudEvidence
 from archdiscov.models.cloud.scope import SupportedScope
 from archdiscov.models.coverage_key import CoverageKey
 from archdiscov.models.resource_base import Resource
+from archdiscov.models.resources.network import SecurityGroup
 
 from .analysis_diagnostics import reject
 from .snapshot_access import SnapshotAccess, _resources_from_validated_snapshot
@@ -190,5 +191,14 @@ def validate_integrity(result: AnalysisResult, access: SnapshotAccess) -> None:
     selected = getattr(result.parameters, "resource_id", None)
     if selected is not None:
         context.require_resource(selected, ("parameters", "resource_id"))
+        # Results without impact findings keep the earlier, looser selection contract.
+        if any(finding.impact is not None for finding in result.findings) and not isinstance(
+            context.resources[selected], SecurityGroup
+        ):
+            reject(
+                ("parameters", "resource_id"),
+                "resource_not_security_group",
+                "Selected resource must be a security group.",
+            )
     for index, finding in enumerate(result.findings):
         _validate_finding(finding, index, context)
