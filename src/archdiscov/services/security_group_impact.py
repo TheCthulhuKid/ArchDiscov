@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from archdiscov.models.analysis.parameters import AnalyzerParameters, SecurityGroupImpactParameters
-from archdiscov.models.analysis.references import UNSUPPORTED_PLATFORM_CODE, AnalysisLimitation
+from archdiscov.models.analysis.references import AnalysisLimitation
 from archdiscov.models.analysis.results import AnalysisFinding, AnalysisResult
 from archdiscov.models.cloud.context import canonical_service_key
 from archdiscov.models.enums import (
@@ -20,6 +20,7 @@ from archdiscov.models.enums import (
 from archdiscov.models.resource_base import Resource
 from archdiscov.models.resources.network import SecurityGroup
 
+from .analysis_limitations import unsupported_platform_finding
 from .analysis_qualification import coverage_limitation
 from .analyzer_errors import AnalyzerError
 from .analyzers import build_result
@@ -82,25 +83,6 @@ def _coverage_limitations(index: GraphIndex, group: Resource) -> list[AnalysisLi
     return limitations
 
 
-def _unsupported(index: GraphIndex, selected: Resource) -> AnalysisFinding:
-    platform = index.scope.platform
-    return AnalysisFinding(
-        snapshot_id=index.snapshot_id,
-        summary=f"Security-group impact is not analyzed for {platform} snapshots.",
-        status=AnalysisStatus.INSUFFICIENT_EVIDENCE,
-        resources=[resource_reference(index, selected)],
-        limitations=[
-            AnalysisLimitation(
-                code=UNSUPPORTED_PLATFORM_CODE,
-                message=(
-                    f"Only AWS security groups are supported; {platform} semantics are not "
-                    "reused. Analyze an AWS snapshot instead."
-                ),
-            )
-        ],
-    )
-
-
 class SecurityGroupImpactAnalyzer:
     """Observed attachments and rule references of one AWS group, plus potential downstream.
 
@@ -121,7 +103,10 @@ class SecurityGroupImpactAnalyzer:
         if selected is None:
             raise AnalyzerError(AnalyzerErrorCode.RESOURCE_NOT_FOUND)
         if index.scope.platform != CloudPlatform.AWS:
-            return build_result(self, index, parameters, [_unsupported(index, selected)])
+            finding = unsupported_platform_finding(
+                index, "security groups", [resource_reference(index, selected)]
+            )
+            return build_result(self, index, parameters, [finding])
         if not isinstance(selected, SecurityGroup):
             raise AnalyzerError(AnalyzerErrorCode.UNSUPPORTED_RESOURCE)
 
