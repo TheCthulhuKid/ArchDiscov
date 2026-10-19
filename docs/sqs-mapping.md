@@ -86,6 +86,16 @@ reachability, successful delivery, or actual message movement. The shared relati
 resolver owns dead-letter target resolution from the exact cited
 `dead_letter_target_arn` field; this collector does not invent target resources.
 
+Queue policies also produce principal references. During account assembly, each principal
+entry of each stored policy statement becomes one `resource_policy_principal` dependency,
+using the same principal rules as IAM role trust policies: collected role ARNs resolve
+locally; account, ARN, service, and federated principals are external targets; wildcard,
+`NotPrincipal`, and unsupported forms stay unresolved. Each edge cites the principal entry and
+its whole sanitized statement, so `Effect` and `Condition` appear only in that statement
+evidence. This uses the stored policy without new API calls, and records configured policy,
+not effective access. Terraform and CloudFormation imports do not ingest queue policies, so
+they produce no such edges.
+
 Coverage has exactly one record for each of the three operations. Empty successful
 inventory gives three successful zero counts without detail requests. Discovery
 failure skips dependent reads; partial discovery qualifies detail coverage even when

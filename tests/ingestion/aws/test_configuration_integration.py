@@ -243,6 +243,12 @@ def test_nonempty_combined_services_persist_links_and_inspect_fact_evidence(monk
         link.attributes.get("kind") == "execution_role" and link.target.kind == "unresolved"
         for link in links
     )
+    assert any(
+        link.attributes.get("kind") == "resource_policy_principal"
+        and link.attributes.get("principal_kind") == "service"
+        and link.target.kind == "external"
+        for link in links
+    )
     for link in links:
         assert all(
             snapshot.evidence[eid].resource_id == link.source_id for eid in link.evidence_ids

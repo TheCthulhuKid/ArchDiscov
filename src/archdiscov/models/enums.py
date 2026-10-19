@@ -223,6 +223,7 @@ class AttachmentKind(StrEnum):
     DATABASE_SUBNET_GROUP = "database_subnet_group"
     ASSOCIATED_ROLE = "associated_role"
     DEAD_LETTER_QUEUE = "dead_letter_queue"
+    RESOURCE_POLICY_PRINCIPAL = "resource_policy_principal"
     TERRAFORM_REFERENCE = "terraform_configuration_reference"
     CLOUDFORMATION_REFERENCE = "cloudformation_configuration_reference"
 
