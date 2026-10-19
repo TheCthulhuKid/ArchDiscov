@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -67,8 +67,11 @@ class _Explorer:
             if selected and far_end(step) not in partial.visited:
                 yield partial.extend(step)
 
-    def explore(self, start_id: str) -> tuple[list[_Partial], set[QueryTruncationReason]]:
-        root = _Partial(start_id, visited=frozenset({start_id}))
+    def explore(
+        self, start_id: str, excluded: Iterable[str] = ()
+    ) -> tuple[list[_Partial], set[QueryTruncationReason]]:
+        # Excluded resources are seeded as visited, so no path can enter them.
+        root = _Partial(start_id, visited=frozenset({start_id, *excluded}))
         found: list[_Partial] = []
         frontier = [root]
         try:
@@ -112,7 +115,9 @@ def query_paths(
     start = index.get_resource(request.resource_id)
     if start is None:
         raise QueryError(QueryErrorCode.RESOURCE_NOT_FOUND)
-    found, reasons = _Explorer(index, request.options, request.limits).explore(start.id)
+    found, reasons = _Explorer(index, request.options, request.limits).explore(
+        start.id, request.exclude_resource_ids
+    )
 
     resources = {start.id: start}
     evidence = list(index.evidence_for_resource(start.id))

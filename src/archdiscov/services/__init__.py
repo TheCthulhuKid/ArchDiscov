@@ -19,6 +19,7 @@ from .ownership import OwnershipAnalyzer
 from .paths import query_paths
 from .queries import inspect_resource, search_resources
 from .query_errors import QueryError
+from .security_group_impact import SecurityGroupImpactAnalyzer
 from .snapshot_access import SnapshotAccess, SupportedSnapshot, upgrade_snapshot
 from .snapshots import (
     SnapshotConflictError,
@@ -48,6 +49,7 @@ __all__ = [
     "IngestFormat",
     "IngestResult",
     "QueryError",
+    "SecurityGroupImpactAnalyzer",
     "SnapshotConflictError",
     "SnapshotAccess",
     "SupportedSnapshot",

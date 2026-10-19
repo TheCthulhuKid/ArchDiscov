@@ -26,7 +26,8 @@ evidence inspection; it does not provide live Azure collection or analysis.
 | Phase 2 permissions, setup, and offline acceptance | [Consolidated permissions](docs/aws-permissions.md) and [acceptance workflow](#phase-2-offline-acceptance) |
 | Docker development environment and GitHub Actions pytest/Ruff checks | Implemented |
 | Analysis result contracts and `Finding`/`Answer` compatibility | Implemented snapshot-backed integrity checks; no answer generation |
-| Analyzer execution, result persistence, and ownership analysis | [Implemented for the ownership analyzer only](docs/ownership-analysis.md): `analyze` and `findings` CLI, coverage-qualified, cited, atomic no-overwrite results |
+| Analyzer execution, result persistence, and ownership analysis | [Implemented for the ownership analyzer](docs/ownership-analysis.md): `analyze` and `findings` CLI, coverage-qualified, cited, atomic no-overwrite results |
+| Security-group impact analysis | [Implemented for AWS](docs/security-group-impact.md): observed attachments and rule references, potential downstream chains, Azure unsupported result |
 | Graph resource ownership, lookup, containment, dependencies, and evidence/coverage | [Implemented and verified together across schemas 1–3](docs/graph-index.md#composed-graph-boundary), including external/unresolved terminals and complete-context coverage |
 | Resource search, inspection, neighbours, and paths | [Implemented Python services and `archdiscov query` CLI](docs/graph-queries.md) with exact filters, bounds, detached data, citations, and coverage/provenance limitations |
 | Comparisons and LLM assistant/providers | Planned |
@@ -162,7 +163,8 @@ For future LLM-provider integration (phase 4, separate from cloud platforms), fo
 
 The snapshot, ingestion, persistence, and CLI boundaries below are implemented.
 Graph indexes, bounded graph queries, and the `query` CLI are implemented; the
-ownership analyzer is implemented ([ownership analysis](docs/ownership-analysis.md));
+ownership and security-group impact analyzers are implemented
+([ownership](docs/ownership-analysis.md), [security-group impact](docs/security-group-impact.md));
 other analyzers, comparisons, and provider interfaces remain planned. See [recorded resource queries](docs/graph-queries.md).
 
 - Organize the application into ingestion adapters, normalized models, graph queries, deterministic analyzers, provider adapters, and CLI presentation.
@@ -970,7 +972,7 @@ existing stable identity contract. An answer references findings rather than emb
 provider-authored factual prose. A future renderer will obtain conclusions from validated
 findings. These legacy contracts remain unchanged. Separate analysis contracts now
 describe analyzer kinds, typed parameters, paths and structured limitations; only the
-ownership analyzer is implemented; there are no severity scores, provider messages, or
+ownership and security-group impact analyzers are implemented; there are no severity scores, provider messages, or
 ask commands yet.
 
 | Status | Meaning and required limitations |
@@ -1024,7 +1026,7 @@ See [analysis result contracts](docs/analysis-results.md) for the API, ID rules,
 fixtures, and integrity boundary. [Graph resource lookup, containment, dependencies, and evidence/coverage](docs/graph-index.md)
 are implemented, as are [bounded graph queries and the `query` CLI](docs/graph-queries.md).
 The [ownership analyzer, atomic result persistence, and `analyze`/`findings` CLI](docs/ownership-analysis.md)
-are implemented; other analyzers remain later steps.
+and the [security-group impact analyzer](docs/security-group-impact.md) are implemented; other analyzers remain later steps.
 
 ### Planned assistant behavior
 
@@ -1056,7 +1058,7 @@ Every factual conclusion must cite discovered resources or configuration evidenc
 | 1. Models, snapshots, fixtures, persistence, evidence inspection, and CLI foundation | Complete (steps 1–9) |
 | 2. AWS and infrastructure-as-code ingestion | Complete (steps 10–22): supported AWS inventory, offline IaC imports, explicit CLI formats, permissions and offline acceptance |
 | Pre-phase-3 cloud boundary bridge (22.1–22.4) | Implemented foundation: scopes/identities/resources, schema `3` and conversion, offline Azure workflows, and common access/compatibility documentation; not live Azure support |
-| 3. Graph queries, deterministic findings, and snapshot comparisons | Result contracts/integrity, graph indexes, queries and the `query` CLI, and the ownership analyzer with result persistence implemented (steps 23–26); other analyzers and comparisons remain planned |
+| 3. Graph queries, deterministic findings, and snapshot comparisons | Result contracts/integrity, graph indexes, queries and the `query` CLI, and the ownership and security-group impact analyzers with result persistence implemented (steps 23–27); other analyzers and comparisons remain planned |
 | 4. LLM-provider adapters, orchestration, validated answers, and evaluations | Planned; separate from cloud platforms |
 
 The bridge prepares phase 3 to build common graph/query and ownership contracts.

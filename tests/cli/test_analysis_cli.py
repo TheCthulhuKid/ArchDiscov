@@ -83,7 +83,7 @@ def test_existing_output_is_never_overwritten(tmp_path):
     [
         (["--ownership-key", ""], "invalid_parameters"),
         (["--ownership-key", "SECRET", "--ownership-key", "SECRET"], "invalid_parameters"),
-        (["--analyzer", "security_group_impact"], "unsupported_analyzer"),
+        (["--analyzer", "cross_account_trust"], "unsupported_analyzer"),
     ],
 )
 def test_invalid_requests_exit_safely_and_write_nothing(tmp_path, extra, code):
@@ -130,3 +130,83 @@ def test_findings_rejects_wrong_snapshot_and_bad_files(tmp_path):
     rejected = run("findings", str(edited), "--snapshot", str(OWNERSHIP))
     assert rejected.exit_code == 2
     assert "SECRET" not in rejected.output
+
+
+@pytest.fixture
+def group_snapshot(tmp_path):
+    from archdiscov.services import save_snapshot, validate_snapshot
+    from tests.support.security_group_data import variant
+
+    return save_snapshot(validate_snapshot(variant()), tmp_path / "groups.json")
+
+
+def group_arguments(snapshot, output, group="sg-app", *extra):
+    from tests.support.security_group_data import IDS
+
+    return [
+        "analyze",
+        "--snapshot",
+        str(snapshot),
+        "--output",
+        str(output),
+        "--analyzer",
+        "security_group_impact",
+        "--resource-id",
+        IDS.get(group, group),
+        *extra,
+    ]
+
+
+def test_security_group_findings_show_observed_and_potential_impact(tmp_path, group_snapshot):
+    output = tmp_path / "result.json"
+    saved = run(*group_arguments(group_snapshot, output, "sg-app", "--max-depth", "2"))
+    assert saved.exit_code == 0, saved.output
+    shown = run("findings", str(output), "--snapshot", str(group_snapshot))
+    assert shown.exit_code == 0, shown.output
+    assert "Impact: observed direct_attachment" in shown.stdout
+    assert "Impact: observed rule_reference" in shown.stdout
+    assert "ingress; other_references_selected" in shown.stdout
+    assert "Impact: potential downstream_dependency" in shown.stdout
+    assert '"max_depth":2' in shown.stdout
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [["--ownership-key", "Owner"], ["--max-depth", "11"], ["--result-limit", "0"]],
+    ids=["ownership-key", "depth-range", "limit-range"],
+)
+def test_security_group_options_out_of_scope_or_range_are_rejected(tmp_path, group_snapshot, extra):
+    output = tmp_path / "result.json"
+    result = run(*group_arguments(group_snapshot, output), *extra, "--json")
+    assert result.exit_code == 2
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_parameters"
+    assert not output.exists()
+
+
+def test_security_group_options_are_rejected_for_the_ownership_analyzer(tmp_path):
+    output = tmp_path / "result.json"
+    result = analyze(OWNERSHIP, output, "--resource-id", "sg", "--json")
+    assert result.exit_code == 2
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_parameters"
+    assert not output.exists()
+
+
+def test_missing_resource_id_and_bad_selections_are_safe_errors(tmp_path, group_snapshot):
+    output = tmp_path / "result.json"
+    plain = [
+        "analyze",
+        "--snapshot",
+        str(group_snapshot),
+        "--output",
+        str(output),
+        "--analyzer",
+        "security_group_impact",
+        "--json",
+    ]
+    assert json.loads(run(*plain).stdout)["error"]["code"] == "invalid_parameters"
+    missing = run(*group_arguments(group_snapshot, output, "absent"), "--json")
+    assert missing.exit_code == 2
+    assert json.loads(missing.stdout)["error"]["code"] == "resource_not_found"
+    not_group = run(*group_arguments(group_snapshot, output, "instance"), "--json")
+    assert json.loads(not_group.stdout)["error"]["code"] == "unsupported_resource"
+    assert not output.exists()

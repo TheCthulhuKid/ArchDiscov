@@ -162,7 +162,7 @@ def test_registry_is_deterministic_and_rejects_unknown_kinds():
     with pytest.raises(AnalyzerError) as error:
         registry.get(AnalyzerKind.INTERNET_EXPOSURE)
     assert error.value.code == AnalyzerErrorCode.UNSUPPORTED_ANALYZER
-    assert DEFAULT_REGISTRY.kinds == (AnalyzerKind.OWNERSHIP,)
+    assert DEFAULT_REGISTRY.kinds == (AnalyzerKind.OWNERSHIP, AnalyzerKind.SECURITY_GROUP_IMPACT)
 
 
 @pytest.mark.parametrize(
