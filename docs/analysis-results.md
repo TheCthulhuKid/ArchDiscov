@@ -36,6 +36,32 @@ scope caveats are allowed even for supported findings. These contracts do not
 automatically downgrade findings based on coverage; the shared qualification helper
 in [ownership analysis](ownership-analysis.md) does.
 
+## Security-group impact vocabulary
+
+`AnalysisFinding.impact` (`SecurityGroupImpact`) is optional and used only by the
+security-group impact analyzer, which is not implemented yet; this step defines the
+vocabulary. It names the selected group, an `ImpactKind` and an `ImpactLabel`:
+
+| Kind | Label | Meaning |
+|---|---|---|
+| `direct_attachment` | `observed` | A recorded membership edge attaches the finding's resource to the group |
+| `rule_reference` | `observed` | A recorded rule references the group, or the group's rule references the resource; also carries `rule_direction` (ingress/egress) and `reference_side` |
+| `downstream_dependency` | `potential` | A traced dependency path from an impacted resource; a possibility, not a conclusion |
+
+The label must match the kind, rule fields appear only on rule references, and the
+label, kind, and rule fields are part of finding identity. Findings without an `impact`
+keep exactly their earlier IDs. The impacted resource is the finding's resource
+reference; paths and citations use the existing path and evidence fields. Observed
+means recorded structure, not reachability or effective access.
+
+A result carrying impact findings must use `security_group_impact` parameters whose
+`resource_id` is the impact's selected group, and integrity requires that resource to
+exist in the snapshot and be a security group (`resource_not_security_group`).
+Parameter-only results keep the earlier looser selection check. A cloud the analyzer
+does not support is reported as an `insufficient_evidence` finding with an
+`unsupported_platform` limitation (`UNSUPPORTED_PLATFORM_CODE`) rather than an impact.
+Analyzer errors `resource_not_found` and `unsupported_resource` have fixed safe messages.
+
 ## Deterministic IDs
 
 Finding IDs are derived from normalized finding content with SHA-256, scoped by the

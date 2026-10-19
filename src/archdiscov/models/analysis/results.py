@@ -7,7 +7,8 @@ from pydantic import AwareDatetime, Field, model_validator
 
 from ..enums import AnalysisStatus, AnalyzerKind
 from ..resource_base import Model, NonEmptyString
-from .parameters import AnalyzerParameters
+from .impact import SecurityGroupImpact
+from .parameters import AnalyzerParameters, SecurityGroupImpactParameters
 from .references import AnalysisLimitation, PathStep, ResourceReference
 
 
@@ -22,6 +23,7 @@ class AnalysisFinding(Model):
     resources: list[ResourceReference] = Field(default_factory=list)
     path: list[PathStep] = Field(default_factory=list)
     limitations: list[AnalysisLimitation] = Field(default_factory=list)
+    impact: SecurityGroupImpact | None = None
 
     @model_validator(mode="after")
     def validate_finding(self) -> Self:
@@ -48,10 +50,11 @@ def deterministic_finding_id(finding: AnalysisFinding) -> str:
     is immaterial; path order and attribute list order remain meaningful. Analyzer
     kind is envelope-only and therefore is not part of the finding identity.
     """
-    payload = finding.model_dump(
-        mode="json",
-        exclude={"id": True, "limitations": {"__all__": {"message"}}},
-    )
+    exclude: dict[str, object] = {"id": True, "limitations": {"__all__": {"message"}}}
+    if finding.impact is None:
+        # Absent impact keeps identities of findings from other analyzers unchanged.
+        exclude["impact"] = True
+    payload = finding.model_dump(mode="json", exclude=exclude)
     payload["evidence_ids"] = sorted(payload["evidence_ids"])
     payload["resources"] = sorted(payload["resources"], key=_canonical_json)
     for step in payload["path"]:
@@ -80,6 +83,11 @@ class AnalysisResult(Model):
             raise ValueError("parameter kind must match analyzer")
         if any(finding.snapshot_id != self.snapshot_id for finding in self.findings):
             raise ValueError("finding snapshot_id must match result snapshot_id")
+        impacts = [finding.impact for finding in self.findings if finding.impact is not None]
+        if impacts and not isinstance(self.parameters, SecurityGroupImpactParameters):
+            raise ValueError("impact findings require security_group_impact parameters")
+        if any(impact.selected_group_id != self.parameters.resource_id for impact in impacts):
+            raise ValueError("impact must describe the selected security group")
         ids = [finding.id for finding in self.findings]
         if len(ids) != len(set(ids)):
             raise ValueError("finding IDs must be unique")
