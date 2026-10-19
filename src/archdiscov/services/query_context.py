@@ -118,3 +118,26 @@ def no_coverage_limitation(resource: Resource) -> QueryProvenanceLimitation:
         fact_path="/identity",
         message="No recorded coverage is available for this resource context.",
     )
+
+
+def context_limitations(
+    index: GraphIndex, resources: Iterable[Resource], evidence: Iterable[CloudEvidence]
+) -> tuple[list[CloudOperationCoverage], list[QueryLimitation]]:
+    """Contextual coverage for each resource, plus the limitations it implies.
+
+    Records are deduplicated across resources. Limited outcomes come first, then
+    operations that cited evidence names but no record covers, then resources with
+    no contextual coverage at all.
+    """
+    records: dict[CoverageKey, CloudOperationCoverage] = {}
+    uncovered = []
+    for resource in resources:
+        matching = resource_coverage(index, resource)
+        for record in matching:
+            records.setdefault(CoverageKey.from_record(record), record)
+        if not matching:
+            uncovered.append(resource)
+    limitations = coverage_limitations(records.values())
+    limitations.extend(missing_coverage(index, evidence))
+    limitations.extend(no_coverage_limitation(resource) for resource in uncovered)
+    return list(records.values()), limitations

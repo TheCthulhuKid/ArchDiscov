@@ -15,10 +15,9 @@ from archdiscov.models.query.results import QueryInspectResult, QuerySearchResul
 from archdiscov.models.resource_base import Model, Resource
 
 from .query_context import (
+    context_limitations,
     coverage_limitations,
     missing_coverage,
-    no_coverage_limitation,
-    resource_coverage,
     tag_provenance,
 )
 from .query_errors import QueryError
@@ -123,11 +122,7 @@ def inspect_resource(
         evidence_id: index.get_evidence(evidence_id)
         for evidence_id in index.resource_evidence_ids(resource.id)
     }
-    coverage = resource_coverage(index, resource)
-    limitations = coverage_limitations(coverage)
-    limitations.extend(missing_coverage(index, evidence.values()))
-    if not coverage:
-        limitations.append(no_coverage_limitation(resource))
+    coverage, limitations = context_limitations(index, [resource], evidence.values())
     tags = tag_provenance(index, resource)
     if tags is not None:
         limitations.append(tags)

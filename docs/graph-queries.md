@@ -3,7 +3,7 @@
 Step 25.2 provides Python search and inspection services over an existing
 `GraphIndex`. They work with AWS schemas `1`–`2`, upgraded AWS schema `3`, and
 the offline Azure schema-3 contract. They do not collect live data or generate
-analytical conclusions. Directional neighbours are available through `query_neighbours`; paths and the `query` CLI remain later steps.
+analytical conclusions. Directional neighbours are available through `query_neighbours`; bounded paths via `query_paths`; the `query` CLI remains a later step.
 
 ## Python API
 
@@ -126,3 +126,22 @@ stored target, edge ID, then outgoing before incoming, and the result limit is
 applied afterwards. External and unresolved targets stay terminals with structured
 limitations; they are never stored resources. Coverage limitations describe the
 resource's context: recorded neighbours are not exhaustive.
+
+## Paths
+
+`query_paths(index, request)` explores outward from one stored resource using the
+same direction and edge-selection options as neighbours. Every nonempty prefix is
+returned as a path, shortest first and then by step-order key, and exploration
+follows that order so bounded results are deterministic. Steps keep the original
+stored edges and citations; the step direction records how the edge was walked.
+
+A path never revisits a resource, which stops cycles; parallel edges and distinct
+routes to the same resource remain separate paths. External and unresolved targets
+end a path with a limitation and are never followed. Depth defaults to 3.
+
+Work is bounded as well as results: one unit examines one candidate edge, including
+edges rejected by filters or cycle checks. Truncation reports `depth_limit`,
+`result_limit`, or `work_limit` only when exploration was actually cut short. A
+`depth_limit` check probes beyond the last level without charging work. Coverage
+limitations cover every resource reached. A path is recorded structure, not proof of
+reachability or effective access.
