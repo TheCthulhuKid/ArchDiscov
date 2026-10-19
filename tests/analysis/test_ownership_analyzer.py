@@ -2,17 +2,14 @@ import pytest
 
 from archdiscov.graph import GraphIndex
 from archdiscov.models.analysis.parameters import OwnershipParameters
-from archdiscov.models.enums import AnalysisStatus, EvidenceValueStatus
+from archdiscov.models.enums import AnalysisStatus
 from archdiscov.services import (
     DEFAULT_REGISTRY,
-    load_snapshot,
     run_analyzer,
-    upgrade_snapshot,
     validate_analysis_result,
 )
-from tests.paths import FIXTURES_ROOT
+from tests.support.tagged_snapshots import NO_TAGS, TAG_EVIDENCE, tagged
 
-FIXTURES = FIXTURES_ROOT
 SOURCES = [
     ("analysis/ownership-snapshot.json", False),
     ("snapshots/hierarchy.json", False),
@@ -21,45 +18,6 @@ SOURCES = [
     ("snapshots/network.json", False),
 ]
 IDS = ["aws-v2", "aws-v1", "aws-v3", "azure-v3", "aws-network"]
-NO_TAGS = object()
-
-
-def walk(resources):
-    for resource in resources:
-        yield resource
-        yield from walk(resource.children)
-
-
-def all_resources(snapshot):
-    for region in snapshot.regions.values():
-        yield from walk(region.resources)
-    yield from walk(getattr(snapshot, "global_resources", []))
-
-
-def tagged(source, upgraded=False, *, tags=NO_TAGS, cite="present"):
-    """Tag the first resource that already owns evidence, citing the tag map if asked.
-
-    Returns the snapshot and the tagged resource's ID. The evidence record is cloned
-    from one the resource already owns so its cloud context stays consistent.
-    """
-    snapshot = load_snapshot(FIXTURES / source)
-    if upgraded:
-        snapshot = upgrade_snapshot(snapshot)
-    target = next(item for item in all_resources(snapshot) if item.evidence_ids)
-    template = snapshot.evidence[target.evidence_ids[0]]
-    attributes = {key: value for key, value in target.attributes.items() if key != "tags"}
-    target.attributes = attributes if tags is NO_TAGS else {**attributes, "tags": tags}
-    target.fact_evidence.pop("/attributes/tags", None)  # drop any fixture-provided citation
-    if cite is not None:
-        update = {"configuration_path": "Tags", "value_status": EvidenceValueStatus(cite)}
-        if cite == "present":
-            update["value"] = tags
-        else:
-            update.update(value=None, limitation="Tags were not collected.")
-        snapshot.evidence["tags-test"] = template.model_copy(update=update)
-        target.evidence_ids.append("tags-test")
-        target.fact_evidence["/attributes/tags"] = ["tags-test"]
-    return snapshot, target.id
 
 
 def analyze(snapshot, keys=None):
@@ -88,7 +46,7 @@ class TestOwnershipSignals:
         snapshot, target = tagged(source, upgraded, tags={"Name": "app"})
         finding = analyze(snapshot)[0][target]
         assert finding.status in (AnalysisStatus.SUPPORTED, AnalysisStatus.PARTIAL)
-        assert finding.evidence_ids == ["tags-test"]
+        assert finding.evidence_ids == [TAG_EVIDENCE]
         assert "not proof that nobody owns" in finding.summary
         assert "Owner or Team" in finding.summary
         assert "tags_unavailable" not in codes(finding)
@@ -135,7 +93,7 @@ def test_incomplete_coverage_downgrades_missing_tag_signal_to_partial():
     finding = analyze(snapshot)[0][target]
     assert finding.status == AnalysisStatus.PARTIAL
     assert codes(finding) == ["coverage_failed"]
-    assert finding.evidence_ids == ["tags-test"]
+    assert finding.evidence_ids == [TAG_EVIDENCE]
 
 
 def test_incomplete_coverage_keeps_unavailable_tags_insufficient():
