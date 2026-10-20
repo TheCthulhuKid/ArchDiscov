@@ -45,7 +45,16 @@ SOURCES = {
 }
 
 
-def aws_snapshot(resources, source="aws", *, seed=1, account=ACCOUNT, region=REGION):
+def aws_snapshot(
+    resources,
+    source="aws",
+    *,
+    seed=1,
+    account=ACCOUNT,
+    region=REGION,
+    dependencies=(),
+    evidence=None,
+):
     data = {
         "schema_version": "2",
         "snapshot_id": str(UUID(int=seed)),
@@ -55,7 +64,8 @@ def aws_snapshot(resources, source="aws", *, seed=1, account=ACCOUNT, region=REG
         "source": copy.deepcopy(SOURCES[source]),
         "coverage": {"regions": [region], "account_wide": False},
         "regions": {region: {"resources": resources}},
-        "evidence": {},
+        "dependencies_by_region": {region: list(dependencies)} if dependencies else {},
+        "evidence": copy.deepcopy(evidence or {}),
     }
     return validate_snapshot(data)
 

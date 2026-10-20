@@ -77,3 +77,31 @@ identity and never guesses:
 - Matching is symmetric apart from the side labels, deterministic, and linear in the number
   of resources. Differences between matched resources, lifecycle, and coverage qualification
   are described by the later comparison steps.
+
+## Field comparison
+
+Field comparison (`archdiscov.services.comparison_fields.FieldComparer`) compares each matched
+pair and returns `FieldDifference`s in canonical order. A difference is a difference between two
+recorded snapshots, not a drift verdict.
+
+- **Fields** (`subject: field`): the resource document, meaning its name, resource type, typed
+  fields, and attributes (including tags), compared recursively with escaped JSON-pointer paths.
+  Lists are compared by position. The resource ID, identity, evidence IDs and fact citations,
+  children (compared as their own resources), and the planned lifecycle (qualified separately)
+  are not compared: they identify the snapshot, not the resource.
+- **Containment** (`subject: containment`, path `/parent`): the containment parent. Parents are
+  compared by matched identity; the values are `{"left": ID, "right": ID}`, with `null` for a
+  parent that has no counterpart.
+- **Dependencies** (`subject: dependency`, path `/relationship/attachment kind/location/target`):
+  outgoing edges grouped by relationship, attachment kind, and location, as sets of targets. A
+  local target is compared by matched identity, so edges to two resources that match each other
+  are equal; an external target is compared by its recorded target. Other edge attributes are
+  not compared.
+- **Citations**: each side cites the fact at the difference's path (or its nearest cited
+  ancestor), an edge's own evidence, or else the resource's own evidence. No citation is invented,
+  so a side may cite nothing.
+- **Indeterminate differences** carry no values and a qualification: a value redacted on either
+  side is never compared by content (`redacted_value`); a field absent from a side whose
+  resource recorded unknown or omitted values may be one of them (`unknown_value`); and a
+  dependency group holding an unresolved reference cannot be judged against the other side's
+  targets (`unresolved_reference`).

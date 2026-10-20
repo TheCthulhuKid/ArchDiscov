@@ -6,7 +6,9 @@ from pydantic import JsonValue
 
 from .json_pointer import escape_pointer_token
 
-__all__ = ["is_sensitive_path", "sanitize_value"]
+__all__ = ["REDACTED_MARKER", "is_sensitive_path", "sanitize_value"]
+
+REDACTED_MARKER = "[REDACTED]"
 
 _SENSITIVE_KEYS = frozenset(
     {
@@ -60,7 +62,7 @@ def sanitize_value(value: JsonValue, *, sensitive: bool = False) -> tuple[JsonVa
     def visit(item: JsonValue, path: str, redact: bool = False) -> JsonValue:
         if redact:
             paths.append(path)
-            return "[REDACTED]"
+            return REDACTED_MARKER
         if isinstance(item, dict):
             return {
                 key: visit(
