@@ -30,6 +30,7 @@ from .network_matching import (
     implicit_deny,
     normalize_protocol,
     omitted_rules,
+    parse_ipv4_network,
     require_recorded,
     screen_cidr,
     screen_protocol,
@@ -48,11 +49,14 @@ class Peer:
 
     `network` is an IPv4 address or CIDR, and `group_ids` the stored security groups the
     peer belongs to. None means unknown, so rules that depend on it become unknown
-    rather than non-matching; an empty tuple means the peer belongs to no group.
+    rather than non-matching; an empty tuple means the peer belongs to no group. With
+    `bounded`, the peer is one unknown address somewhere inside `network` (for example a
+    subnet), so a rule covering only part of it is unknown, not a non-match.
     """
 
     network: IPv4Network | None = None
     group_ids: tuple[str, ...] | None = None
+    bounded: bool = False
 
     @classmethod
     def address(cls, value: str, group_ids: tuple[str, ...] | None = None) -> Peer:
@@ -60,10 +64,12 @@ class Peer:
 
     @classmethod
     def cidr(cls, value: str, group_ids: tuple[str, ...] | None = None) -> Peer:
-        network = ip_network(value, strict=False)
-        if not isinstance(network, IPv4Network):
-            raise ValueError("only IPv4 peers are supported")
-        return cls(network, group_ids)
+        return cls(parse_ipv4_network(value), group_ids)
+
+    @classmethod
+    def within(cls, value: str, group_ids: tuple[str, ...] | None = None) -> Peer:
+        """One unknown address somewhere inside the CIDR."""
+        return cls(parse_ipv4_network(value), group_ids, bounded=True)
 
 
 @dataclass(frozen=True)
@@ -90,7 +96,12 @@ class _Query:
         if rule.referenced_group_id is not None:
             return self._screen_group(rule)
         if rule.cidr is not None:
-            return screen_cidr(rule.cidr, self.peer.network, "The peer address is unknown.")
+            return screen_cidr(
+                rule.cidr,
+                self.peer.network,
+                "The peer address is unknown.",
+                bounded=self.peer.bounded,
+            )
         return Undecided.missing("The rule records no source or destination.")
 
     def match(

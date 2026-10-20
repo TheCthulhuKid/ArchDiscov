@@ -10,7 +10,7 @@ considered.
 
 from __future__ import annotations
 
-from ipaddress import IPv4Address, IPv4Network, ip_network
+from ipaddress import IPv4Network, ip_network
 from typing import TYPE_CHECKING
 
 from archdiscov.models.architecture import Subnet, Vpc
@@ -23,6 +23,7 @@ from .network_matching import (
     Undecided,
     cited_decision,
     implicit_deny,
+    parse_ipv4_network,
     require_recorded,
     sole_associate,
 )
@@ -72,19 +73,30 @@ def _network(route: Route) -> IPv4Network | Undecided | None:
     return network if isinstance(network, IPv4Network) else None
 
 
-def _best_route(table: RouteTable, address: IPv4Address) -> tuple[int, Route] | Undecided | None:
-    """The longest-prefix route holding the address; None when no route matches."""
-    matches: list[tuple[int, int, Route]] = []
+def _best_route(table: RouteTable, target: IPv4Network) -> tuple[int, Route] | Undecided | None:
+    """The longest-prefix route holding the whole target network; None when none does.
+
+    A target wider than one address only bounds an address not known exactly, so a more
+    specific route covering part of it could take some traffic and makes the result undecided.
+    """
+    containing: list[tuple[int, int, Route]] = []
+    partial: list[int] = []
     for position, route in enumerate(table.routes):
         network = _network(route)
         if isinstance(network, Undecided):
             return network
-        if network is not None and address in network:
-            matches.append((network.prefixlen, position, route))
-    if not matches:
+        if network is None:
+            continue
+        if target.subnet_of(network):
+            containing.append((network.prefixlen, position, route))
+        elif target.overlaps(network):
+            partial.append(network.prefixlen)
+    longest = max((prefix for prefix, _, _ in containing), default=-1)
+    if any(prefix > longest for prefix in partial):
+        return Undecided.missing("A more specific route covers only part of the address range.")
+    if not containing:
         return None
-    longest = max(prefix for prefix, _, _ in matches)
-    best = [(position, route) for prefix, position, route in matches if prefix == longest]
+    best = [(position, route) for prefix, position, route in containing if prefix == longest]
     if len(best) > 1:
         return Undecided.missing("Several routes share the longest matching prefix.")
     return best[0]
@@ -149,10 +161,10 @@ def _decide(
     subnet: Subnet,
     table: RouteTable,
     association_evidence_ids: tuple[str, ...],
-    address: IPv4Address,
+    target: IPv4Network,
     reach: RouteReach,
 ) -> NetworkResult:
-    best = _best_route(table, address)
+    best = _best_route(table, target)
     if isinstance(best, Undecided):
         return best.result(element=_ELEMENT, resource_id=table.id)
     if best is None:
@@ -195,6 +207,8 @@ def evaluate_subnet_route(
 ) -> NetworkResult:
     """Decide whether the subnet's best route for the IPv4 address leads where `reach` says.
 
+    `address` may also be a CIDR bounding an address not known exactly.
+
     Allows when the longest-prefix route is active and leads to `reach`: a local target, or
     an internet gateway recorded as available and attached to the subnet's VPC. Denies
     when no route matches, the best route is a blackhole, or it leads elsewhere among the
@@ -211,7 +225,7 @@ def evaluate_subnet_route(
     else:
         table, association_evidence_ids = selection
         outcome = _decide(
-            index, subnet, table, association_evidence_ids, IPv4Address(address), reach
+            index, subnet, table, association_evidence_ids, parse_ipv4_network(address), reach
         )
     operations = ROUTE_OPERATIONS | (
         GATEWAY_OPERATIONS if reach == RouteReach.INTERNET_GATEWAY else set()

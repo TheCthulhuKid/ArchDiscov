@@ -57,26 +57,90 @@ def instance(name, subnet, groups, vpc="vpc-a", address=None):
     return item
 
 
-EC2_ITEMS = {
-    Op.DESCRIBE_VPCS: [VPC_A, VPC_B],
-    Op.DESCRIBE_SUBNETS: SUBNETS,
-    Op.DESCRIBE_SECURITY_GROUPS: GROUPS,
-    Op.DESCRIBE_INSTANCES: [
-        {
-            "Instances": [
-                instance("i-multi", "subnet-a", ["sg-app"]),
-                instance("i-plain", "subnet-a", ["sg-app"], address="10.0.1.20"),
-                instance("i-nosg", "subnet-a", []),
-                instance("i-other", "subnet-x", ["sg-x"], vpc="vpc-b", address="10.9.1.5"),
-            ]
-        }
-    ],
-    Op.DESCRIBE_NETWORK_INTERFACES: [
-        eni("eni-1", "subnet-a", ["sg-app"], "10.0.1.10", "i-multi"),
-        eni("eni-2", "subnet-b", ["sg-app"], "10.0.2.10", "i-multi"),
-        eni("eni-task", "subnet-a", ["sg-app"], "10.0.1.30"),
-    ],
-}
+def rule(group, *, egress=False, protocol="tcp", port=5432, **target):
+    """A DescribeSecurityGroupRules item; `target` is a CIDR or a referenced group."""
+    item = {
+        "SecurityGroupRuleId": f"sgr-{group}-{len(target)}-{port}-{egress}",
+        "GroupId": group,
+        "IsEgress": egress,
+        "IpProtocol": protocol,
+        "FromPort": port if protocol != "-1" else -1,
+        "ToPort": port if protocol != "-1" else -1,
+    }
+    if "referenced" in target:
+        item["ReferencedGroupInfo"] = {"GroupId": target["referenced"], "UserId": ACCOUNT}
+    else:
+        item["CidrIpv4"] = target["cidr"]
+    return item
+
+
+def acl_entry(number, action="allow", *, egress=False, protocol="-1", cidr="0.0.0.0/0"):
+    return {
+        "RuleNumber": number,
+        "Protocol": protocol,
+        "RuleAction": action,
+        "Egress": egress,
+        "CidrBlock": cidr,
+    }
+
+
+OPEN_ACL = [acl_entry(100), acl_entry(100, egress=True)]
+DEFAULT_RULES = [
+    rule("sg-a", referenced="sg-app"),  # the database accepts the application group
+    rule("sg-app", egress=True, protocol="-1", cidr="0.0.0.0/0"),
+    rule("sg-a", egress=True, protocol="-1", cidr="0.0.0.0/0"),
+]
+LOCAL_ROUTE = {"DestinationCidrBlock": "10.0.0.0/16", "GatewayId": "local", "State": "active"}
+
+
+def ec2_items(*, rules=None, acl=None, routes=None, acls=True, tables=True):
+    """The EC2 network: rules, one ACL for both subnets, and one local-route table.
+
+    `acls=False` and `tables=False` record no ACL or route table at all.
+    """
+    items = {
+        Op.DESCRIBE_VPCS: [VPC_A, VPC_B],
+        Op.DESCRIBE_SUBNETS: SUBNETS,
+        Op.DESCRIBE_SECURITY_GROUPS: GROUPS,
+        Op.DESCRIBE_SECURITY_GROUP_RULES: DEFAULT_RULES if rules is None else rules,
+        Op.DESCRIBE_INSTANCES: [
+            {
+                "Instances": [
+                    instance("i-multi", "subnet-a", ["sg-app"]),
+                    instance("i-plain", "subnet-a", ["sg-app"], address="10.0.1.20"),
+                    instance("i-nosg", "subnet-a", []),
+                    instance("i-other", "subnet-x", ["sg-x"], vpc="vpc-b", address="10.9.1.5"),
+                ]
+            }
+        ],
+        Op.DESCRIBE_NETWORK_INTERFACES: [
+            eni("eni-1", "subnet-a", ["sg-app"], "10.0.1.10", "i-multi"),
+            eni("eni-2", "subnet-b", ["sg-app"], "10.0.2.10", "i-multi"),
+            eni("eni-task", "subnet-a", ["sg-app"], "10.0.1.30"),
+        ],
+    }
+    if acls:
+        items[Op.DESCRIBE_NETWORK_ACLS] = [
+            {
+                "NetworkAclId": "acl-1",
+                "VpcId": "vpc-a",
+                "Entries": OPEN_ACL if acl is None else acl,
+                "Associations": [{"SubnetId": s} for s in ("subnet-a", "subnet-b")],
+            }
+        ]
+    if tables:
+        items[Op.DESCRIBE_ROUTE_TABLES] = [
+            {
+                "RouteTableId": "rtb-1",
+                "VpcId": "vpc-a",
+                "Routes": [LOCAL_ROUTE] if routes is None else routes,
+                "Associations": [{"SubnetId": s} for s in ("subnet-a", "subnet-b")],
+            }
+        ]
+    return items
+
+
+EC2_ITEMS = ec2_items()
 
 
 def _ecs_task(

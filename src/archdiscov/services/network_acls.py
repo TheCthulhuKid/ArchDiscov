@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
-from ipaddress import IPv4Address, ip_network
+from ipaddress import IPv4Network
 from typing import TYPE_CHECKING
 
 from archdiscov.models.architecture import Subnet
@@ -35,6 +35,7 @@ from .network_matching import (
     combine,
     implicit_deny,
     normalize_protocol,
+    parse_ipv4_network,
     require_recorded,
     screen_cidr,
     screen_protocol,
@@ -54,7 +55,7 @@ class _Query:
 
     acl: NetworkAcl
     association_evidence_ids: tuple[str, ...]
-    address: IPv4Address
+    network: IPv4Network
     protocol: str
     port: int
 
@@ -67,14 +68,13 @@ class _Query:
                 if entry.direction == direction
             )
         )
-        network = ip_network(self.address)
         for _, position in positions:
             entry, where = self.acl.entries[position], f"/entries/{position}"
             screen = combine(
                 screen_protocol(
                     entry.protocol, entry.from_port, entry.to_port, self.protocol, self.port
                 ),
-                screen_cidr(entry.cidr, network, "The address is unknown."),
+                screen_cidr(entry.cidr, self.network, "The address is unknown.", bounded=True),
             )
             if isinstance(screen, Undecided):
                 yield None, screen.result(element=f"{_ELEMENT}:{where}", resource_id=self.acl.id)
@@ -104,9 +104,10 @@ def evaluate_network_acl(
     """Decide whether the subnet's associated ACL permits this traffic in one direction.
 
     `address` is the IPv4 address on the other end (the source for ingress, the
-    destination for egress). `protocol` is tcp, udp, icmp, or their numbers, and `port`
-    the destination port. Cites the matched entry and the association; an implicit deny
-    cites the ACL's own evidence. Limited ACL collection downgrades any decision to unknown.
+    destination for egress), or a CIDR that bounds an address not known exactly. `protocol`
+    is tcp, udp, icmp, or their numbers, and `port` the destination port. Cites the matched
+    entry and the association; an implicit deny cites the ACL's own evidence. Limited ACL
+    collection downgrades any decision to unknown.
     """
     subnet = require_recorded(index, subnet_id, Subnet, "subnet")
     if isinstance(subnet, NetworkResult):
@@ -120,7 +121,7 @@ def evaluate_network_acl(
         outcome = association
     else:
         acl, association_evidence_ids = association
-        query = _Query(acl, association_evidence_ids, IPv4Address(address), normalized, port)
+        query = _Query(acl, association_evidence_ids, parse_ipv4_network(address), normalized, port)
         outcome = first_match(
             query.candidates(direction),
             implicit_deny(

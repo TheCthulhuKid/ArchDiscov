@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from ipaddress import IPv4Network
+from ipaddress import IPv4Network, ip_network
 from typing import TYPE_CHECKING
 
 from archdiscov.ingestion.network.resources import FALLBACK_LIMITATION
@@ -76,13 +76,35 @@ def screen_protocol(
     return from_port == -1 or from_port <= port <= to_port
 
 
-def screen_cidr(cidr: object, network: IPv4Network | None, unknown_message: str) -> Screen:
-    """Whether the recorded IPv4 CIDR contains the queried network; IPv6 is unsupported."""
+def parse_ipv4_network(value: str) -> IPv4Network:
+    """An IPv4 address (a /32) or CIDR; raises ValueError otherwise."""
+    network = ip_network(value, strict=False)
+    if not isinstance(network, IPv4Network):
+        raise ValueError("only IPv4 is supported")
+    return network
+
+
+def screen_cidr(
+    cidr: object,
+    network: IPv4Network | None,
+    unknown_message: str,
+    *,
+    bounded: bool = False,
+) -> Screen:
+    """Whether the recorded IPv4 CIDR contains the queried network; IPv6 is unsupported.
+
+    With `bounded`, the network only bounds an address that is not known exactly: a CIDR
+    that covers part of it cannot be matched or ruled out, so it is undecided.
+    """
     if not isinstance(cidr, IPv4Network):
         return Undecided.unsupported("IPv6 rules and entries are unsupported.")
     if network is None:
         return Undecided.missing(unknown_message)
-    return network.subnet_of(cidr)
+    if network.subnet_of(cidr):
+        return True
+    if bounded and network.overlaps(cidr):
+        return Undecided.missing("The address is only known to lie in a network this overlaps.")
+    return False
 
 
 def omitted_rules(resource: Resource) -> bool:
