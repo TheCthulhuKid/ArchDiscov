@@ -2,17 +2,14 @@
 
 from archdiscov.ingestion.operations import Ec2Operation as Op
 from archdiscov.models.architecture import ArchitectureSnapshot, AwsSource, SnapshotCoverage
-from archdiscov.models.enums import AwsService
-from archdiscov.models.resource_base import ResourceIdentity
 from tests.support.coverage_data import REGION, ec2_coverage
 from tests.support.iam_data import ACCOUNT, context
+from tests.support.ids import stable_id
 from tests.support.network_data import SNAPSHOT_ID, SUBNET, VPC, region
 
 
 def resource_id(physical_id: str) -> str:
-    return ResourceIdentity(
-        account_id=ACCOUNT, region=REGION, service=AwsService.EC2, physical_id=physical_id
-    ).stable_id
+    return stable_id(physical_id, REGION)
 
 
 def build_network(

@@ -20,12 +20,12 @@ from tests.support.ecs_data import responses as ecs_responses
 from tests.support.elbv2_data import Elbv2Client
 from tests.support.elbv2_data import responses as elbv2_responses
 from tests.support.iam_data import ACCOUNT, PROFILE_ARN, IamClient
+from tests.support.rds_data import Client as RdsClient
+from tests.support.rds_data import data as rds_data
 
 from .test_elbv2_collection import ec2_pages
 from .test_lambda_collection import Client as LambdaClient
 from .test_lambda_collection import configuration
-from .test_rds_collection import Client as RdsClient
-from .test_rds_collection import data as rds_data
 from .test_sqs_collection import Client as SqsClient
 
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
