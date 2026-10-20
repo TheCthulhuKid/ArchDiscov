@@ -3,7 +3,7 @@
 Step 29 defines which AWS network cases are evaluated initially and how uncertainty is
 handled, then provides reusable primitives over the shared `GraphIndex`. The decision
 vocabulary and composition rules described here are implemented; the individual
-primitives are delivered in later substeps (security-group rules, NACLs, and subnet routes so far). No analyzer or CLI uses them yet (database
+primitives are delivered in later substeps (security-group rules, NACLs, and subnet routes, public addressing, and load-balancer forwarding so far). No analyzer or CLI uses them yet (database
 access and internet exposure are later steps).
 
 **A decision describes recorded configuration, not live reachability.** It ignores
@@ -69,6 +69,13 @@ decided the outcome.
   subnet has no explicit association. A route to an internet gateway is a recorded route,
   not proof of internet reachability; it also needs the gateway recorded as available and
   attached to the VPC.
+- `evaluate_public_address` (`services.network_addressing`): a recorded public IPv4
+  address on an ENI or instance allows, a recorded absence denies, IPv6 is ignored.
+- `evaluate_load_balancer_scheme` and `evaluate_load_balancer_forwarding`
+  (`services.network_load_balancers`): internet-facing versus internal, and a listener that
+  accepts the port and protocol and forwards to recorded targets. Conditional rules are
+  alternatives, so an allow means some request can be forwarded. Target health must be
+  recorded but is never interpreted, and security groups are not considered.
 
 ## Supported and unsupported cases
 

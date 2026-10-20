@@ -118,6 +118,32 @@ def _attachment_evidence(
     return attachments[0].evidence_ids
 
 
+def _inactive_route(
+    route: Route,
+    citations: list[str],
+    association_evidence_ids: tuple[str, ...],
+    where: str,
+    table: RouteTable,
+) -> NetworkResult | None:
+    """The result for a blackhole or unrecorded state; None for an active route."""
+    if route.state == "active":
+        return None
+    if route.state == "blackhole":
+        return cited_decision(
+            False,
+            citations,
+            association_evidence_ids,
+            subject="route",
+            element=where,
+            resource_id=table.id,
+        )
+    return missing(
+        "The best route does not record an active or blackhole state.",
+        element=where,
+        resource_id=table.id,
+    )
+
+
 def _decide(
     index: GraphIndex,
     subnet: Subnet,
@@ -139,21 +165,8 @@ def _decide(
     position, route = best
     where = f"{_ELEMENT}:/routes/{position}"
     citations = list(table.fact_evidence.get(f"/routes/{position}", []))
-    if route.state == "blackhole":
-        return cited_decision(
-            False,
-            citations,
-            association_evidence_ids,
-            subject="route",
-            element=where,
-            resource_id=table.id,
-        )
-    if route.state != "active":
-        return missing(
-            "The best route does not record an active or blackhole state.",
-            element=where,
-            resource_id=table.id,
-        )
+    if inactive := _inactive_route(route, citations, association_evidence_ids, where, table):
+        return inactive
     if route.target_kind not in _REACH_KINDS.values():
         return unsupported(
             f"A {route.target_kind} route target is unsupported.",

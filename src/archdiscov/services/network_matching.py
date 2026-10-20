@@ -180,7 +180,7 @@ def cited_decision(
 
 
 def require_recorded[R: Resource](
-    index: GraphIndex, resource_id: str, expected: type[R], label: str
+    index: GraphIndex, resource_id: str, expected: type[R] | tuple[type[R], ...], label: str
 ) -> R | NetworkResult:
     """The recorded resource a primitive evaluates, or the unknown result that ends it.
 
