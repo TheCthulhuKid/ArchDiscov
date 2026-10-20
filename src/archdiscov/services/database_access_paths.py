@@ -26,21 +26,20 @@ from archdiscov.models.enums import (
     RouteReach,
     RuleDirection,
 )
-from archdiscov.models.network_path import NetworkBlocker, NetworkResult, compose_decisions
+from archdiscov.models.network_path import NetworkResult, compose_decisions
 
-from .analysis_limitations import blocker_limitation
 from .database_placement import DatabasePlacement
 from .database_sources import CandidateSource, SourceInterface, SourceStatus
-from .network_acls import evaluate_network_acl
-from .network_decisions import all_of, any_of, missing
+from .element_results import blocker_limitations, element_decisions, result_evidence
+from .network_composition import groups_allow, nacl_round_trip
+from .network_decisions import all_of, missing
+from .network_probes import PROTOCOL
 from .network_routes import evaluate_subnet_route
-from .network_security_groups import Peer, evaluate_security_group
+from .network_security_groups import Peer
 
 if TYPE_CHECKING:
     from archdiscov.graph import GraphIndex
 
-PROTOCOL = "tcp"
-EPHEMERAL_PORT = 49152  # start of the IANA dynamic range, as the representative reply port
 _RANK = {NetworkDecision.ALLOW: 0, NetworkDecision.UNKNOWN: 1, NetworkDecision.DENY: 2}
 _INGRESS, _EGRESS = RuleDirection.INGRESS, RuleDirection.EGRESS
 
@@ -107,10 +106,7 @@ def _security_groups(
     """The traffic must be allowed by some security group of the end that owns the rules."""
     if not own.group_ids:
         return _needs("No security group is recorded for this end of the path.")
-    return any_of(
-        evaluate_security_group(index, group, direction, other.peer(), protocol=PROTOCOL, port=port)
-        for group in own.group_ids
-    )
+    return groups_allow(index, own.group_ids, direction, other.peer(), protocol=PROTOCOL, port=port)
 
 
 def _nacls(
@@ -119,11 +115,7 @@ def _nacls(
     """Request and reply through the subnet's ACL (the request direction is `first`)."""
     if own.subnet_id is None or other.cidr is None:
         return _needs("The subnet or the other end's address range is not recorded.")
-    reply = _EGRESS if first == _INGRESS else _INGRESS
-    return all_of(
-        evaluate_network_acl(index, own.subnet_id, direction, other.cidr, protocol=PROTOCOL, port=p)
-        for direction, p in ((first, port), (reply, EPHEMERAL_PORT))
-    )
+    return nacl_round_trip(index, own.subnet_id, first, other.cidr, protocol=PROTOCOL, port=port)
 
 
 def _routes(index: GraphIndex, source: _End, database: _End) -> NetworkResult:
@@ -176,35 +168,23 @@ def _alternatives(
     ]
 
 
-def _distinct_blockers(results: list[NetworkResult]) -> list[NetworkBlocker]:
-    unique = {(b.code, b.message, tuple(b.evidence_ids)): b for r in results for b in r.blockers}
-    return list(unique.values())
-
-
 def evaluate_candidate(
     index: GraphIndex, placement: DatabasePlacement, candidate: CandidateSource, port: int
 ) -> PathEvaluation:
     """The best source alternative's composed path to the database on the port."""
     best = min(_alternatives(index, placement, candidate, port), key=_rank)
-    present = [element for element in AccessElement if element in best]
-    results = [best[element] for element in present]
-    blockers = _distinct_blockers(results)
-    evidence = {
-        *candidate.evidence_ids,
-        *placement.evidence_ids,
-        *(e for r in results for e in r.evidence_ids),
-        *(e for b in blockers for e in b.evidence_ids),
-    }
+    results = [best[element] for element in AccessElement if element in best]
     return PathEvaluation(
         decision=compose_decisions(result.decision for result in results),
-        elements=tuple(
-            AccessElementDecision(
-                element=element,
-                decision=best[element].decision,
-                blocker_codes=sorted({b.code for b in best[element].blockers}),
+        elements=element_decisions(AccessElementDecision, best, list(AccessElement)),
+        evidence_ids=tuple(
+            sorted(
+                {
+                    *candidate.evidence_ids,
+                    *placement.evidence_ids,
+                    *result_evidence(results),
+                }
             )
-            for element in present
         ),
-        evidence_ids=tuple(sorted(evidence)),
-        limitations=(*candidate.limitations, *(blocker_limitation(b) for b in blockers)),
+        limitations=(*candidate.limitations, *blocker_limitations(results)),
     )
