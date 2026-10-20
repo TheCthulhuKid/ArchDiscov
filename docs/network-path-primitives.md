@@ -1,10 +1,10 @@
 # Network-path evaluation primitives
 
 Step 29 defines which AWS network cases are evaluated initially and how uncertainty is
-handled, then provides reusable primitives over the shared `GraphIndex`. The decision
-vocabulary and composition rules described here are implemented; the individual
-primitives are delivered in later substeps (security-group rules, NACLs, and subnet routes, public addressing, and load-balancer forwarding so far). No analyzer or CLI uses them yet (database
-access and internet exposure are later steps).
+handled, and provides reusable primitives over the shared `GraphIndex`. The decision
+vocabulary, composition rules, and all primitives described here are implemented. No
+analyzer or CLI uses them yet: database access and internet exposure analysis are later
+steps and will compose these primitives.
 
 **A decision describes recorded configuration, not live reachability.** It ignores
 anything that was not collected, host firewalls, authentication, and runtime state.
@@ -79,12 +79,41 @@ decided the outcome.
 
 ## Supported and unsupported cases
 
-Initially supported (delivered by later substeps of step 29): IPv4 CIDRs and same-account
-referenced groups in security-group rules, protocols and port ranges, ordered stateless
-NACL evaluation, subnet route-table selection (the main-table fallback only when it is
-observed), internet-gateway routes, public IPv4 addressing on ENIs and instances, and
-load-balancer scheme, listener, and target forwarding.
+Supported, each evaluated for one direction or one question per call:
 
-Explicitly unsupported at first, always reported as `unsupported_element` and never as an
-allow: IPv6, prefix lists, NAT gateways, transit gateways, VPC peering, VPC endpoints,
-cross-account group references, and unrecognized protocols or listener actions.
+| Element | Supported | Unsupported (always `unknown`, never `allow`) |
+|---|---|---|
+| Security-group rules | IPv4 CIDRs, same-account referenced groups, tcp/udp/icmp (names or numbers) and all-protocol, inclusive port ranges | IPv6, prefix lists, cross-account references, other protocols, statefulness |
+| NACLs | IPv4 CIDRs, tcp/udp/icmp and all-protocol, rule-number order with implicit final deny, one direction per call | IPv6 entries, other protocols, ICMP type/code, subnets without an observed association (no default ACL is assumed) |
+| Routes | IPv4 longest prefix to local or internet-gateway targets, explicit table or observed main table | NAT, transit gateway, peering, VPC endpoint, prefix-list, and instance/interface targets; IPv6 routes are ignored |
+| Public addressing | Recorded public IPv4 on ENIs and instances | IPv6 addresses are ignored |
+| Load balancers | Scheme, listener port and protocol, forward actions, target groups with registered targets | Redirect, fixed-response, and authentication actions; GENEVE (Gateway Load Balancer) listeners; IP and unresolved targets |
+
+Not modelled at all: statefulness, target health meaning, host firewalls, authentication,
+and runtime state.
+
+## Composing primitives
+
+Primitives never call each other. A caller composes them explicitly with `all_of` (and
+`any_of` for alternatives), for example an inbound request and its return path:
+
+```python
+all_of([
+    evaluate_public_address(index, eni_id),
+    evaluate_subnet_route(index, subnet_id, client_ip, reach=RouteReach.INTERNET_GATEWAY),
+    evaluate_network_acl(index, subnet_id, RuleDirection.INGRESS, client_ip, protocol="tcp", port=443),
+    evaluate_network_acl(index, subnet_id, RuleDirection.EGRESS, client_ip, protocol="tcp", port=49152),
+    evaluate_security_group(index, group_id, RuleDirection.INGRESS, peer, protocol="tcp", port=443),
+])
+```
+
+A recorded denial dominates an unknown element, so a composed `deny` means some element
+denies even if others could not be evaluated, while failed route, NACL, or other relevant
+collection makes an otherwise allowing composition `unknown` with a `coverage_limited`
+blocker. Every decision, including an allow, describes recorded configuration, not live
+reachability.
+
+## Non-AWS snapshots
+
+Every primitive returns one `unknown` result with an `unsupported_platform` blocker for
+Azure and other non-AWS snapshots ("Analyze an AWS snapshot instead").
