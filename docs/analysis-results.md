@@ -15,8 +15,10 @@ An empty findings list is allowed, but does not by itself prove complete analysi
 
 The discriminated parameter models in `models.analysis.parameters` cover ownership
 (default keys `Owner`, `Team`), security-group impact (resource/depth/result limit),
-cross-account trust, database access (resource/port), and internet exposure
-(depth/result limit). Defining a parameter model does not implement that analyzer.
+cross-account trust, database access (resource/port/result limit), and internet exposure
+(depth/result limit). Defining a parameter model does not implement that analyzer; the
+ownership, security-group impact, cross-account trust, and database-access analyzers are
+implemented.
 
 `AnalysisFinding` contains a summary, status, evidence IDs, cloud-aware resource
 references, ordered path steps, and structured limitations. Supported and partial

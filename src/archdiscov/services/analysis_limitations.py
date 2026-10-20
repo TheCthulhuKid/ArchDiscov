@@ -85,6 +85,11 @@ def blocker_limitation(blocker: NetworkBlocker) -> AnalysisLimitation:
     )
 
 
+def distinct_limitations(limitations: Iterable[AnalysisLimitation]) -> list[AnalysisLimitation]:
+    """Drop identical limitations, keeping first occurrences in order."""
+    return list({item.model_dump_json(): item for item in limitations}.values())
+
+
 UNRECORDED_PREFIX = "coverage_unrecorded_"
 
 

@@ -266,3 +266,88 @@ def test_options_for_other_analyzers_or_out_of_range_are_rejected_for_trust(
     assert result.exit_code == 2
     assert json.loads(result.stdout)["error"]["code"] == "invalid_parameters"
     assert not output.exists()
+
+
+@pytest.fixture
+def database_snapshot(tmp_path):
+    from archdiscov.services import save_snapshot
+    from tests.support.source_data import build
+
+    return save_snapshot(build(task={}, function={}), tmp_path / "database.json")
+
+
+def database_arguments(snapshot, output, *extra):
+    from archdiscov.models.enums import AwsService
+    from tests.support.rds_data import INSTANCE
+    from tests.support.source_data import rid
+
+    return [
+        "analyze",
+        "--snapshot",
+        str(snapshot),
+        "--output",
+        str(output),
+        "--analyzer",
+        "database_access",
+        "--resource-id",
+        rid(INSTANCE, AwsService.RDS),
+        *extra,
+    ]
+
+
+def test_database_access_findings_show_source_decision_elements_and_blockers(
+    tmp_path, database_snapshot
+):
+    output = tmp_path / "result.json"
+    saved = run(*database_arguments(database_snapshot, output, "--port", "5432"))
+    assert saved.exit_code == 0, saved.output
+    shown = run("findings", str(output), "--snapshot", str(database_snapshot))
+    assert shown.exit_code == 0, shown.output
+    assert "Database access: ec2_instance allow on port 5432 [source_egress allow" in shown.stdout
+    assert "Database access: ec2_instance unknown on port 5432" in shown.stdout
+    assert "(missing_evidence)" in shown.stdout
+    assert "not authentication" in shown.stdout
+    result = load_analysis(output, snapshot=load_snapshot(database_snapshot))
+    assert result.parameters.port == 5432
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        [],
+        ["--port", "0"],
+        ["--port", "5432", "--result-limit", "0"],
+        ["--port", "5432", "--max-depth", "2"],
+        ["--port", "5432", "--ownership-key", "Owner"],
+    ],
+    ids=["no-port", "port-range", "limit-range", "max-depth", "ownership-key"],
+)
+def test_invalid_database_access_options_are_rejected(tmp_path, database_snapshot, extra):
+    output = tmp_path / "result.json"
+    result = run(*database_arguments(database_snapshot, output, *extra), "--json")
+    assert result.exit_code == 2
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_parameters"
+    assert not output.exists()
+
+
+def test_a_port_for_another_analyzer_is_rejected(tmp_path, database_snapshot):
+    output = tmp_path / "result.json"
+    result = analyze(database_snapshot, output, "--port", "5432", "--json")
+    assert result.exit_code == 2
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_parameters"
+
+
+def test_unknown_or_wrongly_typed_databases_are_safe_errors(tmp_path, database_snapshot):
+    from tests.support.source_data import rid
+
+    output = tmp_path / "result.json"
+    base = database_arguments(database_snapshot, output, "--port", "5432", "--json")
+    index = base.index("--resource-id") + 1
+    for resource, code in (
+        ("absent", "resource_not_found"),
+        (rid("subnet-a"), "unsupported_resource"),
+    ):
+        arguments = [*base[:index], resource, *base[index + 1 :]]
+        failed = run(*arguments)
+        assert json.loads(failed.stdout)["error"]["code"] == code
+    assert not output.exists()

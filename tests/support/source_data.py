@@ -13,6 +13,7 @@ from archdiscov.models.architecture import (
 from archdiscov.models.enums import AwsService
 from archdiscov.models.resources.ecs import EcsTask, EcsTaskDefinition
 from archdiscov.models.resources.functions import LambdaFunction
+from tests.support.coverage_data import coverage_record
 from tests.support.ids import stable_id
 from tests.support.rds_data import ACCOUNT, REGION, SNAPSHOT, collect, data
 
@@ -195,10 +196,14 @@ def _lambda(builder, *, vpc="vpc-a", subnets=("subnet-b",), groups=("sg-app",)):
     return [function]
 
 
-def build(*, ec2=None, task=None, function=None, rds=None) -> ArchitectureSnapshot:
+def build(
+    *, ec2=None, task=None, function=None, rds=None, coverage=None, rds_status=None
+) -> ArchitectureSnapshot:
     """The EC2 network, an RDS database, and optional ECS task and Lambda function.
 
     `task` and `function` are keyword dictionaries for the fakes (None: omit the source).
+    `coverage` maps (service, operation) to a status and is recorded in addition to RDS's own;
+    `rds_status` replaces the status of the RDS collection records.
     """
     result = normalize_region(SNAPSHOT, ACCOUNT, REGION, ec2 or EC2_ITEMS)
     roots = result.architecture.resources
@@ -212,6 +217,17 @@ def build(*, ec2=None, task=None, function=None, rds=None) -> ArchitectureSnapsh
     merge_resources(roots, config)
     evidence = {**result.evidence, **database.evidence, **builder.evidence}
     links = [*result.dependencies, *resolve_relationships(roots, evidence).get(REGION, [])]
+    at = database.coverage[0].started_at
+    records = [
+        coverage_record(service, operation, status, 1, REGION, at)
+        for (service, operation), status in (coverage or {}).items()
+    ]
+    rds_records = database.coverage
+    if rds_status:
+        rds_records = [
+            coverage_record(AwsService.RDS, record.operation, rds_status, 1, REGION, at)
+            for record in database.coverage
+        ]
     return ArchitectureSnapshot(
         schema_version="2",
         snapshot_id=SNAPSHOT,
@@ -221,7 +237,7 @@ def build(*, ec2=None, task=None, function=None, rds=None) -> ArchitectureSnapsh
         source={"kind": "aws"},
         regions={REGION: RegionArchitecture(resources=roots)},
         coverage=SnapshotCoverage(
-            regions=[REGION], account_wide=False, operations=database.coverage
+            regions=[REGION], account_wide=False, operations=[*rds_records, *records]
         ),
         dependencies_by_region={REGION: links},
         evidence=evidence,
@@ -230,3 +246,14 @@ def build(*, ec2=None, task=None, function=None, rds=None) -> ArchitectureSnapsh
 
 def rid(physical_id, service=AwsService.EC2):
     return stable_id(physical_id, REGION, service)
+
+
+FULL_COVERAGE = {
+    (AwsService.EC2, "DescribeInstances"): "success",
+    (AwsService.EC2, "DescribeNetworkInterfaces"): "success",
+    (AwsService.EC2, "DescribeNetworkAcls"): "success",
+    (AwsService.EC2, "DescribeRouteTables"): "success",
+    (AwsService.EC2, "DescribeSecurityGroups"): "success",
+    (AwsService.ECS, "DescribeTasks"): "success",
+    (AwsService.LAMBDA, "GetFunctionConfiguration"): "success",
+}

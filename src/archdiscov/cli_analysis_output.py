@@ -4,6 +4,7 @@ from pathlib import Path
 
 import typer
 
+from .models.analysis.database_access import DatabaseAccess
 from .models.analysis.impact import SecurityGroupImpact
 from .models.analysis.references import AnalysisLimitation, PathStep
 from .models.analysis.results import AnalysisFinding, AnalysisResult
@@ -39,6 +40,16 @@ def _trust_line(trust: CrossAccountTrust) -> str:
     return f"{trust.source} {trust.classification} {trust.effect}{suffix}"
 
 
+def _access_line(access: DatabaseAccess) -> str:
+    """The source kind, composed decision, and each element's decision; permission only."""
+    elements = ", ".join(
+        f"{item.element} {item.decision}"
+        + (f" ({', '.join(item.blocker_codes)})" if item.blocker_codes else "")
+        for item in access.elements
+    )
+    return f"{access.source_kind} {access.decision} on port {access.port} [{elements}]"
+
+
 def _step_line(step: PathStep) -> str:
     if step.kind == "containment":
         return f"{step.source_id} --contains--> {step.target_id}"
@@ -65,6 +76,8 @@ def _print_finding(number: int, finding: AnalysisFinding) -> None:
         typer.echo(f"     Impact: {_impact_line(finding.impact)}")
     if finding.trust is not None:
         typer.echo(f"     Trust: {_trust_line(finding.trust)}")
+    if finding.database_access is not None:
+        typer.echo(f"     Database access: {_access_line(finding.database_access)}")
     for reference in finding.resources:
         typer.echo(f"     Resource: {reference.resource_id}")
     if finding.evidence_ids:

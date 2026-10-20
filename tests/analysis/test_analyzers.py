@@ -164,6 +164,7 @@ def test_registry_is_deterministic_and_rejects_unknown_kinds():
     assert error.value.code == AnalyzerErrorCode.UNSUPPORTED_ANALYZER
     assert DEFAULT_REGISTRY.kinds == (
         AnalyzerKind.CROSS_ACCOUNT_TRUST,
+        AnalyzerKind.DATABASE_ACCESS,
         AnalyzerKind.OWNERSHIP,
         AnalyzerKind.SECURITY_GROUP_IMPACT,
     )

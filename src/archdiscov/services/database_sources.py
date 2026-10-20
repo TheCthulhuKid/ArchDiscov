@@ -294,12 +294,13 @@ def _sort_key(candidate: CandidateSource) -> tuple[int, int, str]:
 
 
 def discover_sources(
-    index: GraphIndex, placement: DatabasePlacement, result_limit: int
+    index: GraphIndex, placement: DatabasePlacement, result_limit: int | None = None
 ) -> SourceDiscovery:
-    """Candidates in the database's VPC, ordered by status, kind, and ID, bounded by the limit.
+    """Candidates in the database's VPC, ordered by status, kind, and ID.
 
-    Without a resolved database VPC nothing can be placed, so no candidate is listed and
-    a limitation says why. Sources in other VPCs are unsupported: they are counted, not listed.
+    The result limit bounds the listed candidates (None lists them all). Without a resolved
+    database VPC nothing can be placed, so no candidate is listed and a limitation says why.
+    Sources in other VPCs are unsupported: they are counted, not listed.
     """
     if placement.vpc_id is None:
         reason = "Candidate sources cannot be listed without the database's VPC."
