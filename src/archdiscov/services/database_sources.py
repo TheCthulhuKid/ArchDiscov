@@ -163,7 +163,7 @@ def _subnet_of(index: GraphIndex, resource: Resource) -> str | None:
     return parent if isinstance(index.get_resource(parent or ""), Subnet) else None
 
 
-def _interface(
+def interface_placement(
     index: GraphIndex, eni: NetworkInterface, collector: PlacementCollector
 ) -> SourceInterface | None:
     subnet = _subnet_of(index, eni)
@@ -183,12 +183,12 @@ def _interface(
     return SourceInterface(subnet, tuple(sorted(groups)), _addresses([eni], collector))
 
 
-def _instance_interfaces(
+def instance_placement(
     index: GraphIndex, instance: Ec2Instance, collector: PlacementCollector
 ) -> list[SourceInterface]:
     enis = _instance_interfaces_of(index, instance, collector)
     if enis:
-        found = [_interface(index, eni, collector) for eni in enis]
+        found = [interface_placement(index, eni, collector) for eni in enis]
         return [item for item in found if item is not None]
     subnet = _subnet_of(index, instance)
     collector.evidence.update(instance.fact_evidence.get("/attributes/subnet_id", []))
@@ -255,7 +255,7 @@ def _task_interfaces(
 def _describe(index: GraphIndex, resource: ComputeSource) -> CandidateSource:
     collector = PlacementCollector(index)
     if isinstance(resource, Ec2Instance):
-        interfaces = _instance_interfaces(index, resource, collector)
+        interfaces = instance_placement(index, resource, collector)
     elif isinstance(resource, EcsTask):
         interfaces = _task_interfaces(index, resource, collector)
     else:

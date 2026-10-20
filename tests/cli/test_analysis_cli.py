@@ -83,7 +83,6 @@ def test_existing_output_is_never_overwritten(tmp_path):
     [
         (["--ownership-key", ""], "invalid_parameters"),
         (["--ownership-key", "SECRET", "--ownership-key", "SECRET"], "invalid_parameters"),
-        (["--analyzer", "internet_exposure"], "unsupported_analyzer"),
     ],
 )
 def test_invalid_requests_exit_safely_and_write_nothing(tmp_path, extra, code):
@@ -350,4 +349,61 @@ def test_unknown_or_wrongly_typed_databases_are_safe_errors(tmp_path, database_s
         arguments = [*base[:index], resource, *base[index + 1 :]]
         failed = run(*arguments)
         assert json.loads(failed.stdout)["error"]["code"] == code
+    assert not output.exists()
+
+
+@pytest.fixture
+def exposure_snapshot(tmp_path):
+    from archdiscov.services import save_snapshot
+    from tests.support.lb_exposure_data import FULL_COVERAGE, build, ec2_items
+
+    snapshot = build(ec2=ec2_items(public_eni=True), coverage=FULL_COVERAGE)
+    return save_snapshot(snapshot, tmp_path / "exposure.json")
+
+
+def exposure_arguments(snapshot, output, *extra):
+    return [
+        "analyze",
+        "--snapshot",
+        str(snapshot),
+        "--output",
+        str(output),
+        "--analyzer",
+        "internet_exposure",
+        *extra,
+    ]
+
+
+def test_exposure_findings_show_entry_decision_elements_and_health(tmp_path, exposure_snapshot):
+    output = tmp_path / "result.json"
+    saved = run(
+        *exposure_arguments(exposure_snapshot, output, "--max-depth", "2", "--result-limit", "9")
+    )
+    assert saved.exit_code == 0, saved.output
+    shown = run("findings", str(output), "--snapshot", str(exposure_snapshot))
+    assert shown.exit_code == 0, shown.output
+    assert "Internet exposure: load_balancer allow on tcp 80 [scheme allow" in shown.stdout
+    assert "observed target health: unhealthy" in shown.stdout
+    assert "Internet exposure: public_address allow on tcp 80" in shown.stdout
+    assert "not proof of reachability" in shown.stdout
+    result = load_analysis(output, snapshot=load_snapshot(exposure_snapshot))
+    assert (result.parameters.max_depth, result.parameters.result_limit) == (2, 9)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ["--max-depth", "0"],
+        ["--result-limit", "0"],
+        ["--resource-id", "x"],
+        ["--port", "80"],
+        ["--ownership-key", "Owner"],
+    ],
+    ids=["depth-range", "limit-range", "resource-id", "port", "ownership-key"],
+)
+def test_invalid_exposure_options_are_rejected(tmp_path, exposure_snapshot, extra):
+    output = tmp_path / "result.json"
+    result = run(*exposure_arguments(exposure_snapshot, output, *extra), "--json")
+    assert result.exit_code == 2
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_parameters"
     assert not output.exists()

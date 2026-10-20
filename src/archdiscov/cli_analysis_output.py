@@ -1,10 +1,13 @@
 """Readable presentation of analysis results, separate from routing and services."""
 
+from collections.abc import Sequence
 from pathlib import Path
 
 import typer
 
 from .models.analysis.database_access import DatabaseAccess
+from .models.analysis.element_decisions import ElementDecision
+from .models.analysis.exposure import InternetExposure
 from .models.analysis.impact import SecurityGroupImpact
 from .models.analysis.references import AnalysisLimitation, PathStep
 from .models.analysis.results import AnalysisFinding, AnalysisResult
@@ -40,14 +43,33 @@ def _trust_line(trust: CrossAccountTrust) -> str:
     return f"{trust.source} {trust.classification} {trust.effect}{suffix}"
 
 
-def _access_line(access: DatabaseAccess) -> str:
-    """The source kind, composed decision, and each element's decision; permission only."""
-    elements = ", ".join(
+def _elements_text(elements: Sequence[ElementDecision]) -> str:
+    """Each element's decision with its blocker codes, in canonical order."""
+    return ", ".join(
         f"{item.element} {item.decision}"
         + (f" ({', '.join(item.blocker_codes)})" if item.blocker_codes else "")
-        for item in access.elements
+        for item in elements
     )
+
+
+def _access_line(access: DatabaseAccess) -> str:
+    """The source kind, composed decision, and each element's decision; permission only."""
+    elements = _elements_text(access.elements)
     return f"{access.source_kind} {access.decision} on port {access.port} [{elements}]"
+
+
+def _exposure_line(exposure: InternetExposure) -> str:
+    """Entry kind, decision, ports, elements, and the health observation; never reachability."""
+    ports = (
+        str(exposure.port_start)
+        if exposure.port_start == exposure.port_end
+        else f"{exposure.port_start}-{exposure.port_end}"
+    )
+    elements = _elements_text(exposure.elements)
+    line = f"{exposure.entry_kind} {exposure.decision} on {exposure.protocol} {ports} [{elements}]"
+    if exposure.observed_target_health:
+        line += f"; observed target health: {', '.join(exposure.observed_target_health)}"
+    return line
 
 
 def _step_line(step: PathStep) -> str:
@@ -78,6 +100,8 @@ def _print_finding(number: int, finding: AnalysisFinding) -> None:
         typer.echo(f"     Trust: {_trust_line(finding.trust)}")
     if finding.database_access is not None:
         typer.echo(f"     Database access: {_access_line(finding.database_access)}")
+    if finding.internet_exposure is not None:
+        typer.echo(f"     Internet exposure: {_exposure_line(finding.internet_exposure)}")
     for reference in finding.resources:
         typer.echo(f"     Resource: {reference.resource_id}")
     if finding.evidence_ids:

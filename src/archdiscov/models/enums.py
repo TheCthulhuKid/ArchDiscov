@@ -403,6 +403,30 @@ class AccessElement(StrEnum):
     ROUTE = "route"
 
 
+class ExposureEntryKind(StrEnum):
+    """The kind of entry point an internet-exposure finding starts from."""
+
+    PUBLIC_ADDRESS = "public_address"
+    LOAD_BALANCER = "load_balancer"
+
+
+class ExposureProtocol(StrEnum):
+    TCP = "tcp"
+    UDP = "udp"
+
+
+class ExposureElement(StrEnum):
+    """One composed element of an exposure path, in canonical order."""
+
+    PUBLIC_ADDRESS = "public_address"
+    SCHEME = "scheme"
+    ROUTE = "route"
+    NACL = "nacl"
+    SECURITY_GROUP = "security_group"
+    LISTENER = "listener"
+    TARGET = "target"
+
+
 class AnalyzerErrorCode(StrEnum):
     UNSUPPORTED_ANALYZER = "unsupported_analyzer"
     INVALID_PARAMETERS = "invalid_parameters"

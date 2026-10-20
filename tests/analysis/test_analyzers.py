@@ -165,6 +165,7 @@ def test_registry_is_deterministic_and_rejects_unknown_kinds():
     assert DEFAULT_REGISTRY.kinds == (
         AnalyzerKind.CROSS_ACCOUNT_TRUST,
         AnalyzerKind.DATABASE_ACCESS,
+        AnalyzerKind.INTERNET_EXPOSURE,
         AnalyzerKind.OWNERSHIP,
         AnalyzerKind.SECURITY_GROUP_IMPACT,
     )
@@ -187,10 +188,10 @@ def test_invalid_parameters_are_safe_errors(parameters):
     assert "SECRET-KEY" not in str(error.value)
 
 
-def test_unregistered_default_kind_is_a_safe_error():
+def test_an_unregistered_kind_is_a_safe_error():
     index = network_index()
     with pytest.raises(AnalyzerError) as error:
-        run_analyzer(index, {"kind": "internet_exposure"})
+        run_analyzer(index, {"kind": "internet_exposure"}, registry=AnalyzerRegistry([]))
     assert error.value.code == AnalyzerErrorCode.UNSUPPORTED_ANALYZER
 
 

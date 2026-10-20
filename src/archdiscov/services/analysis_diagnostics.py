@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from pydantic_core import PydanticSerializationError
 
 from archdiscov.models.analysis.database_access import AccessElementDecision, DatabaseAccess
+from archdiscov.models.analysis.exposure import ExposureElementDecision, InternetExposure
 from archdiscov.models.analysis.impact import SecurityGroupImpact
 from archdiscov.models.analysis.parameters import (
     CrossAccountTrustParameters,
@@ -48,6 +49,8 @@ _DIAGNOSTIC_FIELDS = frozenset(
         CrossAccountTrust,
         DatabaseAccess,
         AccessElementDecision,
+        InternetExposure,
+        ExposureElementDecision,
         LocalTarget,
         CloudExternalTarget,
         UnresolvedTarget,

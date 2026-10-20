@@ -10,7 +10,6 @@ from archdiscov.models.analysis.references import AnalysisLimitation
 from archdiscov.models.analysis.results import AnalysisFinding, AnalysisResult
 from archdiscov.models.enums import (
     AccessSourceKind,
-    AnalysisStatus,
     AnalyzerErrorCode,
     AnalyzerKind,
     AwsService,
@@ -18,13 +17,12 @@ from archdiscov.models.enums import (
     NetworkDecision,
 )
 
+from .analysis_bounds import DECISION_ORDER, bound_findings, qualify_decision
 from .analysis_limitations import (
-    RESULT_LIMIT_CODE,
     distinct_limitations,
     service_coverage_limitations,
     unsupported_platform_finding,
 )
-from .analysis_qualification import qualify_status
 from .analyzer_errors import AnalyzerError
 from .analyzers import build_result
 from .database_access_paths import PathEvaluation, evaluate_candidate
@@ -37,7 +35,6 @@ if TYPE_CHECKING:
 
 # Services whose collection the candidate list and the evaluated path rely on.
 COVERAGE_SERVICES = (AwsService.EC2, AwsService.RDS, AwsService.ECS, AwsService.LAMBDA)
-_DECISION_ORDER = [NetworkDecision.ALLOW, NetworkDecision.UNKNOWN, NetworkDecision.DENY]
 _KIND_ORDER = list(AccessSourceKind)
 _INCOMPLETE_SUMMARY = (
     "Completeness of the compute sources and network path to the selected database cannot "
@@ -67,13 +64,8 @@ def _finding(
     port: int,
 ) -> AnalysisFinding:
     """Allow and deny are supported conclusions; unknown is insufficient evidence."""
-    status = (
-        AnalysisStatus.INSUFFICIENT_EVIDENCE
-        if evaluation.decision == NetworkDecision.UNKNOWN
-        else AnalysisStatus.SUPPORTED
-    )
     resources = [candidate.resource, placement.database]
-    qualified = qualify_status(index, resources, status)
+    qualified = qualify_decision(index, resources, evaluation.decision)
     return AnalysisFinding(
         snapshot_id=index.snapshot_id,
         summary=_SUMMARIES[evaluation.decision].format(
@@ -95,7 +87,7 @@ def _finding(
 def _order(finding: AnalysisFinding) -> tuple[int, int, str]:
     access = finding.database_access
     return (
-        _DECISION_ORDER.index(access.decision),
+        DECISION_ORDER.index(access.decision),
         _KIND_ORDER.index(access.source_kind),
         finding.resources[0].resource_id,
     )
@@ -156,26 +148,14 @@ class DatabaseAccessAnalyzer:
             return build_result(self, index, parameters, [finding])
         placement = resolve_database_placement(index, parameters.resource_id, parameters.port)
         discovery = discover_sources(index, placement)
-        ordered = sorted(
-            _candidate_findings(index, placement, discovery, parameters.port), key=_order
+        findings = bound_findings(
+            index,
+            _candidate_findings(index, placement, discovery, parameters.port),
+            order=_order,
+            limit=parameters.result_limit,
+            limitations=_group_limitations(index, placement, discovery),
+            summary=_INCOMPLETE_SUMMARY,
+            truncation_message="Increase the result limit to see every candidate source.",
+            resources=[resource_reference(index, placement.database)],
         )
-        findings = ordered[: parameters.result_limit]
-        limitations = _group_limitations(index, placement, discovery)
-        if len(ordered) > len(findings):
-            limitations.append(
-                AnalysisLimitation(
-                    code=RESULT_LIMIT_CODE,
-                    message="Increase the result limit to see every candidate source.",
-                )
-            )
-        if limitations:
-            findings.append(
-                AnalysisFinding(
-                    snapshot_id=index.snapshot_id,
-                    summary=_INCOMPLETE_SUMMARY,
-                    status=AnalysisStatus.INSUFFICIENT_EVIDENCE,
-                    resources=[resource_reference(index, placement.database)],
-                    limitations=distinct_limitations(limitations),
-                )
-            )
         return build_result(self, index, parameters, findings)

@@ -10,6 +10,8 @@ groups are not considered; callers compose those.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from archdiscov.models.enums import (
@@ -20,14 +22,17 @@ from archdiscov.models.enums import (
     LoadBalancerScheme,
 )
 from archdiscov.models.network_path import NetworkResult
+from archdiscov.models.resource_base import Resource
 from archdiscov.models.resources.load_balancing import (
     Listener,
     ListenerRule,
     LoadBalancer,
     TargetGroup,
 )
+from archdiscov.models.resources.load_balancing_values import RegisteredTarget
 
 from .network_decisions import (
+    all_of,
     any_of,
     missing,
     qualify_coverage,
@@ -50,7 +55,7 @@ FORWARDING_OPERATIONS = frozenset(
     {"DescribeListeners", "DescribeRules", "DescribeTargetGroups", "DescribeTargetHealth"}
 )
 _P = LoadBalancerProtocol
-_CLIENT_PROTOCOLS = {
+CLIENT_PROTOCOLS = {
     _P.HTTP: {"tcp"},
     _P.HTTPS: {"tcp"},
     _P.TCP: {"tcp"},
@@ -101,9 +106,25 @@ def _screen_listener(listener: Listener, protocol: str, port: int) -> Screen:
         return Undecided.missing("The listener records no port or protocol.")
     if listener.port != port:
         return False
-    if listener.protocol not in _CLIENT_PROTOCOLS:
+    if listener.protocol not in CLIENT_PROTOCOLS:
         return Undecided.unsupported("The listener protocol is unsupported.")
-    return protocol in _CLIENT_PROTOCOLS[listener.protocol]
+    return protocol in CLIENT_PROTOCOLS[listener.protocol]
+
+
+TargetCheck = Callable[[TargetGroup, RegisteredTarget, Resource], NetworkResult]
+
+
+@dataclass(frozen=True)
+class TargetWalk:
+    """How forwarding is walked to the registered targets.
+
+    `check` is evaluated for each target that resolves to a recorded resource and must also
+    allow; `require_health` makes an unrecorded health state unknown (health is only ever
+    required to be recorded, never interpreted).
+    """
+
+    check: TargetCheck | None = None
+    require_health: bool = True
 
 
 def _registered_target_result(
@@ -112,23 +133,26 @@ def _registered_target_result(
     position: int,
     edge: DependencyEdge | None,
     extra: tuple[str, ...],
+    walk: TargetWalk,
 ) -> NetworkResult:
     """One registered target: resolved to a recorded resource, with recorded health."""
     pointer = f"/targets/{position}"
     element = f"target:{pointer}"
-    if edge is None or index.get_resource(edge.target_id) is None:
+    resource = index.get_resource(edge.target_id) if edge is not None else None
+    if resource is None:
         return missing(
             "The registered target does not resolve to a recorded resource.",
             element=element,
             resource_id=group.id,
         )
-    if group.targets[position].health_state is None:
+    target = group.targets[position]
+    if walk.require_health and target.health_state is None:
         return missing(
             "The registered target's health is not recorded.",
             element=element,
             resource_id=group.id,
         )
-    return cited_decision(
+    reached = cited_decision(
         True,
         list(group.fact_evidence.get(f"{pointer}/id", [])),
         (*extra, *group.fact_evidence.get(f"{pointer}/health_state", [])),
@@ -136,10 +160,11 @@ def _registered_target_result(
         element=element,
         resource_id=group.id,
     )
+    return reached if walk.check is None else all_of([reached, walk.check(group, target, resource)])
 
 
 def _target_group_result(
-    index: GraphIndex, group: TargetGroup, extra: tuple[str, ...]
+    index: GraphIndex, group: TargetGroup, extra: tuple[str, ...], walk: TargetWalk
 ) -> NetworkResult:
     """Allow when a registered target resolves to a recorded resource with recorded health."""
     if group.targets is None:
@@ -161,6 +186,7 @@ def _target_group_result(
             position,
             edges.get(frozenset(group.fact_evidence.get(f"/targets/{position}/id", []))),
             extra,
+            walk,
         )
         for position in range(len(group.targets))
     )
@@ -171,6 +197,7 @@ def _forward_result(
     source: Listener | ListenerRule,
     position: int,
     extra: tuple[str, ...],
+    walk: TargetWalk,
 ) -> NetworkResult:
     element = f"action:/actions/{position}"
     edges = [
@@ -193,13 +220,13 @@ def _forward_result(
                 element=element,
                 resource_id=source.id,
             )
-        return _target_group_result(index, group, (*extra, *edge.evidence_ids))
+        return _target_group_result(index, group, (*extra, *edge.evidence_ids), walk)
 
     return any_of(group_result(edge) for edge in edges)
 
 
 def _source_result(
-    index: GraphIndex, source: Listener | ListenerRule, extra: tuple[str, ...]
+    index: GraphIndex, source: Listener | ListenerRule, extra: tuple[str, ...], walk: TargetWalk
 ) -> NetworkResult:
     """The result of one ordered action list: it must consist of forward actions only."""
     if not source.actions:
@@ -213,11 +240,12 @@ def _source_result(
             resource_id=source.id,
         )
     return any_of(
-        _forward_result(index, source, position, extra) for position in range(len(source.actions))
+        _forward_result(index, source, position, extra, walk)
+        for position in range(len(source.actions))
     )
 
 
-def _listener_result(index: GraphIndex, listener: Listener) -> NetworkResult:
+def _listener_result(index: GraphIndex, listener: Listener, walk: TargetWalk) -> NetworkResult:
     extra = tuple(
         evidence
         for pointer in ("/port", "/protocol")
@@ -229,19 +257,17 @@ def _listener_result(index: GraphIndex, listener: Listener) -> NetworkResult:
         if isinstance(rule := index.get_resource(edge.source_id), ListenerRule)
         and not rule.is_default
     ]
-    return any_of(_source_result(index, source, extra) for source in (listener, *rules))
+    return any_of(_source_result(index, source, extra, walk) for source in (listener, *rules))
 
 
-def evaluate_load_balancer_forwarding(
-    index: GraphIndex, load_balancer_id: str, *, protocol: str, port: int
+def _evaluate_listeners(
+    index: GraphIndex,
+    load_balancer_id: str,
+    protocol: str,
+    port: int,
+    decide: Callable[[Listener], NetworkResult],
 ) -> NetworkResult:
-    """Decide whether a listener accepts the traffic and forwards it to recorded targets.
-
-    `protocol` is tcp or udp (or their numbers) as the client sends it. Denies when no
-    recorded listener accepts the port and protocol, or the forwarded group has no
-    registered targets. Cites the listener, forwarding, and target records. Limited listener,
-    rule, target-group, or target-health collection gives unknown.
-    """
+    """The result over the listeners accepting the port and protocol, qualified by coverage."""
     balancer = require_recorded(index, load_balancer_id, LoadBalancer, "load balancer")
     if isinstance(balancer, NetworkResult):
         return balancer
@@ -258,7 +284,7 @@ def evaluate_load_balancer_forwarding(
         if isinstance(screen, Undecided):
             results.append(screen.result(element="listener", resource_id=listener.id))
         elif screen:
-            results.append(_listener_result(index, listener))
+            results.append(decide(listener))
     if results:
         outcome = any_of(results)
     else:
@@ -266,3 +292,53 @@ def evaluate_load_balancer_forwarding(
             index, balancer, "No recorded listener accepts this port and protocol."
         )
     return qualify_coverage(index, outcome, [balancer], FORWARDING_OPERATIONS)
+
+
+def evaluate_listener(
+    index: GraphIndex, load_balancer_id: str, *, protocol: str, port: int
+) -> NetworkResult:
+    """Allow when a recorded listener accepts the port and protocol, citing its port and protocol.
+
+    Denies when none does. What the listener does with the traffic is
+    `evaluate_load_balancer_forwarding`'s question.
+    """
+
+    def accepts(listener: Listener) -> NetworkResult:
+        return cited_decision(
+            True,
+            [
+                *listener.fact_evidence.get("/port", []),
+                *listener.fact_evidence.get("/protocol", []),
+            ],
+            (),
+            subject="listener",
+            element="listener",
+            resource_id=listener.id,
+        )
+
+    return _evaluate_listeners(index, load_balancer_id, protocol, port, accepts)
+
+
+def evaluate_load_balancer_forwarding(
+    index: GraphIndex,
+    load_balancer_id: str,
+    *,
+    protocol: str,
+    port: int,
+    walk: TargetWalk = TargetWalk(),
+) -> NetworkResult:
+    """Decide whether a listener accepts the traffic and forwards it to recorded targets.
+
+    `protocol` is tcp or udp (or their numbers) as the client sends it. Denies when no
+    recorded listener accepts the port and protocol, or the forwarded group has no
+    registered targets. Cites the listener, forwarding, and target records. Limited listener,
+    rule, target-group, or target-health collection gives unknown. `walk` adds a per-target
+    check or relaxes the recorded-health requirement.
+    """
+    return _evaluate_listeners(
+        index,
+        load_balancer_id,
+        protocol,
+        port,
+        lambda listener: _listener_result(index, listener, walk),
+    )

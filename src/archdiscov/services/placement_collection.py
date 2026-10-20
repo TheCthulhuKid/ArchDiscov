@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from typing import TYPE_CHECKING
 
 from archdiscov.models.analysis.references import AnalysisLimitation
@@ -32,8 +32,11 @@ class PlacementCollector:
         key = (item.code, item.message, tuple(item.evidence_ids))
         self.limitations.setdefault(key, item)
 
-    def sorted_limitations(self) -> tuple[AnalysisLimitation, ...]:
-        return tuple(self.limitations[key] for key in sorted(self.limitations))
+    def sorted_limitations(self, ignore: Collection[str] = ()) -> tuple[AnalysisLimitation, ...]:
+        """The noted limitations in deterministic order, without the ignored codes."""
+        return tuple(
+            self.limitations[key] for key in sorted(self.limitations) if key[0] not in ignore
+        )
 
     def cite_edge(self, edge: DependencyEdge, noun: str) -> bool:
         """Cite the edge; True for a stored target, else its limitations are noted."""

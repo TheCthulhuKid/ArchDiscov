@@ -245,3 +245,40 @@ def test_a_listener_on_another_port_does_not_make_the_query_unknown():
     value["describe_listeners"]["Listeners"][0]["Protocol"] = "GENEVE"
     assert forwarding(value, port=81)[1].decision == D.DENY
     assert forwarding(value, port=80)[1].decision == D.UNKNOWN
+
+
+def test_evaluate_listener_only_asks_whether_a_listener_accepts_the_traffic():
+    from archdiscov.services.network_load_balancers import evaluate_listener
+
+    index = GraphIndex(build())
+    for port, protocol, expected in (
+        (80, "tcp", D.ALLOW),
+        (81, "tcp", D.DENY),
+        (80, "udp", D.DENY),
+    ):
+        result = evaluate_listener(index, resource_id(LB), protocol=protocol, port=port)
+        assert result.decision == expected
+    allowed = evaluate_listener(index, resource_id(LB), protocol="tcp", port=80)
+    listener = next(r for r in index.resources() if r.resource_type.endswith("Listener"))
+    assert set(listener.fact_evidence["/port"]) <= set(allowed.evidence_ids)
+
+
+def test_a_target_walk_can_relax_health_and_add_a_per_target_check():
+    from archdiscov.services.network_decisions import missing
+    from archdiscov.services.network_load_balancers import TargetWalk
+
+    value = responses()
+    value["describe_target_health"]["TargetHealthDescriptions"][0]["TargetHealth"] = {}
+    index = GraphIndex(build(value))
+    seen = []
+
+    def check(group, target, resource):
+        seen.append((group.id, target.id, resource.id))
+        return missing("Backend not admitted.", element="backend")
+
+    relaxed = TargetWalk(check=check, require_health=False)
+    result = evaluate_load_balancer_forwarding(
+        index, resource_id(LB), protocol="tcp", port=80, walk=relaxed
+    )
+    assert seen and result.decision == D.UNKNOWN
+    assert codes(result) >= {B.MISSING_EVIDENCE}

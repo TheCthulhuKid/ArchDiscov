@@ -26,7 +26,7 @@ ADDRESS_OPERATIONS = {
 }
 
 
-def _recorded_addresses(resource: Resource) -> tuple[list[str], str]:
+def recorded_public_addresses(resource: Resource) -> tuple[list[str], str]:
     """The recorded public address values and the fact pointer that cites them."""
     if isinstance(resource, NetworkInterface):
         associated = [a.public_ip for a in resource.private_ip_addresses if a.public_ip]
@@ -48,7 +48,7 @@ def evaluate_public_address(index: GraphIndex, resource_id: str) -> NetworkResul
     )
     if isinstance(resource, NetworkResult):
         return resource
-    values, pointer = _recorded_addresses(resource)
+    values, pointer = recorded_public_addresses(resource)
     try:
         parsed = [ip_address(value) for value in values]
     except ValueError:

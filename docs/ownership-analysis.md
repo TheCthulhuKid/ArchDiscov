@@ -3,7 +3,8 @@
 Step 26 delivers a small analyzer boundary, atomic result persistence, and the
 ownership analyzer; [security-group impact](security-group-impact.md) and
 [cross-account trust](cross-account-trust.md), and
-[database access](database-access.md) follow.
+[database access](database-access.md), and
+[internet exposure](internet-exposure.md) follow.
 No other analyzer is implemented; the remaining parameter models in
 [analysis result contracts](analysis-results.md) are contracts only. Analyzers read
 recorded snapshot data through the shared `GraphIndex`; they do not contact a cloud
