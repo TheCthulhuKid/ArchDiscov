@@ -72,13 +72,18 @@ class AnalysisValidationIssue:
 
 
 class AnalysisValidationError(Exception):
-    """Safe diagnostics; raw input and exception contexts are not public details."""
+    """Safe diagnostics; raw input and exception contexts are not public details.
+
+    Result kinds with the same diagnostics (comparisons) subclass this and name their subject.
+    """
+
+    subject = "Analysis result"
+    code = "invalid_analysis_result"
 
     def __init__(
         self, details: tuple[AnalysisValidationIssue, ...], *, path: Path | None = None
     ) -> None:
-        super().__init__("Analysis result validation failed.")
-        self.code = "invalid_analysis_result"
+        super().__init__(f"{self.subject} validation failed.")
         self.details = details
         self.path = path
 
@@ -87,25 +92,38 @@ def reject(location: tuple[str | int, ...], code: str, message: str) -> NoReturn
     raise AnalysisValidationError((AnalysisValidationIssue(location, code, message),))
 
 
+def safe_validation_issues(
+    error: ValidationError, fields: frozenset[str], subject: str
+) -> tuple[AnalysisValidationIssue, ...]:
+    """Issues from a Pydantic error without untrusted keys, discriminator tags, or inputs.
+
+    Dynamic input keys and tags can occur in Pydantic locations, so only known field names and
+    list positions are kept; messages, inputs, and contexts are never exposed.
+    """
+    return tuple(
+        AnalysisValidationIssue(
+            tuple(
+                part if isinstance(part, int) or part in fields else "field" for part in item["loc"]
+            ),
+            item["type"],
+            f"Invalid {subject} field.",
+        )
+        for item in error.errors(include_input=False, include_context=False)
+    )
+
+
+def serialization_issue(subject: str) -> AnalysisValidationIssue:
+    return AnalysisValidationIssue((), "serialization_error", f"{subject} is not serializable.")
+
+
 def parse_analysis_result(data: AnalysisResult | Mapping[str, Any]) -> AnalysisResult:
     """Revalidate detached current data without exposing untrusted diagnostic details."""
     try:
         return AnalysisResult.model_validate(detach_data(data))
     except ValidationError as exc:
-        # Dynamic input keys and discriminator tags can occur in Pydantic locations.
-        # Do not expose them, messages, inputs, or contexts from untrusted payloads.
-        details = tuple(
-            AnalysisValidationIssue(
-                tuple(
-                    part if isinstance(part, int) or part in _DIAGNOSTIC_FIELDS else "field"
-                    for part in error["loc"]
-                ),
-                error["type"],
-                "Invalid analysis result field.",
-            )
-            for error in exc.errors(include_input=False, include_context=False)
-        )
-        raise AnalysisValidationError(details) from exc
+        raise AnalysisValidationError(
+            safe_validation_issues(exc, _DIAGNOSTIC_FIELDS, "analysis result")
+        ) from exc
     except (
         PydanticSerializationError,
         TypeError,
@@ -113,10 +131,4 @@ def parse_analysis_result(data: AnalysisResult | Mapping[str, Any]) -> AnalysisR
         OverflowError,
         RecursionError,
     ) as exc:
-        raise AnalysisValidationError(
-            (
-                AnalysisValidationIssue(
-                    (), "serialization_error", "Analysis result is not serializable."
-                ),
-            )
-        ) from exc
+        raise AnalysisValidationError((serialization_issue("Analysis result"),)) from exc

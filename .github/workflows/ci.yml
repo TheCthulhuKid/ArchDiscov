@@ -38,7 +38,7 @@ jobs:
       - name: Install locked dependencies
         run: uv sync --locked --group dev --python 3.13
       - name: Run offline tests
-        run: .venv/bin/python -m pytest -n 4 --dist worksteal
+        run: .venv/bin/python -m pytest -n 8 --dist worksteal
 
   quality:
     name: Quality checks

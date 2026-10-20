@@ -4,14 +4,13 @@ A snapshot comparison reports what two explicitly selected snapshots record: mat
 resources with their field differences, resources with no counterpart, and matches that are
 ambiguous. It is a separate result type from [analysis results](analysis-results.md) and never
 changes either snapshot. **It reports recorded differences and qualified absences, never proof
-that a resource was added, removed, or has drifted.** This page describes the contract
-(`archdiscov.models.comparison`); the matching, comparison, persistence, and CLI steps build on
-it and are described as they are implemented.
+that a resource was added, removed, or has drifted.** This page describes the contract (`archdiscov.models.comparison`), the matching and
+comparison rules, the persisted file, and the `compare` and `comparison` commands.
 
 ## Envelope
 
 `ComparisonResult` (schema version `"1"`) has a labelled `left` and `right` side
-(`ComparisonSnapshot`), a creation time, the entries, and snapshot-level limitations. Each side
+(`ComparisonSnapshot`), a creation time, the `result_limit` it was made with (1 to 10000, default 1000), the entries, and snapshot-level limitations. Each side
 records its snapshot UUID, platform, complete scope, source kind (`aws`, `azure_fixture`,
 `terraform_state`, `terraform_plan`, `cloudformation`, or `mock`), an optional source label, and
 the collection start and end, so left and right are never swapped silently. Two sides must be
@@ -126,3 +125,38 @@ entries; a qualified absence is never reported as a removal.
 - **Snapshot limitations** are added for `cross_cloud` and `scope_mismatch` (nothing can
   match) and for `source_kind_mismatch` whenever the two source kinds differ, for example a
   declaration compared with an observation.
+
+## Comparing, limits, and saved files
+
+`compare_snapshots(left, right, result_limit=...)` (`archdiscov.services`) reads one read-only
+graph index per snapshot and composes matching, field comparison, and qualification into one
+deterministic `ComparisonResult`; neither snapshot is changed. Every matched pair is listed,
+including pairs with no differences. Each kind of entry, and each side's unmatched resources,
+keeps its first `result_limit` resources in ID order; when more exist the result carries a
+`result_limit_reached` limitation, so truncation is always reported.
+
+`save_comparison` and `load_comparison` use the same atomic, no-overwrite publication as
+analysis results. Both take the two snapshots and verify the result by recomputing it from them
+with its recorded `result_limit`: the left and right snapshot UUIDs must be the ones named
+(`snapshot_mismatch` for swapped or wrong snapshots), and every label, entry, citation,
+qualification, and limitation must equal the recomputation (`comparison_mismatch`, naming the
+differing field). Only the creation time comes from the file. A result that fails is never
+written, and a saved file is never modified. Unreadable or conflicting paths fail with the
+same safe snapshot errors as other inputs, and invalid results with the safe
+`invalid_comparison_result` diagnostics (no untrusted keys or values).
+
+## CLI
+
+```console
+archdiscov compare --left LEFT.json --right RIGHT.json --output COMPARISON.json [--result-limit N] [--json]
+archdiscov comparison COMPARISON.json --left LEFT.json --right RIGHT.json [--json]
+```
+
+`compare` saves a new result (never overwriting an existing path) and prints it; `comparison`
+shows a saved result after verifying it against both snapshots. Readable output labels both
+sides (snapshot, source kind and label, scope, collection window), then lists limitations and
+the matched, unmatched, and ambiguous entries with their qualifications and cited evidence IDs;
+inspect a citation with `archdiscov evidence ID --snapshot PATH`. Exit codes follow the other
+commands: 1 for unreadable files, 2 for invalid or mismatched data, 3 for an existing output.
+A comparison is not drift detection: it reports what two snapshots record, and an absence
+qualified by coverage or a plan is not proof that anything was removed.

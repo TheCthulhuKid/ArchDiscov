@@ -11,6 +11,13 @@ from .analysis_validation import (
 from .analyzer_errors import AnalyzerError
 from .analyzers import Analyzer, AnalyzerRegistry, build_result
 from .async_ingestion import collect_and_save_async, collect_snapshots_async
+from .comparison import compare_snapshots
+from .comparison_results import (
+    ComparisonValidationError,
+    load_comparison,
+    save_comparison,
+    validate_comparison_result,
+)
 from .cross_account_trust import CrossAccountTrustAnalyzer
 from .evidence import EvidenceInspection, EvidenceNotFoundError, get_evidence
 from .importing import IngestFormat, IngestResult, ingest_snapshot
@@ -42,6 +49,7 @@ __all__ = [
     "Analyzer",
     "AnalyzerError",
     "AnalyzerRegistry",
+    "ComparisonValidationError",
     "CrossAccountTrustAnalyzer",
     "DEFAULT_REGISTRY",
     "OwnershipAnalyzer",
@@ -63,6 +71,7 @@ __all__ = [
     "SnapshotValidationIssue",
     "build_result",
     "collect_and_save",
+    "compare_snapshots",
     "collect_and_save_async",
     "collect_snapshots",
     "collect_snapshots_async",
@@ -70,16 +79,19 @@ __all__ = [
     "ingest_snapshot",
     "inspect_resource",
     "load_analysis",
+    "load_comparison",
     "load_snapshot",
     "query_neighbours",
     "query_paths",
     "qualify_status",
     "run_analyzer",
     "save_analysis",
+    "save_comparison",
     "save_snapshot",
     "search_resources",
     "select_adapter",
     "validate_snapshot",
     "validate_analysis_result",
+    "validate_comparison_result",
     "upgrade_snapshot",
 ]

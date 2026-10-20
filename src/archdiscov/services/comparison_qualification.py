@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 from archdiscov.models.analysis.references import CoverageReference, ResourceReference
 from archdiscov.models.canonical import canonical_json
 from archdiscov.models.comparison.entries import (
+    AmbiguousMatch,
     FieldDifference,
     MatchedPair,
     Qualification,
@@ -30,7 +31,7 @@ from archdiscov.models.enums import (
 )
 from archdiscov.models.resource_base import Resource
 
-from .comparison_matching import MatchedIds
+from .comparison_matching import AmbiguousIds, MatchedIds
 from .query_context import contextual_coverage
 
 if TYPE_CHECKING:
@@ -58,13 +59,16 @@ def comparison_snapshot(side: ComparisonSide, index: GraphIndex) -> ComparisonSn
 def snapshot_limitations(
     left: GraphIndex, right: GraphIndex, reasons: Iterable[ComparisonLimitationKind]
 ) -> list[ComparisonLimitation]:
-    """Snapshot-level limitations: the matching reasons plus a source kind mismatch."""
+    """Snapshot-level limitations: the given reasons plus a source kind mismatch."""
     messages = {
         ComparisonLimitationKind.CROSS_CLOUD: (
             "The snapshots record different clouds, so no resource can match."
         ),
         ComparisonLimitationKind.SCOPE_MISMATCH: (
             "The snapshots record different scopes, so no resource can match."
+        ),
+        ComparisonLimitationKind.RESULT_LIMIT_REACHED: (
+            "Entries were limited by the result limit; more exist."
         ),
     }
     kinds = set(reasons)
@@ -79,7 +83,7 @@ def snapshot_limitations(
     ]
 
 
-class Qualifier:
+class EntryBuilder:
     """Build qualified entries for two indexes (build once per comparison)."""
 
     def __init__(self, left: GraphIndex, right: GraphIndex) -> None:
@@ -124,6 +128,20 @@ class Qualifier:
             side=side,
             resource=self._reference(side, resource_id),
             qualifications=_ordered(qualifications),
+        )
+
+    def ambiguous(self, group: AmbiguousIds) -> AmbiguousMatch:
+        """An ambiguous match listing every candidate on each side."""
+
+        def references(side: ComparisonSide, ids: tuple[str, ...]) -> list[ResourceReference]:
+            ordered = sorted(ids, key=canonical_json)  # the contract's candidate order
+            return [self._reference(side, resource_id) for resource_id in ordered]
+
+        return AmbiguousMatch(
+            basis=group.basis,
+            key=group.key,
+            left=references(LEFT, group.left_ids),
+            right=references(RIGHT, group.right_ids),
         )
 
     # ---- helpers -------------------------------------------------------------------

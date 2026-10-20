@@ -33,7 +33,8 @@ evidence inspection; it does not provide live Azure collection or analysis.
 | Database access analysis | [Implemented for AWS](docs/database-access.md): compute sources (EC2, ECS, Lambda) with a recorded potential network path to an RDS instance or cluster port, composed from security groups, NACLs, and routes with per-element decisions, blockers, and citations; network permission, not authentication or live reachability |
 | Graph resource ownership, lookup, containment, dependencies, and evidence/coverage | [Implemented and verified together across schemas 1–3](docs/graph-index.md#composed-graph-boundary), including external/unresolved terminals and complete-context coverage |
 | Resource search, inspection, neighbours, and paths | [Implemented Python services and `archdiscov query` CLI](docs/graph-queries.md) with exact filters, bounds, detached data, citations, and coverage/provenance limitations |
-| Comparisons and LLM assistant/providers | Planned |
+| Snapshot comparison | [Implemented](docs/comparison-results.md): `compare` and `comparison` CLI, identity matching without guessing, field-level differences with citations on both sides, lifecycle, source-kind, and coverage qualification, atomic no-overwrite results verified against both snapshots; recorded differences, not drift detection or proof of change |
+| LLM assistant/providers | Planned |
 
 [PLAN.md](PLAN.md) records delivery progress and the remaining roadmap. “All services”
 means the supported inventory, not every AWS resource type or proof of reachability/effective
@@ -77,7 +78,7 @@ These tests require neither AWS/provider credentials nor network calls. Package 
 [GitHub Actions](.github/workflows/ci.yml) runs the full offline pytest suite and
 Ruff lint/format checks in separate jobs on every push and pull request, with manual
 runs available too. CI uses Python 3.13, uv 0.5.29, and locked development dependencies;
-the test job uses two pytest-xdist workers with `--dist worksteal` to limit nested
+the test job uses eight pytest-xdist workers with `--dist worksteal` to limit nested
 concurrency. It requires no AWS/provider secrets. Formatting excludes `.junie` plan artifacts,
 matching the local commands above. Superseded runs are cancelled automatically.
 
@@ -170,7 +171,7 @@ ownership, security-group impact, cross-account trust, and database-access analy
 implemented ([ownership](docs/ownership-analysis.md),
 [security-group impact](docs/security-group-impact.md),
 [cross-account trust](docs/cross-account-trust.md), [database access](docs/database-access.md));
-other analyzers, comparisons, and provider interfaces remain planned. See [recorded resource queries](docs/graph-queries.md).
+snapshot [comparison](docs/comparison-results.md) is implemented; provider interfaces remain planned. See [recorded resource queries](docs/graph-queries.md).
 
 - Organize the application into ingestion adapters, normalized models, graph queries, deterministic analyzers, provider adapters, and CLI presentation.
 - Define Pydantic models for `AccountArchitecture`, `RegionArchitecture`, typed resources, `Dependency`, `Evidence`, `Coverage`, `Finding`, and `Answer`. Version serialized snapshots.

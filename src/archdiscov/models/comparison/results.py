@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Literal, Self
 from uuid import UUID
 
@@ -8,6 +9,9 @@ from ..cloud.scope import SupportedScope
 from ..enums import CloudPlatform, ComparisonLimitationKind, ComparisonSide, SnapshotSourceKind
 from ..resource_base import Model, NonEmptyString
 from .entries import AmbiguousMatch, MatchedPair, UnmatchedResource, require_canonical
+
+DEFAULT_RESULT_LIMIT = 1000
+MAX_RESULT_LIMIT = 10000
 
 
 class ComparisonSnapshot(Model):
@@ -49,12 +53,15 @@ class ComparisonResult(Model):
     A comparison is a separate immutable result, not an analysis. It reports what the two
     snapshots record, never proof that anything was added, removed, or has drifted. Every
     resource appears in at most one entry on its side, and every list is in canonical order.
+    Each kind of entry (and each side's unmatched resources) is bounded by `result_limit`, and a
+    `result_limit_reached` limitation reports that more entries exist.
     """
 
     schema_version: Literal["1"] = "1"
     left: ComparisonSnapshot
     right: ComparisonSnapshot
     created_at: AwareDatetime
+    result_limit: int = Field(default=DEFAULT_RESULT_LIMIT, ge=1, le=MAX_RESULT_LIMIT)
     matched: list[MatchedPair] = Field(default_factory=list)
     unmatched: list[UnmatchedResource] = Field(default_factory=list)
     ambiguous: list[AmbiguousMatch] = Field(default_factory=list)
@@ -70,9 +77,21 @@ class ComparisonResult(Model):
             (self.ambiguous, "ambiguous"),
         ):
             require_canonical(entries, lambda entry: entry.id, label)
+        for entries in (self.matched, self.ambiguous):
+            self._require_within_limit(entries)
+        self._require_within_limit(
+            [item for item in self.unmatched if item.side == ComparisonSide.LEFT]
+        )
+        self._require_within_limit(
+            [item for item in self.unmatched if item.side == ComparisonSide.RIGHT]
+        )
         require_canonical(self.limitations, lambda item: item.kind, "limitations")
         self._validate_references()
         return self
+
+    def _require_within_limit(self, entries: Sequence[object]) -> None:
+        if len(entries) > self.result_limit:
+            raise ValueError("a list of entries must not exceed the result limit")
 
     def _validate_references(self) -> None:
         """Scopes match their side, and no resource is claimed by two entries."""

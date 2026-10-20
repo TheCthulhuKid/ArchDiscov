@@ -6,7 +6,7 @@ from archdiscov.models.enums import ComparisonLimitationKind, ComparisonSide
 from archdiscov.services.comparison_fields import FieldComparer
 from archdiscov.services.comparison_matching import match_resources
 from archdiscov.services.comparison_qualification import (
-    Qualifier,
+    EntryBuilder,
     comparison_snapshot,
     snapshot_limitations,
 )
@@ -30,7 +30,7 @@ def qualify(left, right, *, sources=("aws", "aws"), left_kw=None, right_kw=None)
     left_index = index(left, sources[0], seed=1, **(left_kw or {}))
     right_index = index(right, sources[1], seed=2, **(right_kw or {}))
     outcome = match_resources(left_index, right_index)
-    return left_index, right_index, outcome, Qualifier(left_index, right_index)
+    return left_index, right_index, outcome, EntryBuilder(left_index, right_index)
 
 
 def kinds(qualifications):
@@ -175,7 +175,7 @@ def test_coverage_of_a_different_scope_never_qualifies_an_absence():
     )
     left = index([vpc("vpc-1")], seed=1)
     outcome = match_resources(left, other)
-    qualifier = Qualifier(left, other)
+    qualifier = EntryBuilder(left, other)
     assert qualifier.unmatched(LEFT, outcome.unmatched_left[0]).qualifications == []
 
 
