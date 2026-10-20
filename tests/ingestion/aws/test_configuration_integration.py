@@ -188,11 +188,11 @@ def test_nonempty_combined_services_persist_links_and_inspect_fact_evidence(monk
     from archdiscov.models.resources.queues import SqsQueue
     from tests.support.aws_fakes import Session as Ec2Session
     from tests.support.ecs_data import Client as EcsClient
+    from tests.support.rds_data import Client as RdsClient
+    from tests.support.rds_data import data as rds_data
 
     from .test_elbv2_collection import ec2_pages
     from .test_lambda_collection import Client as LambdaClient
-    from .test_rds_collection import Client as RdsClient
-    from .test_rds_collection import data as rds_data
     from .test_sqs_collection import Client as SqsClient
 
     class CombinedSession(Session):
@@ -269,9 +269,10 @@ def test_nonempty_combined_services_persist_links_and_inspect_fact_evidence(monk
 def test_new_service_partial_failure_keeps_other_service_results(tmp_path):
     from botocore.exceptions import ClientError
 
+    from tests.support.rds_data import Client as RdsClient
+    from tests.support.rds_data import data as rds_data
+
     from .test_lambda_collection import Client as LambdaClient
-    from .test_rds_collection import Client as RdsClient
-    from .test_rds_collection import data as rds_data
 
     class PartialSession(Session):
         def __init__(self):

@@ -8,6 +8,7 @@ from typing import Any, NoReturn
 from pydantic import ValidationError
 from pydantic_core import PydanticSerializationError
 
+from archdiscov.models.analysis.database_access import AccessElementDecision, DatabaseAccess
 from archdiscov.models.analysis.impact import SecurityGroupImpact
 from archdiscov.models.analysis.parameters import (
     CrossAccountTrustParameters,
@@ -45,6 +46,8 @@ _DIAGNOSTIC_FIELDS = frozenset(
         UnresolvedTargetReference,
         SecurityGroupImpact,
         CrossAccountTrust,
+        DatabaseAccess,
+        AccessElementDecision,
         LocalTarget,
         CloudExternalTarget,
         UnresolvedTarget,

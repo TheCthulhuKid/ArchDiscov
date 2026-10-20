@@ -47,7 +47,9 @@ def analyze(
     analyzer: Annotated[
         AnalyzerKind,
         typer.Option(
-            "--analyzer", help="ownership (default), security_group_impact, or cross_account_trust."
+            "--analyzer",
+            help="ownership (default), security_group_impact, cross_account_trust, or "
+            "database_access.",
         ),
     ] = AnalyzerKind.OWNERSHIP,
     ownership_key: Annotated[
@@ -56,7 +58,15 @@ def analyze(
     ] = None,
     resource_id: Annotated[
         str | None,
-        typer.Option("--resource-id", help="Security-group impact: stable ID of the group."),
+        typer.Option(
+            "--resource-id",
+            help="Security-group impact: stable ID of the group; database access: of the "
+            "RDS instance or cluster.",
+        ),
+    ] = None,
+    port: Annotated[
+        int | None,
+        typer.Option("--port", help="Database access: the database port (1-65535)."),
     ] = None,
     max_depth: Annotated[
         int | None,
@@ -68,7 +78,8 @@ def analyze(
         int | None,
         typer.Option(
             "--result-limit",
-            help="Security-group impact or trust: findings (1-10000, default 100).",
+            help="Security-group impact, trust, or database access: findings "
+            "(1-10000, default 100).",
         ),
     ] = None,
     json_output: JsonOption = False,
@@ -76,14 +87,15 @@ def analyze(
     """Run an analyzer over a snapshot and save the verified result.
 
     Options belong to specific analyzers: --ownership-key for ownership; --resource-id and
-    --max-depth for security_group_impact; --result-limit for security_group_impact and
-    cross_account_trust.
+    --max-depth for security_group_impact; --resource-id and --port for database_access;
+    --result-limit for security_group_impact, cross_account_trust, and database_access.
     """
     with _safe_failures(snapshot, json_output):
         DEFAULT_REGISTRY.get(analyzer)  # fail fast, before touching any file
         options = {
             "ownership_keys": ownership_key or None,
             "resource_id": resource_id,
+            "port": port,
             "max_depth": max_depth,
             "result_limit": result_limit,
         }

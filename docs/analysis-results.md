@@ -15,8 +15,10 @@ An empty findings list is allowed, but does not by itself prove complete analysi
 
 The discriminated parameter models in `models.analysis.parameters` cover ownership
 (default keys `Owner`, `Team`), security-group impact (resource/depth/result limit),
-cross-account trust, database access (resource/port), and internet exposure
-(depth/result limit). Defining a parameter model does not implement that analyzer.
+cross-account trust, database access (resource/port/result limit), and internet exposure
+(depth/result limit). Defining a parameter model does not implement that analyzer; the
+ownership, security-group impact, cross-account trust, and database-access analyzers are
+implemented.
 
 `AnalysisFinding` contains a summary, status, evidence IDs, cloud-aware resource
 references, ordered path steps, and structured limitations. Supported and partial
@@ -82,13 +84,41 @@ principal itself is the path step's target, and unresolved or external forms rem
 terminals with limitations. This is configured policy only: it never asserts that the
 principal can assume the role or reach the queue.
 
-A finding carries at most one analyzer-specific block (`impact` or `trust`), trust
+A finding carries at most one analyzer-specific block (`impact`, `trust`, or `database_access`), trust
 findings must name the trusting resource, and a result carrying them must use
 `cross_account_trust` parameters. Integrity requires the trusting resource to be an IAM
 role for `role_trust_policy` and an SQS queue for `resource_policy`
 (`trust_source_mismatch`). The shared `unsupported_platform` limitation code
 (`archdiscov.models.analysis.references.UNSUPPORTED_PLATFORM_CODE`) covers clouds
 without IAM trust semantics, such as Azure.
+
+## Database-access vocabulary
+
+`AnalysisFinding.database_access` (`DatabaseAccess`) is optional and reserved for the
+database-access analyzer (step 30). It records one compute source's potential network path
+to the selected database port. The source is the finding's first resource reference and
+the selected RDS instance or cluster its second:
+
+| Field | Values |
+|---|---|
+| `source_kind` | `ec2_instance`, `ecs_task`, or `lambda_function` |
+| `port` | the requested database port (1–65535) |
+| `decision` | `allow`, `deny`, or `unknown`, composing the elements (a deny dominates an unknown, which dominates an allow) |
+| `elements` | each of `source_egress`, `database_ingress`, `source_nacl`, `database_nacl`, `route` at most once, in that order, with its `decision` and sorted `blocker_codes` |
+
+Element decisions use the [network-path vocabulary](network-path-primitives.md): an
+allow has no blocker codes, a deny only `denied`, and an unknown at least one code that
+explains it. Cited detail lives in the finding's evidence, path, and limitations. Every
+field is part of finding identity; findings without the block keep their earlier IDs.
+
+An `allow` or `deny` finding is `supported` (or `partial` when qualified); an `unknown`
+decision can never be `supported`. A result carrying these findings must use
+`database_access` parameters (`resource_id`, `port`, and a `result_limit` between 1 and
+10000, default 100), the second resource and the port must match them, and integrity
+requires the source to match its kind (`database_source_mismatch`) and the database to be
+an RDS instance or cluster (`database_target_mismatch`). A finding is network permission
+from recorded configuration: never authentication, credentials, IAM database access, or
+live reachability.
 
 ## Deterministic IDs
 

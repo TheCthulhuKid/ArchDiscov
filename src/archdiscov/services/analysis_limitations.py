@@ -16,6 +16,7 @@ from archdiscov.models.analysis.results import AnalysisFinding
 from archdiscov.models.architecture import LocalTarget, UnresolvedTarget
 from archdiscov.models.cloud.context import canonical_service_key
 from archdiscov.models.enums import AnalysisStatus, AwsService, CoverageStatus
+from archdiscov.models.network_path import NetworkBlocker
 
 from .analysis_qualification import coverage_limitation
 
@@ -72,6 +73,21 @@ def unsupported_platform_finding(
             )
         ],
     )
+
+
+def blocker_limitation(blocker: NetworkBlocker) -> AnalysisLimitation:
+    """A network blocker as a limitation: its code, message, coverage, and citations."""
+    return AnalysisLimitation(
+        code=blocker.code.value,
+        message=blocker.message,
+        coverage=blocker.coverage,
+        evidence_ids=blocker.evidence_ids,
+    )
+
+
+def distinct_limitations(limitations: Iterable[AnalysisLimitation]) -> list[AnalysisLimitation]:
+    """Drop identical limitations, keeping first occurrences in order."""
+    return list({item.model_dump_json(): item for item in limitations}.values())
 
 
 UNRECORDED_PREFIX = "coverage_unrecorded_"

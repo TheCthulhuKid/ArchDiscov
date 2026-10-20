@@ -5,12 +5,24 @@ from uuid import UUID
 
 from pydantic import AwareDatetime, Field, model_validator
 
-from ..enums import AnalysisStatus, AnalyzerKind
+from ..enums import AnalysisStatus, AnalyzerKind, NetworkDecision
 from ..resource_base import Model, NonEmptyString
+from .database_access import DatabaseAccess
 from .impact import SecurityGroupImpact
-from .parameters import AnalyzerParameters, SecurityGroupImpactParameters
+from .parameters import (
+    AnalyzerParameters,
+    DatabaseAccessParameters,
+    SecurityGroupImpactParameters,
+)
 from .references import AnalysisLimitation, PathStep, ResourceReference
 from .trust import CrossAccountTrust
+
+# Analyzer-specific finding blocks and the only analyzer allowed to produce each.
+_BLOCK_ANALYZERS = {
+    "impact": AnalyzerKind.SECURITY_GROUP_IMPACT,
+    "trust": AnalyzerKind.CROSS_ACCOUNT_TRUST,
+    "database_access": AnalyzerKind.DATABASE_ACCESS,
+}
 
 
 class AnalysisFinding(Model):
@@ -26,6 +38,7 @@ class AnalysisFinding(Model):
     limitations: list[AnalysisLimitation] = Field(default_factory=list)
     impact: SecurityGroupImpact | None = None
     trust: CrossAccountTrust | None = None
+    database_access: DatabaseAccess | None = None
 
     @model_validator(mode="after")
     def validate_finding(self) -> Self:
@@ -33,15 +46,23 @@ class AnalysisFinding(Model):
             raise ValueError("partial and insufficient_evidence results require limitations")
         if self.status != AnalysisStatus.INSUFFICIENT_EVIDENCE and not self.evidence_ids:
             raise ValueError("supported and partial findings require evidence_ids")
-        if self.impact is not None and self.trust is not None:
+        if sum(getattr(self, name) is not None for name in _BLOCK_ANALYZERS) > 1:
             raise ValueError("a finding carries at most one analyzer-specific block")
         if self.trust is not None and not self.resources:
             raise ValueError("trust findings must name the trusting resource")
+        if self.database_access is not None:
+            self._validate_database_access(self.database_access)
         derived_id = deterministic_finding_id(self)
         if self.id and self.id != derived_id:
             raise ValueError("finding id must match deterministic_finding_id")
         self.id = derived_id
         return self
+
+    def _validate_database_access(self, access: DatabaseAccess) -> None:
+        if len(self.resources) < 2:
+            raise ValueError("database access findings must name the source and the database")
+        if access.decision == NetworkDecision.UNKNOWN and self.status == AnalysisStatus.SUPPORTED:
+            raise ValueError("an unknown database access decision cannot be supported")
 
 
 def _canonical_json(value: object) -> str:
@@ -57,7 +78,7 @@ def deterministic_finding_id(finding: AnalysisFinding) -> str:
     kind is envelope-only and therefore is not part of the finding identity.
     """
     exclude: dict[str, object] = {"id": True, "limitations": {"__all__": {"message"}}}
-    for name in ("impact", "trust"):
+    for name in _BLOCK_ANALYZERS:
         if getattr(finding, name) is None:
             # Absent blocks keep identities of findings from other analyzers unchanged.
             exclude[name] = True
@@ -73,13 +94,6 @@ def deterministic_finding_id(finding: AnalysisFinding) -> str:
             reference["evidence_ids"] = sorted(reference["evidence_ids"])
     payload["limitations"] = sorted(payload["limitations"], key=_canonical_json)
     return hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
-
-
-# Analyzer-specific finding blocks and the only analyzer allowed to produce each.
-_BLOCK_ANALYZERS = {
-    "impact": AnalyzerKind.SECURITY_GROUP_IMPACT,
-    "trust": AnalyzerKind.CROSS_ACCOUNT_TRUST,
-}
 
 
 class AnalysisResult(Model):
@@ -108,7 +122,19 @@ class AnalysisResult(Model):
             if finding.impact is not None
         ):
             raise ValueError("impact must describe the selected security group")
+        if isinstance(self.parameters, DatabaseAccessParameters):
+            self._validate_database_findings(self.parameters)
         ids = [finding.id for finding in self.findings]
         if len(ids) != len(set(ids)):
             raise ValueError("finding IDs must be unique")
         return self
+
+    def _validate_database_findings(self, parameters: DatabaseAccessParameters) -> None:
+        for finding in self.findings:
+            access = finding.database_access
+            if access is None:
+                continue
+            if finding.resources[1].resource_id != parameters.resource_id:
+                raise ValueError("database access must describe the selected database")
+            if access.port != parameters.port:
+                raise ValueError("database access must describe the selected port")

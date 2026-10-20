@@ -92,6 +92,13 @@ Supported, each evaluated for one direction or one question per call:
 Not modelled at all: statefulness, target health meaning, host firewalls, authentication,
 and runtime state.
 
+## Bounded addresses
+
+When an address is not recorded, a caller may pass the CIDR that bounds it (for example
+the subnet): `Peer.within` for security groups, and a CIDR `address` for `evaluate_network_acl`
+and `evaluate_subnet_route`. A rule, entry, or route covering the whole range matches, a
+disjoint one does not, and one covering only part of it makes the decision `unknown`.
+
 ## Composing primitives
 
 Primitives never call each other. A caller composes them explicitly with `all_of` (and

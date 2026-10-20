@@ -385,6 +385,24 @@ class TrustSource(StrEnum):
     RESOURCE_POLICY = "resource_policy"
 
 
+class AccessSourceKind(StrEnum):
+    """The compute resource a database-access finding starts from."""
+
+    EC2_INSTANCE = "ec2_instance"
+    ECS_TASK = "ecs_task"
+    LAMBDA_FUNCTION = "lambda_function"
+
+
+class AccessElement(StrEnum):
+    """One composed element of a database network path, in canonical order."""
+
+    SOURCE_EGRESS = "source_egress"
+    DATABASE_INGRESS = "database_ingress"
+    SOURCE_NACL = "source_nacl"
+    DATABASE_NACL = "database_nacl"
+    ROUTE = "route"
+
+
 class AnalyzerErrorCode(StrEnum):
     UNSUPPORTED_ANALYZER = "unsupported_analyzer"
     INVALID_PARAMETERS = "invalid_parameters"

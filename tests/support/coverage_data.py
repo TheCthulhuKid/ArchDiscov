@@ -1,4 +1,4 @@
-"""Recorded EC2 operation coverage for network-path tests."""
+"""Recorded operation coverage for network-path and database-access tests."""
 
 from archdiscov.models.architecture import Coverage
 from archdiscov.models.enums import AwsRegion, AwsService
@@ -7,13 +7,20 @@ from tests.support.iam_data import ACCOUNT, context
 REGION = AwsRegion.EU_WEST_1
 
 
-def ec2_coverage(operation: str, status: str, result_count: int) -> Coverage:
-    """One EC2 operation record: success, failed, incomplete, or anything else (skipped)."""
-    now = context(None).clock()
+def coverage_record(
+    service: AwsService,
+    operation: str,
+    status: str,
+    result_count: int = 0,
+    region: AwsRegion = REGION,
+    at=None,
+) -> Coverage:
+    """One operation record: success, failed, incomplete, or anything else (skipped)."""
+    now = at or context(None).clock()
     data = {
         "account_id": ACCOUNT,
-        "region": REGION,
-        "service": AwsService.EC2,
+        "region": region,
+        "service": service,
         "operation": operation,
         "status": status,
         "started_at": now,
@@ -28,3 +35,7 @@ def ec2_coverage(operation: str, status: str, result_count: int) -> Coverage:
     else:
         data["reason"] = "Not collected"
     return Coverage.model_validate(data)
+
+
+def ec2_coverage(operation: str, status: str, result_count: int) -> Coverage:
+    return coverage_record(AwsService.EC2, operation, status, result_count)

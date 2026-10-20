@@ -14,15 +14,14 @@ from archdiscov.models.resource_base import ResourceIdentity
 from archdiscov.models.resources.network import SecurityGroup, SecurityGroupRule
 from tests.support.coverage_data import ec2_coverage
 from tests.support.iam_data import ACCOUNT, context
+from tests.support.ids import stable_id
 
 SNAPSHOT = UUID(int=292)
 REGION = AwsRegion.EU_WEST_1
 
 
 def group_id(name: str) -> str:
-    return ResourceIdentity(
-        account_id=ACCOUNT, region=REGION, service=AwsService.EC2, physical_id=name
-    ).stable_id
+    return stable_id(name, REGION)
 
 
 def rule(direction="ingress", protocol="tcp", from_port=443, to_port=443, **fields):
