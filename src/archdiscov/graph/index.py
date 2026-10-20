@@ -3,7 +3,7 @@ from uuid import UUID
 from archdiscov.models.cloud.contracts import CloudEvidence, CloudOperationCoverage
 from archdiscov.models.cloud.scope import SupportedScope
 from archdiscov.models.coverage_key import CoverageKey
-from archdiscov.models.enums import AttachmentKind, DependencyRelationship
+from archdiscov.models.enums import AttachmentKind, DependencyRelationship, SnapshotSourceKind
 from archdiscov.models.resource_base import Resource
 from archdiscov.services.snapshot_access import SnapshotAccess, SupportedSnapshot
 
@@ -48,6 +48,11 @@ class GraphIndex:
     @property
     def snapshot_id(self) -> UUID:
         return self._access._borrow_snapshot().snapshot_id
+
+    @property
+    def source_kind(self) -> SnapshotSourceKind:
+        """What the snapshot records: an observation, Terraform state or plan, or a template."""
+        return self._access._borrow_snapshot().source.kind
 
     @property
     def scope(self) -> SupportedScope:

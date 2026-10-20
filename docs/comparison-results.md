@@ -53,3 +53,27 @@ A `Qualification` names the side it concerns and why a statement is qualified:
 | `limited_coverage` | the recorded coverage operation that was failed, incomplete, skipped, or unsupported |
 | `unrecorded_coverage` | the service only: no operation is invented |
 | `unknown_value`, `unresolved_reference`, `redacted_value` | cited evidence only |
+
+## Matching rules
+
+Matching (`archdiscov.services.comparison_matching`) pairs the resources of two snapshots by
+identity and never guesses:
+
+- Resources match only inside one complete scope: the same cloud and the same AWS account and
+  partition, or Azure subscription and tenant. Snapshots whose scopes differ in any way match
+  nothing: every resource is unmatched on its side and the result carries a `cross_cloud` or
+  `scope_mismatch` limitation.
+- A resource with a physical identity matches on its native type and its scope-qualified
+  physical identity (for AWS this includes the region and service). Azure ARM IDs and native
+  types compare case-insensitively, and only Azure's do. A physical identity is never replaced
+  by a logical address, and names and short IDs are never keys.
+- A resource without a physical identity matches its logical address, including a Terraform
+  module address and instance index, only when both snapshots come from the same IaC context
+  (Terraform state or plan, or a CloudFormation template). Observed resources have no such
+  context, and Terraform and CloudFormation addresses never match each other.
+- When several resources of a side share one key and the other side has a candidate, every
+  candidate is reported as an ambiguous match and none is chosen. A key found on one side only
+  pairs nothing.
+- Matching is symmetric apart from the side labels, deterministic, and linear in the number
+  of resources. Differences between matched resources, lifecycle, and coverage qualification
+  are described by the later comparison steps.
