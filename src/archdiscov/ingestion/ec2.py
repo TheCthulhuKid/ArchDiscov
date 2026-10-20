@@ -90,6 +90,8 @@ class Ec2Normalizer(EvidenceBuilder):
             facts["/attributes/subnet_id"] = ("SubnetId", item["SubnetId"])
         if item.get("VpcId"):
             facts["/attributes/vpc_id"] = ("VpcId", item["VpcId"])
+        if item.get("PublicIpAddress"):
+            facts["/attributes/public_ip_address"] = ("PublicIpAddress", item["PublicIpAddress"])
         if groups:
             facts["/attributes/security_group_ids"] = ("SecurityGroups", item["SecurityGroups"])
         if profile:

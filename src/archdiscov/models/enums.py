@@ -248,6 +248,13 @@ class RouteTargetKind(StrEnum):
     UNKNOWN = "unknown"
 
 
+class RouteReach(StrEnum):
+    """Where a selected route must lead for traffic to be allowed."""
+
+    LOCAL = "local"
+    INTERNET_GATEWAY = "internet_gateway"
+
+
 class RuleDirection(StrEnum):
     INGRESS = "ingress"
     EGRESS = "egress"
@@ -384,3 +391,19 @@ class AnalyzerErrorCode(StrEnum):
     INVALID_RESULT = "invalid_result"
     RESOURCE_NOT_FOUND = "resource_not_found"
     UNSUPPORTED_RESOURCE = "unsupported_resource"
+
+
+class NetworkDecision(StrEnum):
+    """A primitive's verdict on recorded configuration, never on live reachability."""
+
+    ALLOW = "allow"
+    DENY = "deny"
+    UNKNOWN = "unknown"
+
+
+class NetworkBlockerCode(StrEnum):
+    DENIED = "denied"
+    MISSING_EVIDENCE = "missing_evidence"
+    UNSUPPORTED_ELEMENT = "unsupported_element"
+    COVERAGE_LIMITED = "coverage_limited"
+    UNSUPPORTED_PLATFORM = "unsupported_platform"
