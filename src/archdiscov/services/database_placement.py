@@ -14,18 +14,17 @@ from typing import TYPE_CHECKING
 
 from archdiscov.graph.dependencies import DependencyEdge
 from archdiscov.models.analysis.references import AnalysisLimitation
-from archdiscov.models.architecture import LocalTarget, Vpc
+from archdiscov.models.architecture import Vpc
 from archdiscov.models.enums import AnalyzerErrorCode, AttachmentKind
 from archdiscov.models.resources.database import DbCluster, DbInstance, DbSubnetGroup
 
-from .analysis_limitations import target_limitations
 from .analyzer_errors import AnalyzerError
+from .placement_collection import PlacementCollector, limitation
 
 if TYPE_CHECKING:
     from archdiscov.graph import GraphIndex
 
 Database = DbInstance | DbCluster
-Owner = Database | DbSubnetGroup
 
 
 class PortStatus(StrEnum):
@@ -55,36 +54,6 @@ class DatabasePlacement:
     limitations: tuple[AnalysisLimitation, ...]
 
 
-def _limitation(code: str, message: str, evidence_ids: tuple[str, ...] = ()) -> AnalysisLimitation:
-    return AnalysisLimitation(code=code, message=message, evidence_ids=list(evidence_ids))
-
-
-class _Collector:
-    """Accumulates placement sets, citations, and limitations in deterministic order."""
-
-    def __init__(self, index: GraphIndex) -> None:
-        self.index = index
-        self.evidence: set[str] = set()
-        self.limitations: dict[tuple, AnalysisLimitation] = {}
-
-    def note(self, limitation: AnalysisLimitation) -> None:
-        key = (limitation.code, limitation.message, tuple(limitation.evidence_ids))
-        self.limitations.setdefault(key, limitation)
-
-    def memberships(self, owners: list[Owner], kind: AttachmentKind, noun: str) -> set[str]:
-        """Stored targets of the owners' membership edges; others become limitations."""
-        found: set[str] = set()
-        for owner in owners:
-            for edge in self.index.outgoing_edges(owner.id, attachment_kind=kind):
-                self.evidence.update(edge.evidence_ids)
-                if isinstance(edge.target, LocalTarget):
-                    found.add(edge.target_id)
-                else:
-                    for limitation in target_limitations(edge, noun):
-                        self.note(limitation)
-        return found
-
-
 def _subnet_group_edges(index: GraphIndex, owners: list[Database]) -> list[DependencyEdge]:
     return [
         edge
@@ -103,7 +72,7 @@ def _stored_subnet_groups(index: GraphIndex, edges: list[DependencyEdge]) -> lis
 
 
 def _member_instances(
-    index: GraphIndex, cluster: DbCluster, collector: _Collector
+    index: GraphIndex, cluster: DbCluster, collector: PlacementCollector
 ) -> tuple[DbInstance, ...]:
     """Stored instances of the cluster; a recorded member that is not stored is a limitation."""
     stored = {
@@ -115,7 +84,7 @@ def _member_instances(
     }
     if cluster.members is None:
         collector.note(
-            _limitation(
+            limitation(
                 "database_members_unrecorded", "The cluster's member instances are not recorded."
             )
         )
@@ -124,7 +93,7 @@ def _member_instances(
         for member in cluster.members:
             if member.db_instance_identifier not in identifiers:
                 collector.note(
-                    _limitation(
+                    limitation(
                         "database_member_unrecorded",
                         f"Cluster member {member.db_instance_identifier} is not stored.",
                         tuple(cluster.fact_evidence.get("/members", [])),
@@ -138,7 +107,7 @@ def _owner_evidence(owners: list[Database], pointer: str) -> tuple[str, ...]:
 
 
 def _ports(
-    owners: list[Database], port: int, collector: _Collector
+    owners: list[Database], port: int, collector: PlacementCollector
 ) -> tuple[PortStatus, tuple[int, ...]]:
     recorded = tuple(
         sorted({owner.endpoint_port for owner in owners if owner.endpoint_port is not None})
@@ -146,12 +115,12 @@ def _ports(
     evidence = _owner_evidence(owners, "/endpoint_port")
     collector.evidence.update(evidence)
     if not recorded:
-        collector.note(_limitation("database_port_unrecorded", "No endpoint port is recorded."))
+        collector.note(limitation("database_port_unrecorded", "No endpoint port is recorded."))
         return PortStatus.UNRECORDED, recorded
     if port in recorded:
         return PortStatus.MATCH, recorded
     collector.note(
-        _limitation(
+        limitation(
             "database_port_mismatch",
             f"The requested port {port} differs from the recorded port(s) "
             f"{', '.join(map(str, recorded))}.",
@@ -162,14 +131,14 @@ def _ports(
 
 
 def _vpc(
-    index: GraphIndex, owners: list[Database], subnet_ids: set[str], collector: _Collector
+    index: GraphIndex, owners: list[Database], subnet_ids: set[str], collector: PlacementCollector
 ) -> str | None:
     """The one stored VPC that contains the subnets, checked against the recorded VPC ID."""
     parents = (index.get_resource(index.parent_id(subnet) or "") for subnet in subnet_ids)
     vpcs = {parent.id: parent for parent in parents if isinstance(parent, Vpc)}
     if len(vpcs) != 1:
         collector.note(
-            _limitation(
+            limitation(
                 "database_vpc_ambiguous" if vpcs else "database_vpc_unresolved",
                 "The database's subnets do not resolve to exactly one stored VPC.",
             )
@@ -179,7 +148,7 @@ def _vpc(
     recorded = {owner.vpc_id for owner in owners if owner.vpc_id is not None}
     if recorded - {vpc.identity.physical_id}:
         collector.note(
-            _limitation(
+            limitation(
                 "database_vpc_mismatch",
                 "The recorded VPC ID differs from the VPC containing the subnets.",
                 _owner_evidence(owners, "/vpc_id"),
@@ -201,7 +170,7 @@ def resolve_database_placement(index: GraphIndex, resource_id: str, port: int) -
         raise AnalyzerError(AnalyzerErrorCode.RESOURCE_NOT_FOUND)
     if not isinstance(selected, (DbInstance, DbCluster)):
         raise AnalyzerError(AnalyzerErrorCode.UNSUPPORTED_RESOURCE)
-    collector = _Collector(index)
+    collector = PlacementCollector(index)
     members = (
         _member_instances(index, selected, collector) if isinstance(selected, DbCluster) else ()
     )
@@ -216,15 +185,13 @@ def resolve_database_placement(index: GraphIndex, resource_id: str, port: int) -
     )
     if not subnet_ids:
         collector.note(
-            _limitation("database_subnets_unrecorded", "No subnet placement is recorded.")
+            limitation("database_subnets_unrecorded", "No subnet placement is recorded.")
         )
         for edge in group_edges:
-            collector.evidence.update(edge.evidence_ids)
-            for limitation in target_limitations(edge, "DB subnet group"):
-                collector.note(limitation)
+            collector.cite_edge(edge, "DB subnet group")
     if not security_groups:
         collector.note(
-            _limitation("database_security_groups_unrecorded", "No security group is recorded.")
+            limitation("database_security_groups_unrecorded", "No security group is recorded.")
         )
     status, recorded_ports = _ports(owners, port, collector)
     vpc = _vpc(index, owners, subnet_ids, collector) if subnet_ids else None
@@ -237,5 +204,5 @@ def resolve_database_placement(index: GraphIndex, resource_id: str, port: int) -
         port_status=status,
         recorded_ports=recorded_ports,
         evidence_ids=tuple(sorted(collector.evidence)),
-        limitations=tuple(collector.limitations[key] for key in sorted(collector.limitations)),
+        limitations=collector.sorted_limitations(),
     )
