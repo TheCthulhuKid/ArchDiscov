@@ -17,20 +17,20 @@ from archdiscov.models.network_path import NetworkResult
 from archdiscov.models.resources.network import SecurityGroup, SecurityGroupRule
 
 from .network_decisions import (
-    allow,
     any_of,
     missing,
     qualify_coverage,
-    require_aws,
     unsupported,
 )
 from .network_matching import (
     Screen,
     Undecided,
+    cited_decision,
     combine,
     implicit_deny,
     normalize_protocol,
     omitted_rules,
+    require_recorded,
     screen_cidr,
     screen_protocol,
 )
@@ -105,13 +105,14 @@ class _Query:
             return screen.result(element=f"{_ELEMENT}:{where}", resource_id=self.group.id)
         if not screen:
             return None
-        if not citations:
-            return missing(
-                "The matching rule has no citation.",
-                element=f"{_ELEMENT}:{where}",
-                resource_id=self.group.id,
-            )
-        return allow(citations)
+        return cited_decision(
+            True,
+            citations,
+            (),
+            subject="rule",
+            element=f"{_ELEMENT}:{where}",
+            resource_id=self.group.id,
+        )
 
 
 def evaluate_security_group(
@@ -129,11 +130,9 @@ def evaluate_security_group(
     ICMP type for icmp). Cites the matching rule on allow, and the group's own evidence on
     an implicit deny. Limited rule collection downgrades any decision to unknown.
     """
-    if (unsupported_platform := require_aws(index)) is not None:
-        return unsupported_platform
-    group = index.get_resource(group_id)
-    if not isinstance(group, SecurityGroup):
-        return missing("The security group is not recorded.", resource_id=group_id)
+    group = require_recorded(index, group_id, SecurityGroup, "security group")
+    if isinstance(group, NetworkResult):
+        return group
     if (normalized := normalize_protocol(protocol)) is None:
         return unsupported("The query protocol is unsupported.", element="protocol")
     members = None if peer.group_ids is None else [index.get_resource(i) for i in peer.group_ids]

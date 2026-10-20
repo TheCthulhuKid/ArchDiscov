@@ -7,19 +7,20 @@ settle it. Only IPv4 and the protocols tcp, udp, and icmp are supported.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from ipaddress import IPv4Network
 from typing import TYPE_CHECKING
 
 from archdiscov.ingestion.network.resources import FALLBACK_LIMITATION
-from archdiscov.models.enums import NetworkBlockerCode
+from archdiscov.models.enums import AttachmentKind, NetworkBlockerCode
 from archdiscov.models.network_path import NetworkResult
 from archdiscov.models.resource_base import Resource
 
-from .network_decisions import blocker, deny, missing, unknown
+from .network_decisions import allow, blocker, deny, missing, require_aws, unknown
 
 if TYPE_CHECKING:
-    from archdiscov.graph import GraphIndex
+    from archdiscov.graph import DependencyEdge, GraphIndex
 
 ALL_PROTOCOLS = "-1"
 _PROTOCOLS = {"tcp": "tcp", "6": "tcp", "udp": "udp", "17": "udp", "icmp": "icmp", "1": "icmp"}
@@ -114,3 +115,81 @@ def implicit_deny(
             )
         ]
     )
+
+
+def sole_associate[R: Resource](
+    index: GraphIndex,
+    target: Resource,
+    kind: AttachmentKind,
+    expected: type[R],
+    label: str,
+    *,
+    only: Callable[[DependencyEdge], bool] = lambda edge: True,
+) -> tuple[R, tuple[str, ...]] | NetworkResult:
+    """The one observed associate attached to `target`, with the association's evidence.
+
+    None, several, an unrecorded or wrongly typed associate, or one with omitted rules
+    give an unknown result: no default is ever assumed.
+    """
+    edges = [edge for edge in index.incoming_edges(target.id, attachment_kind=kind) if only(edge)]
+    element, noun = f"{label}_association", label.replace("_", " ")
+
+    def problem(message: str, resource_id: str) -> NetworkResult:
+        return missing(message, element=element, resource_id=resource_id)
+
+    if not edges:
+        return problem(f"No {noun} association is recorded.", target.id)
+    if len(edges) > 1:
+        return problem(f"Several {noun} associations are recorded.", target.id)
+    associate = index.get_resource(edges[0].source_id)
+    if not isinstance(associate, expected):
+        return problem(f"The associated {noun} is not recorded.", target.id)
+    if omitted_rules(associate):
+        return problem(f"Some {noun} entries could not be recorded.", associate.id)
+    return associate, edges[0].evidence_ids
+
+
+def cited_decision(
+    allowed: bool,
+    citations: list[str],
+    extra_evidence_ids: tuple[str, ...],
+    *,
+    subject: str,
+    element: str,
+    resource_id: str,
+) -> NetworkResult:
+    """The cited allow or deny of a matched rule, entry, or route; uncited is unknown."""
+    if not citations:
+        return missing(
+            f"The matching {subject} has no citation.", element=element, resource_id=resource_id
+        )
+    evidence_ids = [*citations, *extra_evidence_ids]
+    if allowed:
+        return allow(evidence_ids)
+    return deny(
+        [
+            blocker(
+                NetworkBlockerCode.DENIED,
+                f"The matching {subject} denies this traffic.",
+                element=element,
+                resource_id=resource_id,
+                evidence_ids=evidence_ids,
+            )
+        ]
+    )
+
+
+def require_recorded[R: Resource](
+    index: GraphIndex, resource_id: str, expected: type[R], label: str
+) -> R | NetworkResult:
+    """The recorded resource a primitive evaluates, or the unknown result that ends it.
+
+    Non-AWS snapshots give the shared unsupported result; an unrecorded or wrongly typed
+    resource is missing evidence.
+    """
+    if (unsupported_platform := require_aws(index)) is not None:
+        return unsupported_platform
+    resource = index.get_resource(resource_id)
+    if not isinstance(resource, expected):
+        return missing(f"The {label} is not recorded.", resource_id=resource_id)
+    return resource

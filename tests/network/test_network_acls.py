@@ -5,7 +5,8 @@ from archdiscov.models.enums import NetworkBlockerCode, NetworkDecision, RuleDir
 from archdiscov.services import load_snapshot
 from archdiscov.services.network_acls import evaluate_network_acl
 from tests.paths import FIXTURES_ROOT
-from tests.support.nacl_data import ALL, acl, build, entry, resource_id
+from tests.support.nacl_data import ALL, acl, build, entry
+from tests.support.network_snapshot import resource_id
 
 D = NetworkDecision
 B = NetworkBlockerCode

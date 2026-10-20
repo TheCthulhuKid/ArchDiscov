@@ -248,6 +248,13 @@ class RouteTargetKind(StrEnum):
     UNKNOWN = "unknown"
 
 
+class RouteReach(StrEnum):
+    """Where a selected route must lead for traffic to be allowed."""
+
+    LOCAL = "local"
+    INTERNET_GATEWAY = "internet_gateway"
+
+
 class RuleDirection(StrEnum):
     INGRESS = "ingress"
     EGRESS = "egress"

@@ -3,7 +3,7 @@
 Step 29 defines which AWS network cases are evaluated initially and how uncertainty is
 handled, then provides reusable primitives over the shared `GraphIndex`. The decision
 vocabulary and composition rules described here are implemented; the individual
-primitives are delivered in later substeps (security-group rules and NACLs so far). No analyzer or CLI uses them yet (database
+primitives are delivered in later substeps (security-group rules, NACLs, and subnet routes so far). No analyzer or CLI uses them yet (database
 access and internet exposure are later steps).
 
 **A decision describes recorded configuration, not live reachability.** It ignores
@@ -64,6 +64,11 @@ decided the outcome.
   single observed ACL association, entries in rule-number order, first match wins, with
   the implicit final deny. No default ACL is assumed, and an ACL with entries that could not
   be recorded is unknown. Callers compose both directions explicitly (NACLs are stateless).
+- `evaluate_subnet_route` (`services.network_routes`): the longest-prefix active route of
+  the subnet's explicit route table, or of the VPC's observed main table only when the
+  subnet has no explicit association. A route to an internet gateway is a recorded route,
+  not proof of internet reachability; it also needs the gateway recorded as available and
+  attached to the VPC.
 
 ## Supported and unsupported cases
 

@@ -1,24 +1,10 @@
 """Snapshots of subnets with associated, cited network ACLs for NACL evaluation tests."""
 
 from archdiscov.ingestion.operations import Ec2Operation as Op
-from archdiscov.models.architecture import (
-    ArchitectureSnapshot,
-    AwsSource,
-    SnapshotCoverage,
-)
-from archdiscov.models.enums import AwsService
-from archdiscov.models.resource_base import ResourceIdentity
-from tests.support.coverage_data import REGION, ec2_coverage
-from tests.support.iam_data import ACCOUNT, context
-from tests.support.network_data import SNAPSHOT_ID, SUBNET, VPC, region
+from archdiscov.models.architecture import ArchitectureSnapshot
+from tests.support.network_snapshot import build_network
 
 ALL = {"RuleNumber": 32767, "Protocol": "-1", "RuleAction": "deny", "CidrBlock": "0.0.0.0/0"}
-
-
-def resource_id(physical_id: str) -> str:
-    return ResourceIdentity(
-        account_id=ACCOUNT, region=REGION, service=AwsService.EC2, physical_id=physical_id
-    ).stable_id
 
 
 def entry(number, action="allow", *, egress=False, protocol="6", ports=(443, 443), **fields):
@@ -57,23 +43,8 @@ def build(
 
     A `status` of None records no EC2 coverage.
     """
-    result = region(
-        {
-            Op.DESCRIBE_VPCS: [VPC],
-            Op.DESCRIBE_SUBNETS: [{**SUBNET, "SubnetId": s} for s in subnets],
-            Op.DESCRIBE_NETWORK_ACLS: acls,
-        }
-    )
-    operations = [ec2_coverage("DescribeNetworkAcls", status, len(acls))] if status else []
-    return ArchitectureSnapshot(
-        schema_version="2",
-        snapshot_id=SNAPSHOT_ID,
-        account_id=ACCOUNT,
-        collection_started_at=context(None).clock(),
-        collection_completed_at=context(None).clock(),
-        source=AwsSource(profile="test"),
-        regions={REGION: result.architecture},
-        coverage=SnapshotCoverage(regions=[REGION], account_wide=False, operations=operations),
-        dependencies_by_region={REGION: result.dependencies} if result.dependencies else {},
-        evidence=result.evidence,
+    return build_network(
+        {Op.DESCRIBE_NETWORK_ACLS: acls},
+        subnets=subnets,
+        covered={"DescribeNetworkAcls": status},
     )

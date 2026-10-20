@@ -18,31 +18,27 @@ from archdiscov.models.architecture import Subnet
 from archdiscov.models.enums import (
     AttachmentKind,
     NaclAction,
-    NetworkBlockerCode,
     RuleDirection,
 )
 from archdiscov.models.network_path import NetworkResult
-from archdiscov.models.resources.network import NaclEntry, NetworkAcl
+from archdiscov.models.resources.network import NetworkAcl
 
 from .network_decisions import (
     Match,
-    allow,
-    blocker,
-    deny,
     first_match,
-    missing,
     qualify_coverage,
-    require_aws,
     unsupported,
 )
 from .network_matching import (
     Undecided,
+    cited_decision,
     combine,
     implicit_deny,
     normalize_protocol,
-    omitted_rules,
+    require_recorded,
     screen_cidr,
     screen_protocol,
+    sole_associate,
 )
 
 if TYPE_CHECKING:
@@ -61,28 +57,6 @@ class _Query:
     address: IPv4Address
     protocol: str
     port: int
-
-    def _decide(self, entry: NaclEntry, citations: list[str], where: str) -> NetworkResult:
-        """The result of an entry that matches: a cited allow or deny."""
-        element = f"{_ELEMENT}:{where}"
-        if not citations:
-            return missing(
-                "The matching entry has no citation.", element=element, resource_id=self.acl.id
-            )
-        evidence_ids = [*citations, *self.association_evidence_ids]
-        if entry.action == NaclAction.ALLOW:
-            return allow(evidence_ids)
-        return deny(
-            [
-                blocker(
-                    NetworkBlockerCode.DENIED,
-                    f"Entry {entry.rule_number} denies this traffic.",
-                    element=element,
-                    resource_id=self.acl.id,
-                    evidence_ids=evidence_ids,
-                )
-            ]
-        )
 
     def candidates(self, direction: RuleDirection) -> Iterator[tuple[Match, NetworkResult]]:
         """Entries for the direction in rule-number order that could still match."""
@@ -105,31 +79,17 @@ class _Query:
             if isinstance(screen, Undecided):
                 yield None, screen.result(element=f"{_ELEMENT}:{where}", resource_id=self.acl.id)
             elif screen:
-                citations = list(self.acl.fact_evidence.get(where, []))
-                yield True, self._decide(entry, citations, where)
-
-
-def _associated_acl(
-    index: GraphIndex, subnet: Subnet
-) -> tuple[NetworkAcl, tuple[str, ...]] | NetworkResult:
-    """The one observed ACL association for the subnet, with its evidence, or why not."""
-    edges = index.incoming_edges(subnet.id, attachment_kind=AttachmentKind.NETWORK_ACL_ASSOCIATION)
-    if len(edges) != 1:
-        message = (
-            "No network ACL association is recorded for the subnet."
-            if not edges
-            else "Several network ACL associations are recorded for the subnet."
-        )
-        return missing(message, element="network_acl_association", resource_id=subnet.id)
-    acl = index.get_resource(edges[0].source_id)
-    if not isinstance(acl, NetworkAcl):
-        return missing("The associated network ACL is not recorded.", resource_id=subnet.id)
-    if omitted_rules(acl):
-        return missing(
-            "Some network ACL entries could not be recorded, so their order is incomplete.",
-            resource_id=acl.id,
-        )
-    return acl, edges[0].evidence_ids
+                yield (
+                    True,
+                    cited_decision(
+                        entry.action == NaclAction.ALLOW,
+                        list(self.acl.fact_evidence.get(where, [])),
+                        self.association_evidence_ids,
+                        subject="entry",
+                        element=f"{_ELEMENT}:{where}",
+                        resource_id=self.acl.id,
+                    ),
+                )
 
 
 def evaluate_network_acl(
@@ -148,14 +108,14 @@ def evaluate_network_acl(
     the destination port. Cites the matched entry and the association; an implicit deny
     cites the ACL's own evidence. Limited ACL collection downgrades any decision to unknown.
     """
-    if (unsupported_platform := require_aws(index)) is not None:
-        return unsupported_platform
-    subnet = index.get_resource(subnet_id)
-    if not isinstance(subnet, Subnet):
-        return missing("The subnet is not recorded.", resource_id=subnet_id)
+    subnet = require_recorded(index, subnet_id, Subnet, "subnet")
+    if isinstance(subnet, NetworkResult):
+        return subnet
     if (normalized := normalize_protocol(protocol)) is None:
         return unsupported("The query protocol is unsupported.", element="protocol")
-    association = _associated_acl(index, subnet)
+    association = sole_associate(
+        index, subnet, AttachmentKind.NETWORK_ACL_ASSOCIATION, NetworkAcl, "network_acl"
+    )
     if isinstance(association, NetworkResult):
         outcome = association
     else:
