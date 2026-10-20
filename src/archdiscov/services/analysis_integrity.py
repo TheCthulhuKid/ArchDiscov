@@ -9,12 +9,15 @@ from archdiscov.models.analysis.references import (
     PathStep,
 )
 from archdiscov.models.analysis.results import AnalysisFinding, AnalysisResult
-from archdiscov.models.architecture import LocalTarget
+from archdiscov.models.architecture import Ec2Instance, LocalTarget
 from archdiscov.models.cloud.contracts import CloudDependency, CloudEvidence
 from archdiscov.models.cloud.scope import SupportedScope
 from archdiscov.models.coverage_key import CoverageKey
-from archdiscov.models.enums import TrustSource
+from archdiscov.models.enums import AccessSourceKind, TrustSource
 from archdiscov.models.resource_base import Resource
+from archdiscov.models.resources.database import DbCluster, DbInstance
+from archdiscov.models.resources.ecs import EcsTask
+from archdiscov.models.resources.functions import LambdaFunction
 from archdiscov.models.resources.iam import IamRole
 from archdiscov.models.resources.network import SecurityGroup
 from archdiscov.models.resources.queues import SqsQueue
@@ -185,6 +188,35 @@ def _validate_trust(finding: AnalysisFinding, base: Location, context: _Integrit
         )
 
 
+_ACCESS_SOURCES = {
+    AccessSourceKind.EC2_INSTANCE: Ec2Instance,
+    AccessSourceKind.ECS_TASK: EcsTask,
+    AccessSourceKind.LAMBDA_FUNCTION: LambdaFunction,
+}
+
+
+def _validate_database_access(
+    finding: AnalysisFinding, base: Location, context: _IntegrityContext
+) -> None:
+    """The source must match its kind and the second resource must be a database."""
+    source = context.resources.get(finding.resources[0].resource_id)
+    if source is not None and not isinstance(
+        source, _ACCESS_SOURCES[finding.database_access.source_kind]
+    ):
+        reject(
+            (*base, "database_access", "source_kind"),
+            "database_source_mismatch",
+            "Source kind must match the type of the source resource.",
+        )
+    database = context.resources.get(finding.resources[1].resource_id)
+    if database is not None and not isinstance(database, (DbInstance, DbCluster)):
+        reject(
+            (*base, "resources", 1),
+            "database_target_mismatch",
+            "The selected database must be an RDS instance or cluster.",
+        )
+
+
 def _validate_finding(finding: AnalysisFinding, index: int, context: _IntegrityContext) -> None:
     base = ("findings", index)
     context.require_evidence(finding.evidence_ids, (*base, "evidence_ids"))
@@ -199,6 +231,8 @@ def _validate_finding(finding: AnalysisFinding, index: int, context: _IntegrityC
             )
     if finding.trust is not None:
         _validate_trust(finding, base, context)
+    if finding.database_access is not None:
+        _validate_database_access(finding, base, context)
     _validate_path(finding.path, base, context)
     _validate_limitations(finding.limitations, base, context)
 

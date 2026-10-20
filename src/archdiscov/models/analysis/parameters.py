@@ -38,6 +38,7 @@ class DatabaseAccessParameters(Model):
     kind: Literal[AnalyzerKind.DATABASE_ACCESS] = AnalyzerKind.DATABASE_ACCESS
     resource_id: NonEmptyString
     port: int = Field(ge=1, le=65535)
+    result_limit: AnalysisResultLimit = 100
 
 
 class InternetExposureParameters(Model):

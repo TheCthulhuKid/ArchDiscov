@@ -1,5 +1,6 @@
 """Typed results shared by every network-path primitive."""
 
+from collections.abc import Iterable
 from typing import Self
 
 from pydantic import Field, model_validator
@@ -7,6 +8,28 @@ from pydantic import Field, model_validator
 from .analysis.references import CoverageReference
 from .enums import NetworkBlockerCode, NetworkDecision
 from .resource_base import Model, NonEmptyString
+
+
+def validate_blocker_codes(decision: NetworkDecision, codes: set[NetworkBlockerCode]) -> None:
+    """An allow has no blockers, a deny only `denied` ones, an unknown a real explanation."""
+    denied = NetworkBlockerCode.DENIED
+    if decision == NetworkDecision.ALLOW:
+        if codes:
+            raise ValueError("an allow must have no blockers")
+    elif decision == NetworkDecision.DENY:
+        if codes != {denied}:
+            raise ValueError("a deny requires denied blockers only")
+    elif not codes or codes == {denied}:
+        raise ValueError("unknown requires a blocker that explains the uncertainty")
+
+
+def compose_decisions(decisions: Iterable[NetworkDecision]) -> NetworkDecision:
+    """Every element must allow: deny dominates, then unknown, then allow (`all_of`)."""
+    found = set(decisions)
+    for decision in (NetworkDecision.DENY, NetworkDecision.UNKNOWN):
+        if decision in found:
+            return decision
+    return NetworkDecision.ALLOW
 
 
 class NetworkBlocker(Model):
@@ -46,14 +69,7 @@ class NetworkResult(Model):
 
     @model_validator(mode="after")
     def validate_decision(self) -> Self:
-        codes = {blocker.code for blocker in self.blockers}
-        denied = NetworkBlockerCode.DENIED
-        if self.decision == NetworkDecision.ALLOW:
-            if self.blockers or not self.evidence_ids:
-                raise ValueError("an allow must be cited and have no blockers")
-        elif self.decision == NetworkDecision.DENY:
-            if denied not in codes or codes != {denied}:
-                raise ValueError("a deny requires denied blockers only")
-        elif not self.blockers or codes == {denied}:
-            raise ValueError("unknown requires a blocker that explains the uncertainty")
+        validate_blocker_codes(self.decision, {blocker.code for blocker in self.blockers})
+        if self.decision == NetworkDecision.ALLOW and not self.evidence_ids:
+            raise ValueError("an allow must be cited")
         return self

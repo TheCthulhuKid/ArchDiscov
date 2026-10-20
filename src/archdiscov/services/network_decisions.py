@@ -17,7 +17,7 @@ from archdiscov.models.enums import (
     NetworkBlockerCode,
     NetworkDecision,
 )
-from archdiscov.models.network_path import NetworkBlocker, NetworkResult
+from archdiscov.models.network_path import NetworkBlocker, NetworkResult, compose_decisions
 from archdiscov.models.resource_base import Resource
 
 from .query_context import contextual_coverage
@@ -125,10 +125,8 @@ def all_of(results: Iterable[NetworkResult]) -> NetworkResult:
     items = list(results)
     if not items:
         return missing("No elements were evaluated.")
-    for decision in (NetworkDecision.DENY, NetworkDecision.UNKNOWN):
-        if decided := _with(items, decision):
-            return _conclude(decision, decided)
-    return _conclude(NetworkDecision.ALLOW, items)
+    decision = compose_decisions(result.decision for result in items)
+    return _conclude(decision, _with(items, decision))
 
 
 def any_of(results: Iterable[NetworkResult]) -> NetworkResult:
