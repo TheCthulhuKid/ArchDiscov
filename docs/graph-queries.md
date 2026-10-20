@@ -146,6 +146,22 @@ edges rejected by filters or cycle checks. Truncation reports `depth_limit`,
 limitations cover every resource reached. A path is recorded structure, not proof of
 reachability or effective access.
 
+## Limits at a glance
+
+| Query | Limit | CLI option | Default | Range |
+|---|---|---|---|---|
+| search | results | `--limit` | 100 | 1–10,000 |
+| neighbours | results | `--limit` | 100 | 1–10,000 |
+| paths | path depth (steps) | `--depth` | 3 | 1–10 |
+| paths | returned paths | `--limit` | 100 | 1–10,000 |
+| paths | candidate edges examined | `--work-limit` | 10,000 | 1–1,000,000 |
+
+Results are ordered before a limit is applied, so a limited result is deterministic.
+Truncation is reported (`depth_limit`, `result_limit`, or `work_limit`) only when something
+was actually left unexplored or omitted. No limit bounds index construction. Analyzer and
+comparison limits are in the [analyzer reference](analyzers.md) and
+[result contracts](result-contracts.md#limits).
+
 ## Query CLI
 
 `archdiscov query` is a thin read-only front end over these services. Each call

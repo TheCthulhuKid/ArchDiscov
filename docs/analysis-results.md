@@ -188,7 +188,8 @@ snapshots retain the existing snapshot validation errors.
 Integrity proves that references correspond to stored data, **not** that a summary
 is true, an analyzer ran, coverage is sufficient, or citations were returned by a
 tool. Free-text summaries/limitations must not contain secrets. Models remain
-mutable; revalidate after changes. Immutable result saving is step 26.
+mutable; revalidate after changes. Saved results are immutable files: see
+[result file contracts](result-contracts.md).
 
 ## Fixtures and compatibility
 

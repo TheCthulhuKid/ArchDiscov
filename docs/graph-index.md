@@ -3,8 +3,8 @@
 Step 24 implements the complete in-memory index boundary: resource ownership,
 lookup, explicit containment, dependency adjacency with terminal targets, and
 evidence/coverage indexes. Composed fixture acceptance and reproducible synthetic
-profiling verify these pieces together. Traversal, query services, and analyzers
-remain subsequent steps; there is no graph CLI command yet.
+profiling verify these pieces together. [Query services and the `query` CLI](graph-queries.md)
+and the [analyzers](analyzers.md) are built on this index.
 
 ```python
 from archdiscov.graph import GraphIndex, PhysicalResourceKey
@@ -134,7 +134,7 @@ The outer edge/terminal records are frozen, but their nested target models and
 attribute dictionaries are mutable **detached copies**. Every public lookup
 returns independent copies; changing these values or the original snapshot cannot
 change any index state. Do not use mutated returned copies as authoritative edge
-records. Traversal remains a later step.
+records. Traversal belongs to the [query services](graph-queries.md), not the index.
 
 ```python
 from archdiscov.models.enums import AttachmentKind, DependencyRelationship

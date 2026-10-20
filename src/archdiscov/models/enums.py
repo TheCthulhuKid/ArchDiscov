@@ -427,6 +427,57 @@ class ExposureElement(StrEnum):
     TARGET = "target"
 
 
+class ComparisonSide(StrEnum):
+    """Which of the two explicitly selected snapshots a comparison statement concerns."""
+
+    LEFT = "left"
+    RIGHT = "right"
+
+    @property
+    def opposite(self) -> "ComparisonSide":
+        return ComparisonSide.RIGHT if self is ComparisonSide.LEFT else ComparisonSide.LEFT
+
+
+class MatchBasis(StrEnum):
+    """What paired two resources: a physical identity, or a logical address in an IaC context."""
+
+    PHYSICAL_IDENTITY = "physical_identity"
+    LOGICAL_ADDRESS = "logical_address"
+
+
+class DifferenceSubject(StrEnum):
+    """Which part of a matched resource a field difference concerns."""
+
+    FIELD = "field"
+    DEPENDENCY = "dependency"
+    CONTAINMENT = "containment"
+
+
+class DifferenceKind(StrEnum):
+    """`indeterminate` marks a field that cannot be compared (a qualification says why)."""
+
+    ADDED = "added"
+    REMOVED = "removed"
+    CHANGED = "changed"
+    INDETERMINATE = "indeterminate"
+
+
+class QualificationKind(StrEnum):
+    PLANNED_LIFECYCLE = "planned_lifecycle"
+    LIMITED_COVERAGE = "limited_coverage"
+    UNRECORDED_COVERAGE = "unrecorded_coverage"
+    UNKNOWN_VALUE = "unknown_value"
+    UNRESOLVED_REFERENCE = "unresolved_reference"
+    REDACTED_VALUE = "redacted_value"
+
+
+class ComparisonLimitationKind(StrEnum):
+    CROSS_CLOUD = "cross_cloud"
+    SCOPE_MISMATCH = "scope_mismatch"
+    SOURCE_KIND_MISMATCH = "source_kind_mismatch"
+    RESULT_LIMIT_REACHED = "result_limit_reached"
+
+
 class AnalyzerErrorCode(StrEnum):
     UNSUPPORTED_ANALYZER = "unsupported_analyzer"
     INVALID_PARAMETERS = "invalid_parameters"

@@ -256,8 +256,9 @@ safe tests. There is no runtime registry or catch-all identity that silently ena
 platform. Unknown resources preserve unsupported native types only within a supported
 platform; they do not imply analyzer support.
 
-Phase 3 is planned to build common graph queries and ownership analysis on this boundary.
-Security, network, and trust analyzers initially target AWS semantics; unsupported Azure
+Phase 3 builds [graph queries](graph-queries.md), the [analyzers](analyzers.md), and
+[comparisons](comparison-results.md) on this boundary. The security, network, and trust
+analyzers target AWS semantics; unsupported Azure
 requests must produce actionable limitations rather than apply AWS rules. Phase 4's
 LLM providers (for example Bedrock or OpenAI-compatible adapters) are a separate concept
-from cloud platforms and remain planned. Neither phase is implemented by schema `3`.
+from cloud platforms and remain planned. Schema `3` itself implements neither phase.

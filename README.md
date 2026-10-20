@@ -28,10 +28,11 @@ evidence inspection; it does not provide live Azure collection or analysis.
 | Analysis result contracts and `Finding`/`Answer` compatibility | Implemented snapshot-backed integrity checks; no answer generation |
 | Analyzer execution, result persistence, and ownership analysis | [Implemented for the ownership analyzer](docs/ownership-analysis.md): `analyze` and `findings` CLI, coverage-qualified, cited, atomic no-overwrite results |
 | Security-group impact analysis | [Implemented for AWS](docs/security-group-impact.md): observed attachments and rule references, potential downstream chains, Azure unsupported result |
-| Network-path evaluation primitives | [Implemented for AWS](docs/network-path-primitives.md): security-group rules, ordered NACLs, subnet and internet-gateway routes, public addressing, and load-balancer scheme/forwarding return allow/deny/unknown with evidence and blockers over recorded configuration, not live reachability; Azure unsupported result; no analyzer or CLI uses them yet |
+| Network-path evaluation primitives | [Implemented for AWS](docs/network-path-primitives.md): security-group rules, ordered NACLs, subnet and internet-gateway routes, public addressing, and load-balancer scheme/forwarding return allow/deny/unknown with evidence and blockers over recorded configuration, not live reachability; Azure unsupported result; composed by the database-access and internet-exposure analyzers |
 | Cross-account trust analysis | [Implemented for AWS](docs/cross-account-trust.md): classified, cited IAM role trust and SQS queue-policy principals with conditions and `Deny`/`NotPrincipal` context; configured trust, not effective access |
 | Database access analysis | [Implemented for AWS](docs/database-access.md): compute sources (EC2, ECS, Lambda) with a recorded potential network path to an RDS instance or cluster port, composed from security groups, NACLs, and routes with per-element decisions, blockers, and citations; network permission, not authentication or live reachability |
 | Internet exposure analysis | [Implemented for AWS](docs/internet-exposure.md): candidate exposure of resources with a recorded public IPv4 address and of internet-facing load balancers, composed from routes, NACLs, security groups, listeners, and targets, with per-element decisions, blockers, citations, and observed target health; candidate exposure from recorded configuration, not proof of reachability |
+| Analyzer reference and result file contracts | [Five analyzers compared](docs/analyzers.md) (parameters, limits, uncertainty rules) and [analysis and comparison result files](docs/result-contracts.md) |
 | Graph resource ownership, lookup, containment, dependencies, and evidence/coverage | [Implemented and verified together across schemas 1–3](docs/graph-index.md#composed-graph-boundary), including external/unresolved terminals and complete-context coverage |
 | Resource search, inspection, neighbours, and paths | [Implemented Python services and `archdiscov query` CLI](docs/graph-queries.md) with exact filters, bounds, detached data, citations, and coverage/provenance limitations |
 | Snapshot comparison | [Implemented](docs/comparison-results.md): `compare` and `comparison` CLI, identity matching without guessing, field-level differences with citations on both sides, lifecycle, source-kind, and coverage qualification, atomic no-overwrite results verified against both snapshots; recorded differences, not drift detection or proof of change |
@@ -173,7 +174,7 @@ analyzers are implemented ([ownership](docs/ownership-analysis.md),
 [security-group impact](docs/security-group-impact.md),
 [cross-account trust](docs/cross-account-trust.md), [database access](docs/database-access.md),
 [internet exposure](docs/internet-exposure.md));
-other analyzers, comparisons, and provider interfaces remain planned. See [recorded resource queries](docs/graph-queries.md).
+snapshot [comparison](docs/comparison-results.md) is implemented; provider interfaces remain planned. See [recorded resource queries](docs/graph-queries.md).
 
 - Organize the application into ingestion adapters, normalized models, graph queries, deterministic analyzers, provider adapters, and CLI presentation.
 - Define Pydantic models for `AccountArchitecture`, `RegionArchitecture`, typed resources, `Dependency`, `Evidence`, `Coverage`, `Finding`, and `Answer`. Version serialized snapshots.
@@ -667,17 +668,20 @@ It returns a detached `EvidenceInspection` after revalidation and raises
 JSON data is available through `result.model_dump(mode="json")`; the CLI only supplies
 file selection and presentation around this service and the persistence APIs.
 
-#### Planned command extensions
+#### Query, analysis, and comparison commands
 
-Beyond the implemented offline workflow and live `collect` command below, these extensions remain planned:
+These commands read saved snapshots offline and call public application services:
 
 | Command | Purpose |
 | --- | --- |
-| `query` | Run deterministic exposure, database-access, security-group-impact, trust, and ownership queries. |
-| `ask` | Ask a natural-language question against a selected snapshot. |
-| `compare` | Compare selected snapshots and their coverage. |
+| `query search`, `inspect`, `neighbours`, `paths` | Read recorded resources and structure with exact filters and bounded results ([graph queries](docs/graph-queries.md)). |
+| `analyze`, `findings` | Run one of the five analyzers and save an immutable result, then show it after verifying it against its snapshot ([analyzer reference](docs/analyzers.md)). |
+| `compare`, `comparison` | Compare two selected snapshots and save an immutable result, then show it after verifying it against both ([comparison results](docs/comparison-results.md)). |
 
-Provide readable output and machine-readable JSON. CLI commands call public application services rather than containing discovery or analysis logic.
+Saved results follow the [result file contracts](docs/result-contracts.md). Only the
+natural-language `ask` command remains planned (phase 4). Commands provide readable output
+and machine-readable JSON, and call public application services rather than containing
+discovery or analysis logic.
 
 ## Ingestion and analysis
 
@@ -945,10 +949,15 @@ exact facts, safety limits, and evidence behavior.
 
 #### IaC delivery status
 - Raw-source CLI ingestion is implemented (step 21); see [formats, flags, and service contracts](docs/raw-source-ingestion.md).
-- Phase-2 acceptance and closure remains planned (step 22).
+- Phase-2 acceptance and closure are implemented; see [Phase 2 offline acceptance](#phase-2-offline-acceptance).
 - No Terraform execution, infrastructure apply, stack deployment, or arbitrary template code evaluation.
 
-### Deterministic findings (planned)
+### Deterministic findings (implemented)
+
+The five analyzers below run through `archdiscov analyze` over a saved snapshot and save
+immutable results; the [analyzer reference](docs/analyzers.md) lists their parameters, limits,
+and uncertainty rules, and [result contracts](docs/result-contracts.md) describe the files.
+
 
 | Analysis | Behavior and limits |
 | --- | --- |
@@ -1034,7 +1043,7 @@ See [analysis result contracts](docs/analysis-results.md) for the API, ID rules,
 fixtures, and integrity boundary. [Graph resource lookup, containment, dependencies, and evidence/coverage](docs/graph-index.md)
 are implemented, as are [bounded graph queries and the `query` CLI](docs/graph-queries.md).
 The [ownership analyzer, atomic result persistence, and `analyze`/`findings` CLI](docs/ownership-analysis.md)
-the [security-group impact analyzer](docs/security-group-impact.md), the [cross-account trust analyzer](docs/cross-account-trust.md), and the [database-access analyzer](docs/database-access.md), and the [internet-exposure analyzer](docs/internet-exposure.md) are implemented; comparisons and the assistant remain later steps.
+the [security-group impact analyzer](docs/security-group-impact.md), the [cross-account trust analyzer](docs/cross-account-trust.md), and the [database-access analyzer](docs/database-access.md), and the [internet-exposure analyzer](docs/internet-exposure.md) are implemented, as is [snapshot comparison](docs/comparison-results.md); the assistant remains a later step. The [analyzer reference](docs/analyzers.md) and [result file contracts](docs/result-contracts.md) compare them.
 
 ### Planned assistant behavior
 
@@ -1066,7 +1075,7 @@ Every factual conclusion must cite discovered resources or configuration evidenc
 | 1. Models, snapshots, fixtures, persistence, evidence inspection, and CLI foundation | Complete (steps 1–9) |
 | 2. AWS and infrastructure-as-code ingestion | Complete (steps 10–22): supported AWS inventory, offline IaC imports, explicit CLI formats, permissions and offline acceptance |
 | Pre-phase-3 cloud boundary bridge (22.1–22.4) | Implemented foundation: scopes/identities/resources, schema `3` and conversion, offline Azure workflows, and common access/compatibility documentation; not live Azure support |
-| 3. Graph queries, deterministic findings, and snapshot comparisons | Result contracts/integrity, graph indexes, queries and the `query` CLI, and the ownership, security-group impact, and cross-account trust analyzers with result persistence implemented (steps 23–28); other analyzers and comparisons remain planned |
+| 3. Graph queries, deterministic findings, and snapshot comparisons | Implemented (steps 23–32): result contracts and integrity, graph indexes, queries and the `query` CLI, the five analyzers with immutable result persistence, and snapshot comparison; acceptance and documentation closure (step 33) is in progress |
 | 4. LLM-provider adapters, orchestration, validated answers, and evaluations | Planned; separate from cloud platforms |
 
 The bridge prepares phase 3 to build common graph/query and ownership contracts.
@@ -1112,8 +1121,8 @@ docker compose run --rm -T dev archdiscov evidence sg-rule \
 Choose another output path if it already exists. Saved files are written as the configured
 non-root user. Installation, snapshot schema/source formats, fixture purposes, Python APIs,
 and supported command/error behavior are documented above. AWS, Terraform, and CloudFormation adapters
-and raw-source CLI ingestion use these contracts today; analysis and
-providers remain later work.
+and raw-source CLI ingestion use these contracts today. Queries, analyzers, and comparisons
+are described in the [analyzer reference](docs/analyzers.md); providers remain later work.
 
 ### AWS collection acceptance
 
@@ -1170,11 +1179,12 @@ Completeness remains relative to selected supported inventory and operation cove
 not all AWS services or a transactionally consistent view. IaC exports/declarations
 are not deployed observations; complex mappings, unknown expressions and unfetched
 nested templates stay explicit limitations in the linked format guides. Graph
-queries, analyzers, comparisons and providers remain phases 3–4.
+queries, analyzers, and comparisons are phase 3 (see [analyzers](docs/analyzers.md)); providers remain phase 4.
 
-### Later acceptance scenarios
+### Acceptance scenarios
 
-Use pytest, botocore Stubber, and fake-provider transcripts. Acceptance scenarios include:
+Normal tests require neither credentials nor network access. Phase 3 scenarios run offline
+through pytest with fixtures, injected AWS clients, and the installed CLI:
 
 - Public load balancer with a private backend; public IP with blocked ingress; missing routing evidence.
 - Database access through security-group references, CIDRs, and denied rules, without claiming authentication.
@@ -1183,11 +1193,12 @@ Use pytest, botocore Stubber, and fake-provider transcripts. Acceptance scenario
 - Missing ownership tags and configurable ownership keys.
 - Terraform module addresses, planned deletions, unknown values, and CloudFormation unresolved references.
 - Safe matching of observed and declared resources.
-- Fabricated citations, unsupported claims, malicious imported text, provider errors, and tool-call limits.
 
-Run the same question fixtures across configured providers and record answer status, finding IDs, citation validity, tool usage, latency, and available token usage. External-provider and real-AWS tests remain opt-in; normal tests require neither credentials nor network access.
-
-Future increments will add supported IaC formats, analyzer limitations, and provider/evaluation instructions here as they become available.
+Phase 4 scenarios remain planned and use fake-provider transcripts: fabricated citations,
+unsupported claims, malicious imported text, provider errors, and tool-call limits. Run the
+same question fixtures across configured providers and record answer status, finding IDs,
+citation validity, tool usage, latency, and available token usage. External-provider and
+real-AWS tests remain opt-in.
 
 ## Assumptions and defaults
 
