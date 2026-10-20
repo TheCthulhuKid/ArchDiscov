@@ -2,33 +2,15 @@ from typing import Self
 
 from pydantic import Field, model_validator
 
-from ..enums import (
-    AccessElement,
-    AccessSourceKind,
-    NetworkBlockerCode,
-    NetworkDecision,
-)
-from ..network_path import compose_decisions, validate_blocker_codes
+from ..enums import AccessElement, AccessSourceKind, NetworkDecision
 from ..resource_base import Model
+from .element_decisions import ElementDecision, validate_composition
 
 
-class AccessElementDecision(Model):
-    """The network decision for one element of the path, with its blocker codes.
-
-    Blocker codes are structured and sorted; the cited detail lives in the finding's
-    evidence, path, and limitations. Uses the shared network decision rules.
-    """
+class AccessElementDecision(ElementDecision):
+    """The network decision for one element of the database path, with its blocker codes."""
 
     element: AccessElement
-    decision: NetworkDecision
-    blocker_codes: list[NetworkBlockerCode] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def validate_codes(self) -> Self:
-        validate_blocker_codes(self.decision, set(self.blocker_codes))
-        if self.blocker_codes != sorted(set(self.blocker_codes)):
-            raise ValueError("blocker_codes must be unique and sorted")
-        return self
 
 
 class DatabaseAccess(Model):
@@ -48,10 +30,10 @@ class DatabaseAccess(Model):
 
     @model_validator(mode="after")
     def validate_elements(self) -> Self:
-        order = list(AccessElement)
-        kinds = [item.element for item in self.elements]
-        if kinds != sorted(set(kinds), key=order.index):
-            raise ValueError("elements must be unique and in canonical order")
-        if self.decision != compose_decisions([item.decision for item in self.elements]):
-            raise ValueError("decision must compose the element decisions")
+        validate_composition(
+            [item.element for item in self.elements],
+            [item.decision for item in self.elements],
+            self.decision,
+            list(AccessElement),
+        )
         return self

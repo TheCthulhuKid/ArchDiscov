@@ -31,6 +31,7 @@ evidence inspection; it does not provide live Azure collection or analysis.
 | Network-path evaluation primitives | [Implemented for AWS](docs/network-path-primitives.md): security-group rules, ordered NACLs, subnet and internet-gateway routes, public addressing, and load-balancer scheme/forwarding return allow/deny/unknown with evidence and blockers over recorded configuration, not live reachability; Azure unsupported result; no analyzer or CLI uses them yet |
 | Cross-account trust analysis | [Implemented for AWS](docs/cross-account-trust.md): classified, cited IAM role trust and SQS queue-policy principals with conditions and `Deny`/`NotPrincipal` context; configured trust, not effective access |
 | Database access analysis | [Implemented for AWS](docs/database-access.md): compute sources (EC2, ECS, Lambda) with a recorded potential network path to an RDS instance or cluster port, composed from security groups, NACLs, and routes with per-element decisions, blockers, and citations; network permission, not authentication or live reachability |
+| Internet exposure analysis | [Implemented for AWS](docs/internet-exposure.md): candidate exposure of resources with a recorded public IPv4 address and of internet-facing load balancers, composed from routes, NACLs, security groups, listeners, and targets, with per-element decisions, blockers, citations, and observed target health; candidate exposure from recorded configuration, not proof of reachability |
 | Graph resource ownership, lookup, containment, dependencies, and evidence/coverage | [Implemented and verified together across schemas 1–3](docs/graph-index.md#composed-graph-boundary), including external/unresolved terminals and complete-context coverage |
 | Resource search, inspection, neighbours, and paths | [Implemented Python services and `archdiscov query` CLI](docs/graph-queries.md) with exact filters, bounds, detached data, citations, and coverage/provenance limitations |
 | Snapshot comparison | [Implemented](docs/comparison-results.md): `compare` and `comparison` CLI, identity matching without guessing, field-level differences with citations on both sides, lifecycle, source-kind, and coverage qualification, atomic no-overwrite results verified against both snapshots; recorded differences, not drift detection or proof of change |
@@ -167,11 +168,12 @@ For future LLM-provider integration (phase 4, separate from cloud platforms), fo
 
 The snapshot, ingestion, persistence, and CLI boundaries below are implemented.
 Graph indexes, bounded graph queries, and the `query` CLI are implemented; the
-ownership, security-group impact, cross-account trust, and database-access analyzers are
-implemented ([ownership](docs/ownership-analysis.md),
+ownership, security-group impact, cross-account trust, database-access, and internet-exposure
+analyzers are implemented ([ownership](docs/ownership-analysis.md),
 [security-group impact](docs/security-group-impact.md),
-[cross-account trust](docs/cross-account-trust.md), [database access](docs/database-access.md));
-snapshot [comparison](docs/comparison-results.md) is implemented; provider interfaces remain planned. See [recorded resource queries](docs/graph-queries.md).
+[cross-account trust](docs/cross-account-trust.md), [database access](docs/database-access.md),
+[internet exposure](docs/internet-exposure.md));
+other analyzers, comparisons, and provider interfaces remain planned. See [recorded resource queries](docs/graph-queries.md).
 
 - Organize the application into ingestion adapters, normalized models, graph queries, deterministic analyzers, provider adapters, and CLI presentation.
 - Define Pydantic models for `AccountArchitecture`, `RegionArchitecture`, typed resources, `Dependency`, `Evidence`, `Coverage`, `Finding`, and `Answer`. Version serialized snapshots.
@@ -1032,7 +1034,7 @@ See [analysis result contracts](docs/analysis-results.md) for the API, ID rules,
 fixtures, and integrity boundary. [Graph resource lookup, containment, dependencies, and evidence/coverage](docs/graph-index.md)
 are implemented, as are [bounded graph queries and the `query` CLI](docs/graph-queries.md).
 The [ownership analyzer, atomic result persistence, and `analyze`/`findings` CLI](docs/ownership-analysis.md)
-the [security-group impact analyzer](docs/security-group-impact.md), the [cross-account trust analyzer](docs/cross-account-trust.md), and the [database-access analyzer](docs/database-access.md) are implemented; other analyzers remain later steps.
+the [security-group impact analyzer](docs/security-group-impact.md), the [cross-account trust analyzer](docs/cross-account-trust.md), and the [database-access analyzer](docs/database-access.md), and the [internet-exposure analyzer](docs/internet-exposure.md) are implemented; comparisons and the assistant remain later steps.
 
 ### Planned assistant behavior
 

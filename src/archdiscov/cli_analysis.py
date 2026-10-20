@@ -30,8 +30,8 @@ def analyze(
         AnalyzerKind,
         typer.Option(
             "--analyzer",
-            help="ownership (default), security_group_impact, cross_account_trust, or "
-            "database_access.",
+            help="ownership (default), security_group_impact, cross_account_trust, "
+            "database_access, or internet_exposure.",
         ),
     ] = AnalyzerKind.OWNERSHIP,
     ownership_key: Annotated[
@@ -53,15 +53,17 @@ def analyze(
     max_depth: Annotated[
         int | None,
         typer.Option(
-            "--max-depth", help="Security-group impact: downstream steps (1-10, default 3)."
+            "--max-depth",
+            help="Security-group impact (downstream steps) or internet exposure (steps beyond "
+            "the entry point): 1-10, default 3.",
         ),
     ] = None,
     result_limit: Annotated[
         int | None,
         typer.Option(
             "--result-limit",
-            help="Security-group impact, trust, or database access: findings "
-            "(1-10000, default 100).",
+            help="Security-group impact, trust, database access, or internet exposure: "
+            "findings (1-10000, default 100).",
         ),
     ] = None,
     json_output: JsonOption = False,
@@ -69,8 +71,8 @@ def analyze(
     """Run an analyzer over a snapshot and save the verified result.
 
     Options belong to specific analyzers: --ownership-key for ownership; --resource-id and
-    --max-depth for security_group_impact; --resource-id and --port for database_access;
-    --result-limit for security_group_impact, cross_account_trust, and database_access.
+    --max-depth for security_group_impact and internet_exposure; --resource-id and --port for
+    database_access; --result-limit for every analyzer except ownership.
     """
     with safe_failures(snapshot, json_output):
         DEFAULT_REGISTRY.get(analyzer)  # fail fast, before touching any file

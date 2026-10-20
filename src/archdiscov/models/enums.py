@@ -403,55 +403,28 @@ class AccessElement(StrEnum):
     ROUTE = "route"
 
 
-class ComparisonSide(StrEnum):
-    """Which of the two explicitly selected snapshots a comparison statement concerns."""
+class ExposureEntryKind(StrEnum):
+    """The kind of entry point an internet-exposure finding starts from."""
 
-    LEFT = "left"
-    RIGHT = "right"
-
-    @property
-    def opposite(self) -> "ComparisonSide":
-        return ComparisonSide.RIGHT if self is ComparisonSide.LEFT else ComparisonSide.LEFT
+    PUBLIC_ADDRESS = "public_address"
+    LOAD_BALANCER = "load_balancer"
 
 
-class MatchBasis(StrEnum):
-    """What paired two resources: a physical identity, or a logical address in an IaC context."""
-
-    PHYSICAL_IDENTITY = "physical_identity"
-    LOGICAL_ADDRESS = "logical_address"
+class ExposureProtocol(StrEnum):
+    TCP = "tcp"
+    UDP = "udp"
 
 
-class DifferenceSubject(StrEnum):
-    """Which part of a matched resource a field difference concerns."""
+class ExposureElement(StrEnum):
+    """One composed element of an exposure path, in canonical order."""
 
-    FIELD = "field"
-    DEPENDENCY = "dependency"
-    CONTAINMENT = "containment"
-
-
-class DifferenceKind(StrEnum):
-    """`indeterminate` marks a field that cannot be compared (a qualification says why)."""
-
-    ADDED = "added"
-    REMOVED = "removed"
-    CHANGED = "changed"
-    INDETERMINATE = "indeterminate"
-
-
-class QualificationKind(StrEnum):
-    PLANNED_LIFECYCLE = "planned_lifecycle"
-    LIMITED_COVERAGE = "limited_coverage"
-    UNRECORDED_COVERAGE = "unrecorded_coverage"
-    UNKNOWN_VALUE = "unknown_value"
-    UNRESOLVED_REFERENCE = "unresolved_reference"
-    REDACTED_VALUE = "redacted_value"
-
-
-class ComparisonLimitationKind(StrEnum):
-    CROSS_CLOUD = "cross_cloud"
-    SCOPE_MISMATCH = "scope_mismatch"
-    SOURCE_KIND_MISMATCH = "source_kind_mismatch"
-    RESULT_LIMIT_REACHED = "result_limit_reached"
+    PUBLIC_ADDRESS = "public_address"
+    SCHEME = "scheme"
+    ROUTE = "route"
+    NACL = "nacl"
+    SECURITY_GROUP = "security_group"
+    LISTENER = "listener"
+    TARGET = "target"
 
 
 class AnalyzerErrorCode(StrEnum):

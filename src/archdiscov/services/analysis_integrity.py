@@ -13,13 +13,14 @@ from archdiscov.models.architecture import Ec2Instance, LocalTarget
 from archdiscov.models.cloud.contracts import CloudDependency, CloudEvidence
 from archdiscov.models.cloud.scope import SupportedScope
 from archdiscov.models.coverage_key import CoverageKey
-from archdiscov.models.enums import AccessSourceKind, TrustSource
+from archdiscov.models.enums import AccessSourceKind, ExposureEntryKind, TrustSource
 from archdiscov.models.resource_base import Resource
 from archdiscov.models.resources.database import DbCluster, DbInstance
 from archdiscov.models.resources.ecs import EcsTask
 from archdiscov.models.resources.functions import LambdaFunction
 from archdiscov.models.resources.iam import IamRole
-from archdiscov.models.resources.network import SecurityGroup
+from archdiscov.models.resources.load_balancing import LoadBalancer
+from archdiscov.models.resources.network import NetworkInterface, SecurityGroup
 from archdiscov.models.resources.queues import SqsQueue
 
 from .analysis_diagnostics import reject
@@ -171,49 +172,76 @@ def _validate_limitations(
                 )
 
 
+def _require_type(
+    finding: AnalysisFinding,
+    context: _IntegrityContext,
+    position: int,
+    expected: type | tuple[type, ...],
+    location: Location,
+    code: str,
+    message: str,
+) -> None:
+    """The finding's resource at `position`, when stored, must be of the expected type."""
+    resource = context.resources.get(finding.resources[position].resource_id)
+    if resource is not None and not isinstance(resource, expected):
+        reject(location, code, message)
+
+
 _TRUST_SOURCES = {
     TrustSource.ROLE_TRUST_POLICY: IamRole,
     TrustSource.RESOURCE_POLICY: SqsQueue,
 }
-
-
-def _validate_trust(finding: AnalysisFinding, base: Location, context: _IntegrityContext) -> None:
-    """The trusting resource must be of the kind that owns this kind of policy."""
-    trusting = context.resources.get(finding.resources[0].resource_id)
-    if trusting is not None and not isinstance(trusting, _TRUST_SOURCES[finding.trust.source]):
-        reject(
-            (*base, "trust", "source"),
-            "trust_source_mismatch",
-            "Trust source must match the type of the trusting resource.",
-        )
-
-
 _ACCESS_SOURCES = {
     AccessSourceKind.EC2_INSTANCE: Ec2Instance,
     AccessSourceKind.ECS_TASK: EcsTask,
     AccessSourceKind.LAMBDA_FUNCTION: LambdaFunction,
 }
+_EXPOSURE_ENTRIES = {
+    ExposureEntryKind.PUBLIC_ADDRESS: (Ec2Instance, NetworkInterface),
+    ExposureEntryKind.LOAD_BALANCER: (LoadBalancer,),
+}
 
 
-def _validate_database_access(
-    finding: AnalysisFinding, base: Location, context: _IntegrityContext
-) -> None:
-    """The source must match its kind and the second resource must be a database."""
-    source = context.resources.get(finding.resources[0].resource_id)
-    if source is not None and not isinstance(
-        source, _ACCESS_SOURCES[finding.database_access.source_kind]
-    ):
-        reject(
+def _validate_blocks(finding: AnalysisFinding, base: Location, context: _IntegrityContext) -> None:
+    """Resources named by analyzer-specific blocks must match the block's kind."""
+    if finding.trust is not None:
+        _require_type(
+            finding,
+            context,
+            0,
+            _TRUST_SOURCES[finding.trust.source],
+            (*base, "trust", "source"),
+            "trust_source_mismatch",
+            "Trust source must match the type of the trusting resource.",
+        )
+    if finding.database_access is not None:
+        _require_type(
+            finding,
+            context,
+            0,
+            _ACCESS_SOURCES[finding.database_access.source_kind],
             (*base, "database_access", "source_kind"),
             "database_source_mismatch",
             "Source kind must match the type of the source resource.",
         )
-    database = context.resources.get(finding.resources[1].resource_id)
-    if database is not None and not isinstance(database, (DbInstance, DbCluster)):
-        reject(
+        _require_type(
+            finding,
+            context,
+            1,
+            (DbInstance, DbCluster),
             (*base, "resources", 1),
             "database_target_mismatch",
             "The selected database must be an RDS instance or cluster.",
+        )
+    if finding.internet_exposure is not None:
+        _require_type(
+            finding,
+            context,
+            0,
+            _EXPOSURE_ENTRIES[finding.internet_exposure.entry_kind],
+            (*base, "internet_exposure", "entry_kind"),
+            "exposure_entry_mismatch",
+            "Entry kind must match the type of the entry point resource.",
         )
 
 
@@ -229,10 +257,7 @@ def _validate_finding(finding: AnalysisFinding, index: int, context: _IntegrityC
                 "resource_scope_mismatch",
                 "Resource reference scope must match the snapshot.",
             )
-    if finding.trust is not None:
-        _validate_trust(finding, base, context)
-    if finding.database_access is not None:
-        _validate_database_access(finding, base, context)
+    _validate_blocks(finding, base, context)
     _validate_path(finding.path, base, context)
     _validate_limitations(finding.limitations, base, context)
 
