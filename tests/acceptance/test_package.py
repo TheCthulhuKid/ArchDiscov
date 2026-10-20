@@ -64,3 +64,25 @@ def test_model_imports_outside_repository(tmp_path: Path) -> None:
         timeout=10,
     )
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        "archdiscov.graph",
+        "archdiscov.services",
+        "archdiscov.services.comparison",
+        "archdiscov.services.comparison_results",
+        "archdiscov.models.comparison.results",
+        "archdiscov.cli",
+    ],
+)
+def test_every_public_package_imports_first_without_a_cycle(module: str) -> None:
+    """Each package is the first import of a fresh interpreter, as a library caller would do."""
+    result = subprocess.run(
+        [sys.executable, "-c", f"import {module}"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
