@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from ipaddress import IPv4Network
 from typing import TYPE_CHECKING
 
-from archdiscov.models.enums import RuleDirection
-from archdiscov.models.network_path import NetworkResult
+from archdiscov.models.architecture import Subnet
+from archdiscov.models.enums import NetworkDecision, RuleDirection
+from archdiscov.models.network_path import NetworkResult, compose_decisions
 
 from .network_acls import evaluate_network_acl
 from .network_decisions import all_of, any_of
@@ -15,6 +17,15 @@ from .network_security_groups import Peer, evaluate_security_group
 
 if TYPE_CHECKING:
     from archdiscov.graph import GraphIndex
+
+
+def subnet_network(index: GraphIndex, subnet_id: str) -> IPv4Network | None:
+    """The one IPv4 CIDR of a stored subnet; None when it is not recorded."""
+    subnet = index.get_resource(subnet_id)
+    if not isinstance(subnet, Subnet):
+        return None
+    blocks = [block for block in subnet.cidr_blocks or [] if isinstance(block, IPv4Network)]
+    return blocks[0] if len(blocks) == 1 else None
 
 
 def groups_allow(
@@ -51,3 +62,11 @@ def nacl_round_trip(
         evaluate_network_acl(index, subnet_id, direction, address, protocol=protocol, port=p)
         for direction, p in ((first, port), (reply, EPHEMERAL_PORT))
     )
+
+
+_RANK = {NetworkDecision.ALLOW: 0, NetworkDecision.UNKNOWN: 1, NetworkDecision.DENY: 2}
+
+
+def decision_rank(results: Iterable[NetworkResult]) -> int:
+    """How good the composed results are for an alternative: 0 allow, 1 unknown, 2 deny."""
+    return _RANK[compose_decisions(result.decision for result in results)]

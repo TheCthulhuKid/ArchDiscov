@@ -19,7 +19,6 @@ from typing import TYPE_CHECKING
 
 from archdiscov.models.analysis.database_access import AccessElementDecision
 from archdiscov.models.analysis.references import AnalysisLimitation
-from archdiscov.models.architecture import Subnet
 from archdiscov.models.enums import (
     AccessElement,
     NetworkDecision,
@@ -31,7 +30,7 @@ from archdiscov.models.network_path import NetworkResult, compose_decisions
 from .database_placement import DatabasePlacement
 from .database_sources import CandidateSource, SourceInterface, SourceStatus
 from .element_results import blocker_limitations, element_decisions, result_evidence
-from .network_composition import groups_allow, nacl_round_trip
+from .network_composition import decision_rank, groups_allow, nacl_round_trip, subnet_network
 from .network_decisions import all_of, missing
 from .network_probes import PROTOCOL
 from .network_routes import evaluate_subnet_route
@@ -40,7 +39,6 @@ from .network_security_groups import Peer
 if TYPE_CHECKING:
     from archdiscov.graph import GraphIndex
 
-_RANK = {NetworkDecision.ALLOW: 0, NetworkDecision.UNKNOWN: 1, NetworkDecision.DENY: 2}
 _INGRESS, _EGRESS = RuleDirection.INGRESS, RuleDirection.EGRESS
 
 
@@ -71,19 +69,11 @@ class _End:
         return Peer(self.network, self.group_ids, bounded=not self.exact)
 
 
-def _subnet_network(index: GraphIndex, subnet_id: str) -> IPv4Network | None:
-    subnet = index.get_resource(subnet_id)
-    if not isinstance(subnet, Subnet):
-        return None
-    blocks = [block for block in subnet.cidr_blocks or [] if isinstance(block, IPv4Network)]
-    return blocks[0] if len(blocks) == 1 else None
-
-
 def _database_ends(index: GraphIndex, placement: DatabasePlacement) -> list[_End]:
     groups = placement.security_group_ids
     if not placement.subnet_ids:
         return [_End(None, None, groups)]
-    return [_End(s, _subnet_network(index, s), groups) for s in placement.subnet_ids]
+    return [_End(s, subnet_network(index, s), groups) for s in placement.subnet_ids]
 
 
 def _source_ends(index: GraphIndex, interface: SourceInterface) -> list[_End]:
@@ -93,7 +83,7 @@ def _source_ends(index: GraphIndex, interface: SourceInterface) -> list[_End]:
             _End(interface.subnet_id, IPv4Network(address), groups, exact=True)
             for address in interface.addresses
         ]
-    return [_End(interface.subnet_id, _subnet_network(index, interface.subnet_id), groups)]
+    return [_End(interface.subnet_id, subnet_network(index, interface.subnet_id), groups)]
 
 
 def _needs(message: str) -> NetworkResult:
@@ -144,7 +134,7 @@ def _path(
 
 
 def _rank(path: dict[AccessElement, NetworkResult]) -> int:
-    return _RANK[compose_decisions(result.decision for result in path.values())]
+    return decision_rank(path.values())
 
 
 def _unplaced() -> dict[AccessElement, NetworkResult]:

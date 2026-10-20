@@ -48,6 +48,7 @@ if TYPE_CHECKING:
 
 Entry = NetworkInterface | Ec2Instance
 _WHOLE_RANGE = (MIN_PORT, MAX_PORT)
+_UNNEEDED = frozenset({"source_address_unrecorded"})  # exposure does not need the private address
 _INGRESS, _EGRESS = RuleDirection.INGRESS, RuleDirection.EGRESS
 _E = ExposureElement
 
@@ -86,13 +87,6 @@ def _placement(
         return interface_placement(index, entry, collector)
     found = instance_placement(index, entry, collector)
     return found[0] if found else None
-
-
-def _placement_limitations(collector: PlacementCollector) -> tuple[AnalysisLimitation, ...]:
-    """Placement gaps, except the private address, which exposure does not need."""
-    return tuple(
-        item for item in collector.sorted_limitations() if item.code != "source_address_unrecorded"
-    )
 
 
 def _groups(index: GraphIndex, interface: SourceInterface) -> list[SecurityGroup]:
@@ -192,7 +186,7 @@ def _unplaced(
             _E.SECURITY_GROUP: unplaced,
         },
         evidence=collector.evidence,
-        limitations=_placement_limitations(collector),
+        limitations=collector.sorted_limitations(ignore=_UNNEEDED),
     )
 
 
@@ -205,7 +199,7 @@ def evaluate_public_entry(index: GraphIndex, entry: Entry) -> list[ExposureEvalu
         return [_unplaced(entry, address, collector)]
     groups = _groups(index, interface)
     opened = internet_open_ports(groups)
-    notes = (*_placement_limitations(collector), *opened.limitations)
+    notes = (*collector.sorted_limitations(ignore=_UNNEEDED), *opened.limitations)
     evidence = {*collector.evidence, *opened.evidence_ids}
     if not opened.ranges:
         return [_without_ports(index, entry, address, groups, notes, opened.uncertain, evidence)]
