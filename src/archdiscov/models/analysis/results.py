@@ -1,10 +1,9 @@
-import hashlib
-import json
 from typing import Literal, Self
 from uuid import UUID
 
 from pydantic import AwareDatetime, Field, model_validator
 
+from ..canonical import canonical_json, sha256_json
 from ..enums import AnalysisStatus, AnalyzerKind, NetworkDecision
 from ..resource_base import Model, NonEmptyString
 from .database_access import DatabaseAccess
@@ -65,10 +64,6 @@ class AnalysisFinding(Model):
             raise ValueError("an unknown database access decision cannot be supported")
 
 
-def _canonical_json(value: object) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-
-
 def deterministic_finding_id(finding: AnalysisFinding) -> str:
     """SHA-256 of validated semantic data, including the conclusion summary.
 
@@ -84,7 +79,7 @@ def deterministic_finding_id(finding: AnalysisFinding) -> str:
             exclude[name] = True
     payload = finding.model_dump(mode="json", exclude=exclude)
     payload["evidence_ids"] = sorted(payload["evidence_ids"])
-    payload["resources"] = sorted(payload["resources"], key=_canonical_json)
+    payload["resources"] = sorted(payload["resources"], key=canonical_json)
     for step in payload["path"]:
         step["evidence_ids"] = sorted(step["evidence_ids"])
     for limitation in payload["limitations"]:
@@ -92,8 +87,8 @@ def deterministic_finding_id(finding: AnalysisFinding) -> str:
         if limitation["unresolved_target"] is not None:
             reference = limitation["unresolved_target"]
             reference["evidence_ids"] = sorted(reference["evidence_ids"])
-    payload["limitations"] = sorted(payload["limitations"], key=_canonical_json)
-    return hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
+    payload["limitations"] = sorted(payload["limitations"], key=canonical_json)
+    return sha256_json(payload)
 
 
 class AnalysisResult(Model):
