@@ -64,7 +64,7 @@ Run development checks through the project virtual environment:
 ```bash
 .venv/bin/python -m pytest -n 4 --dist worksteal
 .venv/bin/ruff check .
-.venv/bin/ruff format --check --exclude .junie .
+.venv/bin/ruff format --check --exclude .
 ```
 
 Tests use pytest-xdist worker processes for parallel execution. Start with four
@@ -77,12 +77,13 @@ These tests require neither AWS/provider credentials nor network calls. Package 
 
 ### Continuous integration
 
-[GitHub Actions](.github/workflows/ci.yml) runs the full offline pytest suite and
+[GitHub Actions](.github/workflows/ci.yml) runs the offline unit and integration tests, the
+offline acceptance journeys (`tests/acceptance`, including the installed-CLI journey), and
 Ruff lint/format checks in separate jobs on every push and pull request, with manual
 runs available too. CI uses Python 3.13, uv 0.5.29, and locked development dependencies;
-the test job uses eight pytest-xdist workers with `--dist worksteal` to limit nested
-concurrency. It requires no AWS/provider secrets. Formatting excludes `.junie` plan artifacts,
-matching the local commands above. Superseded runs are cancelled automatically.
+the test jobs use eight pytest-xdist workers (`--dist worksteal`, and `--dist loadgroup` for
+acceptance so the installed-CLI journey stays on one worker) to limit nested
+concurrency. It requires no AWS/provider secrets. Superseded runs are cancelled automatically.
 
 The source package separates shared models, ingestion adapters, public application services, and CLI presentation:
 
@@ -135,7 +136,7 @@ docker compose run --rm dev archdiscov --help
 docker compose run --rm dev archdiscov --version
 docker compose run --rm dev python -m pytest
 docker compose run --rm dev ruff check .
-docker compose run --rm dev ruff format --check --exclude .junie .
+docker compose run --rm dev ruff format --check .
 ```
 
 The image uses Python 3.13 and uv 0.5.29. Dependencies, including development tools, are installed from `uv.lock` with frozen resolution. The checkout is mounted at `/workspace`; the editable package reflects source edits immediately. The container uses `/opt/venv`, independent of the host `.venv`, and its `python` resolves to that environment. Source commands and generated snapshots run as the configured non-root user, so files written under `/workspace` remain accessible on the host.
@@ -1183,16 +1184,24 @@ queries, analyzers, and comparisons are phase 3 (see [analyzers](docs/analyzers.
 
 ### Acceptance scenarios
 
-Normal tests require neither credentials nor network access. Phase 3 scenarios run offline
-through pytest with fixtures, injected AWS clients, and the installed CLI:
+Normal tests require neither credentials nor network access. Each phase 3 scenario runs offline
+through pytest and is covered by the tests below, which assert its qualified outcome (blockers,
+limitations, planned lifecycle, or an indeterminate difference), not only that a command ran:
 
-- Public load balancer with a private backend; public IP with blocked ingress; missing routing evidence.
-- Database access through security-group references, CIDRs, and denied rules, without claiming authentication.
-- Direct and indirect security-group dependencies.
-- Explicit and conditional cross-account trust.
-- Missing ownership tags and configurable ownership keys.
-- Terraform module addresses, planned deletions, unknown values, and CloudFormation unresolved references.
-- Safe matching of observed and declared resources.
+| Scenario | Tests |
+| --- | --- |
+| Public load balancer with a private backend | `tests/analysis/test_exposure_load_balancers.py::test_a_public_load_balancer_exposes_its_listener_and_reaches_a_private_backend` |
+| Public IP with blocked ingress | `tests/analysis/test_exposure_addresses.py::test_a_public_address_with_blocked_ingress_is_a_cited_denial` |
+| Missing routing evidence | `tests/analysis/test_exposure_load_balancers.py::test_a_missing_default_route_denies_and_missing_route_records_are_unknown`<br>`tests/analysis/test_exposure_addresses.py::test_missing_route_or_acl_records_are_unknown` |
+| Database access through security-group references, CIDRs, and denied rules, without claiming authentication | `tests/analysis/test_database_access.py::test_allowed_sources_are_supported_findings_naming_the_source_and_database`<br>`tests/analysis/test_database_access.py::test_denied_sources_are_supported_conclusions_with_cited_blockers` |
+| Direct and indirect security-group dependencies | `tests/analysis/test_security_group_impact.py::test_every_attaching_service_is_a_cited_observed_direct_attachment`<br>`tests/analysis/test_security_group_impact.py::test_downstream_chains_are_potential_cited_and_separate_from_observed` |
+| Explicit and conditional cross-account trust | `tests/analysis/test_cross_account_trust.py::test_explicit_cross_account_trust_is_cited_with_its_statement_and_a_terminal_limit`<br>`tests/analysis/test_cross_account_trust.py::test_conditions_effect_and_not_principal_context_are_kept` |
+| Missing ownership tags and configurable ownership keys | `tests/analysis/test_ownership_analyzer.py::TestOwnershipSignals::test_missing_tags_with_cited_map_are_a_supported_signal`<br>`tests/analysis/test_ownership_analyzer.py::TestOwnershipSignals::test_custom_keys_replace_the_defaults` |
+| Terraform module addresses | `tests/ingestion/terraform/test_terraform_parsing.py::test_nested_modules_preserve_addresses_and_exact_resource_pointers`<br>`tests/acceptance/test_readme_scenarios.py::test_module_addresses_survive_import_and_a_planned_resource_stays_planned` |
+| Terraform planned deletions | `tests/comparison/test_qualification.py::test_a_planned_deletion_qualifies_the_pair_and_is_not_an_observed_absence`<br>`tests/acceptance/test_readme_scenarios.py::test_a_planned_deletion_is_a_planned_lifecycle_never_an_observed_absence` |
+| Terraform unknown values | `tests/ingestion/terraform/test_terraform_plan.py::test_missing_null_and_unknown_are_distinct`<br>`tests/acceptance/test_readme_scenarios.py::test_an_unknown_planned_value_is_indeterminate_not_a_change` |
+| CloudFormation unresolved references | `tests/ingestion/cloudformation/test_cloudformation_import.py::test_conditions_local_getatt_and_conditional_missing_target`<br>`tests/acceptance/test_readme_scenarios.py::test_cloudformation_unresolved_references_are_indeterminate_between_two_templates` |
+| Safe matching of observed and declared resources | `tests/comparison/test_matching.py::test_names_and_short_ids_never_match`<br>`tests/comparison/test_matching.py::test_logical_addresses_never_match_across_iac_contexts_or_observations`<br>`tests/acceptance/test_readme_scenarios.py::test_observed_and_declared_resources_are_matched_only_by_identity` |
 
 Phase 4 scenarios remain planned and use fake-provider transcripts: fabricated citations,
 unsupported claims, malicious imported text, provider errors, and tool-call limits. Run the

@@ -29,6 +29,9 @@ from tests.support.installed_cli import ENTRY_POINTS, run_installed
 from tests.support.offline_guard import OfflineGuard
 from tests.support.security_group_data import IDS
 
+# The journey runs both entry points once per module: keep it on one xdist worker.
+pytestmark = pytest.mark.xdist_group("installed-journey")
+
 CONTEXT = ("--account-id", "123456789012", "--region", "eu-west-1")
 OPTIONS = {"resource_id": "--resource-id", "port": "--port", "max_depth": "--max-depth"}
 GROUP = IDS["sg-app"]

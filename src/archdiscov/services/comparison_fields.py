@@ -4,13 +4,15 @@ For each matched pair this reports differences in the resource document (typed f
 attributes, tags), the containment parent, and the outgoing dependencies, each as a JSON-pointer
 path, a kind, both values, and the evidence cited on each side. Identifiers that differ only by
 snapshot (the resource ID and identity), evidence bookkeeping, the children (compared as their
-own resources), and the planned lifecycle (qualified separately) are not compared.
+own resources), the planned lifecycle (qualified separately), and the Terraform type name that
+only a Terraform import records are not compared.
 
 Values that cannot be compared are indeterminate, never differences: a redacted value is not
-compared by content, a field absent from a side that recorded unknown or omitted values may be
-one of them, and a dependency group holding an unresolved reference cannot be judged against
-the other side's targets. Dependency targets are compared by matched identity, so two edges to
-different resources that match each other are equal. Lists are compared by position.
+compared by content, a field absent from (or null and uncited on) a side that recorded unknown
+or omitted values may be one of them, and a dependency group holding an unresolved reference
+cannot be judged against the other side's targets. Dependency targets are compared by matched
+identity, so two edges to different resources that match each other are equal. Lists are
+compared by position.
 """
 
 from __future__ import annotations
@@ -42,6 +44,8 @@ if TYPE_CHECKING:
 
 LEFT, RIGHT = ComparisonSide.LEFT, ComparisonSide.RIGHT
 _NOT_COMPARED = {"id", "identity", "evidence_ids", "fact_evidence", "children", "lifecycle"}
+# Source-specific bookkeeping that differs by how a resource was recorded, not by the resource.
+_BOOKKEEPING = frozenset({"/attributes/terraform_type"})
 _UNAVAILABLE = {EvidenceValueStatus.UNRESOLVED, EvidenceValueStatus.OMITTED}
 _MISSING = object()
 _PARENT_PATH = "/parent"
@@ -113,15 +117,19 @@ class FieldComparer:
             and record.value_status in _UNAVAILABLE
         ]
 
-    def _cited(self, side: ComparisonSide, resource_id: str, pointer: str) -> list[str]:
-        """Citations of the fact at or above `pointer`, else the resource's own evidence."""
+    def _fact_citation(self, side: ComparisonSide, resource_id: str, pointer: str) -> list[str]:
+        """Citations of the recorded fact at or above `pointer`; none if nothing is cited."""
         index = self._index[side]
-        while True:
+        while pointer:
             if ids := index.fact_evidence_ids(resource_id, pointer):
                 return sorted(set(ids))
-            if not pointer:
-                return sorted(set(index.resource_evidence_ids(resource_id)))
             pointer = pointer.rpartition("/")[0]
+        return []
+
+    def _cited(self, side: ComparisonSide, resource_id: str, pointer: str) -> list[str]:
+        """The fact's citations, else the resource's own evidence (never an invented one)."""
+        cited = self._fact_citation(side, resource_id, pointer)
+        return cited or sorted(set(self._index[side].resource_evidence_ids(resource_id)))
 
     def _difference(
         self,
@@ -163,6 +171,7 @@ class FieldComparer:
     def _fields(self, ids: dict[ComparisonSide, str]) -> list[FieldDifference]:
         found: list[tuple[str, object, object]] = []
         _walk(self._document(LEFT, ids[LEFT]), self._document(RIGHT, ids[RIGHT]), "", found)
+        found = [item for item in found if item[0] not in _BOOKKEEPING]
         if not found:
             return []
         unavailable = {side: self._unavailable(side, ids[side]) for side in (LEFT, RIGHT)}
@@ -189,7 +198,7 @@ class FieldComparer:
                 self._cited(side, ids[side], path),
             )
         for side in (LEFT, RIGHT):
-            if values[side] is _MISSING and unavailable[side]:
+            if unavailable[side] and self._may_be_unavailable(side, ids[side], path, values[side]):
                 return self._indeterminate(
                     ids,
                     DifferenceSubject.FIELD,
@@ -200,6 +209,18 @@ class FieldComparer:
                 )
         kind = _change_kind(left is _MISSING, right is _MISSING)
         return self._difference(ids, DifferenceSubject.FIELD, path, kind, (left, right))
+
+    def _may_be_unavailable(
+        self, side: ComparisonSide, resource_id: str, path: str, value: object
+    ) -> bool:
+        """Whether a side's missing or null value may be a value the source could not provide.
+
+        An absent field may be one. So may a null that nothing cites: a typed field of a plan
+        resource with an unknown value is stored as null, whereas a known null has a citation.
+        """
+        if value is _MISSING:
+            return True
+        return value is None and not self._fact_citation(side, resource_id, path)
 
     def _indeterminate(
         self,

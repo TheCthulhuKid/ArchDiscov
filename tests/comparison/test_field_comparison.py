@@ -366,3 +366,46 @@ def test_differences_are_unique_and_in_canonical_order():
     differences = compare([left], [right])
     paths = [d.path for d in differences]
     assert paths == ["/attributes/a", "/attributes/b", "/name"]
+
+
+# ---- unknown typed values and source bookkeeping ----------------------------------
+
+
+def typed(cidr, *, cited=False, evidence=()):
+    """A VPC whose typed `cidr_blocks` is `cidr` (None stands for null)."""
+    data = vpc(evidence=evidence, fact_evidence={"/cidr_blocks": ["fact"]} if cited else None)
+    return {**data, "cidr_blocks": cidr}
+
+
+def test_an_unknown_typed_value_stored_as_null_is_indeterminate_not_changed():
+    left = typed(["10.0.0.0/16"])
+    right = typed(None, evidence=["unknown"])
+    right_evidence = {"unknown": evidence(2, "vpc-1", "/after_unknown/cidr", status="unresolved")}
+    [difference] = compare([left], [right], right_kw={"evidence": right_evidence})
+    assert (difference.path, difference.kind) == ("/cidr_blocks", INDETERMINATE)
+    qualification = difference.qualifications[0]
+    assert (qualification.kind, qualification.side) == ("unknown_value", RIGHT)
+    assert qualification.evidence_ids == ["unknown"]
+
+
+def test_a_cited_null_is_a_known_value_even_beside_unknown_values():
+    left = typed(["10.0.0.0/16"])
+    right = typed(None, cited=True, evidence=["unknown", "fact"])
+    right_evidence = {
+        "unknown": evidence(2, "vpc-1", "/after_unknown/other", status="unresolved"),
+        "fact": evidence(2, "vpc-1", "cidr"),
+    }
+    [difference] = compare([left], [right], right_kw={"evidence": right_evidence})
+    assert (difference.path, difference.kind) == ("/cidr_blocks", CHANGED)
+    assert difference.right_value is None and difference.right_evidence_ids == ["fact"]
+
+
+def test_a_null_without_unknown_values_is_still_a_change():
+    [difference] = compare([typed(["10.0.0.0/16"])], [typed(None)])
+    assert difference.kind == CHANGED
+
+
+def test_the_terraform_type_bookkeeping_attribute_is_not_a_difference():
+    left = vpc(attributes={"a": 1})
+    right = vpc(attributes={"a": 1, "terraform_type": "aws_vpc"})
+    assert compare([left], [right]) == []
