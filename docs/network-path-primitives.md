@@ -98,13 +98,21 @@ Primitives never call each other. A caller composes them explicitly with `all_of
 `any_of` for alternatives), for example an inbound request and its return path:
 
 ```python
-all_of([
-    evaluate_public_address(index, eni_id),
-    evaluate_subnet_route(index, subnet_id, client_ip, reach=RouteReach.INTERNET_GATEWAY),
-    evaluate_network_acl(index, subnet_id, RuleDirection.INGRESS, client_ip, protocol="tcp", port=443),
-    evaluate_network_acl(index, subnet_id, RuleDirection.EGRESS, client_ip, protocol="tcp", port=49152),
-    evaluate_security_group(index, group_id, RuleDirection.INGRESS, peer, protocol="tcp", port=443),
-])
+all_of(
+    [
+        evaluate_public_address(index, eni_id),
+        evaluate_subnet_route(index, subnet_id, client_ip, reach=RouteReach.INTERNET_GATEWAY),
+        evaluate_network_acl(
+            index, subnet_id, RuleDirection.INGRESS, client_ip, protocol="tcp", port=443
+        ),
+        evaluate_network_acl(
+            index, subnet_id, RuleDirection.EGRESS, client_ip, protocol="tcp", port=49152
+        ),
+        evaluate_security_group(
+            index, group_id, RuleDirection.INGRESS, peer, protocol="tcp", port=443
+        ),
+    ]
+)
 ```
 
 A recorded denial dominates an unknown element, so a composed `deny` means some element
