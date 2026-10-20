@@ -8,6 +8,7 @@ from pydantic import AwareDatetime, Field, model_validator
 from ..enums import AnalysisStatus, AnalyzerKind, NetworkDecision
 from ..resource_base import Model, NonEmptyString
 from .database_access import DatabaseAccess
+from .exposure import InternetExposure
 from .impact import SecurityGroupImpact
 from .parameters import (
     AnalyzerParameters,
@@ -22,6 +23,15 @@ _BLOCK_ANALYZERS = {
     "impact": AnalyzerKind.SECURITY_GROUP_IMPACT,
     "trust": AnalyzerKind.CROSS_ACCOUNT_TRUST,
     "database_access": AnalyzerKind.DATABASE_ACCESS,
+    "internet_exposure": AnalyzerKind.INTERNET_EXPOSURE,
+}
+
+
+# Per block: how findings name it, and the resources they must reference, in order.
+_BLOCK_RESOURCES = {
+    "trust": ("trust", ["the trusting resource"]),
+    "database_access": ("database access", ["the source", "the database"]),
+    "internet_exposure": ("internet exposure", ["the entry point"]),
 }
 
 
@@ -39,6 +49,7 @@ class AnalysisFinding(Model):
     impact: SecurityGroupImpact | None = None
     trust: CrossAccountTrust | None = None
     database_access: DatabaseAccess | None = None
+    internet_exposure: InternetExposure | None = None
 
     @model_validator(mode="after")
     def validate_finding(self) -> Self:
@@ -48,21 +59,22 @@ class AnalysisFinding(Model):
             raise ValueError("supported and partial findings require evidence_ids")
         if sum(getattr(self, name) is not None for name in _BLOCK_ANALYZERS) > 1:
             raise ValueError("a finding carries at most one analyzer-specific block")
-        if self.trust is not None and not self.resources:
-            raise ValueError("trust findings must name the trusting resource")
-        if self.database_access is not None:
-            self._validate_database_access(self.database_access)
+        for name, (label, required) in _BLOCK_RESOURCES.items():
+            if (block := getattr(self, name)) is not None:
+                self._validate_block(block, label, required)
         derived_id = deterministic_finding_id(self)
         if self.id and self.id != derived_id:
             raise ValueError("finding id must match deterministic_finding_id")
         self.id = derived_id
         return self
 
-    def _validate_database_access(self, access: DatabaseAccess) -> None:
-        if len(self.resources) < 2:
-            raise ValueError("database access findings must name the source and the database")
-        if access.decision == NetworkDecision.UNKNOWN and self.status == AnalysisStatus.SUPPORTED:
-            raise ValueError("an unknown database access decision cannot be supported")
+    def _validate_block(self, block: object, label: str, required: list[str]) -> None:
+        """Block-carrying findings name their resources, and unknown is never supported."""
+        if len(self.resources) < len(required):
+            raise ValueError(f"{label} findings must name {' and '.join(required)}")
+        decision = getattr(block, "decision", None)
+        if decision == NetworkDecision.UNKNOWN and self.status == AnalysisStatus.SUPPORTED:
+            raise ValueError(f"an unknown {label} decision cannot be supported")
 
 
 def _canonical_json(value: object) -> str:

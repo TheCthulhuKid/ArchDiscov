@@ -84,7 +84,7 @@ principal itself is the path step's target, and unresolved or external forms rem
 terminals with limitations. This is configured policy only: it never asserts that the
 principal can assume the role or reach the queue.
 
-A finding carries at most one analyzer-specific block (`impact`, `trust`, or `database_access`), trust
+A finding carries at most one analyzer-specific block (`impact`, `trust`, `database_access`, or `internet_exposure`), trust
 findings must name the trusting resource, and a result carrying them must use
 `cross_account_trust` parameters. Integrity requires the trusting resource to be an IAM
 role for `role_trust_policy` and an SQS queue for `resource_policy`
@@ -119,6 +119,31 @@ requires the source to match its kind (`database_source_mismatch`) and the datab
 an RDS instance or cluster (`database_target_mismatch`). A finding is network permission
 from recorded configuration: never authentication, credentials, IAM database access, or
 live reachability.
+
+## Internet-exposure vocabulary
+
+`AnalysisFinding.internet_exposure` (`InternetExposure`) is optional and reserved for the
+internet-exposure analyzer (step 31). It records the candidate exposure of one entry point on
+a protocol and port range. The entry point is the finding's first resource reference, followed
+by any targets reached through a load balancer:
+
+| Field | Values |
+|---|---|
+| `entry_kind` | `public_address` (an EC2 instance or network interface with a recorded public IPv4 address) or `load_balancer` (an ELBv2 load balancer) |
+| `protocol`, `port_start`, `port_end` | `tcp` or `udp`, and an inclusive port range (1–65535) |
+| `decision` | `allow`, `deny`, or `unknown`, composing the elements (a deny dominates an unknown, which dominates an allow) |
+| `elements` | each at most once, in this order, with its `decision` and sorted `blocker_codes`: `public_address`, `route`, `nacl`, `security_group` for a public address; `scheme`, `route`, `nacl`, `security_group`, `listener`, `target` for a load balancer |
+| `observed_target_health` | the sorted, unique health states observed for the reached targets (load balancers only) |
+
+Element decisions use the [network-path vocabulary](network-path-primitives.md) and the same
+rules as the database-access vocabulary. Target health is an observation, not an element: it
+is never part of the composed decision. Every field is part of finding identity, and findings
+without the block keep their earlier IDs. `allow` and `deny` findings are `supported`
+(`partial` when qualified) and an `unknown` decision can never be `supported`. A result
+carrying these findings must use `internet_exposure` parameters, and integrity requires the
+entry point to be an EC2 instance or network interface for `public_address` and a load
+balancer for `load_balancer` (`exposure_entry_mismatch`). A finding is candidate exposure from
+recorded configuration, never proof of reachability.
 
 ## Deterministic IDs
 
