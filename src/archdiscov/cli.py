@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from archdiscov.cli_analysis import analyze, findings
 from archdiscov.cli_collection import collection_request, outcome_data, print_outcomes
+from archdiscov.cli_comparison import compare, comparison
 from archdiscov.cli_diagnostics import emit_model, print_error, snapshot_exit_code
 from archdiscov.cli_diagnostics import fail_snapshot_error as _fail
 from archdiscov.cli_diagnostics import json_output as _json_output
@@ -35,6 +36,8 @@ app = typer.Typer(
 app.add_typer(query_app, name="query")
 app.command()(analyze)
 app.command()(findings)
+app.command()(compare)
+app.command()(comparison)
 
 
 @app.callback(invoke_without_command=True)

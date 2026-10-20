@@ -1,7 +1,8 @@
 """Render safe service diagnostics without choosing command exit codes."""
 
 import json
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, NoReturn
@@ -82,3 +83,19 @@ def fail_analysis_error(error: AnalysisValidationError | AnalyzerError, as_json:
         diagnostic = _diagnostic(error.code, str(error), error.path, error.details)
     print_error(diagnostic, as_json=as_json)
     raise typer.Exit(2)
+
+
+@contextmanager
+def safe_failures(snapshot_path: Path, as_json: bool) -> Iterator[None]:
+    """Turn expected service failures into safe diagnostics and stable exit codes.
+
+    A snapshot failure without a path of its own names `snapshot_path`.
+    """
+    try:
+        yield
+    except SnapshotError as error:
+        if error.path is None:
+            error.path = snapshot_path
+        fail_snapshot_error(error, as_json)
+    except (AnalyzerError, AnalysisValidationError) as error:
+        fail_analysis_error(error, as_json)

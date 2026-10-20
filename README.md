@@ -34,7 +34,8 @@ evidence inspection; it does not provide live Azure collection or analysis.
 | Internet exposure analysis | [Implemented for AWS](docs/internet-exposure.md): candidate exposure of resources with a recorded public IPv4 address and of internet-facing load balancers, composed from routes, NACLs, security groups, listeners, and targets, with per-element decisions, blockers, citations, and observed target health; candidate exposure from recorded configuration, not proof of reachability |
 | Graph resource ownership, lookup, containment, dependencies, and evidence/coverage | [Implemented and verified together across schemas 1–3](docs/graph-index.md#composed-graph-boundary), including external/unresolved terminals and complete-context coverage |
 | Resource search, inspection, neighbours, and paths | [Implemented Python services and `archdiscov query` CLI](docs/graph-queries.md) with exact filters, bounds, detached data, citations, and coverage/provenance limitations |
-| Comparisons and LLM assistant/providers | Planned |
+| Snapshot comparison | [Implemented](docs/comparison-results.md): `compare` and `comparison` CLI, identity matching without guessing, field-level differences with citations on both sides, lifecycle, source-kind, and coverage qualification, atomic no-overwrite results verified against both snapshots; recorded differences, not drift detection or proof of change |
+| LLM assistant/providers | Planned |
 
 [PLAN.md](PLAN.md) records delivery progress and the remaining roadmap. “All services”
 means the supported inventory, not every AWS resource type or proof of reachability/effective
@@ -78,7 +79,7 @@ These tests require neither AWS/provider credentials nor network calls. Package 
 [GitHub Actions](.github/workflows/ci.yml) runs the full offline pytest suite and
 Ruff lint/format checks in separate jobs on every push and pull request, with manual
 runs available too. CI uses Python 3.13, uv 0.5.29, and locked development dependencies;
-the test job uses two pytest-xdist workers with `--dist worksteal` to limit nested
+the test job uses eight pytest-xdist workers with `--dist worksteal` to limit nested
 concurrency. It requires no AWS/provider secrets. Formatting excludes `.junie` plan artifacts,
 matching the local commands above. Superseded runs are cancelled automatically.
 
