@@ -2,9 +2,9 @@
 
 Step 29 defines which AWS network cases are evaluated initially and how uncertainty is
 handled, and provides reusable primitives over the shared `GraphIndex`. The decision
-vocabulary, composition rules, and all primitives described here are implemented. No
-analyzer or CLI uses them yet: database access and internet exposure analysis are later
-steps and will compose these primitives.
+vocabulary, composition rules, and all primitives described here are implemented. The
+[database access](database-access.md) and [internet exposure](internet-exposure.md)
+analyzers compose them; no other analyzer or CLI command uses them directly.
 
 **A decision describes recorded configuration, not live reachability.** It ignores
 anything that was not collected, host firewalls, authentication, and runtime state.

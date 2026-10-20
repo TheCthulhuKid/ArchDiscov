@@ -38,7 +38,31 @@ jobs:
       - name: Install locked dependencies
         run: uv sync --locked --group dev --python 3.13
       - name: Run offline tests
-        run: .venv/bin/python -m pytest -n 8 --dist worksteal
+        run: .venv/bin/python -m pytest -n 8 --dist worksteal --ignore=tests/acceptance
+
+  acceptance:
+    name: Acceptance tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version: "0.5.29"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install locked dependencies
+        run: uv sync --locked --group dev --python 3.13
+      - name: Run offline acceptance journeys
+        run: .venv/bin/python -m pytest tests/acceptance -n 8 --dist loadgroup
 
   quality:
     name: Quality checks
@@ -64,4 +88,4 @@ jobs:
       - name: Check lint
         run: .venv/bin/python -m ruff check .
       - name: Check formatting
-        run: .venv/bin/python -m ruff format --check --exclude .junie .
+        run: .venv/bin/python -m ruff format --check .

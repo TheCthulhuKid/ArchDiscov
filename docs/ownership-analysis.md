@@ -1,22 +1,20 @@
 # Analyzer execution, persistence, and the ownership analyzer
 
 Step 26 delivers a small analyzer boundary, atomic result persistence, and the
-ownership analyzer; [security-group impact](security-group-impact.md) and
-[cross-account trust](cross-account-trust.md), and
-[database access](database-access.md), and
-[internet exposure](internet-exposure.md) follow.
-No other analyzer is implemented; the remaining parameter models in
-[analysis result contracts](analysis-results.md) are contracts only. Analyzers read
-recorded snapshot data through the shared `GraphIndex`; they do not contact a cloud
-provider, and their findings are recorded signals, not proof.
+ownership analyzer. Four more analyzers use the same boundary: [security-group
+impact](security-group-impact.md), [cross-account trust](cross-account-trust.md),
+[database access](database-access.md), and [internet exposure](internet-exposure.md); the
+[analyzer reference](analyzers.md) compares all five. Analyzers read recorded snapshot data
+through the shared `GraphIndex`; they do not contact a cloud provider, and their findings are
+recorded signals, not proof.
 
 ## Execution
 
 `archdiscov.services.run_analyzer(index, parameters)` validates typed parameters
 (a mapping or model), looks up the registered analyzer, runs it, and checks that the
 returned result names the same snapshot, analyzer kind, version, and parameters. It
-returns a revalidated, detached copy. `DEFAULT_REGISTRY` currently holds the ownership,
-security-group impact, and cross-account trust analyzers; unavailable kinds raise `AnalyzerError(unsupported_analyzer)`.
+returns a revalidated, detached copy. `DEFAULT_REGISTRY` holds all five analyzers; a kind
+that is not registered raises `AnalyzerError(unsupported_analyzer)`.
 `AnalyzerError` codes (`unsupported_analyzer`, `invalid_parameters`, `invalid_result`)
 carry fixed messages that never echo parameter values. An analyzer implements the
 `Analyzer` protocol (`kind`, `version`, `analyze(index, parameters)`) and builds its

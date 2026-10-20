@@ -87,7 +87,8 @@ recorded snapshots, not a drift verdict.
   fields, and attributes (including tags), compared recursively with escaped JSON-pointer paths.
   Lists are compared by position. The resource ID, identity, evidence IDs and fact citations,
   children (compared as their own resources), and the planned lifecycle (qualified separately)
-  are not compared: they identify the snapshot, not the resource.
+  are not compared: they identify the snapshot, not the resource. The `terraform_type` attribute
+  that only a Terraform import records is source bookkeeping and is not compared either.
 - **Containment** (`subject: containment`, path `/parent`): the containment parent. Parents are
   compared by matched identity; the values are `{"left": ID, "right": ID}`, with `null` for a
   parent that has no counterpart.
@@ -100,8 +101,9 @@ recorded snapshots, not a drift verdict.
   ancestor), an edge's own evidence, or else the resource's own evidence. No citation is invented,
   so a side may cite nothing.
 - **Indeterminate differences** carry no values and a qualification: a value redacted on either
-  side is never compared by content (`redacted_value`); a field absent from a side whose
-  resource recorded unknown or omitted values may be one of them (`unknown_value`); and a
+  side is never compared by content (`redacted_value`); a field absent from, or null and
+  uncited on, a side whose resource recorded unknown or omitted values may be one of them, since
+  a plan stores an unknown typed value as null (`unknown_value`); and a
   dependency group holding an unresolved reference cannot be judged against the other side's
   targets (`unresolved_reference`).
 
