@@ -6,13 +6,13 @@ from archdiscov.ingestion.evidence_builder import EvidenceBuilder
 from archdiscov.models.architecture import (
     ArchitectureSnapshot,
     AwsSource,
-    Coverage,
     RegionArchitecture,
     SnapshotCoverage,
 )
 from archdiscov.models.enums import AwsRegion, AwsService
 from archdiscov.models.resource_base import ResourceIdentity
 from archdiscov.models.resources.network import SecurityGroup, SecurityGroupRule
+from tests.support.coverage_data import ec2_coverage
 from tests.support.iam_data import ACCOUNT, context
 
 SNAPSHOT = UUID(int=292)
@@ -41,10 +41,12 @@ def build(
     status: str | None = "success",
     uncited: bool = False,
     bare: tuple[str, ...] = (),
+    omitted: tuple[str, ...] = (),
 ):
     """Groups by physical ID to their rules.
 
-    `uncited` records rules without per-rule citations; `bare` names groups recorded with
+    `uncited` records rules without per-rule citations; `omitted` names groups whose
+    invalid rules normalization dropped; `bare` names groups recorded with
     no evidence at all. A `status` of None records no EC2 coverage.
     """
     builder = EvidenceBuilder(SNAPSHOT, ACCOUNT, REGION)
@@ -82,33 +84,13 @@ def build(
                 item_path=f"SecurityGroups[{name}]",
                 item={"GroupId": name},
                 physical_id=name,
-                attributes={},
+                attributes={"limitations": ["rule omitted"]} if name in omitted else {},
                 facts=facts,
                 ingress_rules=ingress,
                 egress_rules=egress,
             )
         )
-    operations = []
-    if status:
-        now = context(None).clock()
-        data = {
-            "account_id": ACCOUNT,
-            "region": REGION,
-            "service": AwsService.EC2,
-            "operation": "DescribeSecurityGroups",
-            "status": status,
-            "started_at": now,
-            "completed_at": now,
-        }
-        if status == "success":
-            data["result_count"] = len(resources)
-        elif status == "failed":
-            data["failures"] = [{"code": "AccessDenied", "message": "Denied"}]
-        elif status == "incomplete":
-            data.update(result_count=1, reason="Pagination stopped")
-        else:
-            data["reason"] = "Not collected"
-        operations.append(Coverage.model_validate(data))
+    operations = [ec2_coverage("DescribeSecurityGroups", status, len(resources))] if status else []
     return ArchitectureSnapshot(
         schema_version="2",
         snapshot_id=SNAPSHOT,

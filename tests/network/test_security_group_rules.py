@@ -250,3 +250,12 @@ def test_results_are_deterministic_and_detached():
     assert first == check(groups)[1]
     first.evidence_ids.append("changed")
     assert "changed" not in check(groups)[1].evidence_ids
+
+
+def test_rules_omitted_during_normalization_make_an_implicit_deny_unknown():
+    omitted = ("sg-app",)
+    result = check({"sg-app": [rule(cidr="192.168.0.0/16")]}, omitted=omitted)[1]
+    assert result.decision == D.UNKNOWN
+    assert codes(result) == {B.MISSING_EVIDENCE}
+    allowed = check({"sg-app": [rule(cidr="10.0.0.0/16")]}, omitted=omitted)[1]
+    assert allowed.decision == D.ALLOW

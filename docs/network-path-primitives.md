@@ -3,7 +3,7 @@
 Step 29 defines which AWS network cases are evaluated initially and how uncertainty is
 handled, then provides reusable primitives over the shared `GraphIndex`. The decision
 vocabulary and composition rules described here are implemented; the individual
-primitives are delivered in later substeps. No analyzer or CLI uses them yet (database
+primitives are delivered in later substeps (security-group rules and NACLs so far). No analyzer or CLI uses them yet (database
 access and internet exposure are later steps).
 
 **A decision describes recorded configuration, not live reachability.** It ignores
@@ -54,6 +54,16 @@ resource, citing evidence, and (for limited collection) the recorded coverage op
 Evidence and blockers are deduplicated and deterministically ordered. Only contributing
 results are kept: allows contribute evidence, and blockers come from the results that
 decided the outcome.
+
+## Implemented primitives
+
+- `evaluate_security_group` (`services.network_security_groups`): one direction against a
+  group's recorded rules. Any matching cited rule allows; with none, a recorded group
+  denies implicitly.
+- `evaluate_network_acl` (`services.network_acls`): one direction against the subnet's
+  single observed ACL association, entries in rule-number order, first match wins, with
+  the implicit final deny. No default ACL is assumed, and an ACL with entries that could not
+  be recorded is unknown. Callers compose both directions explicitly (NACLs are stateless).
 
 ## Supported and unsupported cases
 
