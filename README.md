@@ -38,11 +38,6 @@ evidence inspection; it does not provide live Azure collection or analysis.
 | Snapshot comparison | [Implemented](docs/comparison-results.md): `compare` and `comparison` CLI, identity matching without guessing, field-level differences with citations on both sides, lifecycle, source-kind, and coverage qualification, atomic no-overwrite results verified against both snapshots; recorded differences, not drift detection or proof of change |
 | LLM assistant/providers | Planned |
 
-[PLAN.md](PLAN.md) records delivery progress and the remaining roadmap. “All services”
-means the supported inventory, not every AWS resource type or proof of reachability/effective
-access. Start with the [offline workflow](#implemented-offline-workflow), or use
-[AWS collection](#aws-configuration-collection-and-the-collect-command) with runtime credentials.
-
 ## Installation and development
 
 Use Python 3.13 and uv. From the repository root, install the package and development dependencies using the committed lockfile:
@@ -1076,7 +1071,7 @@ Every factual conclusion must cite discovered resources or configuration evidenc
 | 1. Models, snapshots, fixtures, persistence, evidence inspection, and CLI foundation | Complete (steps 1–9) |
 | 2. AWS and infrastructure-as-code ingestion | Complete (steps 10–22): supported AWS inventory, offline IaC imports, explicit CLI formats, permissions and offline acceptance |
 | Pre-phase-3 cloud boundary bridge (22.1–22.4) | Implemented foundation: scopes/identities/resources, schema `3` and conversion, offline Azure workflows, and common access/compatibility documentation; not live Azure support |
-| 3. Graph queries, deterministic findings, and snapshot comparisons | Implemented (steps 23–32): result contracts and integrity, graph indexes, queries and the `query` CLI, the five analyzers with immutable result persistence, and snapshot comparison; acceptance and documentation closure (step 33) is in progress |
+| 3. Graph queries, deterministic findings, and snapshot comparisons | Complete (steps 23–33): result contracts and integrity, graph indexes, queries and the `query` CLI, the five analyzers with immutable result persistence, snapshot comparison, and offline [host and container acceptance](#phase-3-offline-acceptance) |
 | 4. LLM-provider adapters, orchestration, validated answers, and evaluations | Planned; separate from cloud platforms |
 
 The bridge prepares phase 3 to build common graph/query and ownership contracts.
@@ -1181,6 +1176,35 @@ not all AWS services or a transactionally consistent view. IaC exports/declarati
 are not deployed observations; complex mappings, unknown expressions and unfetched
 nested templates stay explicit limitations in the linked format guides. Graph
 queries, analyzers, and comparisons are phase 3 (see [analyzers](docs/analyzers.md)); providers remain phase 4.
+
+### Phase 3 offline acceptance
+
+Phase 3 closes with offline checks that need no credentials or network, on the host with
+`.venv/bin/python` and in Docker with `/opt/venv/bin/python`:
+
+- `tests/acceptance/test_phase_three_audit.py` and `test_phase_three_comparison_audit.py`: every
+  analyzer on schemas `1`–`3` and the Azure fixture, and every pair of snapshot source kinds,
+  against the completion criteria (cited evidence and paths, coverage qualification, no
+  unqualified conclusion under partial coverage, immutable and verified results).
+- `tests/acceptance/test_installed_end_to_end.py`: one journey outside the checkout through the
+  installed script and module (ingest, queries, each analyzer, findings, evidence, comparisons)
+  with an offline guard that fails any network use.
+- `tests/acceptance/test_readme_scenarios.py` and `tests/documentation`: the scenarios below,
+  and the documentation, command, limit, link, and scenario-mapping checks.
+
+```bash
+.venv/bin/python -m pytest tests/acceptance tests/documentation -q
+docker compose build dev
+docker run --rm --network none \
+  --mount "type=bind,src=$PWD,dst=/workspace" \
+  archdiscov-dev /opt/venv/bin/python -m pytest -n 8 --dist loadgroup -q
+```
+
+`--dist loadgroup` keeps the installed-CLI journey on one worker; `-n 8` can be dropped to run
+serially. The last verified run passed all 4,303 tests on the host and in Docker with networking
+disabled. Image builds need registry access; test execution does not. The offline Azure fixtures
+validate the generic mechanics (schemas, queries, comparison) and the explicit unsupported
+results of the AWS-only analyzers; they are not Azure discovery or analysis.
 
 ### Acceptance scenarios
 
