@@ -18,6 +18,7 @@ class ElementDecision(Model):
     path, and limitations. Uses the shared network decision rules.
     """
 
+    element: StrEnum  # narrowed to the analyzer's own element enum by each subclass
     decision: NetworkDecision
     blocker_codes: list[NetworkBlockerCode] = Field(default_factory=list)
 

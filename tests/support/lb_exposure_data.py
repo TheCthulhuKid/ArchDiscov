@@ -12,13 +12,24 @@ from archdiscov.models.architecture import (
     SnapshotCoverage,
 )
 from archdiscov.models.enums import AwsRegion, AwsService, CoverageStatus
+from tests.support.coverage_data import coverage_record
 from tests.support.elbv2_data import ACCOUNT, GROUP, LB, LISTENER, RULE, responses
 from tests.support.elbv2_snapshot import normalized
 from tests.support.ids import stable_id
 
 REGION = AwsRegion.US_EAST_1
 SNAPSHOT_ID = UUID(int=15)
-__all__ = ["GROUP", "LB", "LISTENER", "RULE", "build", "ec2_items", "rid", "responses"]
+__all__ = [
+    "FULL_COVERAGE",
+    "GROUP",
+    "LB",
+    "LISTENER",
+    "RULE",
+    "build",
+    "ec2_items",
+    "rid",
+    "responses",
+]
 
 
 def rid(physical_id, service=AwsService.EC2):
@@ -41,7 +52,7 @@ def _rule(group, port, **target):
     return item
 
 
-def ec2_items(*, backend_rules=None, public_route=True, acl=True):
+def ec2_items(*, backend_rules=None, public_route=True, acl=True, public_eni=False):
     """vpc-a with a public subnet (subnet-a), a private one (subnet-b), and the backend."""
     routes = [{"DestinationCidrBlock": "10.0.0.0/16", "GatewayId": "local", "State": "active"}]
     if public_route:
@@ -99,6 +110,17 @@ def ec2_items(*, backend_rules=None, public_route=True, acl=True):
             }
         ],
     }
+    if public_eni:
+        items[Op.DESCRIBE_NETWORK_INTERFACES] = [
+            {
+                "NetworkInterfaceId": "eni-public",
+                "SubnetId": "subnet-a",
+                "VpcId": "vpc-a",
+                "Groups": [{"GroupId": "sg-a"}],
+                "PrivateIpAddresses": [{"PrivateIpAddress": "10.0.1.7", "Primary": True}],
+                "Association": {"PublicIp": "198.51.100.7"},
+            }
+        ]
     if acl:
         items[Op.DESCRIBE_NETWORK_ACLS] = [
             {
@@ -120,9 +142,10 @@ def ec2_items(*, backend_rules=None, public_route=True, acl=True):
     return items
 
 
-def build(data=None, *, ec2=None, limited=None) -> ArchitectureSnapshot:
+def build(data=None, *, ec2=None, limited=None, coverage=None) -> ArchitectureSnapshot:
     """An internet-facing application balancer in subnet-a forwarding to instance i-web.
 
+    `coverage` maps (service, operation) to a status recorded in addition to the ELBv2 records.
     `data` is the ELBv2 API data (default: `responses()` made internet-facing); `limited`
     names an ELBv2 or EC2 operation whose recorded coverage is failed.
     """
@@ -148,6 +171,11 @@ def build(data=None, *, ec2=None, limited=None) -> ArchitectureSnapshot:
             else record
             for record in operations
         ]
+    at = operations[0].started_at
+    operations += [
+        coverage_record(service, operation, status, 1, REGION, at)
+        for (service, operation), status in (coverage or {}).items()
+    ]
     return ArchitectureSnapshot(
         schema_version="2",
         snapshot_id=SNAPSHOT_ID,
@@ -160,3 +188,17 @@ def build(data=None, *, ec2=None, limited=None) -> ArchitectureSnapshot:
         dependencies_by_region={REGION: links},
         evidence={**region.evidence, **elb.evidence},
     )
+
+
+FULL_COVERAGE = {
+    (AwsService.EC2, operation): "success"
+    for operation in (
+        "DescribeInstances",
+        "DescribeNetworkInterfaces",
+        "DescribeNetworkAcls",
+        "DescribeRouteTables",
+        "DescribeInternetGateways",
+        "DescribeSecurityGroups",
+        "DescribeSecurityGroupRules",
+    )
+}

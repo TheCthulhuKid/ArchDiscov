@@ -15,6 +15,7 @@ from .analyzer_errors import AnalyzerError
 from .analyzers import AnalyzerRegistry
 from .cross_account_trust import CrossAccountTrustAnalyzer
 from .database_access import DatabaseAccessAnalyzer
+from .internet_exposure import InternetExposureAnalyzer
 from .ownership import OwnershipAnalyzer
 from .security_group_impact import SecurityGroupImpactAnalyzer
 from .validation_data import detach_data
@@ -30,6 +31,7 @@ DEFAULT_REGISTRY = AnalyzerRegistry(
         SecurityGroupImpactAnalyzer(),
         CrossAccountTrustAnalyzer(),
         DatabaseAccessAnalyzer(),
+        InternetExposureAnalyzer(),
     ]
 )
 

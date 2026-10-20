@@ -21,7 +21,7 @@ def element_decisions[E: StrEnum](
     """One decision per present element, in canonical order, with sorted blocker codes."""
     return tuple(
         decision_type(
-            element=element,  # type: ignore[call-arg]
+            element=element,
             decision=results[element].decision,
             blocker_codes=sorted({b.code for b in results[element].blockers}),
         )

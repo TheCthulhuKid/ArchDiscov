@@ -16,9 +16,9 @@ An empty findings list is allowed, but does not by itself prove complete analysi
 The discriminated parameter models in `models.analysis.parameters` cover ownership
 (default keys `Owner`, `Team`), security-group impact (resource/depth/result limit),
 cross-account trust, database access (resource/port/result limit), and internet exposure
-(depth/result limit). Defining a parameter model does not implement that analyzer; the
-ownership, security-group impact, cross-account trust, and database-access analyzers are
-implemented.
+(depth/result limit). Defining a parameter model does not implement that analyzer; all five
+analyzers (ownership, security-group impact, cross-account trust, database access, and
+internet exposure) are implemented.
 
 `AnalysisFinding` contains a summary, status, evidence IDs, cloud-aware resource
 references, ordered path steps, and structured limitations. Supported and partial
@@ -123,7 +123,7 @@ live reachability.
 ## Internet-exposure vocabulary
 
 `AnalysisFinding.internet_exposure` (`InternetExposure`) is optional and reserved for the
-internet-exposure analyzer (step 31). It records the candidate exposure of one entry point on
+[internet-exposure analyzer](internet-exposure.md). It records the candidate exposure of one entry point on
 a protocol and port range. The entry point is the finding's first resource reference, followed
 by any targets reached through a load balancer:
 
