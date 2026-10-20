@@ -45,6 +45,28 @@ SOURCES = {
 }
 
 
+def coverage(status="success", *, service="ec2", operation="DescribeVpcs", region=REGION):
+    """A recorded operation outcome of the test account."""
+    data = {
+        "account_id": ACCOUNT,
+        "region": region,
+        "service": service,
+        "operation": operation,
+        "status": status,
+        "started_at": "2026-01-01T00:00:00Z",
+        "completed_at": "2026-01-01T00:00:30Z",
+    }
+    if status in ("success", "incomplete"):
+        data["result_count"] = 1
+    if status == "incomplete":
+        data["reason"] = "partial"
+    if status == "failed":
+        data["failures"] = [{"code": "denied", "message": "access denied"}]
+    if status in ("skipped", "unsupported"):
+        data["reason"] = "not collected"
+    return data
+
+
 def aws_snapshot(
     resources,
     source="aws",
@@ -54,6 +76,7 @@ def aws_snapshot(
     region=REGION,
     dependencies=(),
     evidence=None,
+    operations=(),
 ):
     data = {
         "schema_version": "2",
@@ -62,7 +85,11 @@ def aws_snapshot(
         "collection_started_at": "2026-01-01T00:00:00Z",
         "collection_completed_at": "2026-01-01T00:01:00Z",
         "source": copy.deepcopy(SOURCES[source]),
-        "coverage": {"regions": [region], "account_wide": False},
+        "coverage": {
+            "regions": [region],
+            "account_wide": False,
+            "operations": copy.deepcopy(list(operations)),
+        },
         "regions": {region: {"resources": resources}},
         "dependencies_by_region": {region: list(dependencies)} if dependencies else {},
         "evidence": copy.deepcopy(evidence or {}),

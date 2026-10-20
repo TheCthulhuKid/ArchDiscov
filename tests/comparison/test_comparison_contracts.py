@@ -263,10 +263,22 @@ def test_an_unmatched_resource_is_qualified_by_lifecycle_or_coverage_only(kind):
     assert UnmatchedResource.model_validate(unmatched(qualifications=[planned]))
 
 
-def test_an_unmatched_resource_is_only_qualified_by_its_own_side():
+def test_a_planned_lifecycle_of_an_unmatched_resource_concerns_its_own_side():
     with pytest.raises(ValidationError, match="own side"):
         UnmatchedResource.model_validate(
-            unmatched("left", qualifications=[qualification(side="right")])
+            unmatched(
+                "left",
+                qualifications=[qualification("planned_lifecycle", "right", lifecycle=DELETION)],
+            )
+        )
+
+
+def test_an_unmatched_resource_may_be_qualified_by_the_coverage_of_either_side():
+    for side in ("left", "right"):
+        assert UnmatchedResource.model_validate(
+            unmatched(
+                "left", qualifications=[qualification("unrecorded_coverage", side, service="ec2")]
+            )
         )
 
 

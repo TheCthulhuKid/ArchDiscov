@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from archdiscov.models.cloud.contracts import CloudEvidence, CloudOperationCoverage
@@ -53,6 +54,21 @@ class GraphIndex:
     def source_kind(self) -> SnapshotSourceKind:
         """What the snapshot records: an observation, Terraform state or plan, or a template."""
         return self._access._borrow_snapshot().source.kind
+
+    @property
+    def source_label(self) -> str | None:
+        """A readable name of the source (label, file path, or profile), never a credential."""
+        provenance = self._access._borrow_snapshot().source.provenance
+        for name in ("label", "path", "profile"):
+            value = getattr(provenance, name, None)
+            if value is not None:
+                return str(value)
+        return None
+
+    @property
+    def collection_window(self) -> tuple[datetime, datetime]:
+        snapshot = self._access._borrow_snapshot()
+        return snapshot.collection_started_at, snapshot.collection_completed_at
 
     @property
     def scope(self) -> SupportedScope:

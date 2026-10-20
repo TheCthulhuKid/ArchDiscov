@@ -57,10 +57,6 @@ class _Edges:
     unresolved: set[str] = field(default_factory=set)  # evidence of unresolved references
 
 
-def _other(side: ComparisonSide) -> ComparisonSide:
-    return RIGHT if side == LEFT else LEFT
-
-
 def _walk(left: object, right: object, path: str, found: list[tuple[str, object, object]]) -> None:
     """Collect the paths where two JSON documents differ, descending through shared containers."""
     if isinstance(left, dict) and isinstance(right, dict):
@@ -276,7 +272,7 @@ class FieldComparer:
         found: list[FieldDifference] = []
         absorbed = {LEFT: False, RIGHT: False}  # an unresolved side explains the other's extras
         for side in (LEFT, RIGHT):
-            other = _other(side)
+            other = side.opposite
             for key in sorted(sides[side].targets.keys() - sides[other].targets.keys()):
                 value, evidence = sides[side].targets[key]
                 path = _dependency_path(group, key)
@@ -302,7 +298,7 @@ class FieldComparer:
                     )
                 )
         for side in (LEFT, RIGHT):  # an unresolved reference with nothing on the other side
-            other = _other(side)
+            other = side.opposite
             if sides[side].unresolved and not sides[other].unresolved and not absorbed[side]:
                 found.append(
                     self._indeterminate(

@@ -27,7 +27,7 @@ message is descriptive only, and each kind appears at most once.
 | Entry | Meaning |
 |---|---|
 | `MatchedPair` | two resources paired by `basis` (`physical_identity` or `logical_address`) in the same complete scope, with `differences` and `qualifications` |
-| `UnmatchedResource` | a resource with no counterpart on its `side`, qualified by planned lifecycle or coverage only |
+| `UnmatchedResource` | a resource with no counterpart on its `side`, qualified by planned lifecycle or coverage only (a lifecycle concerns the resource's own side; coverage may concern either side) |
 | `AmbiguousMatch` | several candidates share one match `key`: every candidate is listed on each side and none is chosen |
 
 A resource appears in at most one entry on its side, resource references carry the scope of
@@ -105,3 +105,24 @@ recorded snapshots, not a drift verdict.
   resource recorded unknown or omitted values may be one of them (`unknown_value`); and a
   dependency group holding an unresolved reference cannot be judged against the other side's
   targets (`unresolved_reference`).
+
+## Qualification
+
+Qualification (`archdiscov.services.comparison_qualification`) labels each side and qualifies
+entries; a qualified absence is never reported as a removal.
+
+- **Sides** are labelled from the snapshot: platform, scope, source kind, a source label (the
+  mock or fixture label, else the file path, else the AWS profile; never a role or credential),
+  and the collection window.
+- **Planned lifecycle**: a resource's Terraform plan lifecycle (including module-addressed
+  resources) qualifies its matched pair or unmatched entry on its own side, citing the plan's
+  action evidence. A planned deletion or replacement is a plan, not an observed absence.
+- **Coverage** uses the shared contextual coverage helper. Recorded failed, incomplete,
+  skipped, or unsupported operations for a resource's scope, location, and service give
+  `limited_coverage`; a context with no recorded coverage gives `unrecorded_coverage` with only
+  the service. An unmatched resource is qualified by the coverage of the side where it is
+  absent, and only when both snapshots share a scope; each difference of a matched pair carries
+  the coverage qualifications of both sides.
+- **Snapshot limitations** are added for `cross_cloud` and `scope_mismatch` (nothing can
+  match) and for `source_kind_mismatch` whenever the two source kinds differ, for example a
+  declaration compared with an observation.

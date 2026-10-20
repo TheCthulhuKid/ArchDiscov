@@ -409,6 +409,10 @@ class ComparisonSide(StrEnum):
     LEFT = "left"
     RIGHT = "right"
 
+    @property
+    def opposite(self) -> "ComparisonSide":
+        return ComparisonSide.RIGHT if self is ComparisonSide.LEFT else ComparisonSide.LEFT
+
 
 class MatchBasis(StrEnum):
     """What paired two resources: a physical identity, or a logical address in an IaC context."""

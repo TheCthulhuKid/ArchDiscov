@@ -133,7 +133,12 @@ _ABSENCE_QUALIFICATIONS = {
 
 
 class UnmatchedResource(Model):
-    """A resource with no counterpart on the other side (qualified, never a proven removal)."""
+    """A resource with no counterpart on the other side (qualified, never a proven removal).
+
+    Its own planned lifecycle qualifies it, and so does the coverage of either side: the recorded
+    coverage of the other side, where the resource is absent, says whether that absence is
+    meaningful.
+    """
 
     id: NonEmptyString = Field(default="")
     side: ComparisonSide
@@ -142,8 +147,11 @@ class UnmatchedResource(Model):
 
     @model_validator(mode="after")
     def validate_unmatched(self) -> Self:
-        if any(item.side != self.side for item in self.qualifications):
-            raise ValueError("qualifications of an unmatched resource concern its own side")
+        if any(
+            item.kind == QualificationKind.PLANNED_LIFECYCLE and item.side != self.side
+            for item in self.qualifications
+        ):
+            raise ValueError("a planned lifecycle of an unmatched resource concerns its own side")
         if any(item.kind not in _ABSENCE_QUALIFICATIONS for item in self.qualifications):
             raise ValueError("an unmatched resource is qualified by lifecycle or coverage only")
         _sorted_qualifications(self.qualifications)
