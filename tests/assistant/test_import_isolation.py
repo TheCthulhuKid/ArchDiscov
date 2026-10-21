@@ -130,6 +130,18 @@ built = providers.build_provider(
     config_dir=Path("."),
 )
 assert built.remaining_turns > 0
+import json
+import tempfile
+
+from archdiscov.services import ask
+
+with tempfile.TemporaryDirectory() as directory:
+    settings = Path(directory) / "provider.toml"
+    script = Path(directory) / "run.json"
+    script.write_text(json.dumps({{"turns": [{{"kind": "respond", "response": reply}}] * 2}}))
+    settings.write_text("kind = 'fake'" + chr(10) + "transcript = 'run.json'", encoding="utf-8")
+    asked = ask.ask_question("q", snapshot_path=Path({str(SNAPSHOT)!r}), config_path=settings)
+assert asked.summary.provider_kind == "fake"
 print(",".join(module for module in BLOCKED if module in sys.modules))
 """
 

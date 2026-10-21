@@ -8,6 +8,10 @@ from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
 _EXPORTS = {
+    "AskCancelled": "ask",
+    "AskResult": "ask",
+    "ask_question": "ask",
+    "ask_question_async": "ask",
     "load_analysis": "analyses",
     "save_analysis": "analyses",
     "DEFAULT_REGISTRY": "analysis_execution",
@@ -68,6 +72,8 @@ __all__ = [
     "Analyzer",
     "AnalyzerError",
     "AnalyzerRegistry",
+    "AskCancelled",
+    "AskResult",
     "ComparisonValidationError",
     "CrossAccountTrustAnalyzer",
     "DEFAULT_REGISTRY",
@@ -88,6 +94,8 @@ __all__ = [
     "SnapshotValidationError",
     "SnapshotValidationIssue",
     "SupportedSnapshot",
+    "ask_question",
+    "ask_question_async",
     "build_result",
     "collect_and_save",
     "collect_and_save_async",
@@ -140,6 +148,7 @@ if TYPE_CHECKING:
     )
     from .analyzer_errors import AnalyzerError
     from .analyzers import Analyzer, AnalyzerRegistry, build_result
+    from .ask import AskCancelled, AskResult, ask_question, ask_question_async
     from .async_ingestion import collect_and_save_async, collect_snapshots_async
     from .comparison import compare_snapshots
     from .comparison_results import (

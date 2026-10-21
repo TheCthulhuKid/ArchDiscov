@@ -245,3 +245,19 @@ The JSON form (`answer_data`) is a contract:
 | `qualifications` | answer-wide fixed statements |
 | `narrative` | the model's `summary` and `explanation`, marked `"source": "model"` |
 | `failure` | for failures: the reason, the `retrieved` conclusions, and the `unverified` statements |
+
+## The ask service
+
+`ask_question(question, snapshot_path=, config_path=, comparison_path=)` in
+`services/ask.py` (with `ask_question_async`) is what the `ask` command will call. It
+builds the provider from the configuration before reading any snapshot, loads the
+snapshots into a tool session, takes the run limits from the configuration, and runs the
+answer service. Its `AskResult` holds the `AnswerResult` and a `RunSummary`: each
+snapshot as rendered, the provider kind and model, the limits, and the tool usage from the
+transcript (provider requests, tool calls by name, whether the repair was requested, and
+token usage). Cancelling raises `AskCancelled`, whose `result` explains the cancelled run.
+
+Errors before the run starts keep the existing CLI codes: an unreadable configuration,
+transcript, or snapshot file is 1, and invalid configuration, transcripts, or snapshots,
+including a provider kind without an adapter, are 2. Once the run starts, everything is an
+answer outcome with the exit codes above.

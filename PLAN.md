@@ -2744,16 +2744,16 @@ Implement and verify substeps 39.1–39.6 in order. Keep the parent planned unti
 **Acceptance check:** Tests build the fake provider from TOML with a relative and an absolute transcript path, refuse a missing or invalid transcript, refuse every kind without an adapter with a fixed message, and show that no secret appears in any error or repr.
 
 #### Step 39.2: Compose the ask service
-**Status:** Planned.
+**Status:** Implemented. `services/ask.py` (exported lazily from `services`) adds `ask_question_async` and the sync `ask_question`. They build the provider with `load_provider` before any snapshot is read, then load the session with `ToolSession.from_paths`, take `RunLimits.from_config`, and run `answer_question`. `AskResult` holds the `AnswerResult` and a `RunSummary`: the rendered snapshots, provider kind and model, limits, and `ToolUsage` from the transcript (provider requests, tool calls by name, whether the repair was requested, and token usage). Cancelling raises `AskCancelled` with the explained result. Errors before the run keep the existing CLI codes through the new `cli_diagnostics.safe_assistant_failures` and `fail_assistant_error`: unreadable configuration, transcript, or snapshot files are 1 (`snapshot_io_error` for snapshots, as every command reports a missing file), and invalid configuration, transcripts, or snapshots, including a kind without an adapter, are 2. Tests cover an answer, a repaired answer, exits 5, 6 (provider and limit), and 130, configured limits, a comparison side, and the summary against the transcript. They also cover a missing, invalid, or malformed configuration, a fake without a transcript, an unusable transcript, an adapter-less kind failing before a missing snapshot is read, and missing or invalid primary and comparison snapshots, all without secrets in the output. The import-isolation test runs the service.
 **Prerequisite:** Step 39.1.
 
 - Add `services/ask.py` with `ask_question(question, *, snapshot_path, comparison_path=None, config_path)` (async, with a sync wrapper as in step 36). It loads the configuration and the snapshots through the existing services, builds the `ToolSession`, takes `RunLimits.from_config`, and runs `answer_question`.
 - Return an `AskResult` with the `AnswerResult` and a run summary for presentation: each selected snapshot's ID, source kind, and collection window; the provider kind and model; the limits; and tool usage (provider requests, tool calls by tool name, the repair turn, and total token usage) taken from the transcript.
-- Map errors before a run starts to the existing diagnostics and exit codes: configuration and invalid input are 2, unreadable files are 1, and missing snapshots are 4, through the existing snapshot error mapping. Errors after the run starts are answer outcomes.
+- Map errors before a run starts to the existing diagnostics and exit codes: configuration and invalid input are 2, and unreadable files, including a missing snapshot, are 1, through the existing snapshot error mapping. Errors after the run starts are answer outcomes.
 
 **Advice:** Reuse `ToolSession.from_paths` and the snapshot loaders; do not reimplement validation or error mapping.
 
-**Acceptance check:** Tests run the service with fake configurations for an answer, a repaired answer, and each failure group (5, 6, 130), and refuse a missing configuration, unknown snapshot, invalid snapshot, and mismatched comparison snapshot with the expected safe diagnostics and exit codes. The run summary matches the transcript.
+**Acceptance check:** Tests run the service with fake configurations for an answer, a repaired answer, and each failure group (5, 6, 130), and refuse a missing configuration, unknown snapshot, invalid snapshot, and invalid comparison snapshot with the expected safe diagnostics and exit codes. The run summary matches the transcript.
 
 #### Step 39.3: Write transcripts on request
 **Status:** Planned.
