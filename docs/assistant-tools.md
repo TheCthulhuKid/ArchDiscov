@@ -3,8 +3,8 @@
 This page describes the bounded, typed tools under `src/archdiscov/assistant/tools/` that a
 future assistant will call. The tools call the same query and analysis services as the
 CLI, over data the user selected, and return allowlisted views with explicit truncation.
-No command uses them yet: the tool-calling loop, answer validation, and the `ask` command
-are later steps, and the only provider is the scripted fake described in
+No command uses them yet: the [tool-calling loop](assistant-orchestration.md) exists, while
+answer validation and the `ask` command are later steps, and the only provider is the scripted fake described in
 [assistant provider contracts](assistant-providers.md).
 
 ## Tool set

@@ -2472,7 +2472,7 @@ Implement and verify substeps 35.1–35.5 in order. Keep the parent planned unti
 **Acceptance check:** Every tool is covered for success, truncation, unknown IDs, invalid input, partial coverage, and Azure-unsupported results; the schema audit finds no forbidden inputs; returned-ID tracking is exact; injection text appears only as marked data; documentation matches the code.
 
 ### Step 36: Orchestrate the tool-calling loop with limits
-**Status:** Planned.
+**Status:** Implemented. Substeps 36.1–36.5 pass their acceptance checks; see each substep below.
 **Prerequisites:** Steps 34–35.
 
 Implement and verify substeps 36.1–36.5 in order. Keep the parent planned until every substep's acceptance checks pass. Put the code in `src/archdiscov/assistant/` (keep `__init__.py` light), reuse the step 34 `Provider`, conversation, and error contracts and the step 35 `ToolSession`, registry, and run record, and never call the CLI. The loop runs system instructions, user question, provider turn, and tool execution, repeating until a final answer or a limit.
@@ -2530,7 +2530,7 @@ Implement and verify substeps 36.1–36.5 in order. Keep the parent planned unti
 **Acceptance check:** Tests cover per-request and overall timeouts, cancellation with a partial transcript, the sync wrapper inside a running loop, and identical outcomes for the sync and async entry points.
 
 #### Step 36.5: Verify and document the orchestration boundary
-**Status:** Planned.
+**Status:** Implemented. `tests/assistant/test_orchestration_suite.py` derives the expected outcomes from `RunOutcome`, `RunLimitKind`, `MalformedOutputReason`, `ProviderErrorCode`, and the answer stop reasons (22 identities), so a new outcome, limit, reason, or code fails until a fake-provider case is added; each case reaches its outcome exactly through `run_assistant_async` (cancellation through a hanging provider), with a valid round-tripping transcript, and no transcript contains the secret placed in the question, tool arguments, assistant text, and answer, while the result keeps the raw answer. The import-isolation test runs both entry points with vendor SDK modules blocked. [docs/assistant-orchestration.md](docs/assistant-orchestration.md) documents the loop, limits and the limit each one ends a run with, deadlines, outcomes and malformed-output reasons, cancellation, the instructions, and the transcript, and is linked from the README and the tools page without claiming `ask`, answer validation, or real providers; documentation-drift tests check limits, defaults, bounds, outcome kinds and fields, malformed-output reasons, stop reasons, the instructions version, and the transcript text bound. Focused and full offline tests, acceptance, Ruff lint and format, documentation links, and whitespace checks pass with `.venv/bin/python`.
 **Prerequisite:** Step 36.4.
 
 - Add a fake-provider transcript suite covering every outcome and limit, a transcript secret-leak test, and an import-isolation test that the orchestration imports with vendor SDK modules blocked.

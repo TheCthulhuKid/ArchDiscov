@@ -67,6 +67,14 @@ run = orchestrator.run_assistant(
     "q", provider=fake.FakeProvider(answer), session=session, provider_kind="fake", model="fake"
 )
 assert run.outcome.kind == "answered"
+import asyncio
+
+run = asyncio.run(
+    orchestrator.run_assistant_async(
+        "q", provider=fake.FakeProvider(answer), session=session, provider_kind="fake", model="fake"
+    )
+)
+assert run.outcome.kind == "answered"
 
 transcript = fake.load_fake_transcript(Path({str(TRANSCRIPT)!r}))
 replayed = fake.FakeProvider(transcript)
