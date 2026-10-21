@@ -2729,6 +2729,78 @@ Implement and verify substeps 38.1–38.6 in order. Keep the parent planned unti
 
 **Acceptance check:** Installed-CLI tests outside the checkout run all example questions against fixtures with the fake provider; missing configuration, unknown snapshot, and provider errors fail safely; no credentials or network are needed.
 
+Implement and verify substeps 39.1–39.6 in order. Keep the parent planned until every substep's acceptance checks pass. Business logic goes in `services/` or `assistant/`, and `cli_ask.py` stays routing and presentation over it, reusing `answer_question`, the step 38 renderings, `cli_diagnostics`, and the existing exit codes. The provider comes only from `--config PATH`: one provider per file, as step 34.3 defines. No separate `--provider` flag is added, because a second source for the same choice invites silent defaults; nothing falls back to the fake provider. Until steps 40–42 add adapters, a real provider kind fails with a typed, safe diagnostic.
+
+#### Step 39.1: Build providers from configuration
+**Status:** Planned.
+**Prerequisite:** Step 38.
+
+- Add a provider factory that turns a validated `ProviderConfig` into a `Provider` through a lookup table keyed by `ProviderKind`, so steps 40–42 register adapters without touching callers. Resolve credentials only inside the factory with `resolve_api_key`, and never return, log, or record them.
+- Let a fake configuration name its transcript file (`transcript = "path"`, resolved relative to the configuration file and loaded with `load_fake_transcript`); a fake configuration without a transcript is an error, not an empty provider.
+- A kind with no registered adapter fails with a typed `provider_unavailable` configuration error and a fixed message, before any snapshot is read or request is made.
+
+**Advice:** Keep the factory free of CLI concerns; it is the seam the real adapters plug into.
+
+**Acceptance check:** Tests build the fake provider from TOML with a relative and an absolute transcript path, refuse a missing or invalid transcript, refuse every kind without an adapter with a fixed message, and show that no secret appears in any error or repr.
+
+#### Step 39.2: Compose the ask service
+**Status:** Planned.
+**Prerequisite:** Step 39.1.
+
+- Add `services/ask.py` with `ask_question(question, *, snapshot_path, comparison_path=None, config_path)` (async, with a sync wrapper as in step 36). It loads the configuration and the snapshots through the existing services, builds the `ToolSession`, takes `RunLimits.from_config`, and runs `answer_question`.
+- Return an `AskResult` with the `AnswerResult` and a run summary for presentation: each selected snapshot's ID, source kind, and collection window; the provider kind and model; the limits; and tool usage (provider requests, tool calls by tool name, the repair turn, and total token usage) taken from the transcript.
+- Map errors before a run starts to the existing diagnostics and exit codes: configuration and invalid input are 2, unreadable files are 1, and missing snapshots are 4, through the existing snapshot error mapping. Errors after the run starts are answer outcomes.
+
+**Advice:** Reuse `ToolSession.from_paths` and the snapshot loaders; do not reimplement validation or error mapping.
+
+**Acceptance check:** Tests run the service with fake configurations for an answer, a repaired answer, and each failure group (5, 6, 130), and refuse a missing configuration, unknown snapshot, invalid snapshot, and mismatched comparison snapshot with the expected safe diagnostics and exit codes. The run summary matches the transcript.
+
+#### Step 39.3: Write transcripts on request
+**Status:** Planned.
+**Prerequisite:** Step 39.2.
+
+- Add an opt-in transcript output to the service: the `RunTranscript` JSON (already redacted and bounded), published with `publish_text`, so an existing file is never overwritten and fails with the existing conflict exit code 3 before the run starts.
+- Write the transcript for failed answers too, and never write one when the run did not start.
+
+**Advice:** Check the destination before calling the provider, so a conflict costs no provider request.
+
+**Acceptance check:** Tests write a transcript that validates as `RunTranscript` and contains no secret; refuse an existing path, and a path whose parent is missing, before any provider request; and write transcripts for failed runs.
+
+#### Step 39.4: Add the `ask` command
+**Status:** Planned.
+**Prerequisite:** Step 39.3.
+
+- Add `ask QUESTION --snapshot PATH [--compare PATH] --config PATH [--transcript PATH] [--json]` in `cli_ask.py`, registered like the other command modules, as thin presentation over the ask service.
+- Readable output shows the run summary first (snapshots, provider and model, limits, tool usage), then `print_answer`. `--json` emits a versioned envelope with the run summary beside the step 38.5 `answer_data`, documented and tested as a contract.
+- Exit with the answer outcome's exit code, and report errors before a run starts as safe diagnostics, in JSON with `--json`, as the other commands do.
+
+**Advice:** Follow the existing command modules (`cli_analysis.py`, `cli_comparison.py`) for options, help text, and diagnostics; do not add interactive chat or conversation memory.
+
+**Acceptance check:** CLI runner tests cover readable and JSON output for an answer and a failure, every exit code the command can return, missing options, safe diagnostics with and without `--json`, and help text; the JSON envelope round-trips and matches its documentation.
+
+#### Step 39.5: Answer the README example questions with fake transcripts
+**Status:** Planned.
+**Prerequisite:** Step 39.4.
+
+- Add fixture snapshots, fake configurations, and fake transcripts for the five README example questions. Each transcript runs the relevant tools and analyzer (internet exposure, database access, security-group impact, cross-account trust, and ownership), then submits a proposal that validates against the run, with citations, limitations, and the right status.
+- Cover a partial answer with limited coverage, an `insufficient_evidence` answer, a declared (Terraform plan) snapshot, and a comparison question with `--compare`.
+
+**Advice:** Build the fixtures from the existing audit scenarios, and compute the IDs a transcript cites from the same deterministic services the tools call, as the step 37 suite does, so fixtures stay valid when unrelated data changes.
+
+**Acceptance check:** In-process tests run every example question through the `ask` command and check its validated status, conclusions, citations, and qualifications in both output forms.
+
+#### Step 39.6: Verify the installed command and document it
+**Status:** Planned.
+**Prerequisite:** Step 39.5.
+
+- Add installed-CLI acceptance tests outside the checkout, through both entry points with the offline guard and no credentials, that run all five example questions. They also cover missing configuration, an unknown snapshot, a real provider kind without an adapter, a provider error and a limit from fake transcripts, and an existing transcript path, each failing safely with its exit code.
+- Document the command (options, output, JSON envelope, exit codes, configuration, transcripts) in `docs/`, add it to the README command reference and capability table, and extend the documentation-drift tests to cover its options and JSON envelope.
+- Run focused/full offline tests, the acceptance suite, Ruff lint/format, documentation links, and whitespace checks with `.venv/bin/python`. Mark each substep and the parent implemented only after their acceptance checks pass.
+
+**Advice:** Reuse `tests/support/installed_cli.py` and the offline guard as `test_installed_end_to_end.py` does.
+
+**Acceptance check:** The installed `ask` command answers all five example questions offline with the fake provider; missing configuration, an unknown snapshot, and provider errors fail safely with documented exit codes; no credentials or network are needed; documentation matches the code.
+
 ### Step 40: Add the Anthropic Messages API adapter
 **Status:** Planned.
 **Prerequisites:** Steps 34–39.
