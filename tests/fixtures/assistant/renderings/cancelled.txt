@@ -1,0 +1,15 @@
+Answer: failed (cancelled), exit code 130
+Snapshot (primary): 00000000-0000-4000-8000-000000000023
+  Source: mock, observed state
+  Collected: 2026-10-13T08:00:00+00:00 to 2026-10-13T08:01:00+00:00
+Not verified:
+  - The run was cancelled.
+  - No answer was validated.
+  - The run retrieved 1 finding(s) from these analyzers: ownership.
+  - The findings shown were retrieved during the run; they are not a validated answer.
+Retrieved findings (not an answer):
+  1. analyzer_finding [supported]
+     Finding 1 on the primary snapshot: the ownership analyzer reports a supported finding; its summary is quoted as [1].
+     [1] imported: "Recorded tags have no non-empty value for Owner or Team; this is an ownership signal, not proof that nobody owns the resource."
+     Finding 5c6f5d51a139ab96cdc414cbfc6083935144cb23e735d3476a56ec8f017dd8d8 (supported)
+     Cited on the primary snapshot: findings 5c6f5d51a139ab96cdc414cbfc6083935144cb23e735d3476a56ec8f017dd8d8

@@ -10,109 +10,42 @@ request can address them all.
 """
 
 import hashlib
-from collections.abc import Iterator, Mapping
-from enum import StrEnum
-from typing import Annotated, Self
-
-from pydantic import Field, model_validator
+from collections.abc import Iterator
 
 from archdiscov.graph import GraphIndex
-from archdiscov.models.enums import AnalysisStatus, SnapshotSourceKind
-from archdiscov.models.validation_errors import validation_error
+from archdiscov.models.enums import AnalysisStatus
 
-from .answers import AnswerProposal, AnswerSide, Citation, ConclusionKind
-from .conversation import Contract
+from .answers import (
+    DECLARED_SOURCE_KINDS,
+    AnswerProposal,
+    AnswerSide,
+    Citation,
+    ConclusionKind,
+    combined_status,
+)
+from .rejections import Rejection, RejectionCode, reject
 from .tools.contracts import IdKind
 from .tools.record import RecordedFinding, RunContext, normalize_text
 from .tools.session import ToolSession
-
-
-class RejectionCode(StrEnum):
-    SIDE_UNAVAILABLE = "answer_side_unavailable"
-    SOURCE_KIND_MISMATCH = "answer_source_kind_mismatch"
-    UNKNOWN_ID = "answer_unknown_id"
-    OTHER_SNAPSHOT_ID = "answer_other_snapshot_id"
-    NOT_RETURNED = "answer_id_not_returned"
-    EVIDENCE_DETACHED = "answer_evidence_detached"
-    PLANNED_AS_DEPLOYED = "answer_planned_as_deployed"
-    STATUS_UPGRADE = "answer_status_upgrade"
-    LIMITATION_UNACKNOWLEDGED = "answer_limitation_unacknowledged"
-    LIMITATION_UNKNOWN = "answer_limitation_unknown"
-    CONTRADICTION_OMITTED = "answer_contradiction_omitted"
-    NARRATIVE_IMPORTED_TEXT = "answer_narrative_imported_text"
-    NARRATIVE_UNCITED_ID = "answer_narrative_uncited_id"
-
-
-REJECTION_MESSAGES: Mapping[RejectionCode, str] = {
-    RejectionCode.SIDE_UNAVAILABLE: "No comparison snapshot was selected for this session.",
-    RejectionCode.SOURCE_KIND_MISMATCH: (
-        "The source kind differs from the one the tools reported for this snapshot."
-    ),
-    RejectionCode.UNKNOWN_ID: "This ID is not recorded in the snapshot for this side.",
-    RejectionCode.OTHER_SNAPSHOT_ID: (
-        "This ID belongs to the other selected snapshot; cite it on that side."
-    ),
-    RejectionCode.NOT_RETURNED: "No tool returned this ID in this conversation.",
-    RejectionCode.EVIDENCE_DETACHED: (
-        "This evidence belongs to neither a finding nor a resource cited alongside it."
-    ),
-    RejectionCode.PLANNED_AS_DEPLOYED: (
-        "This snapshot records planned or declared configuration; do not describe it as observed."
-    ),
-    RejectionCode.STATUS_UPGRADE: "The status is stronger than the cited findings support.",
-    RejectionCode.LIMITATION_UNACKNOWLEDGED: (
-        "This finding has limitations that the answer does not acknowledge."
-    ),
-    RejectionCode.LIMITATION_UNKNOWN: "This finding has no limitation with this code.",
-    RejectionCode.CONTRADICTION_OMITTED: (
-        "A returned finding about the same resource from the same result reaches a "
-        "different conclusion and is not cited."
-    ),
-    RejectionCode.NARRATIVE_IMPORTED_TEXT: (
-        "This narrative repeats text imported from cloud configuration or source files."
-    ),
-    RejectionCode.NARRATIVE_UNCITED_ID: (
-        "This narrative names a recorded ID that no conclusion cites."
-    ),
-}
 
 # Narrative is compared only with imported values and IDs at least this long, so short
 # words such as a resource called "web" are not mistaken for repeated text.
 MIN_REPEATED_TEXT_CHARS = 24
 MIN_NAMED_ID_CHARS = 12
 
-_DECLARED_SOURCES = frozenset(
-    {
-        SnapshotSourceKind.TERRAFORM_STATE,
-        SnapshotSourceKind.TERRAFORM_PLAN,
-        SnapshotSourceKind.CLOUDFORMATION,
-    }
-)
 _STATUS_RANK = {
     AnalysisStatus.INSUFFICIENT_EVIDENCE: 0,
     AnalysisStatus.PARTIAL: 1,
     AnalysisStatus.SUPPORTED: 2,
 }
 
-ProposalLocation = Annotated[str, Field(pattern=r"^[a-z_]+(?:\[\d+\]|\.[a-z_]+)*$")]
 
-
-class Rejection(Contract):
-    """One reason a proposal fails; the message is fixed by the code."""
-
-    code: RejectionCode
-    location: ProposalLocation
-    message: str
-
-    @model_validator(mode="after")
-    def require_fixed_message(self) -> Self:
-        if self.message != REJECTION_MESSAGES[self.code]:
-            raise validation_error("answer_rejection_message", "message is fixed by code")
-        return self
-
-
-def _reject(code: RejectionCode, location: str) -> Rejection:
-    return Rejection(code=code, location=location, message=REJECTION_MESSAGES[code])
+def side_indexes(session: ToolSession) -> dict[AnswerSide, GraphIndex]:
+    """The index of each side the session selected, primary first."""
+    indexes = {AnswerSide.PRIMARY: session.index}
+    if session.comparison_index is not None:
+        indexes[AnswerSide.COMPARISON] = session.comparison_index
+    return indexes
 
 
 class _Checker:
@@ -120,9 +53,7 @@ class _Checker:
 
     def __init__(self, session: ToolSession) -> None:
         self.context: RunContext = session.record.context()
-        self.indexes = {AnswerSide.PRIMARY: session.index}
-        if session.comparison_index is not None:
-            self.indexes[AnswerSide.COMPARISON] = session.comparison_index
+        self.indexes = side_indexes(session)
         self.saved_findings = {
             (result.snapshot_id, finding.id)
             for result in session.analyses
@@ -189,19 +120,19 @@ def _check_contexts(proposal: AnswerProposal, checker: _Checker) -> Iterator[Rej
     for number, item in enumerate(proposal.contexts):
         index = checker.indexes.get(item.side)
         if index is None:
-            yield _reject(RejectionCode.SIDE_UNAVAILABLE, f"contexts[{number}].side")
+            yield reject(RejectionCode.SIDE_UNAVAILABLE, f"contexts[{number}].side")
         elif (recorded := checker.context.snapshot(index.snapshot_id).source_kind) != (
             item.source_kind
         ):
             presented_as_observed = (
-                recorded in _DECLARED_SOURCES and item.source_kind not in _DECLARED_SOURCES
+                recorded in DECLARED_SOURCE_KINDS and item.source_kind not in DECLARED_SOURCE_KINDS
             )
             code = (
                 RejectionCode.PLANNED_AS_DEPLOYED
                 if presented_as_observed
                 else RejectionCode.SOURCE_KIND_MISMATCH
             )
-            yield _reject(code, f"contexts[{number}].source_kind")
+            yield reject(code, f"contexts[{number}].source_kind")
 
 
 def _check_conclusions(proposal: AnswerProposal, checker: _Checker) -> Iterator[Rejection]:
@@ -209,7 +140,7 @@ def _check_conclusions(proposal: AnswerProposal, checker: _Checker) -> Iterator[
         for position, citation in enumerate(conclusion.citations):
             location = f"conclusions[{number}].citations[{position}]"
             if citation.side not in checker.indexes:
-                yield _reject(RejectionCode.SIDE_UNAVAILABLE, f"{location}.side")
+                yield reject(RejectionCode.SIDE_UNAVAILABLE, f"{location}.side")
             else:
                 yield from _check_citation(citation, checker, location)
 
@@ -220,18 +151,18 @@ def _check_citation(citation: Citation, checker: _Checker, location: str) -> Ite
         for position, value in enumerate(getattr(citation, field)):
             at = f"{location}.{field}[{position}]"
             if (code := checker.id_rejection(side, kind, value)) is not None:
-                yield _reject(code, at)
+                yield reject(code, at)
             elif kind == IdKind.EVIDENCE and checker.detached(side, citation, value):
-                yield _reject(RejectionCode.EVIDENCE_DETACHED, at)
+                yield reject(RejectionCode.EVIDENCE_DETACHED, at)
 
 
 def _check_limitations(proposal: AnswerProposal, checker: _Checker) -> Iterator[Rejection]:
     for number, limitation in enumerate(proposal.limitations):
         at = f"limitations[{number}].finding_id"
         if limitation.side not in checker.indexes:
-            yield _reject(RejectionCode.SIDE_UNAVAILABLE, f"limitations[{number}].side")
+            yield reject(RejectionCode.SIDE_UNAVAILABLE, f"limitations[{number}].side")
         elif code := checker.id_rejection(limitation.side, IdKind.FINDING, limitation.finding_id):
-            yield _reject(code, at)
+            yield reject(code, at)
 
 
 # ---- claims ------------------------------------------------------------------------
@@ -289,19 +220,14 @@ def _supported_status(
             for conclusion in proposal.conclusions
         )
         return AnalysisStatus.PARTIAL if differences else AnalysisStatus.INSUFFICIENT_EVIDENCE
-    statuses = {finding.status for _, _, finding in cited}
-    if statuses == {AnalysisStatus.INSUFFICIENT_EVIDENCE}:
-        return AnalysisStatus.INSUFFICIENT_EVIDENCE
-    if statuses == {AnalysisStatus.SUPPORTED}:
-        return AnalysisStatus.SUPPORTED
-    return AnalysisStatus.PARTIAL
+    return combined_status(finding.status for _, _, finding in cited)
 
 
 def _check_status(
     proposal: AnswerProposal, cited: list[tuple[str, AnswerSide, RecordedFinding]]
 ) -> Iterator[Rejection]:
     if _STATUS_RANK[proposal.status] > _STATUS_RANK[_supported_status(proposal, cited)]:
-        yield _reject(RejectionCode.STATUS_UPGRADE, "status")
+        yield reject(RejectionCode.STATUS_UPGRADE, "status")
 
 
 def _check_acknowledgements(
@@ -315,14 +241,14 @@ def _check_acknowledgements(
             (side, finding.finding_id, code) not in acknowledged
             for code in finding.limitation_codes
         ):
-            yield _reject(RejectionCode.LIMITATION_UNACKNOWLEDGED, location)
+            yield reject(RejectionCode.LIMITATION_UNACKNOWLEDGED, location)
     for number, item in enumerate(proposal.limitations):
         index = checker.indexes.get(item.side)
         finding = (
             None if index is None else checker.context.finding(index.snapshot_id, item.finding_id)
         )
         if finding is not None and item.limitation not in finding.limitation_codes:
-            yield _reject(RejectionCode.LIMITATION_UNKNOWN, f"limitations[{number}].limitation")
+            yield reject(RejectionCode.LIMITATION_UNKNOWN, f"limitations[{number}].limitation")
 
 
 def _check_contradictions(
@@ -342,7 +268,7 @@ def _check_contradictions(
                 and set(other.result_keys) & set(finding.result_keys)
                 and (other.status, other.decision) != (finding.status, finding.decision)
             ):
-                yield _reject(RejectionCode.CONTRADICTION_OMITTED, location)
+                yield reject(RejectionCode.CONTRADICTION_OMITTED, location)
                 break
 
 
@@ -357,9 +283,9 @@ def _check_narrative(proposal: AnswerProposal, checker: _Checker) -> Iterator[Re
     named = _uncited_ids(proposal, checker)
     for location, text in _narrative(proposal):
         if _repeats_imported_text(text, repeated):
-            yield _reject(RejectionCode.NARRATIVE_IMPORTED_TEXT, location)
+            yield reject(RejectionCode.NARRATIVE_IMPORTED_TEXT, location)
         if any(value in text for value in named):
-            yield _reject(RejectionCode.NARRATIVE_UNCITED_ID, location)
+            yield reject(RejectionCode.NARRATIVE_UNCITED_ID, location)
 
 
 def _fingerprints_by_length(context: RunContext) -> dict[int, set[str]]:

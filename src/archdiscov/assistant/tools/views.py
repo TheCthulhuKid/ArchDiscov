@@ -1,4 +1,4 @@
-"""Allowlisted views of recorded data, shared by the query and analysis tools.
+"""Allowlisted views of recorded data, shared by the tools and the run record.
 
 Each view copies only the fields a model needs. Stable IDs, enums, and pattern-validated
 identity parts (account, subscription, region, location, service) are returned as
@@ -17,6 +17,12 @@ from archdiscov.graph import GraphIndex
 from archdiscov.graph.containment import ContainmentEdge
 from archdiscov.graph.dependencies import DependencyEdge, TerminalTarget
 from archdiscov.graph.identity import native_resource_type
+from archdiscov.models.analysis.database_access import DatabaseAccess
+from archdiscov.models.analysis.exposure import InternetExposure
+from archdiscov.models.analysis.impact import SecurityGroupImpact
+from archdiscov.models.analysis.references import AnalysisLimitation, PathStep
+from archdiscov.models.analysis.results import AnalysisFinding
+from archdiscov.models.analysis.trust import CrossAccountTrust
 from archdiscov.models.architecture import LocalTarget, UnresolvedTarget
 from archdiscov.models.cloud.contracts import (
     AwsTargetScope,
@@ -27,6 +33,7 @@ from archdiscov.models.cloud.contracts import (
 )
 from archdiscov.models.cloud.scope import AzureScope
 from archdiscov.models.enums import (
+    AnalysisStatus,
     AttachmentKind,
     CloudPlatform,
     CoverageStatus,
@@ -106,8 +113,8 @@ class ResourceView(Model):
     logical_address: UntrustedText | None
     name: UntrustedText | None
     tags: BoundedList[TagView]
+    # Terraform plan actions: planned changes, not deployed state.
     lifecycle_actions: tuple[LifecycleAction, ...] = ()
-    """Terraform plan actions: planned changes, not deployed state."""
 
 
 def resource_view(resource: Resource, tag_limit: int) -> ResourceView:
@@ -141,10 +148,10 @@ def _tag_value(value: JsonValue) -> UntrustedText:
 
 
 class AttributeView(Model):
+    # A resource-relative pointer, as in fact citations (`/cidr_blocks`, `/attributes/x`).
     key: UntrustedText
-    """A resource-relative pointer, as in fact citations (`/cidr_blocks`, `/attributes/x`)."""
+    # Compact JSON of the sanitized value.
     value: UntrustedText
-    """Compact JSON of the sanitized value."""
 
 
 # Shown elsewhere in the views, or structure rather than configuration.
@@ -393,3 +400,92 @@ def limitation_view(limitation: QueryLimitation) -> LimitationView:
     if hasattr(limitation, "terminal_id"):
         updates |= {"terminal_id": limitation.terminal_id, "edge_id": limitation.edge_id}
     return LimitationView(kind=limitation.kind, message=limitation.message, **updates)
+
+
+class PathStepView(Model):
+    kind: str
+    source: ResourceRef
+    target: TargetView
+    relationship: DependencyRelationship | None = None
+    evidence_ids: tuple[str, ...]
+    attributes: tuple[AttributeView, ...] = ()
+
+
+def _step_view(step: PathStep) -> PathStepView:
+    if step.kind == "containment":
+        return PathStepView(
+            kind="containment",
+            source=ResourceRef(resource_id=step.source_id),
+            target=TargetView(kind="local", resource_id=step.target_id),
+            evidence_ids=tuple(step.evidence_ids),
+        )
+    return PathStepView(
+        kind="dependency",
+        source=ResourceRef(resource_id=step.source_id),
+        target=target_view(step.target),
+        relationship=step.relationship,
+        evidence_ids=tuple(step.evidence_ids),
+        attributes=tuple(
+            AttributeView(key=untrusted(key), value=json_text(value))
+            for key, value in sorted(step.attributes.items())
+        ),
+    )
+
+
+class AnalysisLimitationView(Model):
+    code: str
+    message: UntrustedText
+    service: str | None = None
+    operation: str | None = None
+    location: str | None = None
+    unresolved_source: ResourceRef | None = None
+    unresolved_target: TargetView | None = None
+    evidence_ids: tuple[str, ...] = ()
+
+
+def _limitation_view(limitation: AnalysisLimitation) -> AnalysisLimitationView:
+    coverage = limitation.coverage
+    unresolved = limitation.unresolved_target
+    return AnalysisLimitationView(
+        code=limitation.code,
+        message=untrusted(limitation.message),
+        service=None if coverage is None else coverage.service,
+        operation=None if coverage is None else coverage.operation,
+        location=None if coverage is None else coverage.location,
+        unresolved_source=None
+        if unresolved is None
+        else ResourceRef(resource_id=unresolved.source_id),
+        unresolved_target=None if unresolved is None else target_view(unresolved.target),
+        evidence_ids=tuple(limitation.evidence_ids)
+        + (() if unresolved is None else tuple(unresolved.evidence_ids)),
+    )
+
+
+class FindingView(Model):
+    finding_id: str
+    status: AnalysisStatus
+    summary: UntrustedText
+    resources: tuple[ResourceRef, ...]
+    evidence_ids: tuple[str, ...]
+    path: tuple[PathStepView, ...]
+    limitations: tuple[AnalysisLimitationView, ...]
+    impact: SecurityGroupImpact | None = None
+    trust: CrossAccountTrust | None = None
+    database_access: DatabaseAccess | None = None
+    internet_exposure: InternetExposure | None = None
+
+
+def finding_view(finding: AnalysisFinding) -> FindingView:
+    return FindingView(
+        finding_id=finding.id,
+        status=finding.status,
+        summary=untrusted(finding.summary),
+        resources=tuple(ResourceRef(resource_id=ref.resource_id) for ref in finding.resources),
+        evidence_ids=tuple(finding.evidence_ids),
+        path=tuple(_step_view(step) for step in finding.path),
+        limitations=tuple(_limitation_view(item) for item in finding.limitations),
+        impact=finding.impact,
+        trust=finding.trust,
+        database_access=finding.database_access,
+        internet_exposure=finding.internet_exposure,
+    )

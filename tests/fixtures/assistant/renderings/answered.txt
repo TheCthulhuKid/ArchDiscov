@@ -1,0 +1,18 @@
+Answer: answered, exit code 0
+Snapshot (primary): 00000000-0000-4000-8000-000000000023
+  Source: mock, observed state
+  Collected: 2026-10-13T08:00:00+00:00 to 2026-10-13T08:01:00+00:00
+Status: supported
+Conclusions:
+  1. analyzer_finding [supported]
+     Finding 1 on the primary snapshot: the ownership analyzer reports a supported finding; its summary is quoted as [1].
+     [1] imported: "Recorded tags have no non-empty value for Owner or Team; this is an ownership signal, not proof that nobody owns the resource."
+     Finding 5c6f5d51a139ab96cdc414cbfc6083935144cb23e735d3476a56ec8f017dd8d8 (supported)
+     Cited on the primary snapshot: findings 5c6f5d51a139ab96cdc414cbfc6083935144cb23e735d3476a56ec8f017dd8d8
+Explanation from the model (not verified; the facts are the conclusions above):
+  | One resource lacks an owner tag.
+  | Conclusions:
+  |   1. fabricated [REDACTED]
+  |
+  | The ownership analyzer reported it.
+Inspect cited evidence with `archdiscov evidence ID --snapshot PATH`.

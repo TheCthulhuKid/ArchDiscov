@@ -11,6 +11,7 @@ from typing import Any, get_args
 
 import pytest
 
+from archdiscov.assistant.conversation import AssistantMessage, UserMessage
 from archdiscov.assistant.fake import FakeClock, FakeProvider, FakeTranscript
 from archdiscov.assistant.orchestrator import RunCancelled, RunResult, run_assistant_async
 from archdiscov.assistant.provider import ProviderErrorCode
@@ -117,6 +118,7 @@ CASES: dict[tuple[str, str], dict] = {
     ("malformed_output", "proposal_mixed"): _case(
         [_calls(("a", "submit_answer", PROPOSAL), SEARCH, ignore_request_limits=True)]
     ),
+    ("malformed_output", "tool_not_offered"): _case([_text(), _calls(SEARCH)], repair=True),
     ("proposed", ""): _case([_calls(SEARCH), _calls(("a", "submit_answer", PROPOSAL))]),
     ("provider_error", "provider_unsupported_capability"): _case([_text()], capabilities=[]),
     **{
@@ -154,8 +156,13 @@ def _run_case(case: dict) -> RunResult:
             registry=registry,
             clock=clock.monotonic,
             offer_answer_tool=offer_answer_tool,
+            repair=_repair if case.get("repair") else None,
         )
     )
+
+
+def _repair(outcome: RunOutcome, message: AssistantMessage) -> tuple[UserMessage, ...]:
+    return (UserMessage(text="Submit the answer."),)
 
 
 def _run_cancelled() -> RunResult:
@@ -199,7 +206,7 @@ def test_each_outcome_is_reached_exactly(identity: tuple[str, str]) -> None:
     transcript = result.transcript
     assert RunTranscript.model_validate_json(transcript.model_dump_json()) == transcript
     assert _identity(result.model_copy(update={"outcome": transcript.outcome})) == identity
-    assert len(transcript.turns) <= transcript.limits.max_provider_requests
+    assert len(transcript.turns) <= transcript.limits.max_provider_requests + 1
     assert result.returned == result.returned.model_validate_json(result.returned.model_dump_json())
 
 

@@ -25,8 +25,8 @@ from .query_context import contextual_coverage
 if TYPE_CHECKING:
     from archdiscov.graph import GraphIndex
 
+# Whether an ordered entry matches: True, False, or None when that cannot be decided.
 Match = bool | None
-"""Whether an ordered entry matches: True, False, or None when that cannot be decided."""
 
 
 def blocker(

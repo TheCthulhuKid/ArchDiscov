@@ -9,6 +9,7 @@ Citations name a side, `primary` or `comparison`, rather than a snapshot: the se
 which snapshot each side is, so the model never handles snapshot IDs.
 """
 
+from collections.abc import Iterable
 from enum import StrEnum
 from typing import Annotated, Self
 
@@ -31,6 +32,24 @@ MAX_EXPLANATION_CHARS = 2_000
 CitedId = Annotated[NonEmptyString, Field(max_length=2_048)]
 CitedIds = Annotated[tuple[CitedId, ...], Field(default=(), max_length=MAX_CITED_IDS)]
 LimitationCode = Annotated[str, Field(max_length=100, pattern=r"^[a-z][a-z0-9_]*$")]
+
+
+# Snapshots that record declared configuration, not observed, deployed state.
+DECLARED_SOURCE_KINDS = frozenset(
+    {
+        SnapshotSourceKind.TERRAFORM_STATE,
+        SnapshotSourceKind.TERRAFORM_PLAN,
+        SnapshotSourceKind.CLOUDFORMATION,
+    }
+)
+
+
+def combined_status(statuses: Iterable[AnalysisStatus]) -> AnalysisStatus:
+    """What findings support together: supported or insufficient only if all are, else partial."""
+    distinct = set(statuses)
+    if not distinct:
+        raise ValueError("a combined status needs at least one finding")
+    return distinct.pop() if len(distinct) == 1 else AnalysisStatus.PARTIAL
 
 
 class AnswerSide(StrEnum):
@@ -112,7 +131,6 @@ class AcknowledgedLimitation(Contract):
     side: AnswerSide = AnswerSide.PRIMARY
     finding_id: CitedId
     limitation: LimitationCode
-    """One of the finding's limitation codes."""
 
 
 class AnswerContext(Contract):

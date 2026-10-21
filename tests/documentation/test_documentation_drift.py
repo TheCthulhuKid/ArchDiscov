@@ -8,12 +8,14 @@ import pytest
 import typer.main
 from annotated_types import Ge, Gt, Le
 
-from archdiscov.assistant import answer_validation
+from archdiscov import cli_answer_output
+from archdiscov.assistant import answer_results, answer_validation
 from archdiscov.assistant import answers as assistant_answers
 from archdiscov.assistant import config as assistant_config
 from archdiscov.assistant import conversation as assistant_conversation
 from archdiscov.assistant import fake as assistant_fake
 from archdiscov.assistant import instructions as assistant_instructions
+from archdiscov.assistant import rejections as assistant_rejections
 from archdiscov.assistant import runs as assistant_runs
 from archdiscov.assistant.provider import (
     ProviderError,
@@ -384,7 +386,7 @@ def test_documented_instructions_and_transcript_bounds_match_the_code():
     text = " ".join(ORCHESTRATION_DOC.read_text(encoding="utf-8").split())
     assert f"version `{assistant_instructions.INSTRUCTIONS_VERSION}`" in text
     assert f"{assistant_runs.MAX_TRANSCRIPT_TEXT_CHARS:,} characters" in text
-    assert "answers are not yet validated" in text
+    assert "the loop does not validate answers" in text
 
 
 def test_the_readme_links_the_loop_without_claiming_ask_or_validation():
@@ -415,17 +417,55 @@ def test_documented_answer_bounds_match_the_constants():
     assert {row[0].strip("`"): number(row[1]) for row in rows} == expected
 
 
+def test_documented_rendering_bound_matches_the_constant():
+    text = " ".join(ANSWERS_DOC.read_text(encoding="utf-8").split())
+    assert f"`MAX_RENDERED_ENTRIES` ({answer_results.MAX_RENDERED_ENTRIES})" in text
+
+
+def test_documented_failure_explanations_match_the_reasons():
+    rows = table_rows(ANSWERS_DOC, "| Failure reason")
+    assert [row[0].strip("`") for row in rows] == [
+        reason.value for reason in answer_results.FailureReason
+    ]
+    text = " ".join(ANSWERS_DOC.read_text(encoding="utf-8").split())
+    assert f"`MAX_RETRIEVED` ({answer_results.MAX_RETRIEVED})" in text
+    assert f"`MAX_LISTED_REJECTIONS` ({assistant_rejections.MAX_LISTED_REJECTIONS})" in text
+
+
+def test_documented_answer_outcomes_match_the_statuses_reasons_and_exit_codes():
+    rows = table_rows(ANSWERS_DOC, "| Status | Failure reason | Exit code")
+    documented = [(row[0].strip("`"), row[1].strip("`") or None, int(row[2])) for row in rows]
+    successes = [
+        (status.value, None, answer_results.SUCCESS_EXIT_CODE)
+        for status in answer_results.AnswerStatus
+        if status != answer_results.AnswerStatus.FAILED
+    ]
+    failures = [
+        ("failed", reason.value, answer_results.FAILURE_EXIT_CODES[reason])
+        for reason in answer_results.FailureReason
+    ]
+    assert documented == successes + failures
+
+
+def test_documented_answer_json_matches_the_contract():
+    top = table_rows(ANSWERS_DOC, "| Key | Holds")
+    assert [row[0].strip("`") for row in top] == ["schema_version", "exit_code", "answer"]
+    assert f"`{cli_answer_output.ANSWER_JSON_VERSION}`" in top[0][1]
+    answer = table_rows(ANSWERS_DOC, "| `answer` key | Holds")
+    assert [row[0].strip("`") for row in answer] == list(answer_results.RenderedAnswer.model_fields)
+
+
 def test_documented_rejections_match_the_codes():
     rows = table_rows(ANSWERS_DOC, "| Code | Check | Message")
     assert [row[0].strip("`") for row in rows] == [
-        code.value for code in answer_validation.RejectionCode
+        code.value for code in assistant_rejections.RejectionCode
     ]
     for code, check, message in (row[:3] for row in rows):
         assert check in {"citations", "claims"}, code
         assert (
             message
-            == answer_validation.REJECTION_MESSAGES[
-                answer_validation.RejectionCode(code.strip("`"))
+            == assistant_rejections.REJECTION_MESSAGES[
+                assistant_rejections.RejectionCode(code.strip("`"))
             ]
         )
 
@@ -451,7 +491,7 @@ def test_the_readme_links_answers_without_claiming_rendering_or_ask():
     assert "docs/assistant-answers.md" in text
     for claim in ("answers are rendered", "repair is implemented", "`ask` command is implemented"):
         assert claim not in text
-    assert "rendering answers, the single repair attempt, the `ask` command" in " ".join(
+    assert "scripted fake: the `ask` command and real providers are later steps" in " ".join(
         ANSWERS_DOC.read_text(encoding="utf-8").split()
     )
 

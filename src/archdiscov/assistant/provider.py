@@ -6,6 +6,7 @@ answer; the single repair request belongs to the answer renderer (step 38). Run-
 limits such as total requests and deadlines belong to the orchestrator (step 36).
 """
 
+from collections.abc import Mapping
 from enum import StrEnum
 from typing import Annotated, ClassVar, Protocol, Self, runtime_checkable
 
@@ -119,6 +120,24 @@ class UnsupportedCapabilityError(ProviderError):
 
     def diagnostic(self) -> dict[str, str | bool]:
         return {**super().diagnostic(), "capability": self.capability.value}
+
+
+# The fixed message of every provider error, for explanations that must not hold provider text.
+PROVIDER_ERROR_MESSAGES: Mapping[ProviderErrorCode, str] = {
+    error.code: error.message
+    for error in (
+        ProviderAuthenticationError,
+        ProviderRateLimitError,
+        ProviderTimeoutError,
+        ProviderTransportError,
+        ProviderInvalidRequestError,
+        ProviderMalformedOutputError,
+        ProviderTruncatedOutputError,
+        ProviderRefusalError,
+        ProviderUnavailableError,
+        UnsupportedCapabilityError,
+    )
+}
 
 
 class ProviderCapabilities(Contract):

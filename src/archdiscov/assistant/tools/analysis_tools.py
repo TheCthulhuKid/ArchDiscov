@@ -15,13 +15,8 @@ from uuid import UUID
 
 from pydantic import AwareDatetime, Field, JsonValue, PrivateAttr
 
-from archdiscov.models.analysis.database_access import DatabaseAccess
-from archdiscov.models.analysis.exposure import InternetExposure
-from archdiscov.models.analysis.impact import SecurityGroupImpact
 from archdiscov.models.analysis.parameters import AnalyzerParameters
-from archdiscov.models.analysis.references import AnalysisLimitation, PathStep
-from archdiscov.models.analysis.results import AnalysisFinding, AnalysisResult
-from archdiscov.models.analysis.trust import CrossAccountTrust
+from archdiscov.models.analysis.results import AnalysisResult
 from archdiscov.models.canonical import sha256_json
 from archdiscov.models.comparison.entries import (
     AmbiguousMatch,
@@ -37,7 +32,6 @@ from archdiscov.models.enums import (
     AnalyzerKind,
     ComparisonLimitationKind,
     ComparisonSide,
-    DependencyRelationship,
     SnapshotSourceKind,
 )
 from archdiscov.models.resource_base import Model, NonEmptyString
@@ -60,15 +54,7 @@ from .contracts import (
 )
 from .registry import EmptyInput, ToolDefinition, ToolInput
 from .session import ToolSession
-from .views import (
-    AttributeView,
-    ResourceRef,
-    TargetView,
-    capped,
-    fit,
-    json_text,
-    target_view,
-)
+from .views import FindingView, capped, finding_view, fit, json_text
 
 PARAMETER_MODELS = {
     model.model_fields["kind"].default: model for model in AnalyzerParameters.__args__[0].__args__
@@ -94,98 +80,6 @@ _ANALYZER_SUMMARIES = {
 Limit = Annotated[int, Field(default=25, ge=1, le=100, strict=True)]
 Number = Annotated[int, Field(ge=1, le=1_000, strict=True, description="1-based position.")]
 Text = Annotated[NonEmptyString, Field(max_length=1_024)]
-
-
-# ---- finding views -----------------------------------------------------------------
-
-
-class PathStepView(Model):
-    kind: str
-    source: ResourceRef
-    target: TargetView
-    relationship: DependencyRelationship | None = None
-    evidence_ids: tuple[str, ...]
-    attributes: tuple[AttributeView, ...] = ()
-
-
-def _step_view(step: PathStep) -> PathStepView:
-    if step.kind == "containment":
-        return PathStepView(
-            kind="containment",
-            source=ResourceRef(resource_id=step.source_id),
-            target=TargetView(kind="local", resource_id=step.target_id),
-            evidence_ids=tuple(step.evidence_ids),
-        )
-    return PathStepView(
-        kind="dependency",
-        source=ResourceRef(resource_id=step.source_id),
-        target=target_view(step.target),
-        relationship=step.relationship,
-        evidence_ids=tuple(step.evidence_ids),
-        attributes=tuple(
-            AttributeView(key=untrusted(key), value=json_text(value))
-            for key, value in sorted(step.attributes.items())
-        ),
-    )
-
-
-class AnalysisLimitationView(Model):
-    code: str
-    message: UntrustedText
-    service: str | None = None
-    operation: str | None = None
-    location: str | None = None
-    unresolved_source: ResourceRef | None = None
-    unresolved_target: TargetView | None = None
-    evidence_ids: tuple[str, ...] = ()
-
-
-def _limitation_view(limitation: AnalysisLimitation) -> AnalysisLimitationView:
-    coverage = limitation.coverage
-    unresolved = limitation.unresolved_target
-    return AnalysisLimitationView(
-        code=limitation.code,
-        message=untrusted(limitation.message),
-        service=None if coverage is None else coverage.service,
-        operation=None if coverage is None else coverage.operation,
-        location=None if coverage is None else coverage.location,
-        unresolved_source=None
-        if unresolved is None
-        else ResourceRef(resource_id=unresolved.source_id),
-        unresolved_target=None if unresolved is None else target_view(unresolved.target),
-        evidence_ids=tuple(limitation.evidence_ids)
-        + (() if unresolved is None else tuple(unresolved.evidence_ids)),
-    )
-
-
-class FindingView(Model):
-    finding_id: str
-    status: AnalysisStatus
-    summary: UntrustedText
-    resources: tuple[ResourceRef, ...]
-    evidence_ids: tuple[str, ...]
-    path: tuple[PathStepView, ...]
-    limitations: tuple[AnalysisLimitationView, ...]
-    impact: SecurityGroupImpact | None = None
-    trust: CrossAccountTrust | None = None
-    database_access: DatabaseAccess | None = None
-    internet_exposure: InternetExposure | None = None
-
-
-def _finding_view(finding: AnalysisFinding) -> FindingView:
-    return FindingView(
-        finding_id=finding.id,
-        status=finding.status,
-        summary=untrusted(finding.summary),
-        resources=tuple(ResourceRef(resource_id=ref.resource_id) for ref in finding.resources),
-        evidence_ids=tuple(finding.evidence_ids),
-        path=tuple(_step_view(step) for step in finding.path),
-        limitations=tuple(_limitation_view(item) for item in finding.limitations),
-        impact=finding.impact,
-        trust=finding.trust,
-        database_access=finding.database_access,
-        internet_exposure=finding.internet_exposure,
-    )
 
 
 class AnalysisOutput(ToolOutput):
@@ -219,7 +113,7 @@ def _analysis_output(
     session: ToolSession, result: AnalysisResult, requested: int, *, result_key: str
 ) -> AnalysisOutput:
     counts = Counter(finding.status for finding in result.findings)
-    views = [_finding_view(finding) for finding in result.findings]
+    views = [finding_view(finding) for finding in result.findings]
 
     def build(effective: int) -> AnalysisOutput:
         return AnalysisOutput(
@@ -237,7 +131,7 @@ def _analysis_output(
     output._delivered = DeliveredAnalysis(
         result_key=result_key,
         result=result,
-        finding_ids=tuple(view.finding_id for view in output.findings.items),
+        findings=output.findings.items,
     )
     return output
 

@@ -11,7 +11,7 @@ import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Annotated, Any, Literal, Self
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Self
 
 from pydantic import Field, JsonValue, NonNegativeInt, model_validator
 
@@ -21,6 +21,9 @@ from archdiscov.models.sanitization import sanitize_value
 from archdiscov.models.validation_errors import validation_error
 
 from ..conversation import MAX_TOOL_RESULT_CHARS, Contract, ToolResult
+
+if TYPE_CHECKING:
+    from .views import FindingView
 
 MAX_UNTRUSTED_TEXT_CHARS = 200
 
@@ -106,7 +109,7 @@ def bounded[T](items: Sequence[T], limit: int) -> BoundedList[T]:
     )
 
 
-def _as_data(text: str) -> str:
+def as_data(text: str) -> str:
     # Line breaks, control, and format characters (zero-width and bidirectional
     # overrides) can disguise text as structure; each becomes one space.
     return "".join(
@@ -129,7 +132,7 @@ class UntrustedText(Contract):
         cut = len(text) > MAX_UNTRUSTED_TEXT_CHARS
         return {
             **data,
-            "untrusted_text": _as_data(text[:MAX_UNTRUSTED_TEXT_CHARS]),
+            "untrusted_text": as_data(text[:MAX_UNTRUSTED_TEXT_CHARS]),
             "truncated": cut or data.get("truncated", False),
         }
 
@@ -205,11 +208,15 @@ def tool_error(code: ToolErrorCode, locations: Sequence[str] = ()) -> ToolError:
 
 @dataclass(frozen=True)
 class DeliveredAnalysis:
-    """The analysis result behind an output, and which of its findings the output carries."""
+    """The analysis result behind an output, and the views of the findings it carries."""
 
     result_key: str
     result: AnalysisResult
-    finding_ids: tuple[str, ...]
+    findings: tuple["FindingView", ...]
+
+    @property
+    def finding_ids(self) -> tuple[str, ...]:
+        return tuple(view.finding_id for view in self.findings)
 
 
 class ToolOutput(Contract):

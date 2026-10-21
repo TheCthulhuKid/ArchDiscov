@@ -174,6 +174,13 @@ SAFE_VALIDATION_MESSAGES = MappingProxyType(
         "answer_rejection_message": (
             "Answer constraint failed: a rejection message is fixed by its code."
         ),
+        "answer_outcome_shape": (
+            "Answer constraint failed: a failure, and only a failure, has a reason with its "
+            "matching detail."
+        ),
+        "answer_rendering_shape": (
+            "Answer constraint failed: a rendering shows an answer or a failure, never both."
+        ),
         "provider_config_region_invalid": (
             "Provider configuration constraint failed: region must be a concrete AWS region."
         ),

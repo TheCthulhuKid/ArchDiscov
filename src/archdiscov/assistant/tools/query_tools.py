@@ -365,8 +365,8 @@ class CoverageInput(ToolInput):
 
 
 class CoverageOutput(_SnapshotOutput):
+    # Counts of every recorded outcome, before filters.
     status_counts: dict[CoverageStatus, int]
-    """Counts of every recorded outcome, before filters."""
     records: BoundedList[CoverageView]
 
 

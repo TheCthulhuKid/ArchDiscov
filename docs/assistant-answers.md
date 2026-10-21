@@ -1,10 +1,11 @@
 # Assistant answers
 
 This page describes the structured answer a model submits at the end of an
-[orchestrated run](assistant-orchestration.md), and how it is validated against what the
-[tools](assistant-tools.md) returned. No command uses this yet, and the only provider is the
-scripted fake: rendering answers, the single repair attempt, the `ask` command, and real
-providers are later steps.
+[orchestrated run](assistant-orchestration.md), how it is validated against what the
+[tools](assistant-tools.md) returned, how its conclusions are written from records, and how
+a failed run is explained, the answer service that repairs once and composes them, and the
+readable and JSON renderings. No command uses this yet, and the only provider is the
+scripted fake: the `ask` command and real providers are later steps.
 
 ## Boundary
 
@@ -109,3 +110,138 @@ Terraform plan, or CloudFormation snapshot is described as observed.
 Transcripts record a proposal with its narrative redacted and bounded and any
 secret-looking cited ID replaced by a unique placeholder; the run result keeps the raw
 proposal for validation.
+
+## Rendered conclusions
+
+`render_answer(proposal, session, outcome)` (`assistant/answer_rendering.py`) turns a
+validated proposal into a `RenderedAnswer` (`assistant/answer_results.py`). The proposal
+only selects records; every fact comes from them:
+
+| Conclusion kind | Rendered from |
+|---|---|
+| `analyzer_finding` | each cited finding's `FindingView`, exactly as a tool delivered it (summary, status, resources, evidence, path, and limitations), and its analyzer |
+| `recorded_configuration` | each cited evidence item's configuration path and value, and each cited resource's type, name, and planned actions, from the session's index |
+| `recorded_difference` | the entries of the user-selected saved comparisons that name a cited resource: matched pairs and their field differences, unmatched resources, and ambiguous matches |
+
+Every conclusion lists the cited findings, evidence, and resources whatever its kind, keeps
+the proposal's citations, and, when it cites findings, carries their combined status: the
+same rule as validation. Statements are fixed templates. Record values (summaries, names,
+paths, configuration values) are quoted as untrusted data and referred to as `[n]`, so a
+model cannot change how a fact is worded, and the contract rejects a reference to data that
+is not there. At most `MAX_RENDERED_ENTRIES` (20) comparison entries, and as many field
+differences, are shown per conclusion; the rest are counted. The run record keeps the first
+view delivered for each finding, since a finding's ID does not depend on its limitation
+wording.
+
+Answer-wide qualifications say when a snapshot records declared or planned state, when the
+answer or a cited finding is partial, when a cited finding's collection coverage was
+incomplete, and that recorded differences are not proof of change or drift. An
+`insufficient_evidence` answer says what was checked, never what is true: its reason, and
+how many findings from which analyzers the run retrieved. The narrative appears only as the
+labelled `summary` and `explanation`, with secret-looking text redacted as in transcripts.
+
+## Failure explanations
+
+`render_failure(session, outcome)` explains a failed `AnswerOutcome` from the outcome and
+the run record alone. It takes no proposal and no provider, so it can show neither a
+rejected narrative nor provider text, and it makes no provider call. Its `RenderedFailure`
+holds:
+
+- `retrieved`: every finding the run retrieved, rendered as in an answer but labelled as
+  retrieved, one conclusion per side and analyzer (a snapshot compared with itself counts
+  as the primary side) with at most `MAX_CITED_IDS` findings each, up to `MAX_RETRIEVED` (100) conclusions; further findings are counted;
+- `unverified`: fixed statements of why the run stopped, then that no answer was
+  validated, what the run retrieved (or that it retrieved nothing), and, per snapshot, how
+  many collection operations did not succeed, by status.
+
+| Failure reason | Stated as |
+|---|---|
+| `rejected_after_repair` | the rejection after one repair, then each rejection's location, code, and fixed message, up to `MAX_LISTED_REJECTIONS` (40), with the rest counted |
+| `no_proposal_after_repair` | a plain-text answer after one repair, whose text is not shown |
+| `malformed_output` | a fixed sentence for the malformed-output reason |
+| `provider_error` | the provider error code and its fixed message |
+| `limit_reached` | the limit that stopped the run |
+| `cancelled` | the cancellation |
+
+Declared and planned snapshots are qualified as they are in answers.
+
+## Repair and the answer service
+
+`answer_question_async(question, provider=, session=, provider_kind=, model=, limits=,
+registry=, clock=)` (`assistant/answer_service.py`) runs the
+[tool-calling loop](assistant-orchestration.md) with a repair callback, validates the
+proposal, and returns an `AnswerResult`: the `AnswerOutcome`, the `RenderedAnswer`, the
+transcript (repair turn included), and the IDs tools returned. `answer_question` runs it
+from synchronous code, refused inside a running event loop; cancelling the task raises
+`AnswerCancelled`, whose `result` explains the cancelled run.
+
+A repair is offered once, for a rejected proposal, a plain-text answer, or a malformed,
+invalid, or mixed `submit_answer` call; limits, provider errors, cancellation, and other
+malformed output fail without one. The prompt (`assistant/repair.py`) carries only fixed
+text:
+
+| Run ended with | Repair prompt |
+|---|---|
+| a rejected proposal | a tool result for the `submit_answer` call listing each rejection's code, location, and fixed message, up to `MAX_LISTED_REJECTIONS` with the rest counted |
+| a malformed, invalid, or mixed submission | a tool result with the reason and a fixed explanation; other calls in a mixed response are answered as not run |
+| a plain-text answer | a user message saying only that no proposal was submitted; the text is never quoted |
+
+The repaired proposal is validated again: valid is `answered_after_repair`, rejected is
+`rejected_after_repair`, and plain text is `no_proposal_after_repair`. The answer is then
+rendered from records, or the failure explained, as described above.
+
+## Outcomes and exit codes
+
+Every answer ends with one `AnswerOutcome` (`assistant/answer_results.py`) whose status is
+stable for scripts. A validated `insufficient_evidence` answer is a success: it is what the
+evidence supports, and the JSON carries the status for scripts that need it. Exit codes 1–4
+keep their existing CLI meanings for errors before a run starts.
+
+| Status | Failure reason | Exit code | When |
+|---|---|---|---|
+| `answered` | | 0 | the first proposal was valid |
+| `answered_after_repair` | | 0 | the proposal after the one repair was valid |
+| `failed` | `rejected_after_repair` | 5 | the proposal after the repair was rejected again; the outcome holds its rejections |
+| `failed` | `no_proposal_after_repair` | 5 | the model answered in plain text after the repair |
+| `failed` | `malformed_output` | 5 | the output could not be used; the outcome holds the malformed-output reason |
+| `failed` | `provider_error` | 6 | a provider error stopped the run; the outcome holds its code, and a script may retry |
+| `failed` | `limit_reached` | 6 | a run limit stopped the run; the outcome holds the limit, and a script may retry |
+| `failed` | `cancelled` | 130 | the run was cancelled, as for an interrupted command |
+
+A failure is never a stack trace or provider text: it is the deterministic explanation
+described above, built from the run record alone.
+
+## Renderings
+
+`src/archdiscov/cli_answer_output.py` presents a `RenderedAnswer` in the style of the other
+CLI output modules, for the `ask` command to use. Both forms come from the rendered answer
+alone, every string is redacted of secret-looking text on the way out, and readable lines
+lose control characters such as terminal escapes.
+
+The readable form (`answer_text`, `print_answer`) shows, in order, the outcome and exit
+code, each snapshot with its source kind, whether it records observed or declared state,
+and its collection window, the status, the qualifications, and then either the
+conclusions or, for a failure, what was not verified and the findings retrieved, labelled
+as not an answer. Each conclusion lists its statements, the quoted data they refer to as
+`[n]`, its findings with their limitations, and its citations; the model's explanation
+follows under its own label. Imported text is always JSON-quoted on one line after
+`imported:`, and every line of the model's explanation starts with `|`, so neither can pass
+for a heading or a conclusion.
+
+The JSON form (`answer_data`) is a contract:
+
+| Key | Holds |
+|---|---|
+| `schema_version` | `1`; changes whenever the shape does |
+| `exit_code` | the process exit code for the outcome |
+| `answer` | the `RenderedAnswer`, which validates back into the contract |
+
+| `answer` key | Holds |
+|---|---|
+| `outcome` | the `AnswerOutcome`: status, failure reason, and its one detail |
+| `snapshots` | each side's snapshot ID, source kind, collection window, and `declared` |
+| `status` | the validated status, for answers |
+| `conclusions` | statements, quoted `data` (each `{"untrusted_text", "truncated"}`), findings, combined status, and citations |
+| `qualifications` | answer-wide fixed statements |
+| `narrative` | the model's `summary` and `explanation`, marked `"source": "model"` |
+| `failure` | for failures: the reason, the `retrieved` conclusions, and the `unverified` statements |

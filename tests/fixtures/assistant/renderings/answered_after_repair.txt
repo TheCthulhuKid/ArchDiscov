@@ -1,0 +1,10 @@
+Answer: answered after one repair, exit code 0
+Snapshot (primary): 00000000-0000-4000-8000-000000000007
+  Source: mock, observed state
+  Collected: 2026-10-13T08:00:00+00:00 to 2026-10-13T08:01:00+00:00
+Status: insufficient_evidence
+Qualifications:
+  - No finding in the records checked applies to the question; this does not show that none exists.
+  - The run retrieved no analyzer findings.
+Explanation from the model (not verified; the facts are the conclusions above):
+  | Nothing applicable to the question [REDACTED].

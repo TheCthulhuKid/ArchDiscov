@@ -113,8 +113,8 @@ output is collected in full before anything from it is kept.
 `returned()` is a frozen, sorted, deduplicated copy per snapshot, unaffected by later
 calls.
 
-`context()` adds what answer validation checks a proposal against, in the same frozen,
-sorted, detached form:
+`context()` adds what answer validation checks a proposal against, and what rendering
+writes conclusions from, in the same frozen, sorted, detached form:
 
 - each session snapshot's source kind and collection window, recorded when the session is
   created;
@@ -123,6 +123,9 @@ sorted, detached form:
   for a saved result), status, limitation codes, every evidence and resource ID it cites,
   its primary resource, and, for database-access and internet-exposure findings, its network
   decision; only findings actually delivered, after truncation, are recorded;
+- each delivered finding's `FindingView` exactly as the model was shown it, the first one
+  delivered when a finding is delivered again, so a rendered finding never differs from
+  what the model read;
 - a fingerprint of every delivered `untrusted_text` value: the length and SHA-256 of the
   text case-folded with whitespace collapsed, so narrative can be checked for repeated
   imported text without keeping that text.

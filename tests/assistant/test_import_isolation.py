@@ -28,7 +28,9 @@ sys.meta_path.insert(0, Blocker())
 from pathlib import Path
 
 from archdiscov.assistant import config, conversation, fake, instructions, orchestrator, provider
-from archdiscov.assistant import answer_validation, answers, redaction, runs
+from archdiscov.assistant import answer_rendering, answer_results, answer_validation, answers
+from archdiscov.assistant import answer_service, redaction, repair
+from archdiscov.assistant import rejections, runs
 from archdiscov.assistant.tools import contracts as tool_contracts
 from archdiscov.assistant.tools import session as tool_session
 from archdiscov.assistant.tools.catalog import ALL_TOOLS, default_registry
@@ -62,7 +64,7 @@ assert runs.RunLimits.from_config(config.FakeProviderConfig()) == runs.RunLimits
 assert redaction.redact_secrets("Bearer abc") == redaction.REDACTED
 assert len(instructions.initial_conversation("q").messages) == 2
 assert answers.submit_answer_declaration().name == "submit_answer"
-assert len(answer_validation.RejectionCode) == len(answer_validation.REJECTION_MESSAGES)
+assert len(rejections.RejectionCode) == len(rejections.REJECTION_MESSAGES)
 reply = {{"message": {{"role": "assistant", "text": "a"}}, "stop_reason": "end"}}
 answer = fake.FakeTranscript.model_validate({{"turns": [{{"kind": "respond", "response": reply}}]}})
 run = orchestrator.run_assistant(
@@ -78,6 +80,31 @@ proposal = answers.AnswerProposal.model_validate(
     }}
 )
 assert answer_validation.validate_proposal(proposal, session) == ()
+rendered = answer_rendering.render_answer(
+    proposal, session, answer_results.AnswerOutcome(status="answered")
+)
+assert rendered.narrative.summary == "Nothing applicable."
+failed = answer_results.AnswerOutcome(status="failed", failure="cancelled")
+assert answer_rendering.render_failure(session, failed).failure.reason == "cancelled"
+assert repair.NO_PROPOSAL
+twice = fake.FakeTranscript.model_validate(
+    {{"turns": [{{"kind": "respond", "response": reply}}] * 2}}
+)
+answered = answer_service.answer_question(
+    "q",
+    provider=fake.FakeProvider(twice),
+    session=tool_session.ToolSession.from_paths(Path({str(SNAPSHOT)!r})),
+    provider_kind="fake",
+    model="fake",
+)
+assert answered.outcome.failure == "no_proposal_after_repair"
+from archdiscov import cli_answer_output
+
+assert cli_answer_output.answer_text(answered.rendered).startswith("Answer: failed")
+assert cli_answer_output.answer_data(answered.rendered)["exit_code"] == 5
+assert answer_results.final_outcome(
+    run.outcome, (), repaired=True
+).failure == answer_results.FailureReason.NO_PROPOSAL_AFTER_REPAIR
 import asyncio
 
 run = asyncio.run(
