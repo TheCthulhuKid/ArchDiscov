@@ -5,6 +5,7 @@ from tests.paths import PROJECT_ROOT, TESTS_ROOT
 
 VENDOR_MODULES = ("anthropic", "openai", "boto3", "botocore")
 TRANSCRIPT = TESTS_ROOT / "fixtures" / "assistant" / "multi_step.json"
+SNAPSHOT = TESTS_ROOT / "fixtures" / "snapshots" / "aws.json"
 
 # Imports would fail loudly if any assistant module reached a vendor SDK; the transcript
 # replay exercises the modules, not just their top-level imports.
@@ -27,6 +28,35 @@ sys.meta_path.insert(0, Blocker())
 from pathlib import Path
 
 from archdiscov.assistant import config, conversation, fake, provider
+from archdiscov.assistant.tools import contracts as tool_contracts
+from archdiscov.assistant.tools import session as tool_session
+from archdiscov.assistant.tools.catalog import ALL_TOOLS, default_registry
+
+# Every tool runs once, so lazily imported service code is exercised under the blocker.
+registry = default_registry()
+session = tool_session.ToolSession.from_paths(Path({str(SNAPSHOT)!r}))
+resource = session.index.resource_ids[0]
+arguments = {{
+    "inspect_resource": {{"resource_id": resource}},
+    "get_neighbours": {{"resource_id": resource}},
+    "find_paths": {{"resource_id": resource}},
+    "get_evidence": {{"evidence_id": "missing"}},
+    "run_analyzer": {{"kind": "ownership"}},
+    "get_saved_analysis": {{"number": 1}},
+    "get_saved_comparison": {{"number": 1}},
+}}
+for tool in ALL_TOOLS:
+    result = registry.dispatch(
+        session,
+        conversation.ToolCall(
+            id="call",
+            name=tool.name,
+            arguments=conversation.ParsedToolArguments(value=arguments.get(tool.name, {{}})),
+        ),
+    )
+    assert '"tool_internal_error"' not in result.content, tool.name
+assert session.record.returned().snapshots
+assert tool_contracts.untrusted("x").untrusted_text == "x"
 
 transcript = fake.load_fake_transcript(Path({str(TRANSCRIPT)!r}))
 replayed = fake.FakeProvider(transcript)

@@ -1,0 +1,156 @@
+"""Tool definitions and dispatch from a `ToolCall` to a `ToolResult`.
+
+A tool is a typed input model (its JSON schema, with references inlined, is the
+declaration the provider sees), a
+function over the session returning a typed output or a `ToolError`, and a name. The
+registry is a plain mapping. Dispatch never raises for model mistakes or tool failures:
+unknown names, malformed or invalid arguments, and unexpected exceptions become safe
+tool errors, and only delivered outputs are recorded.
+"""
+
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass
+from typing import Any, ClassVar
+
+from pydantic import ValidationError
+
+from archdiscov.models.validation_errors import safe_validation_issues
+
+from ..conversation import (
+    Contract,
+    MalformedToolArguments,
+    ToolCall,
+    ToolDeclaration,
+    ToolResult,
+)
+from .contracts import ToolError, ToolErrorCode, ToolOutput, render, tool_error
+from .session import ToolSession
+
+# Data is selected by the user for the session, never by the model.
+_FORBIDDEN_INPUT_WORDS = frozenset(
+    {"path", "paths", "file", "files", "filename", "dir", "directory", "snapshot", "snapshots"}
+    | {"url", "uri"}
+)
+
+
+class ToolInput(Contract):
+    """Base for tool inputs: unknown fields rejected; no path or snapshot selectors."""
+
+    forbidden_words: ClassVar[frozenset[str]] = _FORBIDDEN_INPUT_WORDS
+
+    @classmethod
+    def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
+        super().__pydantic_init_subclass__(**kwargs)
+        for name in cls.model_fields:
+            if cls.forbidden_words & set(name.lower().split("_")):
+                raise TypeError(f"{cls.__name__}.{name}: tools cannot select paths or snapshots")
+
+
+class EmptyInput(ToolInput):
+    """For tools that take no arguments."""
+
+
+@dataclass(frozen=True)
+class ToolDefinition[I: ToolInput]:
+    name: str
+    description: str
+    input_model: type[I]
+    run: Callable[[ToolSession, I], ToolOutput | ToolError]
+
+    @property
+    def declaration(self) -> ToolDeclaration:
+        return ToolDeclaration(
+            name=self.name,
+            description=self.description,
+            input_schema=inline_schema(self.input_model.model_json_schema()),
+        )
+
+
+def inline_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Replace local `$ref`s with their `$defs`, so every provider receives one plain schema.
+
+    Tool inputs are not recursive, so inlining always terminates.
+    """
+    definitions = schema.get("$defs", {})
+
+    def resolve(value: Any) -> Any:
+        if isinstance(value, dict):
+            reference = value.get("$ref")
+            if isinstance(reference, str) and reference.startswith("#/$defs/"):
+                siblings = {key: item for key, item in value.items() if key != "$ref"}
+                return resolve({**definitions[reference.removeprefix("#/$defs/")], **siblings})
+            return {key: resolve(item) for key, item in value.items() if key != "$defs"}
+        if isinstance(value, list):
+            return [resolve(item) for item in value]
+        return value
+
+    return resolve(schema)
+
+
+class ToolRegistry:
+    """Tools by name, declared in registration order."""
+
+    def __init__(self, tools: Iterable[ToolDefinition]) -> None:
+        self._tools: dict[str, ToolDefinition] = {}
+        for tool in tools:
+            if tool.name in self._tools:
+                raise ValueError(f"duplicate tool name: {tool.name}")
+            tool.declaration  # noqa: B018 - validate the name, description, and schema now
+            self._tools[tool.name] = tool
+
+    @property
+    def tools(self) -> Mapping[str, ToolDefinition]:
+        return dict(self._tools)
+
+    def declarations(self) -> tuple[ToolDeclaration, ...]:
+        return tuple(tool.declaration for tool in self._tools.values())
+
+    def dispatch(self, session: ToolSession, call: ToolCall) -> ToolResult:
+        output = self._run(session, call)
+        result, delivered = render(call.id, output, session.limits)
+        if isinstance(delivered, ToolOutput):
+            try:
+                session.record.record_output(delivered)
+            except Exception:
+                result, _ = render(
+                    call.id, tool_error(ToolErrorCode.INTERNAL_ERROR), session.limits
+                )
+        return result
+
+    def _run(self, session: ToolSession, call: ToolCall) -> ToolOutput | ToolError:
+        tool = self._tools.get(call.name)
+        if tool is None:
+            return tool_error(ToolErrorCode.UNKNOWN_TOOL)
+        if isinstance(call.arguments, MalformedToolArguments):
+            return tool_error(ToolErrorCode.MALFORMED_ARGUMENTS)
+        try:
+            arguments = tool.input_model.model_validate(call.arguments.value)
+        except ValidationError as exc:
+            fields = frozenset(_input_field_names(tool.input_model))
+            issues = safe_validation_issues(exc, fields, "tool input")
+            locations = [
+                ".".join(str(part) for part in issue.location) for issue in issues if issue.location
+            ]
+            return tool_error(ToolErrorCode.INVALID_ARGUMENTS, sorted(set(locations))[:20])
+        try:
+            output = tool.run(session, arguments)
+        except Exception:
+            return tool_error(ToolErrorCode.INTERNAL_ERROR)
+        if not isinstance(output, (ToolOutput, ToolError)):
+            return tool_error(ToolErrorCode.INTERNAL_ERROR)
+        return output
+
+
+def _input_field_names(model: type[ToolInput]) -> set[str]:
+    """Declared field names of an input model and of models nested in it."""
+    names: set[str] = set()
+    pending = [model]
+    while pending:
+        current = pending.pop()
+        for name, field in current.model_fields.items():
+            names.add(name)
+            annotation = field.annotation
+            for candidate in (annotation, *getattr(annotation, "__args__", ())):
+                if isinstance(candidate, type) and issubclass(candidate, Contract):
+                    pending.append(candidate)
+    return names
