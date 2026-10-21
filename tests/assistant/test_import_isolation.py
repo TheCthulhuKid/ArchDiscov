@@ -14,6 +14,7 @@ VENDOR_MODULES = ("anthropic", "openai", "boto3", "botocore")
         "archdiscov.assistant.conversation",
         "archdiscov.assistant.provider",
         "archdiscov.assistant.config",
+        "archdiscov.assistant.fake",
     ],
 )
 def test_assistant_contracts_import_no_vendor_sdk(module: str) -> None:

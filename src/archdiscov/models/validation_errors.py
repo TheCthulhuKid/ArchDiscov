@@ -120,6 +120,14 @@ SAFE_VALIDATION_MESSAGES = MappingProxyType(
             "Provider configuration constraint failed: endpoint must use HTTPS (or loopback "
             "HTTP) without credentials, query, or fragment."
         ),
+        "fake_transcript_error_unscriptable": (
+            "Fake transcript constraint failed: capability errors are raised by checks, "
+            "not scripted."
+        ),
+        "fake_transcript_capability_mismatch": (
+            "Fake transcript constraint failed: a turn's tool calls need a capability the "
+            "transcript does not declare."
+        ),
         "provider_config_region_invalid": (
             "Provider configuration constraint failed: region must be a concrete AWS region."
         ),

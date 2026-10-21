@@ -1,0 +1,60 @@
+{
+  "turns": [
+    {
+      "kind": "respond",
+      "expect": {
+        "tool_names": ["search_resources", "inspect_resource"],
+        "last_message_role": "user"
+      },
+      "response": {
+        "message": {
+          "role": "assistant",
+          "text": "Searching for databases first.",
+          "tool_calls": [
+            {
+              "id": "call_search",
+              "name": "search_resources",
+              "arguments": {"kind": "parsed", "value": {"type": "rds_instance"}}
+            }
+          ]
+        },
+        "usage": {"input_tokens": 120, "output_tokens": 18},
+        "stop_reason": "tool_use"
+      }
+    },
+    {
+      "kind": "respond",
+      "delay_seconds": 1.5,
+      "expect": {"last_message_role": "tool"},
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "call_inspect_a",
+              "name": "inspect_resource",
+              "arguments": {"kind": "parsed", "value": {"resource_id": "db-a"}}
+            },
+            {
+              "id": "call_inspect_b",
+              "name": "inspect_resource",
+              "arguments": {"kind": "malformed", "reason": "invalid_json"}
+            }
+          ]
+        },
+        "usage": {"input_tokens": 300, "output_tokens": 40},
+        "stop_reason": "tool_use"
+      }
+    },
+    {
+      "kind": "respond",
+      "delay_seconds": 2.5,
+      "expect": {"last_message_role": "tool"},
+      "response": {
+        "message": {"role": "assistant", "text": "One database is reachable from one function."},
+        "usage": {"input_tokens": 520, "output_tokens": 25, "cache_read_input_tokens": 100},
+        "stop_reason": "end"
+      }
+    }
+  ]
+}
