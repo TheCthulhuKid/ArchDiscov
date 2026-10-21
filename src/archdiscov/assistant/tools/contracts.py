@@ -9,11 +9,13 @@ instructions. IDs use the field names in `ID_FIELDS` so the run record can colle
 
 import unicodedata
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Annotated, Any, Literal, Self
 
 from pydantic import Field, JsonValue, NonNegativeInt, model_validator
 
+from archdiscov.models.analysis.results import AnalysisResult
 from archdiscov.models.resource_base import NonEmptyString
 from archdiscov.models.sanitization import sanitize_value
 from archdiscov.models.validation_errors import validation_error
@@ -201,10 +203,23 @@ def tool_error(code: ToolErrorCode, locations: Sequence[str] = ()) -> ToolError:
     return ToolError(code=code, locations=tuple(locations))
 
 
+@dataclass(frozen=True)
+class DeliveredAnalysis:
+    """The analysis result behind an output, and which of its findings the output carries."""
+
+    result_key: str
+    result: AnalysisResult
+    finding_ids: tuple[str, ...]
+
+
 class ToolOutput(Contract):
     """Base for successful outputs; subclasses declare only allowlisted fields."""
 
     status: Literal["ok"] = "ok"
+
+    def delivered_analysis(self) -> DeliveredAnalysis | None:
+        """The analysis behind this output, for the run record; most outputs have none."""
+        return None
 
 
 def render(

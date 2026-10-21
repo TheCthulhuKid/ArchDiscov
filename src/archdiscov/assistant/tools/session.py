@@ -65,6 +65,11 @@ class ToolSession:
         )
         self._limits = ToolLimits() if limits is None else limits
         self._record = RunRecord()
+        for index in (self._index, self._comparison_index):
+            if index is not None:
+                self._record.record_snapshot(
+                    index.snapshot_id, index.source_kind, index.collection_window
+                )
 
     @classmethod
     def from_paths(
