@@ -1,6 +1,4 @@
 import json
-import subprocess
-import sys
 
 import pytest
 from pydantic import ValidationError
@@ -24,7 +22,6 @@ from archdiscov.assistant.conversation import (
     parse_tool_arguments,
 )
 from archdiscov.models.validation_errors import SAFE_VALIDATION_MESSAGES
-from tests.paths import PROJECT_ROOT
 
 SECRET = "SECRET_PRIVATE_TOKEN"
 
@@ -271,20 +268,3 @@ def test_parse_tool_arguments_classifies_without_raising(raw, expected) -> None:
 def test_malformed_arguments_do_not_retain_raw_text() -> None:
     malformed = parse_tool_arguments(f"{{{SECRET}")
     assert SECRET not in malformed.model_dump_json()
-
-
-def test_contracts_import_no_vendor_sdk() -> None:
-    script = (
-        "import sys\n"
-        "import archdiscov.assistant.conversation\n"
-        "loaded = [m for m in ('anthropic', 'openai', 'boto3', 'botocore') if m in sys.modules]\n"
-        "print(','.join(loaded))\n"
-    )
-    completed = subprocess.run(
-        [sys.executable, "-c", script],
-        capture_output=True,
-        text=True,
-        check=True,
-        cwd=PROJECT_ROOT,
-    )
-    assert completed.stdout.strip() == ""

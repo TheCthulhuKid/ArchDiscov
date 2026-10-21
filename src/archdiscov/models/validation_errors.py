@@ -99,6 +99,13 @@ SAFE_VALIDATION_MESSAGES = MappingProxyType(
         "conversation_tool_result_duplicate": (
             "Conversation constraint failed: tool call already has a result."
         ),
+        "provider_parallel_calls_without_tools": (
+            "Provider constraint failed: parallel tool calls require tool calling."
+        ),
+        "provider_tool_name_duplicate": "Provider constraint failed: duplicate tool name.",
+        "provider_stop_reason_mismatch": (
+            "Provider constraint failed: tool_use stop reason must match tool calls."
+        ),
     }
 )
 

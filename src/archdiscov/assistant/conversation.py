@@ -37,7 +37,9 @@ ToolCallId = Annotated[NonEmptyString, Field(max_length=MAX_TOOL_CALL_ID_CHARS)]
 MessageText = Annotated[NonEmptyString, Field(max_length=MAX_TEXT_CHARS)]
 
 
-class _Contract(Model):
+class Contract(Model):
+    """Base for assistant contracts: unknown fields rejected, instances immutable."""
+
     model_config = ConfigDict(frozen=True)
 
 
@@ -53,7 +55,7 @@ class MessageRole(StrEnum):
     TOOL = "tool"
 
 
-class ToolDeclaration(_Contract):
+class ToolDeclaration(Contract):
     """A tool offered to the model; the schema describes a JSON object input."""
 
     name: ToolName
@@ -69,7 +71,7 @@ class ToolDeclaration(_Contract):
         return self
 
 
-class ParsedToolArguments(_Contract):
+class ParsedToolArguments(Contract):
     """Arguments the provider supplied as a JSON object within the size bound."""
 
     kind: Literal["parsed"] = "parsed"
@@ -88,7 +90,7 @@ class MalformedArgumentsReason(StrEnum):
     TOO_LARGE = "too_large"
 
 
-class MalformedToolArguments(_Contract):
+class MalformedToolArguments(Contract):
     """Arguments that could not be used; the raw text is not retained.
 
     Kept as a value so the orchestrator can answer the model with a tool error.
@@ -128,7 +130,7 @@ def parse_tool_arguments(
         return MalformedToolArguments(reason=MalformedArgumentsReason.INVALID_JSON)
 
 
-class ToolCall(_Contract):
+class ToolCall(Contract):
     """A model request to run one tool; the call ID is assigned by the provider."""
 
     id: ToolCallId
@@ -136,7 +138,7 @@ class ToolCall(_Contract):
     arguments: ToolArguments
 
 
-class ToolResult(_Contract):
+class ToolResult(Contract):
     """The outcome of one tool call, sent back to the model as text."""
 
     call_id: ToolCallId
@@ -144,7 +146,7 @@ class ToolResult(_Contract):
     is_error: bool = False
 
 
-class TokenUsage(_Contract):
+class TokenUsage(Contract):
     """Reported token counts; providers differ, so every field is optional."""
 
     input_tokens: NonNegativeInt | None = None
@@ -153,17 +155,17 @@ class TokenUsage(_Contract):
     cache_write_input_tokens: NonNegativeInt | None = None
 
 
-class SystemMessage(_Contract):
+class SystemMessage(Contract):
     role: Literal[MessageRole.SYSTEM] = MessageRole.SYSTEM
     text: MessageText
 
 
-class UserMessage(_Contract):
+class UserMessage(Contract):
     role: Literal[MessageRole.USER] = MessageRole.USER
     text: MessageText
 
 
-class AssistantMessage(_Contract):
+class AssistantMessage(Contract):
     """Model output: text, tool calls, or both, never neither."""
 
     role: Literal[MessageRole.ASSISTANT] = MessageRole.ASSISTANT
@@ -179,7 +181,7 @@ class AssistantMessage(_Contract):
         return self
 
 
-class ToolResultMessage(_Contract):
+class ToolResultMessage(Contract):
     """Results for calls from earlier assistant messages, such as one parallel turn."""
 
     role: Literal[MessageRole.TOOL] = MessageRole.TOOL
@@ -192,7 +194,7 @@ Message = Annotated[
 ]
 
 
-class Conversation(_Contract):
+class Conversation(Contract):
     """An ordered exchange with structural rules every provider can represent.
 
     System messages lead; tool call IDs are unique across the conversation; each tool
