@@ -9,7 +9,12 @@ VENDOR_MODULES = ("anthropic", "openai", "boto3", "botocore")
 
 
 @pytest.mark.parametrize(
-    "module", ["archdiscov.assistant.conversation", "archdiscov.assistant.provider"]
+    "module",
+    [
+        "archdiscov.assistant.conversation",
+        "archdiscov.assistant.provider",
+        "archdiscov.assistant.config",
+    ],
 )
 def test_assistant_contracts_import_no_vendor_sdk(module: str) -> None:
     script = (

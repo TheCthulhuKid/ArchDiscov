@@ -106,6 +106,23 @@ SAFE_VALIDATION_MESSAGES = MappingProxyType(
         "provider_stop_reason_mismatch": (
             "Provider constraint failed: tool_use stop reason must match tool calls."
         ),
+        "provider_config_secret_field": (
+            "Provider configuration constraint failed: credential fields are not accepted; "
+            "reference an environment variable or profile instead."
+        ),
+        "provider_config_secret_value": (
+            "Provider configuration constraint failed: value looks like a secret."
+        ),
+        "provider_config_limit_order": (
+            "Provider configuration constraint failed: per-request limits exceed run limits."
+        ),
+        "provider_config_endpoint_invalid": (
+            "Provider configuration constraint failed: endpoint must use HTTPS (or loopback "
+            "HTTP) without credentials, query, or fragment."
+        ),
+        "provider_config_region_invalid": (
+            "Provider configuration constraint failed: region must be a concrete AWS region."
+        ),
     }
 )
 
