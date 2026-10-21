@@ -2320,22 +2320,88 @@ graph LR
 
 **Phase 4 milestone:** Ask a question about a selected snapshot → the assistant calls bounded tools → the answer is validated against tool-returned findings and evidence → render a qualified, evidence-backed answer or a deterministic failure explanation.
 
-The assistant explains deterministic results; it never creates architecture facts. It receives no credentials, shell, code execution, filesystem, or mutation tools. Steps 34–38 and the fake provider need no credentials or network; real providers (steps 40–41) are opt-in. Phase 3 analyzers, queries, comparisons, and persistence are reused unchanged; this phase adds `src/archdiscov/assistant/` (contracts, tools, orchestration, validation, rendering, provider adapters), thin `ask`/`evaluate` presentation in the CLI, and answer models under `models/`.
+The assistant explains deterministic results; it never creates architecture facts. It receives no credentials, shell, code execution, filesystem, or mutation tools. Steps 34–38 and the fake provider need no credentials or network; real providers (steps 40–42) are opt-in. Phase 3 analyzers, queries, comparisons, and persistence are reused unchanged; this phase adds `src/archdiscov/assistant/` (contracts, tools, orchestration, validation, rendering, provider adapters), thin `ask`/`evaluate` presentation in the CLI, and answer models under `models/`.
 
-Implement steps 34–43 in order, verifying each before the next. Keep this phase planned until step 43 passes.
+Implement steps 34–44 in order, verifying each before the next. Keep this phase planned until step 44 passes. API keys are supported through environment variables for the Anthropic and OpenAI-compatible adapters; Bedrock uses AWS credentials.
 
 ### Step 34: Define provider-neutral contracts and the fake provider
-**Status:** Planned.
+**Status:** Implemented. Substeps 34.1–34.5 pass their acceptance checks; see each substep below.
 **Prerequisite:** Completed phase 3.
 
 - Define typed messages, tool declarations, tool calls, tool results, final answers, token usage, and provider errors, independent of any vendor SDK. Define a `Provider` protocol with one operation: take the conversation, tool declarations, and limits, and return a message or tool calls.
-- Define provider configuration separately from analysis: provider kind, model, endpoint, protocol, credentials source (an environment variable or profile name, never a value), timeouts, retries, output-token limit, and request/tool-call/latency limits. Reject unknown fields and secret values in configuration files, and exclude credentials from `repr`, logs, and diagnostics.
+- Define provider configuration separately from analysis: provider kind, model, endpoint, protocol, credentials source (an environment variable or profile name, never a value; API keys are never accepted as CLI arguments, which leak into shell history and process listings), timeouts, retries, output-token limit, and request/tool-call/latency limits. Reject unknown fields and secret values in configuration files, and exclude credentials from `repr`, logs, and diagnostics.
 - Implement a scripted fake provider that replays transcripts (tool calls, final answers, malformed output, errors, and delays) deterministically, so orchestration and validation are tested without a network.
 - Add explicit capability flags (tool calling, parallel calls, structured output) so unsupported providers are rejected clearly rather than degraded silently.
 
 **Advice:** Keep the interface small; write the fake provider first and let a second implementation prove the abstraction. Decide the retry boundary now: the provider retries transport errors only, and the orchestrator never retries a rejected answer except through step 38.
 
 **Acceptance check:** Contracts round-trip through JSON; scripted transcripts replay identically; configuration rejects secrets, unknown fields, and unsupported capabilities; no import of vendor SDKs is required for the contracts or fake provider.
+
+Implement and verify substeps 34.1–34.5 in order. Keep the parent planned until every substep's acceptance checks pass. Put the code in `src/archdiscov/assistant/` (conversation contracts, `config.py`, `provider.py`, `fake.py`), reuse the `Model` base from `models/architecture.py`, and add no vendor SDK imports.
+
+#### Step 34.1: Define conversation and tool-call contracts
+**Status:** Implemented. `src/archdiscov/assistant/conversation.py` defines frozen, extra-forbidding contracts for system, user, assistant, and tool-result messages, tool declarations (Bedrock-compatible names, object input schemas up to 32 KiB), tool calls with provider-assigned IDs, tool results, and optional token usage. Arguments are a discriminated value: parsed JSON objects up to 16 KiB, or a malformed reason (`invalid_json`, `not_object`, `too_large`) that keeps no raw text; `parse_tool_arguments` never raises. `Conversation` requires leading system messages, unique call IDs, and exactly one result per earlier call; `parse_conversation` reports only registered codes and known field names through `safe_validation_issues`, now shared from `models/validation_errors.py` with the analysis and comparison diagnostics. The contracts import only `models` and `ingestion/strict_json.py`, because the `services` package loads `botocore`; a subprocess test verifies no Anthropic, OpenAI, boto3, or botocore import.
+**Prerequisite:** Completed phase 3.
+
+- Define strict, frozen models for roles and messages (system, user, assistant, tool result), tool declarations (name, description, JSON-schema input), tool calls (provider-assigned call ID, name, JSON arguments), tool results (call ID, content, error flag), and token usage (all fields optional, since providers differ).
+- Keep arguments as parsed JSON with a size bound; malformed provider arguments are represented as a typed value, not an exception, so step 36 can answer the model with a tool error.
+- Enforce structure: tool results must reference an earlier call ID in the same conversation, call IDs are unique, and an assistant message holds text, tool calls, or both, never neither.
+- Do not add the structured answer proposal here; step 37 owns it. Reuse the existing `Answer` status vocabulary only by reference.
+
+**Advice:** Model the lowest common shape of the Anthropic, OpenAI, and Bedrock formats, and leave vendor-specific fields to the adapters.
+
+**Acceptance check:** Valid and invalid conversations (orphan or duplicate call IDs, empty assistant messages, oversized arguments, unknown fields) round-trip or fail with safe diagnostics; no vendor SDK is imported.
+
+#### Step 34.2: Define provider errors, capabilities, and the `Provider` protocol
+**Status:** Implemented. `src/archdiscov/assistant/provider.py` defines one `ProviderError` subclass per stable code (authentication, rate limit, timeout, transport, invalid request, malformed output, unsupported capability, truncated output, refusal, unavailable), each with a fixed message, a retryable flag set only for transport and rate limit, and a `diagnostic()`; adapters chain the underlying exception rather than copying its text. `ProviderCapabilities` holds a set of tool calling, parallel tool calls, and structured output (parallel requires tool calling). The protocol's one operation takes a frozen `CompletionRequest` (conversation, uniquely named tools, and bounded per-request `RequestLimits` for output tokens, timeout, and tool calls per turn) and returns a `CompletionResponse` (assistant message, usage, and a stop reason that must agree with the presence of tool calls), as `complete` and `complete_async`. Module-level `complete`/`complete_async` call `check_capabilities` first, so tools, prior tool exchanges, or more than one call per turn are rejected with `UnsupportedCapabilityError` before any provider call; structured output becomes a required capability once step 37 adds its request field. The retry boundary is documented in the module.
+**Prerequisite:** Step 34.1.
+
+- Define a typed provider error hierarchy with stable codes (authentication, rate limit, timeout, transport, invalid request, malformed output, unsupported capability, truncated output, refusal, unavailable), a retryable flag, and a safe message that never includes keys, request bodies, or tool-result content.
+- Define capability flags (tool calling, parallel tool calls, structured output) and a check that rejects a request needing an unsupported capability with a typed error instead of degrading silently.
+- Define the `Provider` protocol: sync and async `complete(conversation, tools, limits)` returning an assistant message with usage and a stop reason (end, tool use, length, refusal). Per-request limits (output tokens, timeout) are inputs; run-wide limits belong to step 36.
+- Document the retry boundary: a provider retries transport and rate-limit errors only, up to the configured count, and never retries rejected answers.
+
+**Advice:** Keep the protocol to one operation; resist streaming, caching, and conversation-state features.
+
+**Acceptance check:** Error mapping examples carry stable codes and redacted messages; a request that needs an unsupported capability is rejected before any call; the protocol is satisfiable by a trivial in-test implementation without SDK imports.
+
+#### Step 34.3: Define provider configuration without secrets
+**Status:** Implemented. `src/archdiscov/assistant/config.py` uses TOML (one top-level table, at most 64 KiB) for `ask` and `evaluate`. A configuration is discriminated by `kind`: `fake`, plus `anthropic` (key variable, optional gateway endpoint), `openai_compatible` (required endpoint, key variable, and `responses` or `chat_completions` protocol), and `bedrock` (profile, concrete region, optional role ARN and session name), whose adapters arrive in steps 40–42. Every kind shares strictly typed, bounded, explicitly defaulted model, timeout, retry, output-token, request, tool-call, and latency fields, with per-request limits not exceeding run limits and `request_limits()` producing the step 34.2 `RequestLimits`. Before field validation, sensitive keys (including a plain `api_key`, via `models/sanitization.py`) and secret-looking values (API-key prefixes, AWS access key IDs, bearer tokens, private keys, long mixed-case opaque tokens) are rejected anywhere in the data; endpoints must be HTTPS or loopback HTTP with no user info, query, or fragment. `ProviderConfigError` reports fixed messages, the path, the referenced variable name, and code-only issues. `resolve_api_key` reads the variable at provider construction, fails on a missing or empty value, and returns a `SecretStr`; configurations never hold resolved values.
+**Prerequisite:** Step 34.2.
+
+- Define a discriminated configuration model per provider kind (fake, plus placeholders only for kinds that later adapters will register) with model, endpoint, protocol, timeouts, retries, output-token limit, and request, tool-call, and latency limits, all bounded and defaulted explicitly.
+- Express credentials only as a reference: an environment variable name, or an AWS profile name for Bedrock. Reject any field whose value looks like a key, any unknown field, and a plain `api_key` field. API keys are never accepted as CLI arguments.
+- Load configuration from a bounded TOML or JSON file by path, with a safe diagnostic for malformed or oversized files. Resolve environment variable references only at provider construction time, and fail with a typed error before any request when the variable is missing or empty.
+- Exclude secrets from `repr`, `model_dump`, logs, and diagnostics, including resolved values.
+
+**Advice:** Keep configuration separate from analysis and from collection credentials. Decide the file format here and use it for `ask` and `evaluate` later.
+
+**Acceptance check:** Valid files load; secret-looking values, unknown fields, bad bounds, unknown provider kinds, oversized or malformed files, and missing or empty environment variables each fail safely; a resolved secret never appears in any dump or message.
+
+#### Step 34.4: Implement the scripted fake provider
+**Status:** Implemented. `src/archdiscov/assistant/fake.py` replays a strict JSON `FakeTranscript` (at most 1 MiB): declared capabilities plus ordered turns that either return a step 34.2 `CompletionResponse` (text, single or parallel tool calls, malformed arguments, `length` or `refusal` stops, usage) or raise any scriptable typed provider error, each with an optional simulated delay and optional expectations on the offered tool names and the last message role. Each attempt consumes the next turn; exhaustion, unmet expectations, and turns exceeding the request's tool-call or output-token limits raise `FakeScriptError`, which is deliberately not a `ProviderError`. Like a real adapter, the fake checks capabilities before consuming anything, retries only retryable errors up to `max_retries` (each retry consumes a turn), and turns a delay beyond the request timeout into `ProviderTimeoutError`. An injected `FakeClock` makes delays instant; every attempt is recorded with its request and clock reading. Reviewable fixtures are in `tests/fixtures/assistant/`.
+**Prerequisites:** Steps 34.1–34.3.
+
+- Implement a fake provider that replays a scripted transcript: assistant text, single and parallel tool calls, malformed arguments, errors from the typed hierarchy, truncated or refused output, simulated delay, and usage values. Define the transcript format as strict JSON models so fixtures are reviewable files.
+- Make replay deterministic and strict: each request consumes the next scripted turn; running out of turns, or a request that does not match optional expectations (such as the tool names offered), fails with a typed test error instead of improvising.
+- Inject the clock and sleep so delays need no real waiting. Honour the capability flags and per-request limits, so the fake can model providers without tool calling.
+- Record the requests received, to let later tests assert what the orchestrator sent.
+
+**Advice:** The fake is the specification of provider behaviour for steps 36–39, so keep it as plain as the protocol allows.
+
+**Acceptance check:** Scripted transcripts replay identically across runs, including errors, delays, and parallel calls; exhausted or mismatched scripts fail clearly; recorded requests match what was sent.
+
+#### Step 34.5: Verify the abstraction and document the contracts
+**Status:** Implemented. `tests/assistant/test_provider_contract.py` is the shared contract suite, parameterised over the harnesses in `tests/assistant/provider_harness.py` (the fake now; each adapter adds one that maps fake-transcript turns to mocked transport responses) and run through both checked entry points, sync and async: response mapping (text, usage, single and parallel calls, malformed arguments, `length` and `refusal` stops, prior tool exchanges), every error code with its retryable flag and redacted diagnostic, retry counts, capability rejection before any attempt, and timeout handling. The import-isolation test exercises every assistant module with Anthropic, OpenAI, boto3, and botocore imports blocked, and `test_secret_leaks.py` checks that resolved keys and secret inputs never appear in a `repr`, JSON dump, or exception. [docs/assistant-providers.md](docs/assistant-providers.md) documents the contracts, bounds, request limits, errors, retry boundary, TOML configuration, credentials rules, and fake transcript format, and is linked from the README without claiming a real provider; documentation-drift tests check its configuration fields, kinds, defaults, and bounds, request limits, error codes, and size bounds against the code.
+**Prerequisites:** Steps 34.1–34.4.
+
+- Add a shared provider contract test suite parameterised over providers (the fake now; the adapters in steps 40–42 later), covering message mapping expectations, error codes, capability rejection, limit handling, and safe diagnostics.
+- Add an import-isolation test that imports the contracts, configuration, and fake provider with vendor SDK modules blocked, and a test that no secret leaks through `repr`, JSON dumps, or exceptions.
+- Document the contracts, configuration file format, credentials rules, retry boundary, and fake transcript format in `docs/`, link it from the README without stating that real providers exist, and extend the documentation-drift tests to cover configuration fields, bounds, and defaults.
+
+**Advice:** Keep the contract suite generic, because it will be the acceptance gate for each real adapter.
+
+**Acceptance check:** The suite passes for the fake provider; the isolation and secret-leak tests pass; documentation matches the executable definitions; the full offline suite and Ruff pass with no credentials or network.
 
 ### Step 35: Implement bounded typed assistant tools
 **Status:** Planned.
@@ -2400,9 +2466,33 @@ Implement steps 34–43 in order, verifying each before the next. Keep this phas
 
 **Acceptance check:** Installed-CLI tests outside the checkout run all example questions against fixtures with the fake provider; missing configuration, unknown snapshot, and provider errors fail safely; no credentials or network are needed.
 
-### Step 40: Add the Bedrock Converse adapter
+### Step 40: Add the Anthropic Messages API adapter
 **Status:** Planned.
 **Prerequisites:** Steps 34–39.
+
+- Add the `anthropic` dependency and an adapter using the Messages API with an API key read from a configured environment variable. Support a configured base URL for gateways, but never accept the key as a CLI argument or in a configuration file value. Map messages, tool definitions, tool use/results, stop reasons, and usage; reject models lacking tool support.
+- Establish the shared adapter contract test suite here, as the first real integration, so the later adapters reuse it. Map rate-limit, authentication, overloaded, validation, and truncated-output failures to typed safe provider errors, and keep keys and tool-result bodies out of logs and diagnostics.
+- Test with a mock transport or local fake HTTP server; add opt-in live smoke tests excluded from normal pytest.
+
+**Advice:** Provider response text is untrusted input; every adapter hands only parsed tool calls and structured proposals onward. An API key is simpler to configure than Bedrock and keeps provider credentials separate from collection credentials.
+
+**Acceptance check:** Text, tool-use, multi-tool, error, rate-limit, malformed, and truncated cases pass; fake-provider transcripts run through the adapter's mapping layer; a missing or empty key fails safely before any request; no credentials or network are needed in normal tests.
+
+### Step 41: Add the OpenAI-compatible adapter
+**Status:** Planned.
+**Prerequisites:** Steps 34–40.
+
+- Use the existing `openai` dependency with explicitly configured base URL, key environment variable, model, and protocol (Responses or Chat Completions); reject unconfigured protocols and models that do not support function calling rather than guess. Map tool declarations, calls, results, and usage per the official function-calling guidance.
+- Handle malformed arguments, parallel calls, refusals, truncated output, and transport failures as typed provider errors. Never log API keys or request bodies containing tool results at normal verbosity.
+- Test with a local fake HTTP server or mock transport and opt-in live smoke tests.
+
+**Advice:** Keep protocol differences inside the adapter; the orchestrator must be unable to tell the adapters apart.
+
+**Acceptance check:** Both protocols pass the shared adapter contract tests established in step 40; unsupported capabilities fail clearly; no network is needed in normal tests.
+
+### Step 42: Add the Bedrock Converse adapter
+**Status:** Planned.
+**Prerequisites:** Steps 34–40.
 
 - Implement a Converse adapter using the existing boto3 dependency and the profile/region/role configuration patterns from collection, with its own credentials separate from the collection credentials. Map messages, tool specifications, tool use/results, stop reasons, and usage; reject models lacking tool support.
 - Preserve configured timeouts, retries, and the shared limits; map throttling, access-denied, validation, and model errors to typed safe provider errors. Document the `bedrock:InvokeModel`/Converse permissions required.
@@ -2412,21 +2502,9 @@ Implement steps 34–43 in order, verifying each before the next. Keep this phas
 
 **Acceptance check:** Stubbed text, tool-use, multi-tool, error, throttling, malformed, and truncated-output cases pass; the same fake-provider transcripts run through the adapter's mapping layer; no credentials are required in normal tests.
 
-### Step 41: Add the OpenAI-compatible adapter
+### Step 43: Add evaluation fixtures and commands
 **Status:** Planned.
-**Prerequisites:** Steps 34–39.
-
-- Use the existing `openai` dependency with explicitly configured base URL, key environment variable, model, and protocol (Responses or Chat Completions); reject unconfigured protocols and models that do not support function calling rather than guess. Map tool declarations, calls, results, and usage per the official function-calling guidance.
-- Handle malformed arguments, parallel calls, refusals, truncated output, and transport failures as typed provider errors. Never log API keys or request bodies containing tool results at normal verbosity.
-- Test with a local fake HTTP server or mock transport and opt-in live smoke tests.
-
-**Advice:** Keep protocol differences inside the adapter; the orchestrator must be unable to tell the adapters apart.
-
-**Acceptance check:** Both protocols pass the shared adapter contract tests used for Bedrock; unsupported capabilities fail clearly; no network is needed in normal tests.
-
-### Step 42: Add evaluation fixtures and commands
-**Status:** Planned.
-**Prerequisites:** Steps 39–41.
+**Prerequisites:** Steps 39–42.
 
 - Define a question-fixture format (snapshot fixture, question, expected analyzer kinds, expected finding IDs or properties, required limitations) and an `evaluate` command that runs the same fixtures across configured providers, recording answer status, finding IDs, citation validity, tool usage, latency, repair count, and available token usage.
 - Write results to new immutable report files; compare runs without overwriting. Keep external-provider evaluation opt-in, with cost and request limits stated before it starts.
@@ -2436,9 +2514,9 @@ Implement steps 34–43 in order, verifying each before the next. Keep this phas
 
 **Acceptance check:** The fake-provider evaluation is deterministic and offline; reports are immutable and safe; adversarial fixtures never produce unqualified or uncited conclusions.
 
-### Step 43: Close phase 4 with acceptance and documentation
+### Step 44: Close phase 4 with acceptance and documentation
 **Status:** Planned.
-**Prerequisites:** Steps 34–42.
+**Prerequisites:** Steps 34–43.
 
 - Document providers and configuration, credentials handling, tools and limits, answer and failure contracts, evaluation, and what is explicitly not supported (conversation memory, remediation, effective access, reachability proof), updating the README delivery table and removing stale "planned" assistant text. Extend the documentation-drift tests to cover tools, limits, provider options, and commands.
 - Add installed-CLI journeys: fixture → snapshot → `ask` for each README example question → validated answer → evidence inspection, plus failure and repair paths, running on the host and in Docker with networking disabled.
@@ -2450,7 +2528,7 @@ Implement steps 34–43 in order, verifying each before the next. Keep this phas
 **Advice:** Let validated findings determine factual output. Keep provider configuration, tool limits, and error handling outside analysis logic.
 
 **Open questions (settle before the named step):**
-- Which provider/protocol receives the first real integration: Bedrock (step 40) or OpenAI-compatible (step 41)? They may be built in either order; the plan assumes Bedrock first because AWS access is already set up.
+- Which provider receives the first real integration? The plan assumes the API-key Anthropic adapter (step 40), then OpenAI-compatible (step 41), then Bedrock (step 42); API-key adapters need no AWS setup, and Bedrock remains for users who must stay inside their AWS account. The adapters may be built in any order after step 39.
 - What request, latency, token, and tool-call limits are acceptable by default (step 36)?
 - Should arbitrary narrative text be constrained to predefined answer fields (step 37)? The plan assumes yes: narrative is bounded, labelled as explanation, and never carries facts.
 - Is the existing `mcp` dependency still wanted as a later tool interface over step 35's tools, or should it be removed?

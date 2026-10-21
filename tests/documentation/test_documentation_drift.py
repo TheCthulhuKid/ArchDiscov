@@ -5,8 +5,17 @@ from pathlib import Path
 
 import pytest
 import typer.main
-from annotated_types import Ge, Le
+from annotated_types import Ge, Gt, Le
 
+from archdiscov.assistant import config as assistant_config
+from archdiscov.assistant import conversation as assistant_conversation
+from archdiscov.assistant import fake as assistant_fake
+from archdiscov.assistant.provider import (
+    ProviderError,
+    ProviderErrorCode,
+    RequestLimits,
+    UnsupportedCapabilityError,
+)
 from archdiscov.cli import app
 from archdiscov.models.analysis.parameters import AnalyzerParameters
 from archdiscov.models.comparison.results import DEFAULT_RESULT_LIMIT, MAX_RESULT_LIMIT
@@ -140,6 +149,121 @@ def test_documented_comparison_limit_matches_the_model():
         number(analysis[2])
         == PARAMETER_MODELS[AnalyzerKind.CROSS_ACCOUNT_TRUST].model_fields["result_limit"].default
     )
+
+
+# ---- assistant providers -----------------------------------------------------------
+
+PROVIDERS_DOC = DOCS / "assistant-providers.md"
+CONFIG_MODELS = {
+    model.model_fields["kind"].default.value: model
+    for model in assistant_config.ProviderConfig.__origin__.__args__
+}
+
+
+def decimal(text: str) -> float:
+    return float(text.replace(",", ""))
+
+
+def documented_range(text: str) -> tuple[bool, float, float] | None:
+    """(exclusive lower bound, low, high) of `1–50` or `>0–60`, ignoring trailing notes."""
+    match = re.match(r"(>?)([\d.,]+)–([\d.,]+)", text)
+    if match is None:
+        return None
+    return bool(match.group(1)), decimal(match.group(2)), decimal(match.group(3))
+
+
+def field_range(field) -> tuple[bool, float, float]:
+    metadata = field.metadata
+    gt = next((m.gt for m in metadata if isinstance(m, Gt)), None)
+    ge = next((m.ge for m in metadata if isinstance(m, Ge)), None)
+    le = next(m.le for m in metadata if isinstance(m, Le))
+    return gt is not None, float(gt if gt is not None else ge), float(le)
+
+
+def check_default(documented: str, field, where) -> None:
+    if field.is_required():
+        assert documented == "required", where
+    elif field.default is None:
+        assert documented == "none", where
+    elif isinstance(field.default, (int, float)):
+        assert decimal(documented) == field.default, where
+    else:
+        assert documented == f"`{field.default}`", where
+
+
+def test_documented_provider_configuration_matches_the_models():
+    rows = table_rows(PROVIDERS_DOC, "| Field | Kinds")
+    covered = set()
+    for name, kinds, default, allowed in (row[:4] for row in rows):
+        name = name.strip("`")
+        selected = (
+            list(CONFIG_MODELS)
+            if kinds == "all"
+            else [kind.strip().strip("`") for kind in kinds.split(",")]
+        )
+        for kind in selected:
+            assert (kind, name) not in covered, (kind, name)
+            covered.add((kind, name))
+            field = CONFIG_MODELS[kind].model_fields[name]
+            if name == "kind":
+                continue
+            check_default(default, field, (kind, name))
+            if (documented := documented_range(allowed)) is not None:
+                assert documented == field_range(field), (kind, name)
+    expected = {
+        (kind, name) for kind, model in CONFIG_MODELS.items() for name in model.model_fields
+    }
+    assert covered == expected
+    kind_row = next(row for row in rows if row[0] == "`kind`")
+    assert kind_row[3] == ", ".join(f"`{kind}`" for kind in assistant_config.ProviderKind)
+    assert set(CONFIG_MODELS) == {kind.value for kind in assistant_config.ProviderKind}
+
+
+def test_documented_request_limits_match_the_model():
+    rows = table_rows(PROVIDERS_DOC, "| Request limit")
+    assert [row[0].strip("`") for row in rows] == list(RequestLimits.model_fields)
+    for name, default, allowed in (row[:3] for row in rows):
+        field = RequestLimits.model_fields[name.strip("`")]
+        check_default(default, field, name)
+        assert documented_range(allowed) == field_range(field), name
+
+
+def test_documented_provider_errors_match_the_hierarchy():
+    rows = table_rows(PROVIDERS_DOC, "| Code | Error")
+    errors = {
+        error.code: error
+        for error in [UnsupportedCapabilityError, *ProviderError.__subclasses__()]
+        if "code" in vars(error)
+    }
+    assert [row[0].strip("`") for row in rows] == [code.value for code in ProviderErrorCode]
+    for code, name, retryable, message in (row[:4] for row in rows):
+        error = errors[ProviderErrorCode(code.strip("`"))]
+        assert name.strip("`") == error.__name__
+        assert retryable == ("yes" if error.retryable else "no"), code
+        assert message == error.message, code
+
+
+def test_documented_bounds_match_the_constants():
+    rows = table_rows(PROVIDERS_DOC, "| Bound | Value")
+    assert {row[0].strip("`") for row in rows} == {
+        name for name in vars(assistant_conversation) if name.startswith("MAX_")
+    }
+    for name, value in (row[:2] for row in rows):
+        assert number(value) == getattr(assistant_conversation, name.strip("`")), name
+    text = PROVIDERS_DOC.read_text(encoding="utf-8")
+    assert assistant_config.MAX_CONFIG_BYTES == 64 * 1024 and "64 KiB" in text
+    assert assistant_fake.MAX_TRANSCRIPT_BYTES == 1024 * 1024 and "1 MiB" in text
+    for code in assistant_config.ProviderConfigErrorCode:
+        assert f"`{code.value}`" in text, code
+
+
+def test_the_readme_links_the_provider_contracts_without_claiming_real_providers():
+    text = README.read_text(encoding="utf-8")
+    assert "docs/assistant-providers.md" in text
+    for claim in ("Anthropic adapter is implemented", "OpenAI-compatible adapter is implemented"):
+        assert claim not in text
+    provider_doc = PROVIDERS_DOC.read_text(encoding="utf-8")
+    assert "the fake is the only provider" in provider_doc
 
 
 # ---- commands ----------------------------------------------------------------------

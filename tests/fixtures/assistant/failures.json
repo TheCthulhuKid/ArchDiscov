@@ -1,0 +1,38 @@
+{
+  "turns": [
+    {"kind": "fail", "error": "provider_transport", "delay_seconds": 0.5},
+    {"kind": "fail", "error": "provider_rate_limit"},
+    {
+      "kind": "respond",
+      "response": {
+        "message": {"role": "assistant", "text": "Recovered after retries."},
+        "stop_reason": "end"
+      }
+    },
+    {
+      "kind": "respond",
+      "response": {
+        "message": {"role": "assistant", "text": "The answer was cut"},
+        "usage": {"output_tokens": 64},
+        "stop_reason": "length"
+      }
+    },
+    {
+      "kind": "respond",
+      "response": {
+        "message": {"role": "assistant", "text": "I cannot help with that."},
+        "stop_reason": "refusal"
+      }
+    },
+    {"kind": "fail", "error": "provider_malformed_output"},
+    {
+      "kind": "respond",
+      "delay_seconds": 90,
+      "response": {
+        "message": {"role": "assistant", "text": "Too slow to arrive."},
+        "stop_reason": "end"
+      }
+    },
+    {"kind": "fail", "error": "provider_authentication"}
+  ]
+}

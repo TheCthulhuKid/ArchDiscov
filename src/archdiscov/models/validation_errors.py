@@ -1,7 +1,9 @@
 """Stable validation codes and public messages, separate from private error details."""
 
+from dataclasses import dataclass
 from types import MappingProxyType
 
+from pydantic import ValidationError
 from pydantic_core import PydanticCustomError
 
 SAFE_VALIDATION_MESSAGES = MappingProxyType(
@@ -73,6 +75,62 @@ SAFE_VALIDATION_MESSAGES = MappingProxyType(
         "azure_resource_native_type_mismatch": (
             "Snapshot constraint failed: Azure identity native_type must match resource type."
         ),
+        "tool_input_schema_not_object": (
+            "Conversation constraint failed: tool input schema must describe an object."
+        ),
+        "tool_input_schema_too_large": (
+            "Conversation constraint failed: tool input schema exceeds the size limit."
+        ),
+        "tool_arguments_too_large": (
+            "Conversation constraint failed: tool arguments exceed the size limit."
+        ),
+        "assistant_message_empty": (
+            "Conversation constraint failed: assistant message needs text or tool calls."
+        ),
+        "conversation_system_message_position": (
+            "Conversation constraint failed: system messages must precede all other messages."
+        ),
+        "conversation_tool_call_id_duplicate": (
+            "Conversation constraint failed: duplicate tool call ID."
+        ),
+        "conversation_tool_result_orphan": (
+            "Conversation constraint failed: tool result references no earlier tool call."
+        ),
+        "conversation_tool_result_duplicate": (
+            "Conversation constraint failed: tool call already has a result."
+        ),
+        "provider_parallel_calls_without_tools": (
+            "Provider constraint failed: parallel tool calls require tool calling."
+        ),
+        "provider_tool_name_duplicate": "Provider constraint failed: duplicate tool name.",
+        "provider_stop_reason_mismatch": (
+            "Provider constraint failed: tool_use stop reason must match tool calls."
+        ),
+        "provider_config_secret_field": (
+            "Provider configuration constraint failed: credential fields are not accepted; "
+            "reference an environment variable or profile instead."
+        ),
+        "provider_config_secret_value": (
+            "Provider configuration constraint failed: value looks like a secret."
+        ),
+        "provider_config_limit_order": (
+            "Provider configuration constraint failed: per-request limits exceed run limits."
+        ),
+        "provider_config_endpoint_invalid": (
+            "Provider configuration constraint failed: endpoint must use HTTPS (or loopback "
+            "HTTP) without credentials, query, or fragment."
+        ),
+        "fake_transcript_error_unscriptable": (
+            "Fake transcript constraint failed: capability errors are raised by checks, "
+            "not scripted."
+        ),
+        "fake_transcript_capability_mismatch": (
+            "Fake transcript constraint failed: a turn's tool calls need a capability the "
+            "transcript does not declare."
+        ),
+        "provider_config_region_invalid": (
+            "Provider configuration constraint failed: region must be a concrete AWS region."
+        ),
     }
 )
 
@@ -82,3 +140,34 @@ def validation_error(code: str, detail: str) -> PydanticCustomError:
     if code not in SAFE_VALIDATION_MESSAGES:
         raise ValueError(f"Unregistered validation code: {code}")
     return PydanticCustomError(code, "{detail}", {"detail": detail})
+
+
+@dataclass(frozen=True)
+class ValidationIssue:
+    location: tuple[str | int, ...]
+    type: str
+    message: str
+
+
+def safe_validation_issues(
+    error: ValidationError, fields: frozenset[str], subject: str
+) -> tuple[ValidationIssue, ...]:
+    """Issues from a Pydantic error without untrusted keys, discriminator tags, or inputs.
+
+    Dynamic input keys and tags can occur in Pydantic locations, so only known field names and
+    list positions are kept; messages, inputs, and contexts are never exposed.
+    """
+    return tuple(
+        ValidationIssue(
+            tuple(
+                part if isinstance(part, int) or part in fields else "field" for part in item["loc"]
+            ),
+            item["type"],
+            f"Invalid {subject} field.",
+        )
+        for item in error.errors(include_input=False, include_context=False)
+    )
+
+
+def serialization_issue(subject: str) -> ValidationIssue:
+    return ValidationIssue((), "serialization_error", f"{subject} is not serializable.")
