@@ -143,6 +143,22 @@ SAFE_VALIDATION_MESSAGES = MappingProxyType(
         "tool_returned_ids_order": (
             "Tool output constraint failed: returned IDs must be sorted and unique."
         ),
+        "run_limits_order": (
+            "Run constraint failed: per-request limits must not exceed run limits."
+        ),
+        "run_answer_not_final": (
+            "Run constraint failed: an answer is assistant text without tool calls."
+        ),
+        "run_outcome_kind_mismatch": (
+            "Run constraint failed: malformed output is reported as its own outcome."
+        ),
+        "run_transcript_secret": "Run constraint failed: transcript text looks like a secret.",
+        "run_transcript_counts": (
+            "Run constraint failed: transcript counts must match its turns and limits."
+        ),
+        "run_transcript_arguments": (
+            "Run constraint failed: tool call arguments are either parsed or malformed."
+        ),
         "provider_config_region_invalid": (
             "Provider configuration constraint failed: region must be a concrete AWS region."
         ),

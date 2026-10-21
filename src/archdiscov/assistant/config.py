@@ -10,7 +10,6 @@ their adapters (steps 40-42) will use.
 """
 
 import os
-import re
 import tomllib
 from collections.abc import Mapping
 from enum import StrEnum
@@ -38,27 +37,13 @@ from archdiscov.models.validation_errors import (
 
 from .conversation import Contract
 from .provider import RequestLimits
+from .redaction import looks_secret
 
 MAX_CONFIG_BYTES = 65_536
 
 EnvVarName = Annotated[str, Field(pattern=r"^[A-Z_][A-Z0-9_]{0,127}$")]
 ModelName = Annotated[NonEmptyString, Field(max_length=256)]
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "[::1]", "::1"})
-_SECRET_VALUE_PATTERNS = (
-    re.compile(r"\bsk-[A-Za-z0-9_-]{16,}"),
-    re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"),
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
-    re.compile(r"^(?:Bearer|Basic)\s+\S", re.IGNORECASE),
-    # Opaque tokens: long runs mixing lower case, upper case, and digits.
-    re.compile(
-        r"(?=[A-Za-z0-9_=-]*[a-z])(?=[A-Za-z0-9_=-]*[A-Z])(?=[A-Za-z0-9_=-]*[0-9])"
-        r"[A-Za-z0-9_=-]{32,}"
-    ),
-)
-
-
-def _looks_secret(value: str) -> bool:
-    return any(pattern.search(value) for pattern in _SECRET_VALUE_PATTERNS)
 
 
 def _reject_secrets(data: Any) -> None:
@@ -71,7 +56,7 @@ def _reject_secrets(data: Any) -> None:
     elif isinstance(data, (list, tuple)):
         for value in data:
             _reject_secrets(value)
-    elif isinstance(data, str) and _looks_secret(data):
+    elif isinstance(data, str) and looks_secret(data):
         raise validation_error("provider_config_secret_value", "secret-looking value")
 
 
