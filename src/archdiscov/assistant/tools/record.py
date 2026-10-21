@@ -260,8 +260,7 @@ class RunRecord:
             snapshots=tuple(self._snapshots[key] for key in sorted(self._snapshots)),
             findings=tuple(self._findings[key] for key in sorted(self._findings)),
             results=tuple(
-                (key, AnalysisResult.model_validate(self._results[key].model_dump()))
-                for key in sorted(self._results)
+                (key, self._results[key].model_copy(deep=True)) for key in sorted(self._results)
             ),
             fingerprints=tuple(
                 sorted(self._fingerprints, key=lambda item: (item.length, item.digest))
