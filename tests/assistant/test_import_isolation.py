@@ -5,6 +5,7 @@ from tests.paths import PROJECT_ROOT, TESTS_ROOT
 
 VENDOR_MODULES = ("anthropic", "openai", "boto3", "botocore")
 TRANSCRIPT = TESTS_ROOT / "fixtures" / "assistant" / "multi_step.json"
+SNAPSHOT = TESTS_ROOT / "fixtures" / "snapshots" / "aws.json"
 
 # Imports would fail loudly if any assistant module reached a vendor SDK; the transcript
 # replay exercises the modules, not just their top-level imports.
@@ -29,6 +30,11 @@ from pathlib import Path
 from archdiscov.assistant import config, conversation, fake, provider
 from archdiscov.assistant.tools import contracts as tool_contracts
 from archdiscov.assistant.tools import record as tool_record
+from archdiscov.assistant.tools import registry as tool_registry
+from archdiscov.assistant.tools import session as tool_session
+
+assert tool_registry.ToolRegistry([]).declarations() == ()
+assert tool_session.ToolSession.from_paths(Path({str(SNAPSHOT)!r})).index.resource_ids
 
 assert tool_record.RunRecord().returned() == tool_record.ReturnedIds()
 assert tool_contracts.untrusted("x").untrusted_text == "x"

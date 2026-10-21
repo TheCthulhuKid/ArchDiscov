@@ -2,7 +2,8 @@
 
 Step 37 accepts an answer only if each finding, evidence, and resource ID it cites was
 returned by a tool in the same run, for the same snapshot. The record collects IDs from
-delivered outputs by field name (`ID_FIELDS`), scoped to the nearest enclosing
+delivered outputs by field name (`ID_FIELDS`; a value may be one ID, a sequence, or a
+`BoundedList` of IDs), scoped to the nearest enclosing
 `snapshot_id`; its snapshot is sorted and detached from later recording or caller changes.
 """
 
@@ -16,7 +17,7 @@ from archdiscov.models.resource_base import NonEmptyString
 from archdiscov.models.validation_errors import validation_error
 
 from ..conversation import Contract
-from .contracts import ID_FIELDS, IdKind, ToolOutput
+from .contracts import ID_FIELDS, BoundedList, IdKind, ToolOutput
 
 
 class SnapshotReturnedIds(Contract):
@@ -100,6 +101,8 @@ def _collect(value: Any, snapshot_id: UUID | None, found: list) -> None:
                     continue
                 if snapshot_id is None:
                     raise ValueError(f"{type(value).__name__}.{name} has no enclosing snapshot_id")
+                if isinstance(item, BoundedList):
+                    item = item.items
                 found.append((snapshot_id, ID_FIELDS[name], item))
             else:
                 _collect(item, snapshot_id, found)

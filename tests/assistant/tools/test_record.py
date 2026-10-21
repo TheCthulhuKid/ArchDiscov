@@ -230,3 +230,13 @@ def test_recording_no_ids_adds_no_snapshot_entry() -> None:
     record = RunRecord()
     record.record(LEFT, IdKind.RESOURCE, [])
     assert record.returned() == ReturnedIds()
+
+
+def test_bounded_lists_of_ids_are_recorded() -> None:
+    class _Listed(ToolOutput):
+        snapshot_id: UUID
+        resource_ids: BoundedList[str]
+
+    record = RunRecord()
+    record.record_output(_Listed(snapshot_id=LEFT, resource_ids=bounded(["c", "a", "b"], 2)))
+    assert record.returned().snapshots[0].resource_ids == ("a", "c")
