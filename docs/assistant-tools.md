@@ -27,8 +27,10 @@ session's result limit.
 | `get_saved_analysis` | **`number`**, `limit` | one selected saved analysis |
 | `get_saved_comparison` | **`number`**, `limit` | one selected saved comparison; recorded differences, not drift |
 
-Search, inspection, neighbours, and paths call the step 25 query services exactly as the
-`query` commands do. `run_analyzer` calls `run_analyzer` and then
+Every query output and `list_analyzers` names the snapshot ID, its source kind (an
+observation, Terraform state or plan, or a template), and its collection start and end
+times. Search, inspection, neighbours, and paths call the step 25 query services exactly
+as the `query` commands do. `run_analyzer` calls `run_analyzer` and then
 `validate_analysis_result`, the checks `analyze` applies before saving. It rejects
 parameters the selected analyzer does not accept, caps `max_depth` by the session depth,
 and asks each analyzer for its own maximum of findings so the tool can count what it drops.

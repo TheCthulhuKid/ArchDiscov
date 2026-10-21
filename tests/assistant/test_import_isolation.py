@@ -27,7 +27,7 @@ sys.meta_path.insert(0, Blocker())
 
 from pathlib import Path
 
-from archdiscov.assistant import config, conversation, fake, provider, redaction, runs
+from archdiscov.assistant import config, conversation, fake, instructions, provider, redaction, runs
 from archdiscov.assistant.tools import contracts as tool_contracts
 from archdiscov.assistant.tools import session as tool_session
 from archdiscov.assistant.tools.catalog import ALL_TOOLS, default_registry
@@ -59,6 +59,7 @@ assert session.record.returned().snapshots
 assert tool_contracts.untrusted("x").untrusted_text == "x"
 assert runs.RunLimits.from_config(config.FakeProviderConfig()) == runs.RunLimits()
 assert redaction.redact_secrets("Bearer abc") == redaction.REDACTED
+assert len(instructions.initial_conversation("q").messages) == 2
 
 transcript = fake.load_fake_transcript(Path({str(TRANSCRIPT)!r}))
 replayed = fake.FakeProvider(transcript)
