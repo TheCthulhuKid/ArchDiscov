@@ -209,7 +209,8 @@ contract suite.
   `error`, any code except `provider_unsupported_capability`.
 - Any turn may add `delay_seconds` (0–600) and an `expect` with the offered tool names,
   in order, and the role of the last message. `ignore_request_limits` lets a `respond`
-  turn model a provider that returns more tool calls or output tokens than requested.
+  turn model a provider that ignores the request: more tool calls or output tokens than
+  requested, or a delay past the request timeout without timing out.
 
 Each attempt consumes the next turn. Running out of turns, an unmet expectation, or a
 response with more tool calls or output tokens than the request allows raises
