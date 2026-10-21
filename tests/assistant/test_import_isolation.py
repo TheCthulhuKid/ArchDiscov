@@ -28,7 +28,7 @@ sys.meta_path.insert(0, Blocker())
 from pathlib import Path
 
 from archdiscov.assistant import config, conversation, fake, instructions, orchestrator, provider
-from archdiscov.assistant import redaction, runs
+from archdiscov.assistant import answers, redaction, runs
 from archdiscov.assistant.tools import contracts as tool_contracts
 from archdiscov.assistant.tools import session as tool_session
 from archdiscov.assistant.tools.catalog import ALL_TOOLS, default_registry
@@ -61,6 +61,7 @@ assert tool_contracts.untrusted("x").untrusted_text == "x"
 assert runs.RunLimits.from_config(config.FakeProviderConfig()) == runs.RunLimits()
 assert redaction.redact_secrets("Bearer abc") == redaction.REDACTED
 assert len(instructions.initial_conversation("q").messages) == 2
+assert answers.submit_answer_declaration().name == "submit_answer"
 reply = {{"message": {{"role": "assistant", "text": "a"}}, "stop_reason": "end"}}
 answer = fake.FakeTranscript.model_validate({{"turns": [{{"kind": "respond", "response": reply}}]}})
 run = orchestrator.run_assistant(

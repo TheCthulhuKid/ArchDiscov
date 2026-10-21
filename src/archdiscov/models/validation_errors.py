@@ -159,6 +159,18 @@ SAFE_VALIDATION_MESSAGES = MappingProxyType(
         "run_transcript_arguments": (
             "Run constraint failed: tool call arguments are either parsed or malformed."
         ),
+        "answer_duplicate": "Answer constraint failed: items must be unique.",
+        "answer_citation_empty": "Answer constraint failed: a citation names at least one ID.",
+        "answer_conclusion_shape": (
+            "Answer constraint failed: a conclusion's citations must fit its kind."
+        ),
+        "answer_context_missing": (
+            "Answer constraint failed: the primary side and every cited side need a context."
+        ),
+        "answer_status_shape": (
+            "Answer constraint failed: supported and partial answers need conclusions; "
+            "insufficient_evidence, and only it, needs a reason."
+        ),
         "provider_config_region_invalid": (
             "Provider configuration constraint failed: region must be a concrete AWS region."
         ),
