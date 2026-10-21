@@ -8,7 +8,7 @@ import pytest
 import typer.main
 from annotated_types import Ge, Gt, Le
 
-from archdiscov.assistant import answer_results, answer_validation
+from archdiscov.assistant import answer_rendering, answer_results, answer_validation
 from archdiscov.assistant import answers as assistant_answers
 from archdiscov.assistant import config as assistant_config
 from archdiscov.assistant import conversation as assistant_conversation
@@ -421,6 +421,16 @@ def test_documented_rendering_bound_matches_the_constant():
     assert f"`MAX_RENDERED_ENTRIES` ({answer_results.MAX_RENDERED_ENTRIES})" in text
 
 
+def test_documented_failure_explanations_match_the_reasons():
+    rows = table_rows(ANSWERS_DOC, "| Failure reason")
+    assert [row[0].strip("`") for row in rows] == [
+        reason.value for reason in answer_results.FailureReason
+    ]
+    text = " ".join(ANSWERS_DOC.read_text(encoding="utf-8").split())
+    assert f"`MAX_RETRIEVED` ({answer_results.MAX_RETRIEVED})" in text
+    assert f"`MAX_LISTED_REJECTIONS` ({answer_rendering.MAX_LISTED_REJECTIONS})" in text
+
+
 def test_documented_rejections_match_the_codes():
     rows = table_rows(ANSWERS_DOC, "| Code | Check | Message")
     assert [row[0].strip("`") for row in rows] == [
@@ -457,9 +467,8 @@ def test_the_readme_links_answers_without_claiming_rendering_or_ask():
     assert "docs/assistant-answers.md" in text
     for claim in ("answers are rendered", "repair is implemented", "`ask` command is implemented"):
         assert claim not in text
-    assert (
-        "renderings, failure explanations, the single repair attempt, the `ask` command"
-        in " ".join(ANSWERS_DOC.read_text(encoding="utf-8").split())
+    assert "renderings, the single repair attempt, the `ask` command" in " ".join(
+        ANSWERS_DOC.read_text(encoding="utf-8").split()
     )
 
 

@@ -2,10 +2,10 @@
 
 This page describes the structured answer a model submits at the end of an
 [orchestrated run](assistant-orchestration.md), how it is validated against what the
-[tools](assistant-tools.md) returned, and how its conclusions are written from records. No
-command uses this yet, and the only provider is the scripted fake: the readable and JSON
-renderings, failure explanations, the single repair attempt, the `ask` command, and real
-providers are later steps.
+[tools](assistant-tools.md) returned, how its conclusions are written from records, and how
+a failed run is explained. No command uses this yet, and the only provider is the scripted
+fake: the readable and JSON renderings, the single repair attempt, the `ask` command, and
+real providers are later steps.
 
 ## Boundary
 
@@ -139,3 +139,28 @@ incomplete, and that recorded differences are not proof of change or drift. An
 `insufficient_evidence` answer says what was checked, never what is true: its reason, and
 how many findings from which analyzers the run retrieved. The narrative appears only as the
 labelled `summary` and `explanation`, with secret-looking text redacted as in transcripts.
+
+## Failure explanations
+
+`render_failure(session, outcome)` explains a failed `AnswerOutcome` from the outcome and
+the run record alone. It takes no proposal and no provider, so it can show neither a
+rejected narrative nor provider text, and it makes no provider call. Its `RenderedFailure`
+holds:
+
+- `retrieved`: every finding the run retrieved, rendered as in an answer but labelled as
+  retrieved, one conclusion per side and analyzer (a snapshot compared with itself counts
+  as the primary side) with at most `MAX_CITED_IDS` findings each, up to `MAX_RETRIEVED` (100) conclusions; further findings are counted;
+- `unverified`: fixed statements of why the run stopped, then that no answer was
+  validated, what the run retrieved (or that it retrieved nothing), and, per snapshot, how
+  many collection operations did not succeed, by status.
+
+| Failure reason | Stated as |
+|---|---|
+| `rejected_after_repair` | the rejection after one repair, then each rejection's location, code, and fixed message, up to `MAX_LISTED_REJECTIONS` (40), with the rest counted |
+| `no_proposal_after_repair` | a plain-text answer after one repair, whose text is not shown |
+| `malformed_output` | a fixed sentence for the malformed-output reason |
+| `provider_error` | the provider error code and its fixed message |
+| `limit_reached` | the limit that stopped the run |
+| `cancelled` | the cancellation |
+
+Declared and planned snapshots are qualified as they are in answers.

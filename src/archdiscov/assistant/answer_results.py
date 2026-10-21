@@ -171,6 +171,9 @@ MAX_RENDERED_ENTRIES = 20
 # and counts of those left out; a statement quotes at most three values.
 MAX_STATEMENTS = 2 * 3 * MAX_CITED_IDS + 2 * MAX_RENDERED_ENTRIES + 2
 MAX_QUOTED = 3 * MAX_STATEMENTS
+MAX_RETRIEVED = 100
+"""Retrieved-finding conclusions a failure shows; further findings are counted."""
+MAX_UNVERIFIED = 50
 _REFERENCE = re.compile(r"\[(\d+)\]")
 
 
@@ -231,8 +234,8 @@ class RenderedFailure(Contract):
     """What a failed run retrieved and what it could not verify; no provider text."""
 
     reason: FailureReason
-    retrieved: tuple[RenderedConclusion, ...] = Field(default=(), max_length=100)
-    unverified: tuple[Statement, ...] = Field(min_length=1, max_length=50)
+    retrieved: tuple[RenderedConclusion, ...] = Field(default=(), max_length=MAX_RETRIEVED)
+    unverified: tuple[Statement, ...] = Field(min_length=1, max_length=MAX_UNVERIFIED)
 
 
 class RenderedAnswer(Contract):

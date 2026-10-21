@@ -84,6 +84,8 @@ rendered = answer_rendering.render_answer(
     proposal, session, answer_results.AnswerOutcome(status="answered")
 )
 assert rendered.narrative.summary == "Nothing applicable."
+failed = answer_results.AnswerOutcome(status="failed", failure="cancelled")
+assert answer_rendering.render_failure(session, failed).failure.reason == "cancelled"
 assert answer_results.final_outcome(
     run.outcome, (), repaired=True
 ).failure == answer_results.FailureReason.NO_PROPOSAL_AFTER_REPAIR

@@ -1,4 +1,7 @@
-"""Rendering a validated proposal as a `RenderedAnswer`, with every fact taken from records.
+"""Rendering an answer run as a `RenderedAnswer`, with every fact taken from records.
+
+`render_answer` renders a validated proposal; `render_failure` explains a failed run from the
+outcome and the run record alone, without the proposal or any provider text.
 
 The proposal decides only which records are shown. Their facts come from the finding views
 tools delivered to the model, the evidence and resources in the session's indexes, and the
@@ -8,7 +11,10 @@ referred to as `[n]`, so a model cannot change how a fact is worded. The narrati
 with secret-looking text redacted, only as the labelled explanation, never as a conclusion.
 """
 
-from collections.abc import Iterable, Iterator, Mapping
+from collections import Counter
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from itertools import islice
+from uuid import UUID
 
 from archdiscov.graph.identity import native_resource_type
 from archdiscov.models.analysis.references import ResourceReference
@@ -22,17 +28,22 @@ from archdiscov.models.comparison.entries import (
 from archdiscov.models.comparison.results import ComparisonResult
 from archdiscov.models.enums import (
     AnalysisStatus,
+    AnalyzerKind,
     ComparisonSide,
+    CoverageStatus,
     EvidenceValueStatus,
     SnapshotSourceKind,
 )
 
 from .answer_results import (
     MAX_RENDERED_ENTRIES,
+    MAX_RETRIEVED,
     AnswerOutcome,
     AnswerStatus,
+    FailureReason,
     RenderedAnswer,
     RenderedConclusion,
+    RenderedFailure,
     RenderedNarrative,
     RenderedSnapshot,
     Statement,
@@ -40,6 +51,7 @@ from .answer_results import (
 from .answer_validation import side_indexes
 from .answers import (
     DECLARED_SOURCE_KINDS,
+    MAX_CITED_IDS,
     AnswerProposal,
     AnswerSide,
     Citation,
@@ -48,7 +60,9 @@ from .answers import (
     InsufficientReason,
     combined_status,
 )
+from .provider import PROVIDER_ERROR_MESSAGES
 from .redaction import redact_secrets
+from .runs import MalformedOutputReason, RunLimitKind
 from .tools.contracts import UntrustedText, untrusted
 from .tools.record import RunContext
 from .tools.session import ToolSession
@@ -173,6 +187,30 @@ class _Renderer:
         self.context = session.record.context()
         self.indexes = side_indexes(session)
         self.comparisons = session.comparisons
+
+    def retrieved(self) -> tuple[RenderedConclusion, ...]:
+        """Every finding the run retrieved, by side and analyzer, up to `MAX_RETRIEVED`.
+
+        A snapshot compared with itself shows its findings once, on the primary side.
+        """
+        sides: dict[UUID, AnswerSide] = {}
+        for side, index in self.indexes.items():
+            sides.setdefault(index.snapshot_id, side)
+        groups: dict[tuple[AnswerSide, AnalyzerKind], list[str]] = {}
+        for finding in self.context.findings:
+            key = (sides[finding.snapshot_id], finding.analyzer)
+            groups.setdefault(key, []).append(finding.finding_id)
+        conclusions = (
+            Conclusion(
+                kind=ConclusionKind.ANALYZER_FINDING,
+                citations=(
+                    Citation(side=side, finding_ids=tuple(ids[start : start + MAX_CITED_IDS])),
+                ),
+            )
+            for (side, _), ids in groups.items()
+            for start in range(0, len(ids), MAX_CITED_IDS)
+        )
+        return tuple(self.conclusion(item) for item in islice(conclusions, MAX_RETRIEVED))
 
     def conclusion(self, conclusion: Conclusion) -> RenderedConclusion:
         """Every cited finding, evidence item, and resource, then the recorded differences."""
@@ -415,11 +453,118 @@ def _insufficient(proposal: AnswerProposal, context: RunContext) -> Iterator[str
     if proposal.insufficient_reason is None:
         return
     yield INSUFFICIENT_REASONS[proposal.insufficient_reason]
+    yield _retrieved_summary(context)
+
+
+def _retrieved_summary(context: RunContext) -> str:
     analyzers = sorted({finding.analyzer.value for finding in context.findings})
-    if analyzers:
-        yield (
-            f"The run retrieved {len(context.findings)} finding(s) from these analyzers: "
-            f"{', '.join(analyzers)}."
+    if not analyzers:
+        return "The run retrieved no analyzer findings."
+    return (
+        f"The run retrieved {len(context.findings)} finding(s) from these analyzers: "
+        f"{', '.join(analyzers)}."
+    )
+
+
+# ---- failures ------------------------------------------------------------------------
+
+MAX_LISTED_REJECTIONS = 40
+"""Rejections a failure lists; the rest are counted."""
+
+_MALFORMED = {
+    MalformedOutputReason.PROVIDER_REPORTED: "The provider reported output that does not fit "
+    "the conversation contracts.",
+    MalformedOutputReason.CONVERSATION_INVALID: "A response could not continue the "
+    "conversation, for example because it reused a tool-call ID.",
+    MalformedOutputReason.TOOL_CALLS_WITHOUT_TOOLS: "A response called tools although none "
+    "were offered.",
+    MalformedOutputReason.PROPOSAL_MALFORMED: "The structured answer was not a JSON object "
+    "within the size limit after one repair attempt.",
+    MalformedOutputReason.PROPOSAL_INVALID: "The structured answer did not match the answer "
+    "contract after one repair attempt.",
+    MalformedOutputReason.PROPOSAL_MIXED: "The structured answer was submitted together with "
+    "other tool calls after one repair attempt.",
+}
+
+_LIMITS = {
+    RunLimitKind.PROVIDER_REQUESTS: "its limit on provider requests",
+    RunLimitKind.TOOL_CALLS_PER_TURN: "its limit on tool calls in one response",
+    RunLimitKind.TOOL_CALLS: "its limit on tool calls",
+    RunLimitKind.TOTAL_OUTPUT: "its limit on total provider output",
+    RunLimitKind.REQUEST_DEADLINE: "the deadline for one provider request",
+    RunLimitKind.OVERALL_DEADLINE: "its overall deadline",
+}
+
+NOT_VALIDATED = "No answer was validated."
+NO_PROPOSAL = "The model answered in plain text after one repair attempt; its text is not shown."
+RETRIEVED_NOT_ANSWER = (
+    "The findings shown were retrieved during the run; they are not a validated answer."
+)
+
+
+def _rejected(outcome: AnswerOutcome) -> tuple[str, ...]:
+    listed = outcome.rejections[:MAX_LISTED_REJECTIONS]
+    unlisted = len(outcome.rejections) - len(listed)
+    return (
+        "The structured answer was rejected after one repair attempt.",
+        *(f"Rejected at {item.location} ({item.code}): {item.message}" for item in listed),
+        *([f"{unlisted} more rejections are not listed."] if unlisted else []),
+    )
+
+
+def _provider_failed(outcome: AnswerOutcome) -> tuple[str, ...]:
+    code = outcome.provider_error
+    return (f"The provider failed ({code}): {PROVIDER_ERROR_MESSAGES[code]}",)
+
+
+# How each failure reason stopped the run; the details are fixed vocabulary, never text.
+_STOPPED: Mapping[FailureReason, Callable[[AnswerOutcome], tuple[str, ...]]] = {
+    FailureReason.REJECTED_AFTER_REPAIR: _rejected,
+    FailureReason.NO_PROPOSAL_AFTER_REPAIR: lambda _: (NO_PROPOSAL,),
+    FailureReason.MALFORMED_OUTPUT: lambda outcome: (_MALFORMED[outcome.malformed],),
+    FailureReason.PROVIDER_ERROR: _provider_failed,
+    FailureReason.LIMIT_REACHED: lambda outcome: (f"The run stopped at {_LIMITS[outcome.limit]}.",),
+    FailureReason.CANCELLED: lambda _: ("The run was cancelled.",),
+}
+
+
+def render_failure(session: ToolSession, outcome: AnswerOutcome) -> RenderedAnswer:
+    """Explain a failed run from its outcome and the run record; no proposal or provider text."""
+    if outcome.failure is None:
+        raise ValueError("only a failed run is explained as a failure")
+    renderer = _Renderer(session)
+    retrieved = renderer.retrieved()
+    hidden = len(renderer.context.findings) - sum(len(item.findings) for item in retrieved)
+    snapshots = rendered_snapshots(session)
+    unverified = [
+        *_STOPPED[outcome.failure](outcome),
+        NOT_VALIDATED,
+        _retrieved_summary(renderer.context),
+        *([RETRIEVED_NOT_ANSWER] if retrieved else []),
+        *([f"{hidden} more retrieved findings are not shown."] if hidden else []),
+        *_coverage(session),
+    ]
+    return RenderedAnswer(
+        outcome=outcome,
+        snapshots=snapshots,
+        qualifications=tuple(_declared(snapshots)),
+        failure=RenderedFailure(
+            reason=outcome.failure, retrieved=retrieved, unverified=tuple(unverified)
+        ),
+    )
+
+
+def _coverage(session: ToolSession) -> Iterator[str]:
+    """Each snapshot's collection operations that did not succeed, counted by status."""
+    for side, index in side_indexes(session).items():
+        statuses = Counter(
+            record.status
+            for record in index.coverage_records()
+            if record.status != CoverageStatus.SUCCESS
         )
-    else:
-        yield "The run retrieved no analyzer findings."
+        if statuses:
+            counts = ", ".join(f"{count} {status}" for status, count in sorted(statuses.items()))
+            yield (
+                f"The {side} snapshot records collection that did not succeed for "
+                f"{statuses.total()} operation(s): {counts}."
+            )
