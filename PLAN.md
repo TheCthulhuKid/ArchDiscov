@@ -2640,6 +2640,79 @@ Implement and verify substeps 37.1–37.6 in order. Keep the parent planned unti
 
 **Acceptance check:** Valid, repaired, repeatedly invalid, provider-failed, and limit-exceeded runs produce the expected rendering and exactly one repair attempt; fabricated narrative claims never appear as factual conclusions.
 
+Implement and verify substeps 38.1–38.6 in order. Keep the parent planned until every substep's acceptance checks pass. Put the code in `src/archdiscov/assistant/` (keep `__init__.py` light), reuse the step 36 loop, outcomes, and transcript, the step 37 proposal, run context, and `validate_proposal`, and the existing CLI diagnostics conventions, and never call the CLI. A repair is offered for any run that ended without a usable proposal the model could fix: a rejected proposal, a plain-text answer, or a malformed, invalid, or mixed `submit_answer` call. Limits, provider errors, cancellation, and other malformed output go straight to the deterministic failure, since a repair prompt cannot fix them. The repair is one reserved request outside `max_provider_requests`, so a model that used its whole request budget still gets it, but it counts against the overall deadline and the total-output limit; there is never more than one. A repair after a plain-text answer says only that no proposal was submitted and never quotes the text back.
+
+#### Step 38.1: Define the answer outcome and rendered-answer contracts
+**Status:** Planned.
+**Prerequisite:** Step 37.
+
+- Define a strict, frozen `AnswerOutcome` with stable statuses: `answered` (validated on the first proposal), `answered_after_repair`, and `failed`, with a typed failure reason (rejected after repair, provider error, limit reached, cancelled, malformed output, or no proposal after repair) that maps from the step 36 run outcomes and step 37 rejections.
+- Define the `RenderedAnswer` contract the renderings are built from: the snapshot context (ID, source kind, collection window, and that planned or declared state is not deployed state), the validated status, rendered conclusions with their citations, the limitations that qualify them, the provider narrative labelled as explanation, and, for failures, what the run found and what could not be verified.
+- Fix the exit codes now, around the existing CLI's 1 (I/O), 2 (invalid input or data), 3 (conflict), and 4 (not found), which keep their meanings for errors before a run starts: 0 for any validated answer, including `insufficient_evidence` (the JSON carries the status for scripts that need it); 5 when no answer could be validated (rejected after repair, no proposal after repair, or malformed output); 6 when a provider error or a limit stopped the run, which a script may retry; and 130 when the run was cancelled, as for an interrupted command.
+
+**Advice:** A validated `insufficient_evidence` answer is a success: it is what the evidence supports. Keep the contracts independent of how they are rendered.
+
+**Acceptance check:** Contract tests cover round-trips, every status and failure reason, the mapping from every run outcome and rejection path, and the exit-code table, with every failure reason mapped to exactly one of 5, 6, and 130.
+
+#### Step 38.2: Render conclusions deterministically from validated records
+**Status:** Planned.
+**Prerequisite:** Step 38.1.
+
+- Keep, in the run record, the step 35 `FindingView` of each finding as it was delivered (already bounded, allowlisted, and with summaries, paths, and limitation messages marked as untrusted text) instead of adding summary fields, so the facts rendered are exactly what the model was shown and rendering needs no access to raw tool output; `RecordedFinding` stays the lean view validation uses.
+- Build `RenderedAnswer` conclusions from records, never from the proposal's narrative: analyzer findings from their recorded summaries, statuses, and limitations; configuration from the cited evidence and resources in the session's index; differences from the saved comparison entries that name the cited resources. Every rendered conclusion lists its finding, evidence, and resource IDs.
+- Qualify the answer whenever a cited finding or its coverage is partial, and use non-definitive wording for `insufficient_evidence`, saying what was checked rather than what is true; show planned and declared snapshots as such.
+
+**Advice:** Render facts from fixed templates with record values inserted as quoted data, so a model cannot change their wording; the narrative appears only in its labelled field.
+
+**Acceptance check:** Tests render every analyzer kind, configuration, and difference conclusions from validated proposals; a rendered finding matches the view that was delivered for it; partial and insufficient answers carry their qualification; a proposal whose narrative contains fabricated claims renders none of them as conclusions; injected imported text appears only as quoted data.
+
+#### Step 38.3: Explain failures deterministically
+**Status:** Planned.
+**Prerequisite:** Step 38.2.
+
+- Build the failure explanation for each failure reason from the run record alone, without further provider calls: the snapshot context, the findings and their limitations the run actually retrieved (rendered as in step 38.2, but labelled as retrieved rather than as an answer), what could not be verified (the rejection codes and their locations, or the limit, provider error, or cancellation that ended the run), and coverage limitations.
+- Keep it useful when the run retrieved nothing: say so, and say which limit or error stopped it.
+
+**Advice:** The fallback must stand on its own without the LLM; never include the rejected proposal's narrative or any provider text.
+
+**Acceptance check:** Tests build an explanation for every failure reason, with and without retrieved findings; no rejected narrative, provider text, or secret appears in it; no provider call is made.
+
+#### Step 38.4: Repair once and compose the answer service
+**Status:** Planned.
+**Prerequisite:** Step 38.3.
+
+- Add a single repair turn to the loop: answer the rejected `submit_answer` call with a tool result listing only the typed rejection codes, locations, and fixed messages (after a plain-text answer, a message saying only that no proposal was submitted), offer only `submit_answer`, and make exactly one reserved provider request outside `max_provider_requests`. Revalidate the new proposal; never repair twice.
+- Compose `answer_question` (async, with a sync wrapper consistent with step 36) over the loop, validation, repair, rendering, and failure explanation, returning the `AnswerOutcome`, the `RenderedAnswer`, the transcript (repair turn included), and the run record's returned IDs.
+- The repair counts against the overall deadline and the total-output limit: when either leaves no room, it is not attempted, and the run fails deterministically with that limit.
+
+**Advice:** The repair prompt carries no proposal or tool text beyond the fixed rejection messages; keep the loop free of judgement about the repaired proposal, which validation decides.
+
+**Acceptance check:** Fake-provider runs cover a valid first proposal, a repaired proposal, a proposal rejected twice, a plain-text answer repaired (without its text quoted) and not repaired, a repair after every allowed request was used, a repair blocked by the overall deadline and by the total-output limit, and a provider error during repair, each with exactly the expected number of provider requests, outcome, exit code, and transcript.
+
+#### Step 38.5: Add readable and JSON renderings
+**Status:** Planned.
+**Prerequisite:** Step 38.4.
+
+- Render an `AnswerOutcome` and `RenderedAnswer` as readable text (snapshot context first, then conclusions with citations, qualifications, limitations, the labelled explanation, and for failures the explanation of what was found and what could not be verified) and as stable JSON for automation.
+- Mark imported text and provider narrative so neither can pass for a rendered conclusion, and redact secret-looking text in both renderings.
+
+**Advice:** Follow the existing CLI output style (`cli_*_output.py`) so step 39 stays thin presentation; the JSON shape is a contract, so test it as one.
+
+**Acceptance check:** Golden renderings for each status and failure reason in both forms; JSON round-trips and matches the documented shape; narrative and imported text are always labelled; no secret appears in either rendering.
+
+#### Step 38.6: Verify and document the answer rendering boundary
+**Status:** Planned.
+**Prerequisite:** Step 38.5.
+
+- Add an end-to-end fake-provider suite over `answer_question` deriving coverage from the outcome status and failure-reason types, so a new status or reason fails until covered: valid, repaired, repeatedly invalid, provider-failed, limit-exceeded, cancelled, and malformed runs produce the expected rendering, exit code, and exactly one repair attempt where one applies.
+- Add import-isolation and secret-leak tests for the rendering, repair, and failure paths, and a test that fabricated narrative claims never appear as conclusions.
+- Document the outcome statuses, failure reasons, exit codes, repair policy, rendering, and the fallback in `docs/`, link it from the README without claiming the `ask` command or real providers, and extend the documentation-drift tests to cover statuses, reasons, and exit codes.
+- Run focused/full offline tests, Ruff lint/format excluding `.junie`, documentation links, and whitespace checks using `.venv/bin/python`. Mark each substep and the parent implemented only after their acceptance checks pass.
+
+**Advice:** Derive coverage from the types, as steps 35.5, 36.5, and 37.6 do.
+
+**Acceptance check:** Valid, repaired, repeatedly invalid, provider-failed, and limit-exceeded runs produce the expected rendering and exactly one repair attempt; fabricated narrative claims never appear as factual conclusions; documentation matches the code.
+
 ### Step 39: Add the `ask` command
 **Status:** Planned.
 **Prerequisites:** Steps 34–38.
