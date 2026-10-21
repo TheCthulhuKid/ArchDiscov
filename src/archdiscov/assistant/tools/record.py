@@ -6,7 +6,7 @@ limitations against the findings themselves. The record therefore keeps:
 
 - every ID in a delivered output, found by field name (`ID_FIELDS`; a value may be one ID,
   a sequence, or a `BoundedList` of IDs) and scoped to the nearest enclosing `snapshot_id`;
-- a view of each delivered analyzer finding and a copy of the result it came from;
+- a view of each delivered analyzer finding;
 - the source kind and collection window of each session snapshot;
 - a fingerprint (normalized length and SHA-256) of every `untrusted_text` value delivered,
   so narrative can be checked for repeated imported text without keeping that text.
@@ -23,7 +23,7 @@ from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, NonNegativeInt, model_validator
 
-from archdiscov.models.analysis.results import AnalysisFinding, AnalysisResult
+from archdiscov.models.analysis.results import AnalysisFinding
 from archdiscov.models.architecture import LocalTarget
 from archdiscov.models.enums import (
     AnalysisStatus,
@@ -136,7 +136,6 @@ class RunContext(Contract):
     returned: ReturnedIds
     snapshots: tuple[RecordedSnapshot, ...]
     findings: tuple[RecordedFinding, ...]
-    results: tuple[tuple[NonEmptyString, AnalysisResult], ...]
     fingerprints: tuple[TextFingerprint, ...]
 
     def finding(self, snapshot_id: UUID, finding_id: str) -> RecordedFinding | None:
@@ -190,7 +189,6 @@ class RunRecord:
         self._ids: dict[UUID, dict[IdKind, set[str]]] = {}
         self._snapshots: dict[UUID, RecordedSnapshot] = {}
         self._findings: dict[tuple[UUID, str], RecordedFinding] = {}
-        self._results: dict[str, AnalysisResult] = {}
         self._fingerprints: set[TextFingerprint] = set()
 
     def record(self, snapshot_id: UUID, kind: IdKind, ids: Iterable[str]) -> None:
@@ -225,10 +223,6 @@ class RunRecord:
         for snapshot_id, kind, value in collected.ids:
             self._add(snapshot_id, kind, value)
         self._fingerprints |= collected.fingerprints
-        if analysis is not None:
-            self._results.setdefault(
-                analysis.result_key, AnalysisResult.model_validate(analysis.result.model_dump())
-            )
         for finding in findings:
             self._merge(finding)
 
@@ -259,9 +253,6 @@ class RunRecord:
             returned=self.returned(),
             snapshots=tuple(self._snapshots[key] for key in sorted(self._snapshots)),
             findings=tuple(self._findings[key] for key in sorted(self._findings)),
-            results=tuple(
-                (key, self._results[key].model_copy(deep=True)) for key in sorted(self._results)
-            ),
             fingerprints=tuple(
                 sorted(self._fingerprints, key=lambda item: (item.length, item.digest))
             ),

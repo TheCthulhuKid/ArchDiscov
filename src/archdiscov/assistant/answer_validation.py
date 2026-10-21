@@ -19,10 +19,6 @@ from pydantic import Field, model_validator
 from archdiscov.graph import GraphIndex
 from archdiscov.models.enums import AnalysisStatus, SnapshotSourceKind
 from archdiscov.models.validation_errors import validation_error
-from archdiscov.services.analysis_validation import (
-    AnalysisValidationError,
-    validate_analysis_result,
-)
 
 from .answers import AnswerProposal, AnswerSide, Citation, ConclusionKind
 from .conversation import Contract
@@ -38,7 +34,6 @@ class RejectionCode(StrEnum):
     OTHER_SNAPSHOT_ID = "answer_other_snapshot_id"
     NOT_RETURNED = "answer_id_not_returned"
     EVIDENCE_DETACHED = "answer_evidence_detached"
-    RESULT_ALTERED = "answer_result_altered"
     PLANNED_AS_DEPLOYED = "answer_planned_as_deployed"
     STATUS_UPGRADE = "answer_status_upgrade"
     LIMITATION_UNACKNOWLEDGED = "answer_limitation_unacknowledged"
@@ -59,11 +54,7 @@ REJECTION_MESSAGES: Mapping[RejectionCode, str] = {
     ),
     RejectionCode.NOT_RETURNED: "No tool returned this ID in this conversation.",
     RejectionCode.EVIDENCE_DETACHED: (
-        "This evidence belongs neither to a finding in the same citation nor to a resource "
-        "a tool returned."
-    ),
-    RejectionCode.RESULT_ALTERED: (
-        "The analysis result behind this finding no longer passes its integrity checks."
+        "This evidence belongs to neither a finding nor a resource cited alongside it."
     ),
     RejectionCode.PLANNED_AS_DEPLOYED: (
         "This snapshot records planned or declared configuration; do not describe it as observed."
@@ -125,10 +116,9 @@ def _reject(code: RejectionCode, location: str) -> Rejection:
 
 
 class _Checker:
-    """Classifies cited IDs and re-verifies cited results for one session."""
+    """Classifies cited IDs against one session's snapshots and run record."""
 
     def __init__(self, session: ToolSession) -> None:
-        self.session = session
         self.context: RunContext = session.record.context()
         self.indexes = {AnswerSide.PRIMARY: session.index}
         if session.comparison_index is not None:
@@ -138,7 +128,6 @@ class _Checker:
             for result in session.analyses
             for finding in result.findings
         }
-        self._intact: dict[str, bool] = {}
 
     def _other(self, side: AnswerSide) -> GraphIndex | None:
         return next((index for key, index in self.indexes.items() if key != side), None)
@@ -164,45 +153,18 @@ class _Checker:
         return RejectionCode.UNKNOWN_ID
 
     def detached(self, side: AnswerSide, citation: Citation, evidence_id: str) -> bool:
-        """Returned evidence that neither a cited finding nor a returned resource owns."""
+        """Evidence that neither a finding nor the owning resource in the same citation names.
+
+        Evidence about one resource cannot support a claim about another.
+        """
         index = self.indexes[side]
-        attached = {
-            evidence
+        if index.get_evidence(evidence_id).resource_id in citation.resource_ids:
+            return False
+        return not any(
+            evidence_id in finding.evidence_ids
             for finding_id in citation.finding_ids
             if (finding := self.context.finding(index.snapshot_id, finding_id)) is not None
-            for evidence in finding.evidence_ids
-        }
-        if evidence_id in attached:
-            return False
-        owner = index.get_evidence(evidence_id).resource_id
-        return not self.context.returned.contains(IdKind.RESOURCE, index.snapshot_id, owner)
-
-    def altered(self, side: AnswerSide, finding_id: str) -> bool:
-        """Whether any result the finding was delivered from fails re-verification."""
-        finding = self.context.finding(self.indexes[side].snapshot_id, finding_id)
-        return finding is not None and not all(
-            self._result_intact(key) for key in finding.result_keys
         )
-
-    def _result_intact(self, key: str) -> bool:
-        if key not in self._intact:
-            self._intact[key] = self._verify(key)
-        return self._intact[key]
-
-    def _verify(self, key: str) -> bool:
-        result = dict(self.context.results).get(key)
-        snapshot = None if result is None else self.session.snapshot(result.snapshot_id)
-        if snapshot is None:
-            return False
-        try:
-            checked = validate_analysis_result(result, snapshot)
-        except AnalysisValidationError:
-            return False
-        if not key.startswith("saved:"):
-            return True
-        number = int(key.removeprefix("saved:"))
-        analyses = self.session.analyses
-        return 0 < number <= len(analyses) and checked == analyses[number - 1]
 
 
 _CITED = (
@@ -261,8 +223,6 @@ def _check_citation(citation: Citation, checker: _Checker, location: str) -> Ite
                 yield _reject(code, at)
             elif kind == IdKind.EVIDENCE and checker.detached(side, citation, value):
                 yield _reject(RejectionCode.EVIDENCE_DETACHED, at)
-            elif kind == IdKind.FINDING and checker.altered(side, value):
-                yield _reject(RejectionCode.RESULT_ALTERED, at)
 
 
 def _check_limitations(proposal: AnswerProposal, checker: _Checker) -> Iterator[Rejection]:

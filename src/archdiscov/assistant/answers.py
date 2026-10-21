@@ -61,7 +61,11 @@ class Citation(Contract):
 
     side: AnswerSide = AnswerSide.PRIMARY
     finding_ids: CitedIds
-    evidence_ids: CitedIds
+    evidence_ids: CitedIds = Field(
+        default=(),
+        max_length=MAX_CITED_IDS,
+        description="Each must belong to a finding or a resource cited in this citation.",
+    )
     resource_ids: CitedIds
 
     @model_validator(mode="after")
@@ -182,6 +186,7 @@ def submit_answer_declaration() -> ToolDeclaration:
         description=(
             "Submit the final answer exactly once, after using the other tools. Cite only "
             "finding, evidence, and resource IDs that tools returned in this conversation, "
+            "cite each piece of evidence with the finding or resource it belongs to, "
             "acknowledge every limitation of the findings you cite, and keep the summary and "
             "explanation to explanation: facts are taken from the cited records."
         ),

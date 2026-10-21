@@ -97,7 +97,7 @@ def test_delivered_findings_are_recorded_exactly(kind: AnalyzerKind, status: str
     data = _call(session, "run_analyzer", kind=kind.value, limit=100, **scenario.parameters)
     expected_result = _service_result(snapshot, kind, scenario.parameters, 3)
     context = session.record.context()
-    (key,) = {key for key, _ in context.results}
+    (key,) = {key for item in context.findings for key in item.result_keys}
     assert key.startswith(f"run:{kind.value}:")
     assert context.findings == tuple(
         sorted(
@@ -108,9 +108,6 @@ def test_delivered_findings_are_recorded_exactly(kind: AnalyzerKind, status: str
     assert [item["finding_id"] for item in data["findings"]["items"]] == [
         finding.id for finding in expected_result.findings
     ]
-    assert dict(context.results)[key] == expected_result.model_copy(
-        update={"created_at": dict(context.results)[key].created_at}
-    )
 
 
 def test_only_delivered_findings_are_recorded() -> None:
@@ -120,7 +117,7 @@ def test_only_delivered_findings_are_recorded() -> None:
     (delivered,) = data["findings"]["items"]
     context = session.record.context()
     assert [item.finding_id for item in context.findings] == [delivered["finding_id"]]
-    assert len(context.results[0][1].findings) > 1
+    assert len(_service_result(scenario.build(), scenario.kind, {}, 3).findings) > 1
 
 
 def test_network_findings_record_their_decision() -> None:
@@ -151,15 +148,14 @@ def test_a_finding_from_a_run_and_a_saved_result_keeps_both_keys() -> None:
         for item in _call(session, "run_analyzer", kind="ownership")["findings"]["items"]
     }
     context = session.record.context()
+    run_keys = {key for item in context.findings for key in item.result_keys if key != "saved:1"}
+    assert len(run_keys) == 1 and run_keys.pop().startswith("run:ownership:")
     for item in context.findings:
         expected = {"saved:1"} if item.finding_id in saved else set()
-        expected |= (
-            {key for key, _ in context.results if key.startswith("run:")}
-            if item.finding_id in ran
-            else set()
-        )
+        if item.finding_id in ran:
+            expected |= {key for key in item.result_keys if key.startswith("run:")}
         assert set(item.result_keys) == expected
-    assert {key for key, _ in context.results} >= {"saved:1"}
+        assert expected
 
 
 # ---- snapshots ---------------------------------------------------------------------
@@ -285,18 +281,11 @@ def _multi_tool_context() -> object:
     return session
 
 
-def _without_run_times(context):
-    """In-memory results carry the time they ran; everything else must match exactly."""
-    return context.model_copy(update={"results": tuple(key for key, _ in context.results)})
-
-
 def test_the_context_is_deterministic_and_detached() -> None:
     first, second = _multi_tool_context(), _multi_tool_context()
-    assert _without_run_times(first.record.context()) == _without_run_times(second.record.context())
+    assert first.record.context() == second.record.context()
     before = first.record.context()
     frozen = before.model_dump_json()
     _call(first, "search_resources")
     _call(first, "inspect_coverage")
     assert before.model_dump_json() == frozen
-    before.results[0][1].findings.clear()
-    assert first.record.context().results[0][1].findings

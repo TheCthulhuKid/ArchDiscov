@@ -69,6 +69,15 @@ run = orchestrator.run_assistant(
     "q", provider=fake.FakeProvider(answer), session=session, provider_kind="fake", model="fake"
 )
 assert run.outcome.kind == "answered"
+proposal = answers.AnswerProposal.model_validate(
+    {{
+        "status": "insufficient_evidence",
+        "contexts": [{{"side": "primary", "source_kind": session.index.source_kind.value}}],
+        "insufficient_reason": "no_applicable_findings",
+        "summary": "Nothing applicable.",
+    }}
+)
+assert answer_validation.validate_proposal(proposal, session) == ()
 import asyncio
 
 run = asyncio.run(

@@ -123,7 +123,6 @@ sorted, detached form:
   for a saved result), status, limitation codes, every evidence and resource ID it cites,
   its primary resource, and, for database-access and internet-exposure findings, its network
   decision; only findings actually delivered, after truncation, are recorded;
-- a copy of each result those findings came from, for integrity checks;
 - a fingerprint of every delivered `untrusted_text` value: the length and SHA-256 of the
   text case-folded with whitespace collapsed, so narrative can be checked for repeated
   imported text without keeping that text.

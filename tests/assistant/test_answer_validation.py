@@ -234,16 +234,47 @@ def test_ids_present_but_not_returned_are_rejected() -> None:
     ]
 
 
-def test_evidence_detached_from_its_finding_and_resources_is_rejected() -> None:
-    session = ToolSession.from_paths(OWNERSHIP_SNAPSHOT)
-    evidence = session.index.evidence_ids[0]
-    session.record.record(session.index.snapshot_id, IdKind.EVIDENCE, [evidence])
-    proposal = _proposal(
-        session, {"kind": "recorded_configuration", "citations": [{"evidence_ids": [evidence]}]}
-    )
+def _two_inspected_resources() -> tuple[ToolSession, str, str]:
+    session = ToolSession.from_paths(FIXTURES_ROOT / "snapshots" / "network.json")
+    index = session.index
+    first, second = [
+        resource for resource in index.resource_ids if index.resource_evidence_ids(resource)
+    ][:2]
+    for resource in (first, second):
+        _call(session, "inspect_resource", resource_id=resource)
+    return session, first, second
+
+
+def _configuration(evidence: str, *resources: str) -> dict:
+    return {
+        "kind": "recorded_configuration",
+        "citations": [{"evidence_ids": [evidence], "resource_ids": list(resources)}],
+    }
+
+
+def test_evidence_cited_for_another_resource_is_detached() -> None:
+    session, first, second = _two_inspected_resources()
+    evidence = session.index.resource_evidence_ids(first)[0]
+    proposal = _proposal(session, _configuration(evidence, second))
     assert _codes(check_citations(proposal, session)) == [
         ("answer_evidence_detached", "conclusions[0].citations[0].evidence_ids[0]")
     ]
+
+
+def test_evidence_cited_without_any_resource_or_finding_is_detached() -> None:
+    session, first, _ = _two_inspected_resources()
+    proposal = _proposal(session, _configuration(session.index.resource_evidence_ids(first)[0]))
+    assert _codes(check_citations(proposal, session)) == [
+        ("answer_evidence_detached", "conclusions[0].citations[0].evidence_ids[0]")
+    ]
+
+
+def test_evidence_cited_with_its_own_resource_passes() -> None:
+    session, first, second = _two_inspected_resources()
+    evidence = session.index.resource_evidence_ids(first)[0]
+    assert (
+        check_citations(_proposal(session, _configuration(evidence, first, second)), session) == ()
+    )
 
 
 def test_evidence_attached_to_a_cited_finding_passes_without_its_resource() -> None:
@@ -297,33 +328,6 @@ def test_acknowledged_limitations_must_name_returned_findings() -> None:
     assert _codes(check_citations(proposal, session)) == [
         ("answer_unknown_id", "limitations[0].finding_id")
     ]
-
-
-def test_an_altered_result_is_rejected() -> None:
-    session, finding = _ownership()
-    (key,) = [key for key, _ in session.record.context().results]
-    stored = session.record._results[key]
-    stored.findings[0].summary = "Altered after delivery."
-    proposal = _proposal(session, _finding_conclusion(finding))
-    assert _codes(check_citations(proposal, session)) == [
-        ("answer_result_altered", "conclusions[0].citations[0].finding_ids[0]")
-    ]
-
-
-def test_a_saved_result_that_differs_from_the_selected_file_is_rejected() -> None:
-    session = ToolSession.from_paths(OWNERSHIP_SNAPSHOT, analysis_paths=[OWNERSHIP_RESULT])
-    finding = _call(session, "get_saved_analysis", number=1)["findings"]["items"][0]
-    stored = session.record._results["saved:1"]
-    session.record._results["saved:1"] = stored.model_copy(
-        update={"created_at": stored.created_at.replace(year=2000)}
-    )
-    proposal = _proposal(session, _finding_conclusion(finding))
-    assert _codes(check_citations(proposal, session)) == [
-        ("answer_result_altered", "conclusions[0].citations[0].finding_ids[0]")
-    ]
-
-
-# ---- reporting ---------------------------------------------------------------------
 
 
 def test_all_rejections_are_collected_in_location_order() -> None:
