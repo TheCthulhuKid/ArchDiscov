@@ -21,6 +21,7 @@ from archdiscov.assistant.tools.record import (
     normalize_text,
 )
 from archdiscov.assistant.tools.session import ToolSession
+from archdiscov.assistant.tools.views import FindingView, finding_view
 from archdiscov.models.analysis.results import AnalysisFinding
 from archdiscov.models.architecture import LocalTarget
 from archdiscov.models.enums import AnalyzerKind
@@ -264,12 +265,47 @@ def test_findings_not_in_the_delivered_result_are_refused() -> None:
         snapshot_id: UUID
 
         def delivered_analysis(self) -> DeliveredAnalysis:
-            return DeliveredAnalysis("run:x", result, ("not-a-finding",))
+            view = finding_view(result.findings[0]).model_copy(update={"finding_id": "other"})
+            return DeliveredAnalysis("run:x", result, (view,))
 
     record = RunRecord()
     with pytest.raises(ValueError, match="delivered finding IDs"):
         record.record_output(_Analysis(snapshot_id=result.snapshot_id))
     assert record.context().findings == ()
+
+
+def test_delivered_finding_views_are_kept_as_shown() -> None:
+    session = ToolSession.from_paths(OWNERSHIP_SNAPSHOT)
+    delivered = _call(session, "run_analyzer", kind="ownership")["findings"]["items"]
+    context = session.record.context()
+    assert [item.view for item in context.views] == [
+        FindingView.model_validate(item) for item in delivered
+    ]
+    # Reads are copies: changing one leaves the record as delivered.
+    context.views[0].view.summary = untrusted("changed")
+    assert session.record.context().views[0].view == FindingView.model_validate(delivered[0])
+
+
+def test_a_redelivered_finding_keeps_the_view_first_shown() -> None:
+    scenario = SCENARIOS[AnalyzerKind.OWNERSHIP]
+    result = _service_result(scenario.build(), AnalyzerKind.OWNERSHIP, {}, 3)
+    first = finding_view(result.findings[0])
+    reworded = first.model_copy(update={"summary": untrusted("reworded")})
+
+    class _Analysis(ToolOutput):
+        snapshot_id: UUID
+        key: str
+
+        def delivered_analysis(self) -> DeliveredAnalysis:
+            return DeliveredAnalysis(self.key, result, (first if self.key == "a" else reworded,))
+
+    record = RunRecord()
+    for key in ("a", "b"):
+        record.record_output(_Analysis(snapshot_id=result.snapshot_id, key=key))
+    context = record.context()
+    assert context.view(result.snapshot_id, first.finding_id) == first
+    (recorded,) = context.findings
+    assert recorded.result_keys == ("a", "b")
 
 
 def _multi_tool_context() -> object:

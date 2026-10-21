@@ -9,6 +9,7 @@ Citations name a side, `primary` or `comparison`, rather than a snapshot: the se
 which snapshot each side is, so the model never handles snapshot IDs.
 """
 
+from collections.abc import Iterable
 from enum import StrEnum
 from typing import Annotated, Self
 
@@ -41,6 +42,14 @@ DECLARED_SOURCE_KINDS = frozenset(
         SnapshotSourceKind.CLOUDFORMATION,
     }
 )
+
+
+def combined_status(statuses: Iterable[AnalysisStatus]) -> AnalysisStatus:
+    """What findings support together: supported or insufficient only if all are, else partial."""
+    distinct = set(statuses)
+    if not distinct:
+        raise ValueError("a combined status needs at least one finding")
+    return distinct.pop() if len(distinct) == 1 else AnalysisStatus.PARTIAL
 
 
 class AnswerSide(StrEnum):

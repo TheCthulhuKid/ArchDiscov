@@ -6,7 +6,8 @@ limitations against the findings themselves. The record therefore keeps:
 
 - every ID in a delivered output, found by field name (`ID_FIELDS`; a value may be one ID,
   a sequence, or a `BoundedList` of IDs) and scoped to the nearest enclosing `snapshot_id`;
-- a view of each delivered analyzer finding;
+- a lean record of each delivered analyzer finding for validation, and the `FindingView`
+  exactly as it was first delivered, for rendering;
 - the source kind and collection window of each session snapshot;
 - a fingerprint (normalized length and SHA-256) of every `untrusted_text` value delivered,
   so narrative can be checked for repeated imported text without keeping that text.
@@ -36,6 +37,7 @@ from archdiscov.models.validation_errors import validation_error
 
 from ..conversation import Contract
 from .contracts import ID_FIELDS, BoundedList, DeliveredAnalysis, IdKind, ToolOutput, UntrustedText
+from .views import FindingView
 
 _NETWORK_BLOCKS = ("database_access", "internet_exposure")
 
@@ -104,6 +106,13 @@ class RecordedFinding(Contract):
         return self
 
 
+class DeliveredView(Contract):
+    """A finding's view as a tool delivered it, so rendering shows what the model was shown."""
+
+    snapshot_id: UUID
+    view: FindingView
+
+
 class RecordedSnapshot(Contract):
     snapshot_id: UUID
     source_kind: SnapshotSourceKind
@@ -136,12 +145,19 @@ class RunContext(Contract):
     returned: ReturnedIds
     snapshots: tuple[RecordedSnapshot, ...]
     findings: tuple[RecordedFinding, ...]
+    views: tuple[DeliveredView, ...]
     fingerprints: tuple[TextFingerprint, ...]
 
     def finding(self, snapshot_id: UUID, finding_id: str) -> RecordedFinding | None:
         for item in self.findings:
             if (item.snapshot_id, item.finding_id) == (snapshot_id, finding_id):
                 return item
+        return None
+
+    def view(self, snapshot_id: UUID, finding_id: str) -> FindingView | None:
+        for item in self.views:
+            if (item.snapshot_id, item.view.finding_id) == (snapshot_id, finding_id):
+                return item.view
         return None
 
     def snapshot(self, snapshot_id: UUID) -> RecordedSnapshot | None:
@@ -189,6 +205,7 @@ class RunRecord:
         self._ids: dict[UUID, dict[IdKind, set[str]]] = {}
         self._snapshots: dict[UUID, RecordedSnapshot] = {}
         self._findings: dict[tuple[UUID, str], RecordedFinding] = {}
+        self._views: dict[tuple[UUID, str], FindingView] = {}
         self._fingerprints: set[TextFingerprint] = set()
 
     def record(self, snapshot_id: UUID, kind: IdKind, ids: Iterable[str]) -> None:
@@ -223,8 +240,10 @@ class RunRecord:
         for snapshot_id, kind, value in collected.ids:
             self._add(snapshot_id, kind, value)
         self._fingerprints |= collected.fingerprints
-        for finding in findings:
+        for finding, view in findings:
             self._merge(finding)
+            # A finding's ID ignores limitation wording, so keep the view first shown.
+            self._views.setdefault((finding.snapshot_id, finding.finding_id), view)
 
     def _merge(self, finding: RecordedFinding) -> None:
         """Keep one view per finding, listing every result it was delivered from."""
@@ -253,6 +272,10 @@ class RunRecord:
             returned=self.returned(),
             snapshots=tuple(self._snapshots[key] for key in sorted(self._snapshots)),
             findings=tuple(self._findings[key] for key in sorted(self._findings)),
+            views=tuple(
+                DeliveredView(snapshot_id=key[0], view=self._views[key].model_copy(deep=True))
+                for key in sorted(self._views)
+            ),
             fingerprints=tuple(
                 sorted(self._fingerprints, key=lambda item: (item.length, item.digest))
             ),
@@ -266,29 +289,30 @@ def _checked(ids: Iterable[str]) -> list[str]:
     return values
 
 
-def _delivered_findings(analysis: DeliveredAnalysis) -> list[RecordedFinding]:
+def _delivered_findings(
+    analysis: DeliveredAnalysis,
+) -> list[tuple[RecordedFinding, FindingView]]:
     result = analysis.result
-    delivered = set(analysis.finding_ids)
+    views = {view.finding_id: view for view in analysis.findings}
     found = []
     for finding in result.findings:
-        if finding.id not in delivered:
+        if finding.id not in views:
             continue
         evidence, resources = _finding_references(finding)
-        found.append(
-            RecordedFinding(
-                snapshot_id=finding.snapshot_id,
-                finding_id=finding.id,
-                analyzer=result.analyzer,
-                result_keys=(analysis.result_key,),
-                status=finding.status,
-                limitation_codes=tuple(sorted({item.code for item in finding.limitations})),
-                evidence_ids=tuple(sorted(evidence)),
-                resource_ids=tuple(sorted(resources)),
-                primary_resource_id=finding.resources[0].resource_id if finding.resources else None,
-                decision=_decision(finding),
-            )
+        recorded = RecordedFinding(
+            snapshot_id=finding.snapshot_id,
+            finding_id=finding.id,
+            analyzer=result.analyzer,
+            result_keys=(analysis.result_key,),
+            status=finding.status,
+            limitation_codes=tuple(sorted({item.code for item in finding.limitations})),
+            evidence_ids=tuple(sorted(evidence)),
+            resource_ids=tuple(sorted(resources)),
+            primary_resource_id=finding.resources[0].resource_id if finding.resources else None,
+            decision=_decision(finding),
         )
-    if len(found) != len(delivered):
+        found.append((recorded, views[finding.id]))
+    if len(found) != len(views):
         raise ValueError("delivered finding IDs must belong to the delivered result")
     return found
 

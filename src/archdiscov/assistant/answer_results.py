@@ -6,6 +6,7 @@ renderings are built from: facts written from records with fixed wording, never 
 model's narrative, which appears only in its labelled field.
 """
 
+import re
 from collections.abc import Callable, Mapping
 from enum import StrEnum
 from typing import Annotated, Self
@@ -16,7 +17,14 @@ from pydantic import AwareDatetime, Field, model_validator
 from archdiscov.models.enums import AnalysisStatus, SnapshotSourceKind
 from archdiscov.models.validation_errors import validation_error
 
-from .answers import DECLARED_SOURCE_KINDS, AnswerSide, Citation, ConclusionKind
+from .answers import (
+    DECLARED_SOURCE_KINDS,
+    MAX_CITED_IDS,
+    AnswerSide,
+    Citation,
+    ConclusionKind,
+    combined_status,
+)
 from .conversation import Contract
 from .provider import ProviderErrorCode
 from .rejections import Rejection
@@ -32,6 +40,7 @@ from .runs import (
     RunOutcome,
 )
 from .tools.contracts import UntrustedText
+from .tools.views import FindingView
 
 
 class AnswerStatus(StrEnum):
@@ -156,7 +165,13 @@ _FAILURES: Mapping[type, Callable[[RunOutcome], AnswerOutcome]] = {
 # ---- the rendered answer -----------------------------------------------------------
 
 Statement = Annotated[str, Field(min_length=1, max_length=500)]
-"""Fixed wording from the renderer's templates; record values go in `data`."""
+
+MAX_RENDERED_ENTRIES = 20
+# A statement per cited ID on each of up to two sides, the comparison entries and differences,
+# and counts of those left out; a statement quotes at most three values.
+MAX_STATEMENTS = 2 * 3 * MAX_CITED_IDS + 2 * MAX_RENDERED_ENTRIES + 2
+MAX_QUOTED = 3 * MAX_STATEMENTS
+_REFERENCE = re.compile(r"\[(\d+)\]")
 
 
 class RenderedSnapshot(Contract):
@@ -168,7 +183,6 @@ class RenderedSnapshot(Contract):
     collection_started_at: AwareDatetime
     collection_completed_at: AwareDatetime
     declared: bool
-    """A Terraform state, plan, or CloudFormation snapshot: declared, not deployed, state."""
 
     @model_validator(mode="after")
     def require_consistent_snapshot(self) -> Self:
@@ -179,23 +193,31 @@ class RenderedSnapshot(Contract):
         return self
 
 
-class RenderedLimitation(Contract):
-    finding_id: str
-    code: str
-    message: UntrustedText
-
-
 class RenderedConclusion(Contract):
-    """One conclusion written from records: fixed statements, quoted data, and citations."""
+    """One conclusion written from records: fixed statements, quoted data, and citations.
+
+    Cited findings appear as the views delivered to the model, limitations included.
+    """
 
     kind: ConclusionKind
-    statements: tuple[Statement, ...] = Field(min_length=1, max_length=20)
-    data: tuple[UntrustedText, ...] = Field(default=(), max_length=50)
-    """Record values quoted as data, such as summaries, names, and configuration values."""
+    statements: tuple[Statement, ...] = Field(min_length=1, max_length=MAX_STATEMENTS)
+    data: tuple[UntrustedText, ...] = Field(default=(), max_length=MAX_QUOTED)
+    findings: tuple[FindingView, ...] = Field(default=(), max_length=2 * MAX_CITED_IDS)
     status: AnalysisStatus | None = None
-    """The cited findings' combined status, for analyzer conclusions."""
     citations: tuple[Citation, ...] = Field(min_length=1, max_length=2)
-    limitations: tuple[RenderedLimitation, ...] = Field(default=(), max_length=100)
+
+    @model_validator(mode="after")
+    def require_consistent_conclusion(self) -> Self:
+        if self.kind == ConclusionKind.ANALYZER_FINDING and not self.findings:
+            raise validation_error("answer_rendering_shape", "an analyzer conclusion has findings")
+        expected = combined_status(view.status for view in self.findings) if self.findings else None
+        if self.status != expected:
+            raise validation_error("answer_rendering_shape", "status combines the findings")
+        for statement in self.statements:
+            for reference in _REFERENCE.findall(statement):
+                if not 1 <= int(reference) <= len(self.data):
+                    raise validation_error("answer_rendering_shape", "references quoted data")
+        return self
 
 
 class RenderedNarrative(Contract):
@@ -210,9 +232,7 @@ class RenderedFailure(Contract):
 
     reason: FailureReason
     retrieved: tuple[RenderedConclusion, ...] = Field(default=(), max_length=100)
-    """Findings the run retrieved, labelled as retrieved, not as an answer."""
     unverified: tuple[Statement, ...] = Field(min_length=1, max_length=50)
-    """Fixed statements of what could not be verified and why the run stopped."""
 
 
 class RenderedAnswer(Contract):
@@ -221,10 +241,8 @@ class RenderedAnswer(Contract):
     outcome: AnswerOutcome
     snapshots: tuple[RenderedSnapshot, ...] = Field(min_length=1, max_length=2)
     status: AnalysisStatus | None = None
-    """The validated status, for answers."""
     conclusions: tuple[RenderedConclusion, ...] = Field(default=(), max_length=20)
     qualifications: tuple[Statement, ...] = Field(default=(), max_length=20)
-    """Answer-wide qualifications, such as partial coverage or declared state."""
     narrative: RenderedNarrative | None = None
     failure: RenderedFailure | None = None
 

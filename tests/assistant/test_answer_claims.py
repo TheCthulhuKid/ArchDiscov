@@ -11,7 +11,7 @@ from archdiscov.assistant.answer_validation import (
     check_claims,
     validate_proposal,
 )
-from archdiscov.assistant.answers import AnswerProposal
+from archdiscov.assistant.answers import AnswerProposal, combined_status
 from archdiscov.assistant.conversation import ParsedToolArguments, ToolCall
 from archdiscov.assistant.rejections import REJECTION_MESSAGES, RejectionCode
 from archdiscov.assistant.tools.catalog import default_registry
@@ -377,3 +377,11 @@ def test_every_code_has_a_fixed_message() -> None:
 
 def test_statuses_are_ranked_like_the_answer_vocabulary() -> None:
     assert set(RANK) == {status.value for status in AnalysisStatus}
+
+
+def test_a_combined_status_needs_at_least_one_finding() -> None:
+    with pytest.raises(ValueError):
+        combined_status(())
+    assert combined_status(["supported", "supported"]) == "supported"
+    assert combined_status(["insufficient_evidence"] * 2) == "insufficient_evidence"
+    assert combined_status(["supported", "insufficient_evidence"]) == "partial"

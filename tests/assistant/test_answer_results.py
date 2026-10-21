@@ -35,6 +35,7 @@ from archdiscov.assistant.runs import (
     RunOutcome,
 )
 from archdiscov.assistant.tools.contracts import untrusted
+from archdiscov.assistant.tools.views import AnalysisLimitationView, FindingView
 from archdiscov.models.enums import AnalysisStatus, SnapshotSourceKind
 
 REJECTIONS = (reject(RejectionCode.UNKNOWN_ID, "conclusions[0].citations[0].finding_ids[0]"),)
@@ -231,10 +232,20 @@ def _snapshot(side: str = "primary", kind: SnapshotSourceKind = SnapshotSourceKi
     )
 
 
+VIEW = FindingView(
+    finding_id="f-1",
+    status=AnalysisStatus.PARTIAL,
+    summary=untrusted("Resource has no owner tag."),
+    resources=(),
+    evidence_ids=(),
+    path=(),
+    limitations=(AnalysisLimitationView(code="limited", message=untrusted("Limited.")),),
+)
 CONCLUSION = RenderedConclusion(
     kind="analyzer_finding",
-    statements=("The analyzer reports this finding.",),
-    data=(untrusted("Resource has no owner tag."),),
+    statements=("The analyzer reports this finding, quoted as [1].",),
+    data=(VIEW.summary,),
+    findings=(VIEW,),
     status=AnalysisStatus.PARTIAL,
     citations=(Citation(finding_ids=("f-1",)),),
 )
@@ -377,3 +388,31 @@ def test_details_are_checked_by_presence_not_truthiness() -> None:
         AnswerOutcome(status="failed", failure="rejected_after_repair", rejections=())
     with pytest.raises(ValidationError):
         AnswerOutcome(status="answered", rejections=REJECTIONS)
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"findings": (), "status": None},
+        {"status": AnalysisStatus.SUPPORTED},
+        {"status": None},
+        {"statements": ("Quoted as [2].",)},
+        {"statements": ("Quoted as [0].",)},
+    ],
+    ids=["analyzer-without-findings", "status-not-combined", "no-status", "dangling", "zero"],
+)
+def test_conclusions_are_consistent_with_their_findings_and_data(fields: dict) -> None:
+    with pytest.raises(ValidationError):
+        RenderedConclusion.model_validate({**dict(CONCLUSION), **fields})
+
+
+def test_conclusions_without_findings_have_no_status() -> None:
+    configuration = {
+        **dict(CONCLUSION),
+        "kind": "recorded_configuration",
+        "findings": (),
+        "citations": (Citation(evidence_ids=("e-1",)),),
+    }
+    assert RenderedConclusion.model_validate({**configuration, "status": None}).status is None
+    with pytest.raises(ValidationError):
+        RenderedConclusion.model_validate({**configuration, "status": AnalysisStatus.PARTIAL})

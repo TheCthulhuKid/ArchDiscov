@@ -28,7 +28,8 @@ sys.meta_path.insert(0, Blocker())
 from pathlib import Path
 
 from archdiscov.assistant import config, conversation, fake, instructions, orchestrator, provider
-from archdiscov.assistant import answer_results, answer_validation, answers, redaction
+from archdiscov.assistant import answer_rendering, answer_results, answer_validation, answers
+from archdiscov.assistant import redaction
 from archdiscov.assistant import rejections, runs
 from archdiscov.assistant.tools import contracts as tool_contracts
 from archdiscov.assistant.tools import session as tool_session
@@ -79,6 +80,10 @@ proposal = answers.AnswerProposal.model_validate(
     }}
 )
 assert answer_validation.validate_proposal(proposal, session) == ()
+rendered = answer_rendering.render_answer(
+    proposal, session, answer_results.AnswerOutcome(status="answered")
+)
+assert rendered.narrative.summary == "Nothing applicable."
 assert answer_results.final_outcome(
     run.outcome, (), repaired=True
 ).failure == answer_results.FailureReason.NO_PROPOSAL_AFTER_REPAIR

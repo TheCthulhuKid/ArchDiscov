@@ -1,9 +1,10 @@
 # Assistant answers
 
 This page describes the structured answer a model submits at the end of an
-[orchestrated run](assistant-orchestration.md), and how it is validated against what the
-[tools](assistant-tools.md) returned. No command uses this yet, and the only provider is the
-scripted fake: rendering answers, the single repair attempt, the `ask` command, and real
+[orchestrated run](assistant-orchestration.md), how it is validated against what the
+[tools](assistant-tools.md) returned, and how its conclusions are written from records. No
+command uses this yet, and the only provider is the scripted fake: the readable and JSON
+renderings, failure explanations, the single repair attempt, the `ask` command, and real
 providers are later steps.
 
 ## Boundary
@@ -109,3 +110,32 @@ Terraform plan, or CloudFormation snapshot is described as observed.
 Transcripts record a proposal with its narrative redacted and bounded and any
 secret-looking cited ID replaced by a unique placeholder; the run result keeps the raw
 proposal for validation.
+
+## Rendered conclusions
+
+`render_answer(proposal, session, outcome)` (`assistant/answer_rendering.py`) turns a
+validated proposal into a `RenderedAnswer` (`assistant/answer_results.py`). The proposal
+only selects records; every fact comes from them:
+
+| Conclusion kind | Rendered from |
+|---|---|
+| `analyzer_finding` | each cited finding's `FindingView`, exactly as a tool delivered it (summary, status, resources, evidence, path, and limitations), and its analyzer |
+| `recorded_configuration` | each cited evidence item's configuration path and value, and each cited resource's type, name, and planned actions, from the session's index |
+| `recorded_difference` | the entries of the user-selected saved comparisons that name a cited resource: matched pairs and their field differences, unmatched resources, and ambiguous matches |
+
+Every conclusion lists the cited findings, evidence, and resources whatever its kind, keeps
+the proposal's citations, and, when it cites findings, carries their combined status: the
+same rule as validation. Statements are fixed templates. Record values (summaries, names,
+paths, configuration values) are quoted as untrusted data and referred to as `[n]`, so a
+model cannot change how a fact is worded, and the contract rejects a reference to data that
+is not there. At most `MAX_RENDERED_ENTRIES` (20) comparison entries, and as many field
+differences, are shown per conclusion; the rest are counted. The run record keeps the first
+view delivered for each finding, since a finding's ID does not depend on its limitation
+wording.
+
+Answer-wide qualifications say when a snapshot records declared or planned state, when the
+answer or a cited finding is partial, when a cited finding's collection coverage was
+incomplete, and that recorded differences are not proof of change or drift. An
+`insufficient_evidence` answer says what was checked, never what is true: its reason, and
+how many findings from which analyzers the run retrieved. The narrative appears only as the
+labelled `summary` and `explanation`, with secret-looking text redacted as in transcripts.

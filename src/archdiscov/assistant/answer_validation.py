@@ -21,6 +21,7 @@ from .answers import (
     AnswerSide,
     Citation,
     ConclusionKind,
+    combined_status,
 )
 from .rejections import Rejection, RejectionCode, reject
 from .tools.contracts import IdKind
@@ -39,14 +40,20 @@ _STATUS_RANK = {
 }
 
 
+def side_indexes(session: ToolSession) -> dict[AnswerSide, GraphIndex]:
+    """The index of each side the session selected, primary first."""
+    indexes = {AnswerSide.PRIMARY: session.index}
+    if session.comparison_index is not None:
+        indexes[AnswerSide.COMPARISON] = session.comparison_index
+    return indexes
+
+
 class _Checker:
     """Classifies cited IDs against one session's snapshots and run record."""
 
     def __init__(self, session: ToolSession) -> None:
         self.context: RunContext = session.record.context()
-        self.indexes = {AnswerSide.PRIMARY: session.index}
-        if session.comparison_index is not None:
-            self.indexes[AnswerSide.COMPARISON] = session.comparison_index
+        self.indexes = side_indexes(session)
         self.saved_findings = {
             (result.snapshot_id, finding.id)
             for result in session.analyses
@@ -213,12 +220,7 @@ def _supported_status(
             for conclusion in proposal.conclusions
         )
         return AnalysisStatus.PARTIAL if differences else AnalysisStatus.INSUFFICIENT_EVIDENCE
-    statuses = {finding.status for _, _, finding in cited}
-    if statuses == {AnalysisStatus.INSUFFICIENT_EVIDENCE}:
-        return AnalysisStatus.INSUFFICIENT_EVIDENCE
-    if statuses == {AnalysisStatus.SUPPORTED}:
-        return AnalysisStatus.SUPPORTED
-    return AnalysisStatus.PARTIAL
+    return combined_status(finding.status for _, _, finding in cited)
 
 
 def _check_status(
