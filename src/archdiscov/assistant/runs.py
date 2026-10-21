@@ -155,6 +155,14 @@ RunOutcome = Annotated[
 ]
 
 
+def transcript_outcome(outcome: RunOutcome) -> RunOutcome:
+    """The outcome as a transcript records it: an answer's text is redacted and bounded."""
+    if not isinstance(outcome, Answered):
+        return outcome
+    text = transcript_text(outcome.message.text)
+    return Answered(message=AssistantMessage(text=text.text), stop_reason=outcome.stop_reason)
+
+
 def provider_outcome(error: ProviderError) -> ProviderFailed | MalformedOutput:
     """The outcome for a provider error; malformed output gets its own kind."""
     if error.code == ProviderErrorCode.MALFORMED_OUTPUT:
@@ -266,6 +274,12 @@ class RunTranscript(Contract):
     def validate_run(self) -> Self:
         if looks_secret(self.model):
             raise validation_error("run_transcript_secret", "secret-looking model name")
+        if isinstance(self.outcome, Answered):
+            text = self.outcome.message.text
+            if len(text) > MAX_TRANSCRIPT_TEXT_CHARS or looks_secret(text):
+                raise validation_error(
+                    "run_transcript_secret", "record answers with transcript_outcome"
+                )
         if [turn.request for turn in self.turns] != list(range(len(self.turns))):
             raise validation_error("run_transcript_counts", "turns are numbered from zero")
         if len(self.turns) > self.limits.max_provider_requests:

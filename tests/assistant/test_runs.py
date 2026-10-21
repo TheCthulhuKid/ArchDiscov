@@ -410,3 +410,21 @@ def test_no_credential_value_appears_in_a_transcript() -> None:
     transcript = _transcript([turn], ProviderFailed.from_error(ProviderAuthenticationError()))
     assert SECRET not in transcript.model_dump_json()
     assert SECRET[:16] not in repr(transcript)
+
+
+def test_transcripts_record_answers_redacted_and_bounded() -> None:
+    from archdiscov.assistant.runs import transcript_outcome
+
+    raw = Answered(
+        message=AssistantMessage(text=f"Key {SECRET} " + "z" * 5_000), stop_reason=StopReason.END
+    )
+    recorded = transcript_outcome(raw)
+    assert SECRET not in recorded.message.text
+    assert len(recorded.message.text) <= MAX_TRANSCRIPT_TEXT_CHARS
+    assert recorded.stop_reason == StopReason.END
+    assert _transcript([], recorded).outcome == recorded
+    for other in (EXAMPLES[kind] for kind in EXAMPLES if kind != "answered"):
+        assert transcript_outcome(other) is other
+    with pytest.raises(ValidationError) as raised:
+        _transcript([], raw)
+    assert raised.value.errors()[0]["type"] == "run_transcript_secret"
