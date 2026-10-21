@@ -2407,15 +2407,69 @@ Implement and verify substeps 34.1–34.5 in order. Keep the parent planned unti
 **Status:** Planned.
 **Prerequisite:** Step 34.
 
-- Expose a fixed tool set over existing public services (not the CLI): resource search, resource inspection, neighbours/relationship traversal, path lookup, coverage inspection, evidence retrieval, listing and running the five analyzers over the selected snapshot, and reading saved results and comparisons. Each tool has a typed input model, JSON schema derived from it, a typed output, and a hard result/depth/size limit with explicit truncation reporting.
-- Bind each tool session to one snapshot (and optionally a second for comparisons) chosen by the user, not by the model. Reject model-supplied paths and snapshot selectors.
-- Return only allowlisted fields: sanitized values, IDs, citations, and limitations. Mark imported names, tags, and descriptions as data (for example in a dedicated `untrusted_text` field), never in instruction-like positions, and truncate them.
-- Record every returned finding ID, evidence ID, and resource ID in a per-run record (the tool-returned allowlist). Tool errors are safe, typed results the model can read, not exceptions.
-- Analyzer tools run analyzers in memory by default; persisting results stays an explicit user action.
+Implement and verify substeps 35.1–35.5 in order. Keep the parent planned until every substep's acceptance checks pass. Put the code in `src/archdiscov/assistant/tools/` (keep `__init__.py` light), reuse the `Model` base and the step 34 `ToolDeclaration`, `ToolCall`, and `ToolResult` contracts, and call existing public services, never the CLI. The tool set is fixed: resource search, resource inspection, neighbours/relationship traversal, path lookup, coverage inspection, evidence retrieval, listing and running the five analyzers over the selected snapshot, and reading saved results and comparisons.
 
 **Advice:** Reuse the query and analysis services exactly as the CLI does, so tools cannot diverge from deterministic behaviour. Prefer a few coarse tools over many narrow ones.
 
-**Acceptance check:** Every tool is covered for success, truncation, unknown IDs, invalid input, partial coverage, and Azure-unsupported results. The tool set is verified to contain no write, network, shell, or filesystem-path inputs. Returned-ID tracking is exact. Injection text in resource names and tags is returned only as marked data.
+#### Step 35.1: Define tool output contracts, limits, and the run record
+**Status:** Implemented. `src/archdiscov/assistant/tools/contracts.py` defines `ToolLimits` (result limit 25 of at most 100, depth 3 of at most 5, output 32,768 characters of at most the step 34 tool-result bound, strictly typed); `Truncation` (unique ordered reasons `result_limit`, `depth_limit`, `work_limit`, `size_limit`, the returned count, and an available count that exceeds it or is unknown); generic `BoundedList` and `bounded`; `ToolError` with seven stable codes whose messages are fixed by code, plus optional input-field locations; `ToolOutput`, the base whose subclasses declare only allowlisted fields; `sanitized` values via `models/sanitization.py`; and `UntrustedText`, whose `untrusted_text` field carries imported text with line breaks, control, and format characters (zero-width, bidirectional overrides) replaced by spaces and truncated to 200 characters with a `truncated` flag, normalized on every construction. `render` returns the `ToolResult` and the output actually delivered, replacing oversized outputs with `tool_output_too_large`. `tools/record.py` defines `RunRecord`, which collects the values of the `finding_id(s)`, `evidence_id(s)`, and `resource_id(s)` fields of a delivered output, scoped to the nearest enclosing `snapshot_id` (unscoped IDs are an error), and returns `ReturnedIds`: frozen, sorted, deduplicated per snapshot, and detached from later recording and caller changes.
+**Prerequisite:** Step 34.
+
+- Define typed output models shared by all tools: bounded lists with explicit truncation reporting (reason, returned and available counts), safe typed tool errors (code, safe message) that the model can read rather than exceptions, and a hard result, depth, and size limit with validated defaults.
+- Return only allowlisted fields: sanitized values, IDs, citations, and limitations. Mark imported names, tags, and descriptions as data in a dedicated `untrusted_text` field, never in instruction-like positions, and truncate them.
+- Define the per-run record (the tool-returned allowlist) that records every returned finding ID, evidence ID, and resource ID exactly, detached from caller mutation, for step 37 validation.
+
+**Advice:** Keep the vocabulary independent of any one tool so every later substep reuses it unchanged.
+
+**Acceptance check:** Contract tests cover round-trips, truncation reporting, invalid limits, safe errors, `untrusted_text` marking and truncation, and exact, deterministic, detached ID recording.
+
+#### Step 35.2: Bind sessions and dispatch typed tools
+**Status:** Planned.
+**Prerequisite:** Step 35.1.
+
+- Define a tool session bound to one snapshot (and optionally a second for comparisons) chosen by the user, holding one `GraphIndex` per snapshot built once. Reject model-supplied paths and snapshot selectors.
+- Define the tool definition pattern: a typed input model, a JSON schema derived from it as the step 34 declaration, a typed output, and a registry that dispatches a `ToolCall` to its tool and returns a `ToolResult`.
+- Map malformed arguments (the step 34 typed value), unknown tool names, invalid input, and unexpected failures to safe tool errors, never exceptions, and record returned IDs through the run record.
+
+**Advice:** Keep the registry a plain mapping; add no plugin framework.
+
+**Acceptance check:** Tests with trivial in-test tools cover dispatch, derived schemas, unknown tools, malformed and invalid arguments, rejection of path and snapshot inputs, and run-record updates.
+
+#### Step 35.3: Implement graph query tools
+**Status:** Planned.
+**Prerequisite:** Step 35.2.
+
+- Add resource search, resource inspection, neighbours/relationship traversal, path lookup, coverage inspection, and evidence retrieval over the step 25 query services and `GraphIndex`, with their depth, result, and size limits and explicit truncation.
+- Preserve provider-native type and scope, exact citations, terminal targets, and coverage limitations; return imported names and tags only as marked data.
+
+**Advice:** Prefer coarse tools (inspection returns evidence and coverage together) over many narrow ones.
+
+**Acceptance check:** Each tool is covered for success, truncation, unknown IDs, invalid input, partial coverage, and AWS and Azure fixtures; injection text in names and tags is returned only as marked data.
+
+#### Step 35.4: Implement analyzer and saved-result tools
+**Status:** Planned.
+**Prerequisite:** Step 35.3.
+
+- Add tools to list the five analyzers with their parameters and to run one over the selected snapshot in memory by default; persisting results stays an explicit user action and no tool writes files.
+- Add read-only tools for saved analysis results and comparisons selected by the user for the session (never by model-supplied path), verified against their snapshots before use.
+- Return findings with citations, paths, and limitations, record every finding, evidence, and resource ID, and return the actionable unsupported result for Azure semantic analyses.
+
+**Advice:** Run analyzers through `run_analyzer` and the existing integrity checks, exactly as the CLI does.
+
+**Acceptance check:** Each analyzer kind runs through its tool with exact results, parameter bounds, truncation, partial coverage, unknown resource IDs, and the Azure unsupported result; saved results and comparisons load only when user-selected and valid, and tampered or mismatched files fail safely.
+
+#### Step 35.5: Verify and document the tool boundary
+**Status:** Planned.
+**Prerequisite:** Step 35.4.
+
+- Add cross-cutting tests that the tool set has no write, network, shell, or filesystem-path inputs (derived from the declared schemas), returned-ID tracking is exact across a multi-tool run, and every tool declaration is valid for step 34 providers.
+- Add an import-isolation test that the tools import with vendor SDK modules blocked.
+- Document the tools, limits, truncation, `untrusted_text`, and the run record in `docs/`, link it from the README without claiming orchestration or providers beyond step 34, and extend the documentation-drift tests to cover tool names and limits.
+- Run focused/full offline tests, Ruff lint/format excluding `.junie`, documentation links, and whitespace checks using `.venv/bin/python`. Mark each substep and the parent implemented only after their acceptance checks pass.
+
+**Advice:** Derive the audit from the registry so a new tool fails it until covered.
+
+**Acceptance check:** Every tool is covered for success, truncation, unknown IDs, invalid input, partial coverage, and Azure-unsupported results; the schema audit finds no forbidden inputs; returned-ID tracking is exact; injection text appears only as marked data; documentation matches the code.
 
 ### Step 36: Orchestrate the tool-calling loop with limits
 **Status:** Planned.

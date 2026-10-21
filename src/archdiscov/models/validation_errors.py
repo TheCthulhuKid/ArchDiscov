@@ -128,6 +128,18 @@ SAFE_VALIDATION_MESSAGES = MappingProxyType(
             "Fake transcript constraint failed: a turn's tool calls need a capability the "
             "transcript does not declare."
         ),
+        "tool_truncation_reasons_order": (
+            "Tool output constraint failed: truncation reasons must be unique and ordered."
+        ),
+        "tool_truncation_counts": (
+            "Tool output constraint failed: truncation counts must match the returned items."
+        ),
+        "tool_error_message_mismatch": (
+            "Tool output constraint failed: error message must be the fixed message for its code."
+        ),
+        "tool_returned_ids_order": (
+            "Tool output constraint failed: returned IDs must be sorted and unique."
+        ),
         "provider_config_region_invalid": (
             "Provider configuration constraint failed: region must be a concrete AWS region."
         ),

@@ -27,6 +27,11 @@ sys.meta_path.insert(0, Blocker())
 from pathlib import Path
 
 from archdiscov.assistant import config, conversation, fake, provider
+from archdiscov.assistant.tools import contracts as tool_contracts
+from archdiscov.assistant.tools import record as tool_record
+
+assert tool_record.RunRecord().returned() == tool_record.ReturnedIds()
+assert tool_contracts.untrusted("x").untrusted_text == "x"
 
 transcript = fake.load_fake_transcript(Path({str(TRANSCRIPT)!r}))
 replayed = fake.FakeProvider(transcript)
