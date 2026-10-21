@@ -13,9 +13,10 @@ from typing import Any
 
 import pytest
 
-from archdiscov.assistant.answer_validation import RejectionCode, validate_proposal
+from archdiscov.assistant.answer_validation import validate_proposal
 from archdiscov.assistant.fake import FakeProvider, FakeTranscript
 from archdiscov.assistant.orchestrator import RunResult, run_assistant
+from archdiscov.assistant.rejections import RejectionCode
 from archdiscov.assistant.runs import Proposed
 from archdiscov.assistant.tools.contracts import ToolLimits
 from archdiscov.assistant.tools.session import ToolSession

@@ -28,7 +28,8 @@ sys.meta_path.insert(0, Blocker())
 from pathlib import Path
 
 from archdiscov.assistant import config, conversation, fake, instructions, orchestrator, provider
-from archdiscov.assistant import answer_validation, answers, redaction, runs
+from archdiscov.assistant import answer_results, answer_validation, answers, redaction
+from archdiscov.assistant import rejections, runs
 from archdiscov.assistant.tools import contracts as tool_contracts
 from archdiscov.assistant.tools import session as tool_session
 from archdiscov.assistant.tools.catalog import ALL_TOOLS, default_registry
@@ -62,7 +63,7 @@ assert runs.RunLimits.from_config(config.FakeProviderConfig()) == runs.RunLimits
 assert redaction.redact_secrets("Bearer abc") == redaction.REDACTED
 assert len(instructions.initial_conversation("q").messages) == 2
 assert answers.submit_answer_declaration().name == "submit_answer"
-assert len(answer_validation.RejectionCode) == len(answer_validation.REJECTION_MESSAGES)
+assert len(rejections.RejectionCode) == len(rejections.REJECTION_MESSAGES)
 reply = {{"message": {{"role": "assistant", "text": "a"}}, "stop_reason": "end"}}
 answer = fake.FakeTranscript.model_validate({{"turns": [{{"kind": "respond", "response": reply}}]}})
 run = orchestrator.run_assistant(
@@ -78,6 +79,9 @@ proposal = answers.AnswerProposal.model_validate(
     }}
 )
 assert answer_validation.validate_proposal(proposal, session) == ()
+assert answer_results.final_outcome(
+    run.outcome, (), repaired=True
+).failure == answer_results.FailureReason.NO_PROPOSAL_AFTER_REPAIR
 import asyncio
 
 run = asyncio.run(

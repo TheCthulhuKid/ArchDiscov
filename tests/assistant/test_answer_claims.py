@@ -8,13 +8,12 @@ import pytest
 from archdiscov.assistant.answer_validation import (
     MIN_NAMED_ID_CHARS,
     MIN_REPEATED_TEXT_CHARS,
-    REJECTION_MESSAGES,
-    RejectionCode,
     check_claims,
     validate_proposal,
 )
 from archdiscov.assistant.answers import AnswerProposal
 from archdiscov.assistant.conversation import ParsedToolArguments, ToolCall
+from archdiscov.assistant.rejections import REJECTION_MESSAGES, RejectionCode
 from archdiscov.assistant.tools.catalog import default_registry
 from archdiscov.assistant.tools.contracts import IdKind, ToolLimits
 from archdiscov.assistant.tools.session import ToolSession

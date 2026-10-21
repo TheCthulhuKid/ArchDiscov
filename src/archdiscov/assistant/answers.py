@@ -33,6 +33,16 @@ CitedIds = Annotated[tuple[CitedId, ...], Field(default=(), max_length=MAX_CITED
 LimitationCode = Annotated[str, Field(max_length=100, pattern=r"^[a-z][a-z0-9_]*$")]
 
 
+# Snapshots that record declared configuration, not observed, deployed state.
+DECLARED_SOURCE_KINDS = frozenset(
+    {
+        SnapshotSourceKind.TERRAFORM_STATE,
+        SnapshotSourceKind.TERRAFORM_PLAN,
+        SnapshotSourceKind.CLOUDFORMATION,
+    }
+)
+
+
 class AnswerSide(StrEnum):
     PRIMARY = "primary"
     COMPARISON = "comparison"

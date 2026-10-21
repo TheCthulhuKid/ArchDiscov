@@ -14,6 +14,7 @@ from archdiscov.assistant import config as assistant_config
 from archdiscov.assistant import conversation as assistant_conversation
 from archdiscov.assistant import fake as assistant_fake
 from archdiscov.assistant import instructions as assistant_instructions
+from archdiscov.assistant import rejections as assistant_rejections
 from archdiscov.assistant import runs as assistant_runs
 from archdiscov.assistant.provider import (
     ProviderError,
@@ -418,14 +419,14 @@ def test_documented_answer_bounds_match_the_constants():
 def test_documented_rejections_match_the_codes():
     rows = table_rows(ANSWERS_DOC, "| Code | Check | Message")
     assert [row[0].strip("`") for row in rows] == [
-        code.value for code in answer_validation.RejectionCode
+        code.value for code in assistant_rejections.RejectionCode
     ]
     for code, check, message in (row[:3] for row in rows):
         assert check in {"citations", "claims"}, code
         assert (
             message
-            == answer_validation.REJECTION_MESSAGES[
-                answer_validation.RejectionCode(code.strip("`"))
+            == assistant_rejections.REJECTION_MESSAGES[
+                assistant_rejections.RejectionCode(code.strip("`"))
             ]
         )
 

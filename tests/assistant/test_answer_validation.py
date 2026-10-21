@@ -4,14 +4,10 @@ from typing import Any
 
 import pytest
 
-from archdiscov.assistant.answer_validation import (
-    REJECTION_MESSAGES,
-    Rejection,
-    RejectionCode,
-    check_citations,
-)
+from archdiscov.assistant.answer_validation import check_citations
 from archdiscov.assistant.answers import AnswerProposal
 from archdiscov.assistant.conversation import ParsedToolArguments, ToolCall
+from archdiscov.assistant.rejections import REJECTION_MESSAGES, Rejection, RejectionCode
 from archdiscov.assistant.tools.catalog import default_registry
 from archdiscov.assistant.tools.contracts import IdKind, ToolLimits
 from archdiscov.assistant.tools.session import ToolSession
