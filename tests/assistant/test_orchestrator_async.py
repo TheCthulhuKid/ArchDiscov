@@ -214,7 +214,8 @@ def test_cancellation_ends_the_run_with_a_partial_transcript() -> None:
     assert result.transcript.outcome == Cancelled()
     assert [len(turn.tool_calls) for turn in result.transcript.turns] == [1, 0]
     assert result.transcript.turns[1].stop_reason is None
-    assert result.returned == session.record.returned() != ReturnedIds()
+    assert result.returned == session.record.returned()
+    assert result.returned != ReturnedIds()
     assert provider.settled is True
 
 

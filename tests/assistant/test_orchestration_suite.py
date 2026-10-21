@@ -44,6 +44,7 @@ def _expected() -> set[tuple[str, str]]:
         "provider_error": {
             code.value for code in ProviderErrorCode if code != ProviderErrorCode.MALFORMED_OUTPUT
         },
+        "proposed": {""},
         "cancelled": {""},
     }
     assert set(detail) == _outcome_kinds()
@@ -57,12 +58,20 @@ def _identity(result: RunResult) -> tuple[str, str]:
         "limit_reached": lambda: outcome.limit.value,
         "malformed_output": lambda: outcome.reason.value,
         "provider_error": lambda: outcome.code.value,
+        "proposed": lambda: "",
         "cancelled": lambda: "",
     }[outcome.kind]()
     return outcome.kind, value
 
 
 SEARCH = ("c1", "search_resources", {"name": SECRET})
+PROPOSAL = {
+    "status": "insufficient_evidence",
+    "contexts": [{"side": "primary", "source_kind": "aws"}],
+    "insufficient_reason": "no_applicable_findings",
+    "conclusions": [{"kind": "recorded_configuration", "citations": [{"evidence_ids": [SECRET]}]}],
+    "summary": f"Nothing applicable; the token {SECRET} is not evidence.",
+}
 
 
 def _case(turns: list[dict], limits: dict | None = None, **options: Any) -> dict:
@@ -98,7 +107,17 @@ CASES: dict[tuple[str, str], dict] = {
     ("malformed_output", "conversation_invalid"): _case(
         [_calls(SEARCH), _calls(("c1", "list_analyzers", {}))]
     ),
-    ("malformed_output", "tool_calls_without_tools"): _case([_calls(SEARCH)], registry=()),
+    ("malformed_output", "tool_calls_without_tools"): _case(
+        [_calls(SEARCH)], registry=(), offer_answer_tool=False
+    ),
+    ("malformed_output", "proposal_malformed"): _case([_calls(("a", "submit_answer", None))]),
+    ("malformed_output", "proposal_invalid"): _case(
+        [_calls(("a", "submit_answer", {"status": "supported", "summary": SECRET}))]
+    ),
+    ("malformed_output", "proposal_mixed"): _case(
+        [_calls(("a", "submit_answer", PROPOSAL), SEARCH, ignore_request_limits=True)]
+    ),
+    ("proposed", ""): _case([_calls(SEARCH), _calls(("a", "submit_answer", PROPOSAL))]),
     ("provider_error", "provider_unsupported_capability"): _case([_text()], capabilities=[]),
     **{
         ("provider_error", code.value): _case([_calls(SEARCH), _fail(code.value)])
@@ -123,6 +142,7 @@ def _run_case(case: dict) -> RunResult:
     clock = FakeClock()
     provider = FakeProvider(FakeTranscript.model_validate(data), clock=clock)
     registry = ToolRegistry(case["registry"]) if "registry" in case else None
+    offer_answer_tool = case.get("offer_answer_tool", True)
     return asyncio.run(
         run_assistant_async(
             QUESTION,
@@ -133,6 +153,7 @@ def _run_case(case: dict) -> RunResult:
             limits=RunLimits.model_validate(case["limits"]),
             registry=registry,
             clock=clock.monotonic,
+            offer_answer_tool=offer_answer_tool,
         )
     )
 

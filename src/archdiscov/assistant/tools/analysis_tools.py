@@ -13,7 +13,7 @@ from collections import Counter
 from typing import Annotated, Any
 from uuid import UUID
 
-from pydantic import AwareDatetime, Field, JsonValue
+from pydantic import AwareDatetime, Field, JsonValue, PrivateAttr
 
 from archdiscov.models.analysis.database_access import DatabaseAccess
 from archdiscov.models.analysis.exposure import InternetExposure
@@ -22,6 +22,7 @@ from archdiscov.models.analysis.parameters import AnalyzerParameters
 from archdiscov.models.analysis.references import AnalysisLimitation, PathStep
 from archdiscov.models.analysis.results import AnalysisFinding, AnalysisResult
 from archdiscov.models.analysis.trust import CrossAccountTrust
+from archdiscov.models.canonical import sha256_json
 from archdiscov.models.comparison.entries import (
     AmbiguousMatch,
     FieldDifference,
@@ -49,6 +50,7 @@ from archdiscov.services.analyzer_errors import AnalyzerError
 
 from .contracts import (
     BoundedList,
+    DeliveredAnalysis,
     ToolError,
     ToolErrorCode,
     ToolOutput,
@@ -187,7 +189,11 @@ def _finding_view(finding: AnalysisFinding) -> FindingView:
 
 
 class AnalysisOutput(ToolOutput):
-    """Findings of one analyzer over one snapshot; `saved` is false for in-memory runs."""
+    """Findings of one analyzer over one snapshot; `saved` is false for in-memory runs.
+
+    The result behind the output is attached privately for the run record (so two outputs
+    with equal fields compare unequal when their results differ).
+    """
 
     snapshot_id: UUID
     analyzer: AnalyzerKind
@@ -197,10 +203,20 @@ class AnalysisOutput(ToolOutput):
     created_at: AwareDatetime
     status_counts: dict[AnalysisStatus, int]
     findings: BoundedList[FindingView]
+    _delivered: DeliveredAnalysis | None = PrivateAttr(default=None)
+
+    def delivered_analysis(self) -> DeliveredAnalysis | None:
+        return self._delivered
+
+
+def _run_key(result: AnalysisResult) -> str:
+    """Identical in-memory runs share a key; it is not a saved-result number."""
+    parameters = sha256_json(result.parameters.model_dump(mode="json"))[:16]
+    return f"run:{result.analyzer}:{result.analyzer_version}:{parameters}"
 
 
 def _analysis_output(
-    session: ToolSession, result: AnalysisResult, requested: int, *, saved: bool
+    session: ToolSession, result: AnalysisResult, requested: int, *, result_key: str
 ) -> AnalysisOutput:
     counts = Counter(finding.status for finding in result.findings)
     views = [_finding_view(finding) for finding in result.findings]
@@ -211,13 +227,19 @@ def _analysis_output(
             analyzer=result.analyzer,
             analyzer_version=result.analyzer_version,
             parameters=result.parameters.model_dump(mode="json"),
-            saved=saved,
+            saved=result_key.startswith("saved:"),
             created_at=result.created_at,
             status_counts={status: counts[status] for status in AnalysisStatus},
             findings=capped(views, requested, effective),
         )
 
-    return fit(build, requested, session.limits.max_output_chars)
+    output = fit(build, requested, session.limits.max_output_chars)
+    output._delivered = DeliveredAnalysis(
+        result_key=result_key,
+        result=result,
+        finding_ids=tuple(view.finding_id for view in output.findings.items),
+    )
+    return output
 
 
 # ---- list and run ------------------------------------------------------------------
@@ -344,7 +366,7 @@ def _run(session: ToolSession, arguments: RunAnalyzerInput) -> AnalysisOutput | 
     except AnalysisValidationError:
         return tool_error(ToolErrorCode.INTERNAL_ERROR)
     requested = min(arguments.limit, session.limits.result_limit)
-    return _analysis_output(session, result, requested, saved=False)
+    return _analysis_output(session, result, requested, result_key=_run_key(result))
 
 
 # ---- saved results -----------------------------------------------------------------
@@ -419,7 +441,12 @@ def _get_saved_analysis(
     if arguments.number > len(session.analyses):
         return tool_error(ToolErrorCode.NOT_FOUND)
     requested = min(arguments.limit, session.limits.result_limit)
-    return _analysis_output(session, session.analyses[arguments.number - 1], requested, saved=True)
+    return _analysis_output(
+        session,
+        session.analyses[arguments.number - 1],
+        requested,
+        result_key=f"saved:{arguments.number}",
+    )
 
 
 class SideRef(Model):

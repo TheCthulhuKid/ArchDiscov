@@ -8,6 +8,8 @@ import pytest
 import typer.main
 from annotated_types import Ge, Gt, Le
 
+from archdiscov.assistant import answer_validation
+from archdiscov.assistant import answers as assistant_answers
 from archdiscov.assistant import config as assistant_config
 from archdiscov.assistant import conversation as assistant_conversation
 from archdiscov.assistant import fake as assistant_fake
@@ -24,7 +26,7 @@ from archdiscov.assistant.tools.catalog import default_registry
 from archdiscov.cli import app
 from archdiscov.models.analysis.parameters import AnalyzerParameters
 from archdiscov.models.comparison.results import DEFAULT_RESULT_LIMIT, MAX_RESULT_LIMIT
-from archdiscov.models.enums import AnalyzerKind
+from archdiscov.models.enums import AnalysisStatus, AnalyzerKind
 from archdiscov.models.query.parameters import QueryPathLimits
 from archdiscov.models.query.requests import QueryNeighboursRequest, QuerySearchRequest
 from archdiscov.services import DEFAULT_REGISTRY
@@ -394,6 +396,64 @@ def test_the_readme_links_the_loop_without_claiming_ask_or_validation():
         "answers are validated",
     ):
         assert claim not in text
+
+
+# ---- assistant answers -------------------------------------------------------------
+
+ANSWERS_DOC = DOCS / "assistant-answers.md"
+
+
+def test_documented_answer_bounds_match_the_constants():
+    rows = table_rows(ANSWERS_DOC, "| Bound | Value")
+    modules = (assistant_answers, answer_validation)
+    expected = {
+        name: getattr(module, name)
+        for module in modules
+        for name in vars(module)
+        if name.startswith(("MAX_", "MIN_")) and isinstance(getattr(module, name), int)
+    }
+    assert {row[0].strip("`"): number(row[1]) for row in rows} == expected
+
+
+def test_documented_rejections_match_the_codes():
+    rows = table_rows(ANSWERS_DOC, "| Code | Check | Message")
+    assert [row[0].strip("`") for row in rows] == [
+        code.value for code in answer_validation.RejectionCode
+    ]
+    for code, check, message in (row[:3] for row in rows):
+        assert check in {"citations", "claims"}, code
+        assert (
+            message
+            == answer_validation.REJECTION_MESSAGES[
+                answer_validation.RejectionCode(code.strip("`"))
+            ]
+        )
+
+
+def test_documented_proposal_vocabulary_matches_the_contract():
+    kinds = table_rows(ANSWERS_DOC, "| Conclusion kind")
+    assert [row[0].strip("`") for row in kinds] == [
+        kind.value for kind in assistant_answers.ConclusionKind
+    ]
+    fields = table_rows(ANSWERS_DOC, "| Field | Holds")
+    documented = {name.strip("`") for row in fields for name in row[0].split(", ")}
+    assert documented == set(assistant_answers.AnswerProposal.model_fields)
+    reason = next(row[1] for row in fields if row[0] == "`insufficient_reason`")
+    assert all(f"`{item.value}`" in reason for item in assistant_answers.InsufficientReason)
+    status = next(row[1] for row in fields if row[0] == "`status`")
+    assert all(f"`{item.value}`" in status for item in AnalysisStatus)
+    text = ANSWERS_DOC.read_text(encoding="utf-8")
+    assert f"Version `{assistant_instructions.INSTRUCTIONS_VERSION}`" in text
+
+
+def test_the_readme_links_answers_without_claiming_rendering_or_ask():
+    text = README.read_text(encoding="utf-8")
+    assert "docs/assistant-answers.md" in text
+    for claim in ("answers are rendered", "repair is implemented", "`ask` command is implemented"):
+        assert claim not in text
+    assert "rendering answers, the single repair attempt, the `ask` command" in " ".join(
+        ANSWERS_DOC.read_text(encoding="utf-8").split()
+    )
 
 
 # ---- commands ----------------------------------------------------------------------

@@ -108,6 +108,21 @@ Each session has a `RunRecord` of every ID a delivered output returned, for answ
 validation in a later step. It collects the values of the `finding_id`, `finding_ids`,
 `evidence_id`, `evidence_ids`, `resource_id`, and `resource_ids` fields (one ID, a list, or
 a bounded list), each scoped to the nearest enclosing `snapshot_id`, so comparison IDs are
-attributed to their own side. Errors and replaced oversized outputs record nothing.
+attributed to their own side. Errors and replaced oversized outputs record nothing, and an
+output is collected in full before anything from it is kept.
 `returned()` is a frozen, sorted, deduplicated copy per snapshot, unaffected by later
 calls.
+
+`context()` adds what answer validation checks a proposal against, in the same frozen,
+sorted, detached form:
+
+- each session snapshot's source kind and collection window, recorded when the session is
+  created;
+- a view of each delivered analyzer finding: its analyzer, the results it was delivered
+  from (`run:<analyzer>:<version>:<parameters digest>` for an in-memory run, `saved:<number>`
+  for a saved result), status, limitation codes, every evidence and resource ID it cites,
+  its primary resource, and, for database-access and internet-exposure findings, its network
+  decision; only findings actually delivered, after truncation, are recorded;
+- a fingerprint of every delivered `untrusted_text` value: the length and SHA-256 of the
+  text case-folded with whitespace collapsed, so narrative can be checked for repeated
+  imported text without keeping that text.

@@ -1,17 +1,17 @@
 """The tool-calling loop: provider turn, tool execution, repeat until an answer or a limit.
 
 The loop is a state machine with typed terminal outcomes (`runs.RunOutcome`). It makes no
-judgement about answer content: the final assistant message is returned as-is for answer
-validation (step 37), and nothing here retries a rejected answer. Provider errors end the
-run; providers retry only their own transport and rate-limit errors.
+judgement about answer content: a `submit_answer` proposal or a final text answer is
+returned as-is for answer validation, and nothing here retries a rejected answer. Provider
+errors end the run; providers retry only their own transport and rate-limit errors.
 
 Deadlines use the injected clock. Each request's timeout is the shorter of the request
 deadline and the time left overall, and is passed to the provider, which enforces it: its
 timeout is a `provider_timeout` error, or `overall_deadline` when the time left was shorter.
 The loop also checks the clock after every response and tool batch, ending with
 `request_deadline` or `overall_deadline`, and a real-time guard cancels a provider call that
-ignores its timeout. An abandoned call is cancelled and allowed
-to settle before the run ends; its result is discarded.
+ignores its timeout. An abandoned call is cancelled and allowed to settle before the run
+ends; its result is discarded.
 
 `_Run` holds the state and the transitions; `run_assistant_async` is the one driver, and
 `run_assistant` runs it to completion from synchronous code.
@@ -23,10 +23,12 @@ from collections.abc import Awaitable, Callable
 
 from pydantic import ValidationError
 
+from .answers import SUBMIT_ANSWER, AnswerProposal, submit_answer_declaration
 from .conversation import (
     AssistantMessage,
     Contract,
     Conversation,
+    MalformedToolArguments,
     TokenUsage,
     ToolResult,
     ToolResultMessage,
@@ -46,6 +48,7 @@ from .runs import (
     LimitReached,
     MalformedOutput,
     MalformedOutputReason,
+    Proposed,
     RunLimitKind,
     RunLimits,
     RunOutcome,
@@ -85,6 +88,7 @@ class _Run:
         provider_kind: str,
         model: str,
         clock: Callable[[], float],
+        offer_answer_tool: bool,
     ) -> None:
         self.session = session
         self.registry = registry
@@ -92,7 +96,12 @@ class _Run:
         self.provider_kind = provider_kind
         self.model = model
         self.clock = clock
-        self.tools = registry.declarations()
+        if offer_answer_tool and SUBMIT_ANSWER in registry.tools:
+            raise ValueError(f"a registered tool may not be named {SUBMIT_ANSWER}")
+        self.offer_answer_tool = offer_answer_tool
+        self.tools = registry.declarations() + (
+            (submit_answer_declaration(),) if offer_answer_tool else ()
+        )
         self.messages = list(initial_conversation(question).messages)
         self.turns: list[TranscriptTurn] = []
         self.tool_calls = 0
@@ -158,36 +167,63 @@ class _Run:
         return None
 
     def respond(self, response: CompletionResponse) -> None:
-        """Record the response, then answer, end on a limit, or run its tool calls."""
+        """Discard a late response, reject one that cannot continue the run, or accept it."""
         self.in_flight = False
-        message = response.message
-        calls = message.tool_calls
-        self.output_chars += len(message.text or "")
+        self.output_chars += len(response.message.text or "")
         if (overrun := self._overrun()) is not None:
             # A late response is discarded: the deadline already decided the run.
             self._turn()
             self.outcome = LimitReached(limit=overrun)
-        elif calls and not self.tools:
-            self._end(
-                response, MalformedOutput(reason=MalformedOutputReason.TOOL_CALLS_WITHOUT_TOOLS)
-            )
-        elif len(calls) > self.limits.max_tool_calls_per_turn:
-            self._end(response, LimitReached(limit=RunLimitKind.TOOL_CALLS_PER_TURN))
-        elif self.tool_calls + len(calls) > self.limits.max_tool_calls:
-            self._end(response, LimitReached(limit=RunLimitKind.TOOL_CALLS))
-        elif self.output_chars > self.limits.max_total_output_chars:
-            self._end(response, LimitReached(limit=RunLimitKind.TOTAL_OUTPUT))
-        elif not self._extends_conversation(message):
-            self._end(response, MalformedOutput(reason=MalformedOutputReason.CONVERSATION_INVALID))
-        elif not calls:
-            self.messages.append(message)
+        elif (rejection := self._rejection(response.message)) is not None:
+            self._end(response, rejection)
+        else:
+            self.messages.append(response.message)
+            self._accept(response)
+
+    def _rejection(self, message: AssistantMessage) -> RunOutcome | None:
+        """Why the response cannot be added to the conversation, checked in order, or None."""
+        calls = message.tool_calls
+        if calls and not self.tools:
+            return MalformedOutput(reason=MalformedOutputReason.TOOL_CALLS_WITHOUT_TOOLS)
+        if self.output_chars > self.limits.max_total_output_chars:
+            return LimitReached(limit=RunLimitKind.TOTAL_OUTPUT)
+        if not self._extends_conversation(message):
+            return MalformedOutput(reason=MalformedOutputReason.CONVERSATION_INVALID)
+        if self._submits(message) and len(calls) > 1:
+            return MalformedOutput(reason=MalformedOutputReason.PROPOSAL_MIXED)
+        if len(calls) > self.limits.max_tool_calls_per_turn:
+            return LimitReached(limit=RunLimitKind.TOOL_CALLS_PER_TURN)
+        if not self._submits(message) and self.tool_calls + len(calls) > self.limits.max_tool_calls:
+            return LimitReached(limit=RunLimitKind.TOOL_CALLS)
+        return None
+
+    def _accept(self, response: CompletionResponse) -> None:
+        """End with a proposal or an answer, end when no request is left, or run the tools."""
+        message = response.message
+        if self._submits(message):
+            self._end(response, self._proposal_outcome(message))
+        elif not message.tool_calls:
             self._end(response, Answered(message=message, stop_reason=response.stop_reason))
         elif len(self.turns) + 1 >= self.limits.max_provider_requests:
             # No request is left to read the results, so the calls are not run.
-            self.messages.append(message)
             self._end(response, LimitReached(limit=RunLimitKind.PROVIDER_REQUESTS))
         else:
             self._run_tools(response)
+
+    def _submits(self, message: AssistantMessage) -> bool:
+        return self.offer_answer_tool and any(
+            call.name == SUBMIT_ANSWER for call in message.tool_calls
+        )
+
+    def _proposal_outcome(self, message: AssistantMessage) -> RunOutcome:
+        """Parse the lone `submit_answer` call; it is never dispatched as a tool."""
+        arguments = message.tool_calls[0].arguments
+        if isinstance(arguments, MalformedToolArguments):
+            return MalformedOutput(reason=MalformedOutputReason.PROPOSAL_MALFORMED)
+        try:
+            return Proposed(proposal=AnswerProposal.model_validate(arguments.value))
+        except ValidationError:
+            return MalformedOutput(reason=MalformedOutputReason.PROPOSAL_INVALID)
 
     def _extends_conversation(self, message: AssistantMessage) -> bool:
         try:
@@ -201,7 +237,7 @@ class _Run:
         results = tuple(self.registry.dispatch(self.session, call) for call in message.tool_calls)
         self.tool_calls += len(results)
         self.output_chars += sum(len(result.content) for result in results)
-        self.messages.extend((message, ToolResultMessage(results=results)))
+        self.messages.append(ToolResultMessage(results=results))
         self._turn(response=response, results=results)
         if self.output_chars > self.limits.max_total_output_chars:
             self.outcome = LimitReached(limit=RunLimitKind.TOTAL_OUTPUT)
@@ -315,11 +351,13 @@ async def run_assistant_async(
     limits: RunLimits | None = None,
     registry: ToolRegistry | None = None,
     clock: Callable[[], float] = time.monotonic,
+    offer_answer_tool: bool = True,
 ) -> RunResult:
     """Answer one question over the session's selected data, or end with a typed outcome.
 
-    Use one session per run: the returned IDs are the session's run record. Cancelling the
-    task raises `RunCancelled`, whose `result` holds the partial transcript.
+    `submit_answer` is offered after the registry's tools unless `offer_answer_tool` is
+    false. Use one session per run: the returned IDs are the session's run record.
+    Cancelling the task raises `RunCancelled`, whose `result` holds the partial transcript.
     """
     run = _Run(
         question,
@@ -329,6 +367,7 @@ async def run_assistant_async(
         provider_kind=provider_kind,
         model=model,
         clock=clock,
+        offer_answer_tool=offer_answer_tool,
     )
     try:
         while (request := run.next_request()) is not None:
@@ -357,6 +396,7 @@ def run_assistant(
     limits: RunLimits | None = None,
     registry: ToolRegistry | None = None,
     clock: Callable[[], float] = time.monotonic,
+    offer_answer_tool: bool = True,
 ) -> RunResult:
     """Run `run_assistant_async` from synchronous code; refused inside a running loop."""
     return _run_sync(
@@ -369,6 +409,7 @@ def run_assistant(
             limits=limits,
             registry=registry,
             clock=clock,
+            offer_answer_tool=offer_answer_tool,
         )
     )
 

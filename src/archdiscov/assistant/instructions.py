@@ -7,7 +7,7 @@ question travels as its own message, unchanged. Any edit to the text must bump
 
 from .conversation import Conversation, SystemMessage, UserMessage
 
-INSTRUCTIONS_VERSION = "1"
+INSTRUCTIONS_VERSION = "2"
 
 SYSTEM_INSTRUCTIONS = """\
 You answer questions about one recorded cloud architecture snapshot that the user selected.
@@ -41,7 +41,14 @@ Snapshot context
   templates record configuration, not observed resources. Never present planned or
   declared architecture as deployed.
 
-Keep answers concise and factual.
+Answer
+- When you have the evidence, call submit_answer exactly once, on its own, as your final
+  step. Do not answer in plain text.
+- Cite only finding, evidence, and resource IDs that tools returned in this conversation,
+  and acknowledge every limitation code of each finding you cite.
+- Set each context's source kind to the one the tools reported for that snapshot.
+- Keep the summary and explanation short. They are shown only as explanation: the facts in
+  the answer are taken from the records you cite.
 """
 
 

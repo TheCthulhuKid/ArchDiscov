@@ -1,16 +1,14 @@
 """Tool definitions and dispatch from a `ToolCall` to a `ToolResult`.
 
 A tool is a typed input model (its JSON schema, with references inlined, is the
-declaration the provider sees), a
-function over the session returning a typed output or a `ToolError`, and a name. The
-registry is a plain mapping. Dispatch never raises for model mistakes or tool failures:
-unknown names, malformed or invalid arguments, and unexpected exceptions become safe
-tool errors, and only delivered outputs are recorded.
+declaration the provider sees), a function over the session returning a typed output or a
+`ToolError`, and a name. The registry is a plain mapping. Dispatch never raises for model
+mistakes or tool failures: unknown names, malformed or invalid arguments, and unexpected
+exceptions become safe tool errors, and only delivered outputs are recorded.
 """
 
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any, ClassVar
 
 from pydantic import ValidationError
 
@@ -24,30 +22,16 @@ from ..conversation import (
     ToolResult,
 )
 from .contracts import ToolError, ToolErrorCode, ToolOutput, render, tool_error
+from .inputs import EmptyInput, ToolInput, inline_schema
 from .session import ToolSession
 
-# Data is selected by the user for the session, never by the model.
-_FORBIDDEN_INPUT_WORDS = frozenset(
-    {"path", "paths", "file", "files", "filename", "dir", "directory", "snapshot", "snapshots"}
-    | {"url", "uri"}
-)
-
-
-class ToolInput(Contract):
-    """Base for tool inputs: unknown fields rejected; no path or snapshot selectors."""
-
-    forbidden_words: ClassVar[frozenset[str]] = _FORBIDDEN_INPUT_WORDS
-
-    @classmethod
-    def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
-        super().__pydantic_init_subclass__(**kwargs)
-        for name in cls.model_fields:
-            if cls.forbidden_words & set(name.lower().split("_")):
-                raise TypeError(f"{cls.__name__}.{name}: tools cannot select paths or snapshots")
-
-
-class EmptyInput(ToolInput):
-    """For tools that take no arguments."""
+__all__ = [
+    "EmptyInput",
+    "ToolDefinition",
+    "ToolInput",
+    "ToolRegistry",
+    "inline_schema",
+]
 
 
 @dataclass(frozen=True)
@@ -64,27 +48,6 @@ class ToolDefinition[I: ToolInput]:
             description=self.description,
             input_schema=inline_schema(self.input_model.model_json_schema()),
         )
-
-
-def inline_schema(schema: dict[str, Any]) -> dict[str, Any]:
-    """Replace local `$ref`s with their `$defs`, so every provider receives one plain schema.
-
-    Tool inputs are not recursive, so inlining always terminates.
-    """
-    definitions = schema.get("$defs", {})
-
-    def resolve(value: Any) -> Any:
-        if isinstance(value, dict):
-            reference = value.get("$ref")
-            if isinstance(reference, str) and reference.startswith("#/$defs/"):
-                siblings = {key: item for key, item in value.items() if key != "$ref"}
-                return resolve({**definitions[reference.removeprefix("#/$defs/")], **siblings})
-            return {key: resolve(item) for key, item in value.items() if key != "$defs"}
-        if isinstance(value, list):
-            return [resolve(item) for item in value]
-        return value
-
-    return resolve(schema)
 
 
 class ToolRegistry:

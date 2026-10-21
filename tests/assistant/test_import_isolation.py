@@ -28,7 +28,7 @@ sys.meta_path.insert(0, Blocker())
 from pathlib import Path
 
 from archdiscov.assistant import config, conversation, fake, instructions, orchestrator, provider
-from archdiscov.assistant import redaction, runs
+from archdiscov.assistant import answer_validation, answers, redaction, runs
 from archdiscov.assistant.tools import contracts as tool_contracts
 from archdiscov.assistant.tools import session as tool_session
 from archdiscov.assistant.tools.catalog import ALL_TOOLS, default_registry
@@ -61,12 +61,23 @@ assert tool_contracts.untrusted("x").untrusted_text == "x"
 assert runs.RunLimits.from_config(config.FakeProviderConfig()) == runs.RunLimits()
 assert redaction.redact_secrets("Bearer abc") == redaction.REDACTED
 assert len(instructions.initial_conversation("q").messages) == 2
+assert answers.submit_answer_declaration().name == "submit_answer"
+assert len(answer_validation.RejectionCode) == len(answer_validation.REJECTION_MESSAGES)
 reply = {{"message": {{"role": "assistant", "text": "a"}}, "stop_reason": "end"}}
 answer = fake.FakeTranscript.model_validate({{"turns": [{{"kind": "respond", "response": reply}}]}})
 run = orchestrator.run_assistant(
     "q", provider=fake.FakeProvider(answer), session=session, provider_kind="fake", model="fake"
 )
 assert run.outcome.kind == "answered"
+proposal = answers.AnswerProposal.model_validate(
+    {{
+        "status": "insufficient_evidence",
+        "contexts": [{{"side": "primary", "source_kind": session.index.source_kind.value}}],
+        "insufficient_reason": "no_applicable_findings",
+        "summary": "Nothing applicable.",
+    }}
+)
+assert answer_validation.validate_proposal(proposal, session) == ()
 import asyncio
 
 run = asyncio.run(
