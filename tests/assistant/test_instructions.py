@@ -13,7 +13,7 @@ from archdiscov.assistant.redaction import looks_secret
 
 # Changing the instructions requires a review: update the text, bump the version, and
 # update this digest together.
-PINNED = ("1", "a65c9e16443f7624e4006b61ce8b91d1664c91ec37142dfb95f558015f0d7d82")
+PINNED = ("2", "0604ba8786d03fa42c8b9fef14ab2a6802006b00d55c5e8879e15fd55e8486b2")
 
 REQUIRED_STATEMENTS = [
     "Answer only from tool results in this conversation.",
@@ -30,6 +30,11 @@ REQUIRED_STATEMENTS = [
     "Never present planned or\n  declared architecture as deployed.",
     "say that the evidence is insufficient",
     "no files,\nnetwork, shell, credentials, or ability to change anything",
+    "call submit_answer exactly once, on its own, as your final\n  step.",
+    "Do not answer in plain text.",
+    "acknowledge every limitation code of each finding you cite.",
+    "Set each context's source kind to the one the tools reported for that snapshot.",
+    "the facts in\n  the answer are taken from the records you cite.",
 ]
 
 

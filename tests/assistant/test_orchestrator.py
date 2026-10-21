@@ -32,7 +32,9 @@ from tests.paths import FIXTURES_ROOT
 SNAPSHOT = FIXTURES_ROOT / "snapshots" / "network.json"
 SECRET = "sk-ant-api03-SECRETvalue0123456789abcdefXYZ"
 QUESTION = "Which resources are in the network?"
-TOOL_NAMES = [declaration.name for declaration in default_registry().declarations()]
+TOOL_NAMES = [declaration.name for declaration in default_registry().declarations()] + [
+    "submit_answer"
+]
 
 
 def _text(text: str = "Done.", stop: str = "end", **turn: Any) -> dict:
@@ -76,6 +78,7 @@ def _run(
     *,
     limits: RunLimits | None = None,
     registry: ToolRegistry | None = None,
+    offer_answer_tool: bool = True,
     capabilities: list[str] | None = None,
     max_retries: int = 0,
     question: str = QUESTION,
@@ -97,6 +100,7 @@ def _run(
         limits=limits,
         registry=registry,
         clock=clock.monotonic,
+        offer_answer_tool=offer_answer_tool,
     )
     assert provider.remaining_turns == 0
     return result, provider, session
@@ -316,7 +320,9 @@ def test_reused_call_ids_are_malformed_output() -> None:
 
 
 def test_tool_calls_without_offered_tools_are_malformed_output() -> None:
-    result, provider, _ = _run([_calls(("c1", "search_resources", {}))], registry=ToolRegistry([]))
+    result, provider, _ = _run(
+        [_calls(("c1", "search_resources", {}))], registry=ToolRegistry([]), offer_answer_tool=False
+    )
     assert provider.requests[0].request.tools == ()
     assert result.outcome == MalformedOutput(reason=MalformedOutputReason.TOOL_CALLS_WITHOUT_TOOLS)
 

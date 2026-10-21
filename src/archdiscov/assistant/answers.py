@@ -19,7 +19,7 @@ from archdiscov.models.resource_base import NonEmptyString
 from archdiscov.models.validation_errors import validation_error
 
 from .conversation import Contract, ToolDeclaration
-from .tools.registry import ToolInput, inline_schema
+from .tools.inputs import ToolInput, inline_schema
 
 SUBMIT_ANSWER = "submit_answer"
 MAX_CONCLUSIONS = 20

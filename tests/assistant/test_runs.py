@@ -5,6 +5,7 @@ from typing import get_args
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
+from archdiscov.assistant.answers import AnswerProposal
 from archdiscov.assistant.config import FakeProviderConfig
 from archdiscov.assistant.conversation import (
     AssistantMessage,
@@ -30,6 +31,7 @@ from archdiscov.assistant.runs import (
     LimitReached,
     MalformedOutput,
     MalformedOutputReason,
+    Proposed,
     ProviderFailed,
     RunLimitKind,
     RunLimits,
@@ -141,6 +143,18 @@ def test_request_limits_follow_the_run_limits() -> None:
 
 EXAMPLES = {
     "answered": Answered(message=AssistantMessage(text="Done."), stop_reason=StopReason.END),
+    "proposed": Proposed(
+        proposal=AnswerProposal.model_validate(
+            {
+                "status": "supported",
+                "contexts": [{"side": "primary", "source_kind": "aws"}],
+                "conclusions": [
+                    {"kind": "analyzer_finding", "citations": [{"finding_ids": ["f-1"]}]}
+                ],
+                "summary": "One finding.",
+            }
+        )
+    ),
     "limit_reached": LimitReached(limit=RunLimitKind.TOOL_CALLS),
     "provider_error": ProviderFailed(
         code=ProviderErrorCode.TIMEOUT, retryable=False, message="Provider request timed out."
@@ -423,8 +437,50 @@ def test_transcripts_record_answers_redacted_and_bounded() -> None:
     assert len(recorded.message.text) <= MAX_TRANSCRIPT_TEXT_CHARS
     assert recorded.stop_reason == StopReason.END
     assert _transcript([], recorded).outcome == recorded
-    for other in (EXAMPLES[kind] for kind in EXAMPLES if kind != "answered"):
+    for other in (EXAMPLES[kind] for kind in EXAMPLES if kind not in {"answered", "proposed"}):
         assert transcript_outcome(other) is other
     with pytest.raises(ValidationError) as raised:
         _transcript([], raw)
     assert raised.value.errors()[0]["type"] == "run_transcript_secret"
+
+
+def test_transcripts_record_proposals_redacted() -> None:
+    from archdiscov.assistant.runs import transcript_outcome
+
+    raw = Proposed(
+        proposal=AnswerProposal.model_validate(
+            {
+                "status": "partial",
+                "contexts": [{"side": "primary", "source_kind": "terraform_plan"}],
+                "conclusions": [
+                    {
+                        "kind": "analyzer_finding",
+                        "citations": [
+                            {"finding_ids": ["f-1", SECRET], "evidence_ids": [SECRET + "x"]}
+                        ],
+                    }
+                ],
+                "limitations": [{"finding_id": SECRET, "limitation": "coverage_failed"}],
+                "summary": f"Key {SECRET} was mentioned.",
+                "explanation": f"Bearer {SECRET}",
+            }
+        )
+    )
+    recorded = transcript_outcome(raw)
+    assert SECRET not in recorded.model_dump_json()
+    citation = recorded.proposal.conclusions[0].citations[0]
+    assert citation.finding_ids[0] == "f-1"
+    placeholders = [
+        citation.finding_ids[1],
+        citation.evidence_ids[0],
+        recorded.proposal.limitations[0].finding_id,
+    ]
+    assert len(set(placeholders)) == 3 and all(item.startswith(REDACTED) for item in placeholders)
+    assert recorded.proposal.status == raw.proposal.status
+    assert recorded.proposal.contexts == raw.proposal.contexts
+    assert _transcript([], recorded).outcome == recorded
+    with pytest.raises(ValidationError) as raised:
+        _transcript([], raw)
+    assert raised.value.errors()[0]["type"] == "run_transcript_secret"
+    plain = EXAMPLES["proposed"]
+    assert transcript_outcome(plain) == plain

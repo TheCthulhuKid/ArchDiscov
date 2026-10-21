@@ -7,8 +7,9 @@ text only, with secret-looking spans redacted, and no credential fields at all.
 """
 
 import json
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from enum import StrEnum
+from itertools import count
 from typing import Annotated, Any, Literal, Self
 
 from pydantic import Field, JsonValue, NonNegativeFloat, NonNegativeInt, model_validator
@@ -16,6 +17,7 @@ from pydantic import Field, JsonValue, NonNegativeFloat, NonNegativeInt, model_v
 from archdiscov.models.sanitization import sanitize_value
 from archdiscov.models.validation_errors import validation_error
 
+from .answers import MAX_EXPLANATION_CHARS, MAX_SUMMARY_CHARS, AnswerProposal
 from .conversation import (
     AssistantMessage,
     Contract,
@@ -28,7 +30,7 @@ from .conversation import (
     ToolResult,
 )
 from .provider import ProviderError, ProviderErrorCode, RequestLimits, StopReason
-from .redaction import looks_secret, redact_secrets
+from .redaction import REDACTED, looks_secret, redact_secrets
 
 MAX_TRANSCRIPT_TEXT_CHARS = 4_000
 # Redaction scans a bounded window: anything past it is cut by truncation anyway.
@@ -100,6 +102,12 @@ class MalformedOutputReason(StrEnum):
     """The response cannot extend the conversation (for example, a reused call ID)."""
     TOOL_CALLS_WITHOUT_TOOLS = "tool_calls_without_tools"
     """The response called tools although none were offered."""
+    PROPOSAL_MALFORMED = "proposal_malformed"
+    """`submit_answer` arguments were not a JSON object within the size limit."""
+    PROPOSAL_INVALID = "proposal_invalid"
+    """`submit_answer` arguments did not match the answer proposal contract."""
+    PROPOSAL_MIXED = "proposal_mixed"
+    """`submit_answer` was called together with other tools."""
 
 
 class Answered(Contract):
@@ -114,6 +122,13 @@ class Answered(Contract):
         if self.message.tool_calls or self.message.text is None:
             raise validation_error("run_answer_not_final", "answers are text without tool calls")
         return self
+
+
+class Proposed(Contract):
+    """The structured answer submitted through `submit_answer`, for validation (step 37)."""
+
+    kind: Literal["proposed"] = "proposed"
+    proposal: AnswerProposal
 
 
 class LimitReached(Contract):
@@ -150,17 +165,40 @@ class Cancelled(Contract):
 
 
 RunOutcome = Annotated[
-    Answered | LimitReached | ProviderFailed | MalformedOutput | Cancelled,
+    Answered | Proposed | LimitReached | ProviderFailed | MalformedOutput | Cancelled,
     Field(discriminator="kind"),
 ]
 
 
+def _redacted_id(value: str, placeholders: Iterator[int]) -> str:
+    return f"{REDACTED}-{next(placeholders)}" if looks_secret(value) else value
+
+
+def _recorded_proposal(proposal: AnswerProposal) -> AnswerProposal:
+    """Narrative redacted and bounded; a secret-looking ID becomes a unique placeholder."""
+    data = proposal.model_dump(mode="json")
+    placeholders = count(1)
+    data["summary"] = transcript_text(data["summary"]).text[:MAX_SUMMARY_CHARS]
+    if data["explanation"] is not None:
+        data["explanation"] = transcript_text(data["explanation"]).text[:MAX_EXPLANATION_CHARS]
+    for conclusion in data["conclusions"]:
+        for citation in conclusion["citations"]:
+            for key in ("finding_ids", "evidence_ids", "resource_ids"):
+                citation[key] = [_redacted_id(value, placeholders) for value in citation[key]]
+    for limitation in data["limitations"]:
+        limitation["finding_id"] = _redacted_id(limitation["finding_id"], placeholders)
+    return AnswerProposal.model_validate(data)
+
+
 def transcript_outcome(outcome: RunOutcome) -> RunOutcome:
-    """The outcome as a transcript records it: an answer's text is redacted and bounded."""
-    if not isinstance(outcome, Answered):
-        return outcome
-    text = transcript_text(outcome.message.text)
-    return Answered(message=AssistantMessage(text=text.text), stop_reason=outcome.stop_reason)
+    """The outcome as a transcript records it: answer text and proposal narrative are
+    redacted and bounded, and secret-looking cited IDs are replaced."""
+    if isinstance(outcome, Answered):
+        text = transcript_text(outcome.message.text)
+        return Answered(message=AssistantMessage(text=text.text), stop_reason=outcome.stop_reason)
+    if isinstance(outcome, Proposed):
+        return Proposed(proposal=_recorded_proposal(outcome.proposal))
+    return outcome
 
 
 def provider_outcome(error: ProviderError) -> ProviderFailed | MalformedOutput:
@@ -280,6 +318,12 @@ class RunTranscript(Contract):
                 raise validation_error(
                     "run_transcript_secret", "record answers with transcript_outcome"
                 )
+        if isinstance(self.outcome, Proposed) and looks_secret(
+            self.outcome.proposal.model_dump_json()
+        ):
+            raise validation_error(
+                "run_transcript_secret", "record proposals with transcript_outcome"
+            )
         if [turn.request for turn in self.turns] != list(range(len(self.turns))):
             raise validation_error("run_transcript_counts", "turns are numbered from zero")
         if len(self.turns) > self.limits.max_provider_requests:
