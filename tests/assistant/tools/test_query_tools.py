@@ -424,3 +424,24 @@ def test_injected_names_and_tags_are_normalized(injected: ToolSession) -> None:
     assert tags == {f"Owner {INJECTION}": f"{INJECTION} ", "Team": "platform"}
     search = _run(injected, "search_resources", tag_key="Team", tag_value="platform")
     assert _ids(search["resources"]["items"]) == [VPC]
+
+
+@pytest.mark.parametrize(
+    "tool,arguments",
+    [
+        ("search_resources", {}),
+        ("inspect_resource", {"resource_id": VPC}),
+        ("get_neighbours", {"resource_id": VPC}),
+        ("find_paths", {"resource_id": VPC}),
+        ("inspect_coverage", {}),
+    ],
+)
+def test_outputs_carry_the_snapshot_collection_window(tool: str, arguments: dict) -> None:
+    session = _session("aws.json")
+    started, completed = session.index.collection_window
+    data = _run(session, tool, **arguments)
+    assert data["source_kind"] == session.index.source_kind.value
+    assert (data["collection_started_at"], data["collection_completed_at"]) == (
+        started.isoformat().replace("+00:00", "Z"),
+        completed.isoformat().replace("+00:00", "Z"),
+    )

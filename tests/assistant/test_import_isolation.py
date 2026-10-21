@@ -27,7 +27,8 @@ sys.meta_path.insert(0, Blocker())
 
 from pathlib import Path
 
-from archdiscov.assistant import config, conversation, fake, provider
+from archdiscov.assistant import config, conversation, fake, instructions, orchestrator, provider
+from archdiscov.assistant import redaction, runs
 from archdiscov.assistant.tools import contracts as tool_contracts
 from archdiscov.assistant.tools import session as tool_session
 from archdiscov.assistant.tools.catalog import ALL_TOOLS, default_registry
@@ -57,6 +58,23 @@ for tool in ALL_TOOLS:
     assert '"tool_internal_error"' not in result.content, tool.name
 assert session.record.returned().snapshots
 assert tool_contracts.untrusted("x").untrusted_text == "x"
+assert runs.RunLimits.from_config(config.FakeProviderConfig()) == runs.RunLimits()
+assert redaction.redact_secrets("Bearer abc") == redaction.REDACTED
+assert len(instructions.initial_conversation("q").messages) == 2
+reply = {{"message": {{"role": "assistant", "text": "a"}}, "stop_reason": "end"}}
+answer = fake.FakeTranscript.model_validate({{"turns": [{{"kind": "respond", "response": reply}}]}})
+run = orchestrator.run_assistant(
+    "q", provider=fake.FakeProvider(answer), session=session, provider_kind="fake", model="fake"
+)
+assert run.outcome.kind == "answered"
+import asyncio
+
+run = asyncio.run(
+    orchestrator.run_assistant_async(
+        "q", provider=fake.FakeProvider(answer), session=session, provider_kind="fake", model="fake"
+    )
+)
+assert run.outcome.kind == "answered"
 
 transcript = fake.load_fake_transcript(Path({str(TRANSCRIPT)!r}))
 replayed = fake.FakeProvider(transcript)

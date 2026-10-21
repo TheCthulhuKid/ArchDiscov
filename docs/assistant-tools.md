@@ -3,8 +3,8 @@
 This page describes the bounded, typed tools under `src/archdiscov/assistant/tools/` that a
 future assistant will call. The tools call the same query and analysis services as the
 CLI, over data the user selected, and return allowlisted views with explicit truncation.
-No command uses them yet: the tool-calling loop, answer validation, and the `ask` command
-are later steps, and the only provider is the scripted fake described in
+No command uses them yet: the [tool-calling loop](assistant-orchestration.md) exists, while
+answer validation and the `ask` command are later steps, and the only provider is the scripted fake described in
 [assistant provider contracts](assistant-providers.md).
 
 ## Tool set
@@ -27,8 +27,10 @@ session's result limit.
 | `get_saved_analysis` | **`number`**, `limit` | one selected saved analysis |
 | `get_saved_comparison` | **`number`**, `limit` | one selected saved comparison; recorded differences, not drift |
 
-Search, inspection, neighbours, and paths call the step 25 query services exactly as the
-`query` commands do. `run_analyzer` calls `run_analyzer` and then
+Every query output and `list_analyzers` names the snapshot ID, its source kind (an
+observation, Terraform state or plan, or a template), and its collection start and end
+times. Search, inspection, neighbours, and paths call the step 25 query services exactly
+as the `query` commands do. `run_analyzer` calls `run_analyzer` and then
 `validate_analysis_result`, the checks `analyze` applies before saving. It rejects
 parameters the selected analyzer does not accept, caps `max_depth` by the session depth,
 and asks each analyzer for its own maximum of findings so the tool can count what it drops.

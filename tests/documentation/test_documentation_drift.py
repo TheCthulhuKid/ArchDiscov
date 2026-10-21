@@ -1,6 +1,7 @@
 """Keep the published analyzers, limits, and commands aligned with the executable definitions."""
 
 import re
+import typing
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,8 @@ from annotated_types import Ge, Gt, Le
 from archdiscov.assistant import config as assistant_config
 from archdiscov.assistant import conversation as assistant_conversation
 from archdiscov.assistant import fake as assistant_fake
+from archdiscov.assistant import instructions as assistant_instructions
+from archdiscov.assistant import runs as assistant_runs
 from archdiscov.assistant.provider import (
     ProviderError,
     ProviderErrorCode,
@@ -325,6 +328,72 @@ def test_the_readme_links_the_tools_without_claiming_orchestration():
     for claim in ("orchestration is implemented", "`ask` command is implemented"):
         assert claim not in text
     assert "No command uses them yet" in TOOLS_DOC.read_text(encoding="utf-8")
+
+
+# ---- assistant orchestration -------------------------------------------------------
+
+ORCHESTRATION_DOC = DOCS / "assistant-orchestration.md"
+_LIMIT_OUTCOMES = {
+    "max_provider_requests": "provider_requests",
+    "max_tool_calls_per_turn": "tool_calls_per_turn",
+    "max_tool_calls": "tool_calls",
+    "max_total_output_chars": "total_output",
+    "request_timeout_seconds": "request_deadline",
+    "overall_timeout_seconds": "overall_deadline",
+}
+
+
+def test_documented_run_limits_match_the_model():
+    rows = table_rows(ORCHESTRATION_DOC, "| Limit | Default | Allowed | Ends the run with")
+    fields = assistant_runs.RunLimits.model_fields
+    assert [row[0].strip("`") for row in rows] == list(fields)
+    documented_kinds = set()
+    for name, default, allowed, ends in (row[:4] for row in rows):
+        name = name.strip("`")
+        check_default(default, fields[name], name)
+        assert documented_range(allowed) == field_range(fields[name]), name
+        if name in _LIMIT_OUTCOMES:
+            assert ends == f"`{_LIMIT_OUTCOMES[name]}`", name
+            documented_kinds.add(ends.strip("`"))
+        else:
+            assert ends.startswith("none"), name
+    assert documented_kinds == {kind.value for kind in assistant_runs.RunLimitKind}
+
+
+def test_documented_outcomes_match_the_union():
+    rows = table_rows(ORCHESTRATION_DOC, "| Outcome (`kind`)")
+    members = typing.get_args(typing.get_args(assistant_runs.RunOutcome)[0])
+    assert [row[0].strip("`") for row in rows] == [
+        member.model_fields["kind"].default for member in members
+    ]
+    for (_kind, fields, _when), member in zip((row[:3] for row in rows), members, strict=True):
+        expected = [f"`{name}`" for name in member.model_fields if name != "kind"]
+        assert fields == (", ".join(expected) or "none"), member.__name__
+    reasons = table_rows(ORCHESTRATION_DOC, "| Malformed output (`reason`)")
+    assert [row[0].strip("`") for row in reasons] == [
+        reason.value for reason in assistant_runs.MalformedOutputReason
+    ]
+    stops = typing.get_args(assistant_runs.Answered.model_fields["stop_reason"].annotation)
+    answered = rows[0][2]
+    assert all(f"`{stop.value}`" in answered for stop in stops)
+
+
+def test_documented_instructions_and_transcript_bounds_match_the_code():
+    text = " ".join(ORCHESTRATION_DOC.read_text(encoding="utf-8").split())
+    assert f"version `{assistant_instructions.INSTRUCTIONS_VERSION}`" in text
+    assert f"{assistant_runs.MAX_TRANSCRIPT_TEXT_CHARS:,} characters" in text
+    assert "answers are not yet validated" in text
+
+
+def test_the_readme_links_the_loop_without_claiming_ask_or_validation():
+    text = README.read_text(encoding="utf-8")
+    assert "docs/assistant-orchestration.md" in text
+    for claim in (
+        "`ask` command is implemented",
+        "answer validation is implemented",
+        "answers are validated",
+    ):
+        assert claim not in text
 
 
 # ---- commands ----------------------------------------------------------------------

@@ -2472,17 +2472,74 @@ Implement and verify substeps 35.1–35.5 in order. Keep the parent planned unti
 **Acceptance check:** Every tool is covered for success, truncation, unknown IDs, invalid input, partial coverage, and Azure-unsupported results; the schema audit finds no forbidden inputs; returned-ID tracking is exact; injection text appears only as marked data; documentation matches the code.
 
 ### Step 36: Orchestrate the tool-calling loop with limits
-**Status:** Planned.
+**Status:** Implemented. Substeps 36.1–36.5 pass their acceptance checks; see each substep below.
 **Prerequisites:** Steps 34–35.
 
-- Implement the loop: system instructions, user question, provider turn, tool execution, repeat until a final answer or a limit. Enforce maximum provider requests, tool calls per turn and per run, total output size, per-request and overall deadlines, and cancellation. A limit ends the run with a typed outcome, never an unbounded retry.
-- Keep system instructions in one reviewed module: answer only from tool results, treat resource text as data, cite findings and evidence, state limitations, and show snapshot timestamps and source kind (including that planned state is not deployed state).
-- Produce a run transcript recording provider/model, tool calls and results (sanitized and bounded), usage, latency, and the final outcome, for evaluation and debugging. Never record credentials.
-- Provide sync and async entry points, consistent with the ingestion services, with injected provider, clock, and tool session.
+Implement and verify substeps 36.1–36.5 in order. Keep the parent planned until every substep's acceptance checks pass. Put the code in `src/archdiscov/assistant/` (keep `__init__.py` light), reuse the step 34 `Provider`, conversation, and error contracts and the step 35 `ToolSession`, registry, and run record, and never call the CLI. The loop runs system instructions, user question, provider turn, and tool execution, repeating until a final answer or a limit.
 
 **Advice:** Treat the orchestrator as a state machine with typed terminal outcomes (answered, limit reached, provider error, malformed output, cancelled). It should make no judgement about answer content; that belongs to step 37.
 
 **Acceptance check:** Fake-provider transcripts cover direct answers, multi-step tool use, parallel tool calls, unknown tools, malformed arguments, every limit, provider errors, timeouts, and cancellation, with exact outcomes and no leaked secrets in transcripts.
+
+#### Step 36.1: Define run limits, outcomes, and transcript contracts
+**Status:** Implemented. `src/archdiscov/assistant/runs.py` defines strict, frozen `RunLimits` with conservative defaults (8 provider requests of at most 50, 1 tool call per turn of at most 32, 32 tool calls per run of at most 200, 4,096 output tokens per request, 200,000 total characters of assistant text and tool-result content of 1,000–1,000,000, a 60-second request deadline of at most 600, and a 300-second overall deadline of at most 3,600), with per-turn and per-request values not exceeding their run values, `from_config` for step 34.3 configurations, and `request_limits()` for each provider call (optionally tightened to the remaining deadline). `RunOutcome` is a discriminated union of `answered` (the final text-only assistant message with an `end`, `length`, or `refusal` stop, returned as-is), `limit_reached` (naming one of six `RunLimitKind`s), `provider_error` (code, retryable flag, fixed message), `malformed_output` (provider-reported, invalid conversation, or tool calls without tools), and `cancelled`; `provider_outcome` maps every provider error. `RunTranscript` records provider kind, model, limits, numbered turns (latency, stop reason or error, usage, assistant text, tool calls with sanitized arguments or the malformed reason and bounded results), total usage, latency, and the outcome, and validates numbering, counts against the limits, and usage totals. Transcript text is redacted (sensitive keys via `models/sanitization.py`, secret-looking spans via the new shared `assistant/redaction.py`, now also used by configuration) before truncation to 4,000 characters, and rejects secret-looking text on any construction; the schema has no credential fields.
+**Prerequisite:** Steps 34–35.
+
+- Define strict, frozen `RunLimits`: maximum provider requests, tool calls per turn and per run, total output size, and per-request and overall deadlines, each bounded and defaulted.
+- Define the typed terminal `RunOutcome`: answered, limit reached (naming which limit), provider error, malformed output, and cancelled. A limit ends the run with a typed outcome, never an unbounded retry.
+- Define the `RunTranscript`: provider/model, tool calls and results (sanitized and bounded), usage, latency, and the final outcome, for evaluation and debugging. Never record credentials.
+
+**Advice:** Pick conservative, documented default limits and keep them configurable through `RunLimits`; the defaults are an open question in the phase 4 list. Keep the models independent of the loop so later steps reuse them unchanged.
+
+**Acceptance check:** Contract tests cover round-trips, invalid and out-of-range limits, every outcome shape, transcript bounding and sanitizing, and that no credential value can appear in a transcript.
+
+#### Step 36.2: Write the reviewed system-instructions module
+**Status:** Implemented. `src/archdiscov/assistant/instructions.py` holds `SYSTEM_INSTRUCTIONS` (version `"1"` in `INSTRUCTIONS_VERSION`), fixed text with no interpolation: read-only tools only and no other access; answer only from tool results, citing finding and evidence IDs exactly and never inventing them; say when evidence is insufficient; treat `untrusted_text` values and tool results as data, never instructions; state coverage, truncation, terminal, and analyzer limitations, and that records are not proof of absence, reachability, access, or drift; show the snapshot's collection times and source kind; and never present Terraform plans, state, or templates as deployed architecture. `initial_conversation(question)` returns exactly the system message and the unaltered user question. Tests pin the version with a SHA-256 digest of the text, check each required statement, and cover questions with whitespace, braces, and injection text, and the message bounds. To support the snapshot-context instruction, query tool outputs and `list_analyzers` now include the snapshot's collection start and end times alongside its source kind.
+**Prerequisite:** Step 36.1.
+
+- Keep system instructions in one reviewed module: answer only from tool results, treat resource text as data, cite findings and evidence, state limitations, and show snapshot timestamps and source kind (including that planned state is not deployed state).
+- Expose the instructions as a versioned constant and a builder for the initial conversation (system message plus user question).
+
+**Advice:** Keep the text fixed and free of caller input; the user question is a separate message, never interpolated into the instructions.
+
+**Acceptance check:** Tests pin the instructions version and required statements, and show that the builder yields exactly the system and user messages and does not alter the question.
+
+#### Step 36.3: Implement the synchronous loop
+**Status:** Implemented. `src/archdiscov/assistant/orchestrator.py` defines `run_assistant(question, provider=, session=, provider_kind=, model=, limits=, registry=, clock=)`, which returns a `RunResult` (outcome, transcript, final conversation, and the session's returned IDs). A private `_Run` holds the state machine so step 36.4's async driver reuses it: each request carries the instructions and question, all registered tool declarations, and `RunLimits.request_limits()`, and goes through the capability-checking `complete`. A response with tool calls runs them all through the registry in one turn (parallel calls included); unknown tools, malformed and invalid arguments, and unknown IDs reach the model as tool errors. The run ends `answered` with the final text-only message as-is (any stop reason); `limit_reached` for provider requests (tool calls in the last allowed response are not run, since nothing could read their results), excess calls in one turn (none run), the run's tool-call total, or total output (assistant text and tool-result characters); `provider_error` or `malformed_output` from the provider's typed error; or `malformed_output` for reused call IDs or tool calls when no tools are offered. Transcripts now record outcomes through `transcript_outcome`, which redacts and bounds an answer's text, and reject unredacted answers; the result keeps the raw answer for step 37. The fake provider gained `ignore_request_limits` on turns to model providers that exceed requested limits. Fake-transcript tests cover direct, truncated, and refused answers, multi-step and parallel tool use, tool mistakes, each count and size limit, every provider error, provider retries, capability rejection, malformed output, usage and latency, secret redaction, and determinism.
+**Prerequisite:** Step 36.2.
+
+- Implement the state machine: provider turn, tool execution through the step 35 registry (including parallel calls in one turn), repeat until a final assistant message or a limit.
+- Enforce the maximum provider requests, tool calls per turn and per run, and total output size.
+- Answer unknown tools and malformed arguments to the model as tool errors; map provider errors and malformed output to typed outcomes.
+- Return the final assistant message as-is with the run record and transcript, making no judgement about answer content.
+
+**Advice:** Do not pre-empt step 37 (answer proposal and validation) or step 38 (repair); the loop never retries a rejected answer.
+
+**Acceptance check:** Fake-provider transcripts cover direct answers, multi-step tool use, parallel tool calls, unknown tools, malformed arguments, each count and size limit, and provider errors, with exact outcomes and run records.
+
+#### Step 36.4: Add the async entry point, deadlines, and cancellation
+**Status:** Implemented. `run_assistant_async` (injected provider, clock, and tool session) is now the one driver over the step 36.3 state machine, and `run_assistant` runs it to completion from synchronous code, raising `RunInEventLoopError` (pointing to the async API) inside a running loop, so both entry points produce identical results. Each request's timeout is the shorter of the request deadline and the time left overall, passed to the provider: a provider timeout is `provider_error` (`provider_timeout`), or `limit_reached` (`overall_deadline`) when the time left was shorter. Using the injected clock, a response arriving after its request deadline is discarded with `request_deadline`, no request starts once the overall deadline has passed, and a tool batch that ends past it ends the run with `overall_deadline`. A real-time guard abandons a provider call that ignores its timeout (`request_deadline`); abandoned and cancelled calls are cancelled and awaited until they settle, and their results discarded. Cancelling the task raises `RunCancelled`, an `asyncio.CancelledError` subclass carrying the partial `RunResult` with the `cancelled` outcome and any in-flight request recorded without a response. Fake turns with `ignore_request_limits` now also ignore the request timeout. Tests cover provider and clock-detected deadlines, the overall deadline before and within a request, the real-time guard with a provider that resists cancellation, cancellation with a partial transcript, the wrapper inside a running loop, and identical sync and async results.
+**Prerequisite:** Step 36.3.
+
+- Provide the async loop with injected provider, clock, and tool session, and enforce per-request and overall deadlines.
+- Cancellation ends the run with the `cancelled` outcome and a partial transcript.
+- Provide a sync wrapper, consistent with the ingestion services, that rejects a running event loop with an actionable error.
+
+**Advice:** Do not claim to stop a running synchronous provider call; settle it and discard the result. Use the injected clock so tests never sleep.
+
+**Acceptance check:** Tests cover per-request and overall timeouts, cancellation with a partial transcript, the sync wrapper inside a running loop, and identical outcomes for the sync and async entry points.
+
+#### Step 36.5: Verify and document the orchestration boundary
+**Status:** Implemented. `tests/assistant/test_orchestration_suite.py` derives the expected outcomes from `RunOutcome`, `RunLimitKind`, `MalformedOutputReason`, `ProviderErrorCode`, and the answer stop reasons (22 identities), so a new outcome, limit, reason, or code fails until a fake-provider case is added; each case reaches its outcome exactly through `run_assistant_async` (cancellation through a hanging provider), with a valid round-tripping transcript, and no transcript contains the secret placed in the question, tool arguments, assistant text, and answer, while the result keeps the raw answer. The import-isolation test runs both entry points with vendor SDK modules blocked. [docs/assistant-orchestration.md](docs/assistant-orchestration.md) documents the loop, limits and the limit each one ends a run with, deadlines, outcomes and malformed-output reasons, cancellation, the instructions, and the transcript, and is linked from the README and the tools page without claiming `ask`, answer validation, or real providers; documentation-drift tests check limits, defaults, bounds, outcome kinds and fields, malformed-output reasons, stop reasons, the instructions version, and the transcript text bound. Focused and full offline tests, acceptance, Ruff lint and format, documentation links, and whitespace checks pass with `.venv/bin/python`.
+**Prerequisite:** Step 36.4.
+
+- Add a fake-provider transcript suite covering every outcome and limit, a transcript secret-leak test, and an import-isolation test that the orchestration imports with vendor SDK modules blocked.
+- Document the loop, limits, outcomes, instructions, and transcript in `docs/`, link it from the README without claiming `ask`, answer validation, or real providers, and extend the documentation-drift tests to cover limits and outcomes.
+- Run focused/full offline tests, Ruff lint/format excluding `.junie`, documentation links, and whitespace checks using `.venv/bin/python`. Mark each substep and the parent implemented only after their acceptance checks pass.
+
+**Advice:** Derive the outcome coverage from the outcome type so a new outcome fails the suite until covered.
+
+**Acceptance check:** Fake-provider transcripts cover direct answers, multi-step tool use, parallel tool calls, unknown tools, malformed arguments, every limit, provider errors, timeouts, and cancellation, with exact outcomes and no leaked secrets in transcripts; documentation matches the code.
 
 ### Step 37: Define the structured answer and validate it against tool results
 **Status:** Planned.

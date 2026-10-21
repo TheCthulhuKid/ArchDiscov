@@ -10,7 +10,7 @@ from collections import Counter
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import Field
+from pydantic import AwareDatetime, Field
 
 from archdiscov.models.cloud.scope import SupportedScope
 from archdiscov.models.enums import (
@@ -87,17 +87,24 @@ def _limit(session: ToolSession, requested: int) -> int:
 
 
 class _SnapshotOutput(ToolOutput):
+    """Which snapshot answered, what kind of source it records, and when it was collected."""
+
     snapshot_id: UUID
     scope: SupportedScope
     source_kind: SnapshotSourceKind
+    collection_started_at: AwareDatetime
+    collection_completed_at: AwareDatetime
 
 
 def _context(session: ToolSession) -> dict:
     index = session.index
+    started, completed = index.collection_window
     return {
         "snapshot_id": index.snapshot_id,
         "scope": index.scope,
         "source_kind": index.source_kind,
+        "collection_started_at": started,
+        "collection_completed_at": completed,
     }
 
 

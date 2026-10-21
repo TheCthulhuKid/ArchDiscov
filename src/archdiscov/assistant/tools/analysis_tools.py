@@ -241,6 +241,8 @@ class AnalyzerView(Model):
 class AnalyzersOutput(ToolOutput):
     snapshot_id: UUID
     source_kind: SnapshotSourceKind
+    collection_started_at: AwareDatetime
+    collection_completed_at: AwareDatetime
     analyzers: tuple[AnalyzerView, ...]
 
 
@@ -283,9 +285,12 @@ def _list_analyzers(session: ToolSession, _: EmptyInput) -> AnalyzersOutput:
                 parameters=tuple(parameters),
             )
         )
+    started, completed = session.index.collection_window
     return AnalyzersOutput(
         snapshot_id=session.index.snapshot_id,
         source_kind=session.index.source_kind,
+        collection_started_at=started,
+        collection_completed_at=completed,
         analyzers=tuple(analyzers),
     )
 

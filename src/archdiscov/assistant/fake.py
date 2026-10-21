@@ -68,13 +68,13 @@ class FakeExpectation(Contract):
     """Optional checks on the request that consumes a turn; omitted fields are not checked."""
 
     tool_names: tuple[ToolName, ...] | None = None
-    """The names offered, in order."""
     last_message_role: MessageRole | None = None
 
 
 class _Turn(Contract):
     delay_seconds: float = Field(default=0.0, ge=0, le=600)
     expect: FakeExpectation | None = None
+    ignore_request_limits: bool = False
 
 
 class FakeRespond(_Turn):
@@ -255,7 +255,7 @@ class FakeProvider:
         check_capabilities(self.capabilities, request)
         for attempt in range(self._max_retries + 1):
             index, turn = self._take(request)
-            delay = min(turn.delay_seconds, request.limits.timeout_seconds)
+            delay = self._delay(turn, request)
             self._clock.sleep(delay)
             try:
                 return self._outcome(index, turn, request)
@@ -268,7 +268,7 @@ class FakeProvider:
         check_capabilities(self.capabilities, request)
         for attempt in range(self._max_retries + 1):
             index, turn = self._take(request)
-            delay = min(turn.delay_seconds, request.limits.timeout_seconds)
+            delay = self._delay(turn, request)
             await self._clock.sleep_async(delay)
             try:
                 return self._outcome(index, turn, request)
@@ -301,17 +301,27 @@ class FakeProvider:
         return index, turn
 
     @staticmethod
+    def _ignores_limits(turn: FakeRespond | FakeFail) -> bool:
+        return isinstance(turn, FakeRespond) and turn.ignore_request_limits
+
+    def _delay(self, turn: FakeRespond | FakeFail, request: CompletionRequest) -> float:
+        if self._ignores_limits(turn):
+            return turn.delay_seconds
+        return min(turn.delay_seconds, request.limits.timeout_seconds)
+
+    @classmethod
     def _outcome(
-        index: int, turn: FakeRespond | FakeFail, request: CompletionRequest
+        cls, index: int, turn: FakeRespond | FakeFail, request: CompletionRequest
     ) -> CompletionResponse:
-        if turn.delay_seconds > request.limits.timeout_seconds:
+        if turn.delay_seconds > request.limits.timeout_seconds and not cls._ignores_limits(turn):
             raise ProviderTimeoutError()
         if isinstance(turn, FakeFail):
             raise _SCRIPTABLE_ERRORS[turn.error]()
         response = turn.response
         output_tokens = response.usage.output_tokens
-        if len(response.message.tool_calls) > request.limits.max_tool_calls_per_turn or (
-            output_tokens is not None and output_tokens > request.limits.max_output_tokens
+        if not turn.ignore_request_limits and (
+            len(response.message.tool_calls) > request.limits.max_tool_calls_per_turn
+            or (output_tokens is not None and output_tokens > request.limits.max_output_tokens)
         ):
             raise FakeScriptError(FakeScriptErrorCode.LIMIT_EXCEEDED, turn=index)
         return response

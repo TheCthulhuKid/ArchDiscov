@@ -90,6 +90,8 @@ def test_list_analyzers_describes_every_kind_and_its_parameters() -> None:
     session = ToolSession(load_snapshot(SNAPSHOTS / "aws.json"), limits=ToolLimits(depth=5))
     data = _run(session, "list_analyzers")
     assert [item["kind"] for item in data["analyzers"]] == [kind.value for kind in AnalyzerKind]
+    assert data["source_kind"] == session.index.source_kind.value
+    assert data["collection_started_at"] and data["collection_completed_at"]
     for item in data["analyzers"]:
         kind = AnalyzerKind(item["kind"])
         assert item["version"] == DEFAULT_REGISTRY.get(kind).version
