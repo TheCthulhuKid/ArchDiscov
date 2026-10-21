@@ -1,7 +1,9 @@
 """Stable validation codes and public messages, separate from private error details."""
 
+from dataclasses import dataclass
 from types import MappingProxyType
 
+from pydantic import ValidationError
 from pydantic_core import PydanticCustomError
 
 SAFE_VALIDATION_MESSAGES = MappingProxyType(
@@ -73,6 +75,30 @@ SAFE_VALIDATION_MESSAGES = MappingProxyType(
         "azure_resource_native_type_mismatch": (
             "Snapshot constraint failed: Azure identity native_type must match resource type."
         ),
+        "tool_input_schema_not_object": (
+            "Conversation constraint failed: tool input schema must describe an object."
+        ),
+        "tool_input_schema_too_large": (
+            "Conversation constraint failed: tool input schema exceeds the size limit."
+        ),
+        "tool_arguments_too_large": (
+            "Conversation constraint failed: tool arguments exceed the size limit."
+        ),
+        "assistant_message_empty": (
+            "Conversation constraint failed: assistant message needs text or tool calls."
+        ),
+        "conversation_system_message_position": (
+            "Conversation constraint failed: system messages must precede all other messages."
+        ),
+        "conversation_tool_call_id_duplicate": (
+            "Conversation constraint failed: duplicate tool call ID."
+        ),
+        "conversation_tool_result_orphan": (
+            "Conversation constraint failed: tool result references no earlier tool call."
+        ),
+        "conversation_tool_result_duplicate": (
+            "Conversation constraint failed: tool call already has a result."
+        ),
     }
 )
 
@@ -82,3 +108,34 @@ def validation_error(code: str, detail: str) -> PydanticCustomError:
     if code not in SAFE_VALIDATION_MESSAGES:
         raise ValueError(f"Unregistered validation code: {code}")
     return PydanticCustomError(code, "{detail}", {"detail": detail})
+
+
+@dataclass(frozen=True)
+class ValidationIssue:
+    location: tuple[str | int, ...]
+    type: str
+    message: str
+
+
+def safe_validation_issues(
+    error: ValidationError, fields: frozenset[str], subject: str
+) -> tuple[ValidationIssue, ...]:
+    """Issues from a Pydantic error without untrusted keys, discriminator tags, or inputs.
+
+    Dynamic input keys and tags can occur in Pydantic locations, so only known field names and
+    list positions are kept; messages, inputs, and contexts are never exposed.
+    """
+    return tuple(
+        ValidationIssue(
+            tuple(
+                part if isinstance(part, int) or part in fields else "field" for part in item["loc"]
+            ),
+            item["type"],
+            f"Invalid {subject} field.",
+        )
+        for item in error.errors(include_input=False, include_context=False)
+    )
+
+
+def serialization_issue(subject: str) -> ValidationIssue:
+    return ValidationIssue((), "serialization_error", f"{subject} is not serializable.")
