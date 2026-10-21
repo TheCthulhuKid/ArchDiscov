@@ -137,6 +137,9 @@ SAFE_VALIDATION_MESSAGES = MappingProxyType(
         "tool_error_message_mismatch": (
             "Tool output constraint failed: error message must be the fixed message for its code."
         ),
+        "tool_node_ref_ambiguous": (
+            "Tool output constraint failed: a node is exactly one resource or terminal."
+        ),
         "tool_returned_ids_order": (
             "Tool output constraint failed: returned IDs must be sorted and unique."
         ),
