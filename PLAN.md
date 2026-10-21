@@ -2325,7 +2325,7 @@ The assistant explains deterministic results; it never creates architecture fact
 Implement steps 34–44 in order, verifying each before the next. Keep this phase planned until step 44 passes. API keys are supported through environment variables for the Anthropic and OpenAI-compatible adapters; Bedrock uses AWS credentials.
 
 ### Step 34: Define provider-neutral contracts and the fake provider
-**Status:** Planned.
+**Status:** Implemented. Substeps 34.1–34.5 pass their acceptance checks; see each substep below.
 **Prerequisite:** Completed phase 3.
 
 - Define typed messages, tool declarations, tool calls, tool results, final answers, token usage, and provider errors, independent of any vendor SDK. Define a `Provider` protocol with one operation: take the conversation, tool declarations, and limits, and return a message or tool calls.
@@ -2392,7 +2392,7 @@ Implement and verify substeps 34.1–34.5 in order. Keep the parent planned unti
 **Acceptance check:** Scripted transcripts replay identically across runs, including errors, delays, and parallel calls; exhausted or mismatched scripts fail clearly; recorded requests match what was sent.
 
 #### Step 34.5: Verify the abstraction and document the contracts
-**Status:** Planned.
+**Status:** Implemented. `tests/assistant/test_provider_contract.py` is the shared contract suite, parameterised over the harnesses in `tests/assistant/provider_harness.py` (the fake now; each adapter adds one that maps fake-transcript turns to mocked transport responses) and run through both checked entry points, sync and async: response mapping (text, usage, single and parallel calls, malformed arguments, `length` and `refusal` stops, prior tool exchanges), every error code with its retryable flag and redacted diagnostic, retry counts, capability rejection before any attempt, and timeout handling. The import-isolation test exercises every assistant module with Anthropic, OpenAI, boto3, and botocore imports blocked, and `test_secret_leaks.py` checks that resolved keys and secret inputs never appear in a `repr`, JSON dump, or exception. [docs/assistant-providers.md](docs/assistant-providers.md) documents the contracts, bounds, request limits, errors, retry boundary, TOML configuration, credentials rules, and fake transcript format, and is linked from the README without claiming a real provider; documentation-drift tests check its configuration fields, kinds, defaults, and bounds, request limits, error codes, and size bounds against the code.
 **Prerequisites:** Steps 34.1–34.4.
 
 - Add a shared provider contract test suite parameterised over providers (the fake now; the adapters in steps 40–42 later), covering message mapping expectations, error codes, capability rejection, limit handling, and safe diagnostics.
