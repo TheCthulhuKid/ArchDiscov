@@ -2553,6 +2553,81 @@ Implement and verify substeps 36.1–36.5 in order. Keep the parent planned unti
 
 **Acceptance check:** Fabricated and cross-snapshot IDs, IDs not returned by tools, status upgrades, dropped limitations, uncited conclusions, planned-as-deployed claims, and instruction-like imported text each have isolated rejection tests; valid answers pass for every analyzer kind.
 
+Implement and verify substeps 37.1–37.6 in order. Keep the parent planned until every substep's acceptance checks pass. Put the code in `src/archdiscov/assistant/` (keep `__init__.py` light), reuse the `Answer` status vocabulary from `models/results.py`, the step 34 conversation contracts, the step 35 tool outputs and run record, and the step 36 loop, outcomes, and transcript, and never call the CLI. This step settles the narrative open question as the plan assumes: narrative is allowed only in predefined, bounded fields labelled as explanation, and never carries facts. Proposals travel as the input of a terminal `submit_answer` tool rather than as JSON in free text, because every adapter already requires tool calling and a declared schema is checked like any tool input; the step 34 `structured_output` capability therefore stays optional and no request requires it.
+
+#### Step 37.1: Define the answer proposal contract
+**Status:** Planned.
+**Prerequisite:** Step 36.
+
+- Define a strict, frozen `AnswerProposal`: a status from the `Answer` vocabulary (`supported`, `partial`, `insufficient_evidence`); conclusions, each a short predefined kind of claim with the finding IDs and evidence IDs it rests on; acknowledged limitations, each referencing a cited finding and one of its limitation codes; the snapshot context the answer describes (snapshot ID and source kind, so planned and declared architecture cannot be presented as deployed); and bounded narrative fields (`summary`, `explanation`) that are rendered only as explanation.
+- Bound every list and string; reject unknown fields, duplicate citations, and conclusions without a citation; allow an `insufficient_evidence` proposal with no conclusions but require a reason drawn from a fixed vocabulary.
+- Derive the `submit_answer` tool declaration from the contract, valid for step 34 providers and passing the step 35.5 schema audit.
+
+**Advice:** Keep conclusions structural (which findings support which claim) rather than free-form sentences; the renderer in step 38 writes the facts from validated findings, so the proposal never needs to state them.
+
+**Acceptance check:** Contract tests cover round-trips, every bound, missing or duplicate citations, the `insufficient_evidence` shape, unknown fields, and the derived declaration's validity for providers and the schema audit.
+
+#### Step 37.2: Deliver proposals through the loop
+**Status:** Planned.
+**Prerequisite:** Step 37.1.
+
+- Offer `submit_answer` after the step 35 tools in every request and treat a call to it as the end of the run: a new `proposed` outcome carries the parsed proposal and the call is never dispatched as a tool. A call with malformed or schema-invalid arguments ends the run with a typed `malformed_output` reason, and a `submit_answer` call mixed with other calls in one turn is rejected the same way.
+- A final text-only answer still ends the run as `answered`; it is not a proposal, so step 38 treats it as needing repair.
+- Update the system instructions (bumping their version) to ask for exactly one `submit_answer` call that cites what the tools returned, and record proposals in the transcript with narrative redacted and bounded.
+
+**Advice:** Extend the step 36 outcome union and the outcome suite so the new kind and reasons are covered by derivation; keep the loop free of any judgement about the proposal's content.
+
+**Acceptance check:** Fake-provider transcripts cover a proposal after tool use, a proposal with no tool use, malformed and invalid proposals, a proposal mixed with other calls, a text-only answer, and every existing outcome unchanged; the derived outcome suite and transcript secret-leak tests pass with the new kind.
+
+#### Step 37.3: Record the evidence context a proposal is checked against
+**Status:** Planned.
+**Prerequisite:** Step 37.2.
+
+- Extend the run record so that, besides returned IDs, it keeps a detached view of each delivered finding: its analyzer kind and result (in-memory run or numbered saved result), status, limitation codes, and its finding, evidence, and resource IDs, scoped to its snapshot.
+- Record each session snapshot's source kind and collection window, and a fingerprint (normalized hash) of every `untrusted_text` value delivered in the run, so later checks need no access to raw tool output.
+- Keep the record exact, deterministic, and detached, and record nothing from errors or replaced oversized outputs.
+
+**Advice:** Store only what validation needs; the record must not become a second copy of every tool output.
+
+**Acceptance check:** Tests show exact finding views, source kinds, and fingerprints across multi-tool runs (including saved results and comparisons), nothing recorded from errors, determinism, and detachment from later calls.
+
+#### Step 37.4: Validate citations
+**Status:** Planned.
+**Prerequisite:** Step 37.3.
+
+- Validate a proposal's references against the run record and the selected snapshots: every cited finding, evidence, and resource ID exists in the snapshot the proposal names, belongs to that snapshot (cross-snapshot IDs are rejected), and was returned by a tool in this run; each cited evidence ID belongs to a cited finding or to a resource the run returned; and the snapshot ID and source kind match the session.
+- Re-check cited analysis results with the existing integrity checks (`validate_analysis_result`, comparison verification), so a result altered after it was returned cannot be cited.
+- Return every failure as a typed rejection reason with a stable code, the location within the proposal (such as `conclusions[1].finding_ids[0]`), and a fixed message; never echo proposal or tool text.
+
+**Advice:** Validation checks citations and consistency, not truth; collect all rejections rather than stopping at the first, so one repair prompt can address them together.
+
+**Acceptance check:** Isolated rejection tests cover fabricated IDs, cross-snapshot IDs, IDs present in the snapshot but not returned in the run, evidence detached from its finding, a mismatched snapshot or source kind, and tampered results; rejection messages contain no proposal or tool text.
+
+#### Step 37.5: Validate status, limitations, and claims
+**Status:** Planned.
+**Prerequisite:** Step 37.4.
+
+- Check the claimed status against the cited findings: `supported` only when every cited finding is supported and every limitation of the cited findings is acknowledged; `partial` when some are partial or limited; `insufficient_evidence` when no applicable finding was cited. A status stronger than the findings allow is a status upgrade.
+- Require every coverage and analyzer limitation of each cited finding to be acknowledged, and reject a proposal that omits a returned finding from the same analyzer result and primary resource whose status or decision contradicts a cited one.
+- Reject planned-as-deployed claims (a conclusion or context that describes a Terraform plan, state, or template as observed), narrative fields that repeat any delivered `untrusted_text` value by fingerprint, and narrative that names an ID not cited by a conclusion.
+
+**Advice:** Keep every rule deterministic and structural; where a rule cannot be decided from records and fingerprints, it belongs in rendering (step 38), not here.
+
+**Acceptance check:** Isolated rejection tests cover status upgrades for each status, unacknowledged limitations, contradicting omitted findings, planned-as-deployed claims for each non-observed source kind, imported instruction-like text repeated in narrative, and uncited IDs in narrative; valid proposals pass for every analyzer kind using the step 33 audit scenarios.
+
+#### Step 37.6: Verify and document the answer boundary
+**Status:** Planned.
+**Prerequisite:** Step 37.5.
+
+- Add an end-to-end fake-provider suite: for each analyzer kind, a run that queries, runs or reads the analysis, and submits a valid proposal that validates, plus one run per rejection code whose proposal fails with exactly that code; derive the rejection coverage from the rejection-code type so a new code fails until covered.
+- Add import-isolation and secret-leak tests for the proposal, validation, and transcript paths.
+- Document the proposal contract, `submit_answer`, the validation rules and rejection codes, the citations-not-truth boundary, and the narrative policy in `docs/`, link it from the README without claiming rendering, repair, `ask`, or real providers, and extend the documentation-drift tests to cover rejection codes, bounds, and the instructions version.
+- Run focused/full offline tests, Ruff lint/format excluding `.junie`, documentation links, and whitespace checks using `.venv/bin/python`. Mark each substep and the parent implemented only after their acceptance checks pass.
+
+**Advice:** Derive coverage from the registry and the rejection-code type, as steps 35.5 and 36.5 do.
+
+**Acceptance check:** Valid proposals pass for every analyzer kind end to end; every rejection code is reached in isolation; no secret appears in proposals' transcripts; documentation matches the code.
+
 ### Step 38: Render answers, repair once, and fail deterministically
 **Status:** Planned.
 **Prerequisites:** Step 37.
@@ -2641,5 +2716,5 @@ Implement and verify substeps 36.1–36.5 in order. Keep the parent planned unti
 **Open questions (settle before the named step):**
 - Which provider receives the first real integration? The plan assumes the API-key Anthropic adapter (step 40), then OpenAI-compatible (step 41), then Bedrock (step 42); API-key adapters need no AWS setup, and Bedrock remains for users who must stay inside their AWS account. The adapters may be built in any order after step 39.
 - What request, latency, token, and tool-call limits are acceptable by default (step 36)?
-- Should arbitrary narrative text be constrained to predefined answer fields (step 37)? The plan assumes yes: narrative is bounded, labelled as explanation, and never carries facts.
+- Should arbitrary narrative text be constrained to predefined answer fields (step 37)? The plan assumes yes: narrative is bounded, labelled as explanation, and never carries facts. Step 37's breakdown adopts this; reopen it there if a different policy is wanted.
 - Is the existing `mcp` dependency still wanted as a later tool interface over step 35's tools, or should it be removed?
