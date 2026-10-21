@@ -190,6 +190,27 @@ The repaired proposal is validated again: valid is `answered_after_repair`, reje
 `rejected_after_repair`, and plain text is `no_proposal_after_repair`. The answer is then
 rendered from records, or the failure explained, as described above.
 
+## Outcomes and exit codes
+
+Every answer ends with one `AnswerOutcome` (`assistant/answer_results.py`) whose status is
+stable for scripts. A validated `insufficient_evidence` answer is a success: it is what the
+evidence supports, and the JSON carries the status for scripts that need it. Exit codes 1–4
+keep their existing CLI meanings for errors before a run starts.
+
+| Status | Failure reason | Exit code | When |
+|---|---|---|---|
+| `answered` | | 0 | the first proposal was valid |
+| `answered_after_repair` | | 0 | the proposal after the one repair was valid |
+| `failed` | `rejected_after_repair` | 5 | the proposal after the repair was rejected again; the outcome holds its rejections |
+| `failed` | `no_proposal_after_repair` | 5 | the model answered in plain text after the repair |
+| `failed` | `malformed_output` | 5 | the output could not be used; the outcome holds the malformed-output reason |
+| `failed` | `provider_error` | 6 | a provider error stopped the run; the outcome holds its code, and a script may retry |
+| `failed` | `limit_reached` | 6 | a run limit stopped the run; the outcome holds the limit, and a script may retry |
+| `failed` | `cancelled` | 130 | the run was cancelled, as for an interrupted command |
+
+A failure is never a stack trace or provider text: it is the deterministic explanation
+described above, built from the run record alone.
+
 ## Renderings
 
 `src/archdiscov/cli_answer_output.py` presents a `RenderedAnswer` in the style of the other

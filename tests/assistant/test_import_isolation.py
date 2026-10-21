@@ -98,6 +98,10 @@ answered = answer_service.answer_question(
     model="fake",
 )
 assert answered.outcome.failure == "no_proposal_after_repair"
+from archdiscov import cli_answer_output
+
+assert cli_answer_output.answer_text(answered.rendered).startswith("Answer: failed")
+assert cli_answer_output.answer_data(answered.rendered)["exit_code"] == 5
 assert answer_results.final_outcome(
     run.outcome, (), repaired=True
 ).failure == answer_results.FailureReason.NO_PROPOSAL_AFTER_REPAIR

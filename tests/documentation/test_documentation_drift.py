@@ -432,6 +432,21 @@ def test_documented_failure_explanations_match_the_reasons():
     assert f"`MAX_LISTED_REJECTIONS` ({assistant_rejections.MAX_LISTED_REJECTIONS})" in text
 
 
+def test_documented_answer_outcomes_match_the_statuses_reasons_and_exit_codes():
+    rows = table_rows(ANSWERS_DOC, "| Status | Failure reason | Exit code")
+    documented = [(row[0].strip("`"), row[1].strip("`") or None, int(row[2])) for row in rows]
+    successes = [
+        (status.value, None, answer_results.SUCCESS_EXIT_CODE)
+        for status in answer_results.AnswerStatus
+        if status != answer_results.AnswerStatus.FAILED
+    ]
+    failures = [
+        ("failed", reason.value, answer_results.FAILURE_EXIT_CODES[reason])
+        for reason in answer_results.FailureReason
+    ]
+    assert documented == successes + failures
+
+
 def test_documented_answer_json_matches_the_contract():
     top = table_rows(ANSWERS_DOC, "| Key | Holds")
     assert [row[0].strip("`") for row in top] == ["schema_version", "exit_code", "answer"]

@@ -2629,7 +2629,7 @@ Implement and verify substeps 37.1–37.6 in order. Keep the parent planned unti
 **Acceptance check:** Valid proposals pass for every analyzer kind end to end; every rejection code is reached in isolation; no secret appears in proposals' transcripts; documentation matches the code.
 
 ### Step 38: Render answers, repair once, and fail deterministically
-**Status:** Planned.
+**Status:** Implemented. Substeps 38.1–38.6 are implemented and their acceptance checks pass.
 **Prerequisites:** Step 37.
 
 - Render factual conclusions deterministically from validated findings, with citations, limitations, snapshot ID, source kind, and collection timestamps. Provider narrative is shown separately and labelled as explanation. Qualify answers whenever coverage is partial and refuse definitive wording when evidence is insufficient.
@@ -2705,7 +2705,7 @@ Implement and verify substeps 38.1–38.6 in order. Keep the parent planned unti
 **Acceptance check:** Golden renderings for each status and failure reason in both forms; JSON round-trips and matches the documented shape; narrative and imported text are always labelled; no secret appears in either rendering.
 
 #### Step 38.6: Verify and document the answer rendering boundary
-**Status:** Planned.
+**Status:** Implemented. `tests/assistant/test_answer_service_suite.py` runs `answer_question` end to end for every answer outcome, derived from `AnswerStatus`, `FailureReason`, `MalformedOutputReason`, `ProviderErrorCode`, and `RunLimitKind`; only `tool_calls_without_tools` is excluded by name, as `submit_answer` is always offered. Repairable outcomes script both attempts, and unrepairable ones reuse the orchestration suite's loop cases. Each checks the outcome, the exit code against the table, the provider requests, exactly one repair turn where a repair applies and none elsewhere, both renderings, and the JSON round trip. Every outcome is also checked for secrets in the result, transcript, and both renderings, and for a fabricated narrative claim, which appears only in the labelled narrative and never in statements, quoted data, or qualifications. The import-isolation test now renders through `cli_answer_output`. `docs/assistant-answers.md` gains an outcomes and exit-codes table, checked by a drift test against the statuses, reasons, and exit codes, beside the existing repair, rendering, failure-explanation, and JSON sections; the README links them without claiming the `ask` command or real providers.
 **Prerequisite:** Step 38.5.
 
 - Add an end-to-end fake-provider suite over `answer_question` deriving coverage from the outcome status and failure-reason types, so a new status or reason fails until covered: valid, repaired, repeatedly invalid, provider-failed, limit-exceeded, cancelled, and malformed runs produce the expected rendering, exit code, and exactly one repair attempt where one applies.
