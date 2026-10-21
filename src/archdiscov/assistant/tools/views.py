@@ -23,6 +23,7 @@ from archdiscov.models.cloud.contracts import (
     CloudEvidence,
     CloudExternalTarget,
     CloudOperationCoverage,
+    CloudTarget,
 )
 from archdiscov.models.cloud.scope import AzureScope
 from archdiscov.models.enums import (
@@ -56,7 +57,7 @@ def _maybe(text: str | None) -> UntrustedText | None:
     return None if text is None else untrusted(text)
 
 
-def _json_text(value: JsonValue) -> UntrustedText:
+def json_text(value: JsonValue) -> UntrustedText:
     return untrusted(json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True))
 
 
@@ -136,7 +137,7 @@ def resource_view(resource: Resource, tag_limit: int) -> ResourceView:
 
 
 def _tag_value(value: JsonValue) -> UntrustedText:
-    return untrusted(value) if isinstance(value, str) else _json_text(value)
+    return untrusted(value) if isinstance(value, str) else json_text(value)
 
 
 class AttributeView(Model):
@@ -168,7 +169,7 @@ def attribute_views(resource: Resource) -> list[AttributeView]:
         if key != "tags":
             values[f"/attributes/{escape_pointer_token(key)}"] = value
     return [
-        AttributeView(key=untrusted(key), value=_json_text(value))
+        AttributeView(key=untrusted(key), value=json_text(value))
         for key, value in sorted(values.items())
     ]
 
@@ -210,7 +211,7 @@ def evidence_view(evidence_id: str, evidence: CloudEvidence) -> EvidenceView:
         configuration_path=untrusted(evidence.configuration_path),
         value=None
         if evidence.value_status != EvidenceValueStatus.PRESENT
-        else _json_text(sanitized(evidence.value)),
+        else json_text(sanitized(evidence.value)),
         value_status=evidence.value_status,
         redacted_path_count=len(evidence.redacted_paths),
         limitation=_maybe(evidence.limitation),
@@ -250,6 +251,23 @@ def coverage_order(records: Iterable[CloudOperationCoverage]) -> list[CloudOpera
     )
 
 
+def _nonlocal_fields(target: CloudExternalTarget | UnresolvedTarget) -> dict:
+    if isinstance(target, UnresolvedTarget):
+        return {
+            "kind": "unresolved",
+            "reason": untrusted(target.reason),
+            "source_path": untrusted(target.source_path),
+        }
+    scope = target.scope
+    return {
+        "kind": "external",
+        "identifier": untrusted(target.identifier),
+        "account_id": scope.account_id if isinstance(scope, AwsTargetScope) else None,
+        "subscription_id": scope.subscription_id if isinstance(scope, AzureScope) else None,
+        "native_type": _maybe(target.native_type),
+    }
+
+
 class TerminalView(Model):
     """A nonlocal dependency target; never a stored resource."""
 
@@ -264,24 +282,26 @@ class TerminalView(Model):
 
 
 def terminal_view(terminal: TerminalTarget) -> TerminalView:
-    target = terminal.target
-    if isinstance(target, UnresolvedTarget):
-        return TerminalView(
-            terminal_id=terminal.id,
-            kind="unresolved",
-            reason=untrusted(target.reason),
-            source_path=untrusted(target.source_path),
-        )
-    assert isinstance(target, CloudExternalTarget)
-    scope = target.scope
-    return TerminalView(
-        terminal_id=terminal.id,
-        kind="external",
-        identifier=untrusted(target.identifier),
-        account_id=scope.account_id if isinstance(scope, AwsTargetScope) else None,
-        subscription_id=scope.subscription_id if isinstance(scope, AzureScope) else None,
-        native_type=_maybe(target.native_type),
-    )
+    return TerminalView(terminal_id=terminal.id, **_nonlocal_fields(terminal.target))
+
+
+class TargetView(Model):
+    """A dependency target as recorded: a stored resource, external, or unresolved."""
+
+    kind: Literal["local", "external", "unresolved"]
+    resource_id: str | None = None
+    identifier: UntrustedText | None = None
+    account_id: str | None = None
+    subscription_id: str | None = None
+    native_type: UntrustedText | None = None
+    reason: UntrustedText | None = None
+    source_path: UntrustedText | None = None
+
+
+def target_view(target: CloudTarget) -> TargetView:
+    if isinstance(target, LocalTarget):
+        return TargetView(kind="local", resource_id=target.resource_id)
+    return TargetView(**_nonlocal_fields(target))
 
 
 class NodeRef(Model):

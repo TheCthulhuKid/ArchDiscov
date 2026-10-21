@@ -32,9 +32,10 @@ from archdiscov.assistant.tools import contracts as tool_contracts
 from archdiscov.assistant.tools import record as tool_record
 from archdiscov.assistant.tools import registry as tool_registry
 from archdiscov.assistant.tools import session as tool_session
+from archdiscov.assistant.tools.analysis_tools import ANALYSIS_TOOLS
 from archdiscov.assistant.tools.query_tools import QUERY_TOOLS
 
-assert len(tool_registry.ToolRegistry(QUERY_TOOLS).declarations()) == len(QUERY_TOOLS)
+assert len(tool_registry.ToolRegistry(QUERY_TOOLS + ANALYSIS_TOOLS).declarations()) == 11
 assert tool_session.ToolSession.from_paths(Path({str(SNAPSHOT)!r})).index.resource_ids
 
 assert tool_record.RunRecord().returned() == tool_record.ReturnedIds()
