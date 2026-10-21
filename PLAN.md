@@ -2690,7 +2690,11 @@ Implement and verify substeps 38.1–38.6 in order. Keep the parent planned unti
 **Acceptance check:** Fake-provider runs cover a valid first proposal, a repaired proposal, a proposal rejected twice, a plain-text answer repaired (without its text quoted) and not repaired, a repair after every allowed request was used, a repair blocked by the overall deadline and by the total-output limit, and a provider error during repair, each with exactly the expected number of provider requests, outcome, exit code, and transcript.
 
 #### Step 38.5: Add readable and JSON renderings
-**Status:** Planned.
+**Status:** Implemented. `src/archdiscov/cli_answer_output.py`, in the style of the other CLI output modules, presents a `RenderedAnswer`.
+- **Readable (`answer_text`, `print_answer`):** the outcome and exit code, then each snapshot's source kind, observed or declared state, and collection window, then the status and qualifications. Answers continue with their conclusions (statements, quoted data as `[n]`, findings with limitations, citations), the labelled model explanation, and an evidence hint; failures with what was not verified and the findings retrieved, labelled as not an answer.
+- **JSON (`answer_data`):** `schema_version` `1`, `exit_code`, and the `answer` itself, which validates back into `RenderedAnswer`. `RenderedNarrative` now carries a fixed `"source": "model"`, so the JSON labels the narrative.
+- **Marking and redaction:** imported text is always JSON-quoted on one line after `imported:`, and every line of the model's explanation starts with `|`. Every string in both forms is redacted of secret-looking text, and readable lines lose control characters through the now public `tools.contracts.as_data`, so terminal escapes in the narrative cannot spoof output.
+- **Tests:** goldens under `tests/fixtures/assistant/renderings/` come from real fake-provider runs for every status and failure reason, in both forms, with `ARCHDISCOV_UPDATE_GOLDENS=1` to rewrite them. Tests also cover the JSON round trip and documented shape (with a drift test), secrets, the narrative label and line marks, an injected instruction in an imported name, and control characters.
 **Prerequisite:** Step 38.4.
 
 - Render an `AnswerOutcome` and `RenderedAnswer` as readable text (snapshot context first, then conclusions with citations, qualifications, limitations, the labelled explanation, and for failures the explanation of what was found and what could not be verified) and as stable JSON for automation.

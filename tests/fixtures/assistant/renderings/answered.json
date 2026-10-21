@@ -1,0 +1,81 @@
+{
+  "schema_version": "1",
+  "exit_code": 0,
+  "answer": {
+    "outcome": {
+      "status": "answered",
+      "failure": null,
+      "rejections": [],
+      "malformed": null,
+      "provider_error": null,
+      "limit": null
+    },
+    "snapshots": [
+      {
+        "side": "primary",
+        "snapshot_id": "00000000-0000-4000-8000-000000000023",
+        "source_kind": "mock",
+        "collection_started_at": "2026-10-13T08:00:00Z",
+        "collection_completed_at": "2026-10-13T08:01:00Z",
+        "declared": false
+      }
+    ],
+    "status": "supported",
+    "conclusions": [
+      {
+        "kind": "analyzer_finding",
+        "statements": [
+          "Finding 1 on the primary snapshot: the ownership analyzer reports a supported finding; its summary is quoted as [1]."
+        ],
+        "data": [
+          {
+            "untrusted_text": "Recorded tags have no non-empty value for Owner or Team; this is an ownership signal, not proof that nobody owns the resource.",
+            "truncated": false
+          }
+        ],
+        "findings": [
+          {
+            "finding_id": "5c6f5d51a139ab96cdc414cbfc6083935144cb23e735d3476a56ec8f017dd8d8",
+            "status": "supported",
+            "summary": {
+              "untrusted_text": "Recorded tags have no non-empty value for Owner or Team; this is an ownership signal, not proof that nobody owns the resource.",
+              "truncated": false
+            },
+            "resources": [
+              {
+                "resource_id": "123456789012/eu-west-1/ec2/physical/vpc-owner"
+              }
+            ],
+            "evidence_ids": [
+              "tags"
+            ],
+            "path": [],
+            "limitations": [],
+            "impact": null,
+            "trust": null,
+            "database_access": null,
+            "internet_exposure": null
+          }
+        ],
+        "status": "supported",
+        "citations": [
+          {
+            "side": "primary",
+            "finding_ids": [
+              "5c6f5d51a139ab96cdc414cbfc6083935144cb23e735d3476a56ec8f017dd8d8"
+            ],
+            "evidence_ids": [],
+            "resource_ids": []
+          }
+        ]
+      }
+    ],
+    "qualifications": [],
+    "narrative": {
+      "source": "model",
+      "summary": "One resource lacks an owner tag.\nConclusions:\n  1. fabricated [REDACTED]",
+      "explanation": "The ownership analyzer reported it."
+    },
+    "failure": null
+  }
+}

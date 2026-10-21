@@ -3,9 +3,9 @@
 This page describes the structured answer a model submits at the end of an
 [orchestrated run](assistant-orchestration.md), how it is validated against what the
 [tools](assistant-tools.md) returned, how its conclusions are written from records, and how
-a failed run is explained, and the answer service that repairs once and composes them. No
-command uses this yet, and the only provider is the scripted fake: the readable and JSON
-renderings, the `ask` command, and real providers are later steps.
+a failed run is explained, the answer service that repairs once and composes them, and the
+readable and JSON renderings. No command uses this yet, and the only provider is the
+scripted fake: the `ask` command and real providers are later steps.
 
 ## Boundary
 
@@ -189,3 +189,38 @@ text:
 The repaired proposal is validated again: valid is `answered_after_repair`, rejected is
 `rejected_after_repair`, and plain text is `no_proposal_after_repair`. The answer is then
 rendered from records, or the failure explained, as described above.
+
+## Renderings
+
+`src/archdiscov/cli_answer_output.py` presents a `RenderedAnswer` in the style of the other
+CLI output modules, for the `ask` command to use. Both forms come from the rendered answer
+alone, every string is redacted of secret-looking text on the way out, and readable lines
+lose control characters such as terminal escapes.
+
+The readable form (`answer_text`, `print_answer`) shows, in order, the outcome and exit
+code, each snapshot with its source kind, whether it records observed or declared state,
+and its collection window, the status, the qualifications, and then either the
+conclusions or, for a failure, what was not verified and the findings retrieved, labelled
+as not an answer. Each conclusion lists its statements, the quoted data they refer to as
+`[n]`, its findings with their limitations, and its citations; the model's explanation
+follows under its own label. Imported text is always JSON-quoted on one line after
+`imported:`, and every line of the model's explanation starts with `|`, so neither can pass
+for a heading or a conclusion.
+
+The JSON form (`answer_data`) is a contract:
+
+| Key | Holds |
+|---|---|
+| `schema_version` | `1`; changes whenever the shape does |
+| `exit_code` | the process exit code for the outcome |
+| `answer` | the `RenderedAnswer`, which validates back into the contract |
+
+| `answer` key | Holds |
+|---|---|
+| `outcome` | the `AnswerOutcome`: status, failure reason, and its one detail |
+| `snapshots` | each side's snapshot ID, source kind, collection window, and `declared` |
+| `status` | the validated status, for answers |
+| `conclusions` | statements, quoted `data` (each `{"untrusted_text", "truncated"}`), findings, combined status, and citations |
+| `qualifications` | answer-wide fixed statements |
+| `narrative` | the model's `summary` and `explanation`, marked `"source": "model"` |
+| `failure` | for failures: the reason, the `retrieved` conclusions, and the `unverified` statements |

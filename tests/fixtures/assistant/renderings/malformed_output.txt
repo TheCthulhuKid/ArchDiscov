@@ -1,0 +1,8 @@
+Answer: failed (malformed_output), exit code 5
+Snapshot (primary): 00000000-0000-4000-8000-000000000007
+  Source: mock, observed state
+  Collected: 2026-10-13T08:00:00+00:00 to 2026-10-13T08:01:00+00:00
+Not verified:
+  - The provider reported output that does not fit the conversation contracts.
+  - No answer was validated.
+  - The run retrieved no analyzer findings.

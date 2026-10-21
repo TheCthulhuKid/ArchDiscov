@@ -8,6 +8,7 @@ import pytest
 import typer.main
 from annotated_types import Ge, Gt, Le
 
+from archdiscov import cli_answer_output
 from archdiscov.assistant import answer_results, answer_validation
 from archdiscov.assistant import answers as assistant_answers
 from archdiscov.assistant import config as assistant_config
@@ -431,6 +432,14 @@ def test_documented_failure_explanations_match_the_reasons():
     assert f"`MAX_LISTED_REJECTIONS` ({assistant_rejections.MAX_LISTED_REJECTIONS})" in text
 
 
+def test_documented_answer_json_matches_the_contract():
+    top = table_rows(ANSWERS_DOC, "| Key | Holds")
+    assert [row[0].strip("`") for row in top] == ["schema_version", "exit_code", "answer"]
+    assert f"`{cli_answer_output.ANSWER_JSON_VERSION}`" in top[0][1]
+    answer = table_rows(ANSWERS_DOC, "| `answer` key | Holds")
+    assert [row[0].strip("`") for row in answer] == list(answer_results.RenderedAnswer.model_fields)
+
+
 def test_documented_rejections_match_the_codes():
     rows = table_rows(ANSWERS_DOC, "| Code | Check | Message")
     assert [row[0].strip("`") for row in rows] == [
@@ -467,7 +476,7 @@ def test_the_readme_links_answers_without_claiming_rendering_or_ask():
     assert "docs/assistant-answers.md" in text
     for claim in ("answers are rendered", "repair is implemented", "`ask` command is implemented"):
         assert claim not in text
-    assert "renderings, the `ask` command" in " ".join(
+    assert "scripted fake: the `ask` command and real providers are later steps" in " ".join(
         ANSWERS_DOC.read_text(encoding="utf-8").split()
     )
 

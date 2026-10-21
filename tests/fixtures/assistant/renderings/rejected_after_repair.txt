@@ -1,0 +1,10 @@
+Answer: failed (rejected_after_repair), exit code 5
+Snapshot (primary): 00000000-0000-4000-8000-000000000007
+  Source: mock, observed state
+  Collected: 2026-10-13T08:00:00+00:00 to 2026-10-13T08:01:00+00:00
+Not verified:
+  - The structured answer was rejected after one repair attempt.
+  - Rejected at conclusions[0].citations[0].finding_ids[0] (answer_unknown_id): This ID is not recorded in the snapshot for this side.
+  - Rejected at status (answer_status_upgrade): The status is stronger than the cited findings support.
+  - No answer was validated.
+  - The run retrieved no analyzer findings.

@@ -1,0 +1,86 @@
+{
+  "schema_version": "1",
+  "exit_code": 6,
+  "answer": {
+    "outcome": {
+      "status": "failed",
+      "failure": "limit_reached",
+      "rejections": [],
+      "malformed": null,
+      "provider_error": null,
+      "limit": "provider_requests"
+    },
+    "snapshots": [
+      {
+        "side": "primary",
+        "snapshot_id": "00000000-0000-4000-8000-000000000023",
+        "source_kind": "mock",
+        "collection_started_at": "2026-10-13T08:00:00Z",
+        "collection_completed_at": "2026-10-13T08:01:00Z",
+        "declared": false
+      }
+    ],
+    "status": null,
+    "conclusions": [],
+    "qualifications": [],
+    "narrative": null,
+    "failure": {
+      "reason": "limit_reached",
+      "retrieved": [
+        {
+          "kind": "analyzer_finding",
+          "statements": [
+            "Finding 1 on the primary snapshot: the ownership analyzer reports a supported finding; its summary is quoted as [1]."
+          ],
+          "data": [
+            {
+              "untrusted_text": "Recorded tags have no non-empty value for Owner or Team; this is an ownership signal, not proof that nobody owns the resource.",
+              "truncated": false
+            }
+          ],
+          "findings": [
+            {
+              "finding_id": "5c6f5d51a139ab96cdc414cbfc6083935144cb23e735d3476a56ec8f017dd8d8",
+              "status": "supported",
+              "summary": {
+                "untrusted_text": "Recorded tags have no non-empty value for Owner or Team; this is an ownership signal, not proof that nobody owns the resource.",
+                "truncated": false
+              },
+              "resources": [
+                {
+                  "resource_id": "123456789012/eu-west-1/ec2/physical/vpc-owner"
+                }
+              ],
+              "evidence_ids": [
+                "tags"
+              ],
+              "path": [],
+              "limitations": [],
+              "impact": null,
+              "trust": null,
+              "database_access": null,
+              "internet_exposure": null
+            }
+          ],
+          "status": "supported",
+          "citations": [
+            {
+              "side": "primary",
+              "finding_ids": [
+                "5c6f5d51a139ab96cdc414cbfc6083935144cb23e735d3476a56ec8f017dd8d8"
+              ],
+              "evidence_ids": [],
+              "resource_ids": []
+            }
+          ]
+        }
+      ],
+      "unverified": [
+        "The run stopped at its limit on provider requests.",
+        "No answer was validated.",
+        "The run retrieved 1 finding(s) from these analyzers: ownership.",
+        "The findings shown were retrieved during the run; they are not a validated answer."
+      ]
+    }
+  }
+}

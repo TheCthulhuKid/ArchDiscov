@@ -9,7 +9,7 @@ model's narrative, which appears only in its labelled field.
 import re
 from collections.abc import Callable, Mapping
 from enum import StrEnum
-from typing import Annotated, Self
+from typing import Annotated, Literal, Self
 from uuid import UUID
 
 from pydantic import AwareDatetime, Field, model_validator
@@ -222,8 +222,12 @@ class RenderedConclusion(Contract):
 
 
 class RenderedNarrative(Contract):
-    """The model's own words, shown only as labelled explanation, never as facts."""
+    """The model's own words, shown only as labelled explanation, never as facts.
 
+    `source` is fixed, so the JSON rendering labels the narrative wherever it is read.
+    """
+
+    source: Literal["model"] = "model"
     summary: Annotated[str, Field(min_length=1, max_length=500)]
     explanation: Annotated[str, Field(min_length=1, max_length=2_000)] | None = None
 

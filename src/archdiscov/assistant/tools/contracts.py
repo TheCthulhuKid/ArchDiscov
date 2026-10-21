@@ -109,7 +109,7 @@ def bounded[T](items: Sequence[T], limit: int) -> BoundedList[T]:
     )
 
 
-def _as_data(text: str) -> str:
+def as_data(text: str) -> str:
     # Line breaks, control, and format characters (zero-width and bidirectional
     # overrides) can disguise text as structure; each becomes one space.
     return "".join(
@@ -132,7 +132,7 @@ class UntrustedText(Contract):
         cut = len(text) > MAX_UNTRUSTED_TEXT_CHARS
         return {
             **data,
-            "untrusted_text": _as_data(text[:MAX_UNTRUSTED_TEXT_CHARS]),
+            "untrusted_text": as_data(text[:MAX_UNTRUSTED_TEXT_CHARS]),
             "truncated": cut or data.get("truncated", False),
         }
 

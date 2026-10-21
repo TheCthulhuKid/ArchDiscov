@@ -1,0 +1,37 @@
+{
+  "schema_version": "1",
+  "exit_code": 5,
+  "answer": {
+    "outcome": {
+      "status": "failed",
+      "failure": "no_proposal_after_repair",
+      "rejections": [],
+      "malformed": null,
+      "provider_error": null,
+      "limit": null
+    },
+    "snapshots": [
+      {
+        "side": "primary",
+        "snapshot_id": "00000000-0000-4000-8000-000000000007",
+        "source_kind": "mock",
+        "collection_started_at": "2026-10-13T08:00:00Z",
+        "collection_completed_at": "2026-10-13T08:01:00Z",
+        "declared": false
+      }
+    ],
+    "status": null,
+    "conclusions": [],
+    "qualifications": [],
+    "narrative": null,
+    "failure": {
+      "reason": "no_proposal_after_repair",
+      "retrieved": [],
+      "unverified": [
+        "The model answered in plain text after one repair attempt; its text is not shown.",
+        "No answer was validated.",
+        "The run retrieved no analyzer findings."
+      ]
+    }
+  }
+}
