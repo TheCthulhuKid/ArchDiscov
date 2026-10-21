@@ -1,6 +1,7 @@
 """Tool definitions and dispatch from a `ToolCall` to a `ToolResult`.
 
-A tool is a typed input model (its JSON schema is the declaration the provider sees), a
+A tool is a typed input model (its JSON schema, with references inlined, is the
+declaration the provider sees), a
 function over the session returning a typed output or a `ToolError`, and a name. The
 registry is a plain mapping. Dispatch never raises for model mistakes or tool failures:
 unknown names, malformed or invalid arguments, and unexpected exceptions become safe
@@ -61,8 +62,29 @@ class ToolDefinition[I: ToolInput]:
         return ToolDeclaration(
             name=self.name,
             description=self.description,
-            input_schema=self.input_model.model_json_schema(),
+            input_schema=inline_schema(self.input_model.model_json_schema()),
         )
+
+
+def inline_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Replace local `$ref`s with their `$defs`, so every provider receives one plain schema.
+
+    Tool inputs are not recursive, so inlining always terminates.
+    """
+    definitions = schema.get("$defs", {})
+
+    def resolve(value: Any) -> Any:
+        if isinstance(value, dict):
+            reference = value.get("$ref")
+            if isinstance(reference, str) and reference.startswith("#/$defs/"):
+                siblings = {key: item for key, item in value.items() if key != "$ref"}
+                return resolve({**definitions[reference.removeprefix("#/$defs/")], **siblings})
+            return {key: resolve(item) for key, item in value.items() if key != "$defs"}
+        if isinstance(value, list):
+            return [resolve(item) for item in value]
+        return value
+
+    return resolve(schema)
 
 
 class ToolRegistry:

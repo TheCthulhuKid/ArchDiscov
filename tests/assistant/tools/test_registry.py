@@ -29,6 +29,7 @@ from archdiscov.assistant.tools.registry import (
     ToolDefinition,
     ToolInput,
     ToolRegistry,
+    inline_schema,
 )
 from archdiscov.assistant.tools.session import ToolSession
 from tests.paths import FIXTURES_ROOT
@@ -132,7 +133,10 @@ def test_declarations_are_derived_from_input_models_in_order(registry: ToolRegis
     declarations = registry.declarations()
     assert [declaration.name for declaration in declarations] == [tool.name for tool in TOOLS]
     inspect = declarations[1]
-    assert inspect.input_schema == _ResourceInput.model_json_schema()
+    assert inspect.input_schema == inline_schema(_ResourceInput.model_json_schema())
+    assert "$defs" in _ResourceInput.model_json_schema()
+    assert inspect.input_schema["properties"]["options"]["properties"]["depth"]["maximum"] == 3
+    assert "$ref" not in json.dumps(inspect.input_schema)
     assert inspect.input_schema["additionalProperties"] is False
     assert inspect.input_schema["required"] == ["resource_id"]
     assert declarations[0].input_schema == {

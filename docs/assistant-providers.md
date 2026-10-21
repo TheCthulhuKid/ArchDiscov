@@ -4,8 +4,9 @@ This page describes the provider-neutral layer under `src/archdiscov/assistant/`
 conversation and tool-call contracts, provider errors and capabilities, the `Provider`
 protocol, provider configuration, and the scripted fake provider used to test everything
 above it. No command uses this layer yet, and the only constructible provider is the
-fake; the assistant's tools, orchestration, answer validation, and `ask` command are
-later steps. None of these modules imports a vendor SDK.
+fake; the [assistant tools](assistant-tools.md) exist, while orchestration, answer
+validation, and the `ask` command are later steps. None of these modules imports a vendor
+SDK.
 
 ## Conversation contracts
 

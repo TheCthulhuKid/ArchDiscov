@@ -2404,7 +2404,7 @@ Implement and verify substeps 34.1–34.5 in order. Keep the parent planned unti
 **Acceptance check:** The suite passes for the fake provider; the isolation and secret-leak tests pass; documentation matches the executable definitions; the full offline suite and Ruff pass with no credentials or network.
 
 ### Step 35: Implement bounded typed assistant tools
-**Status:** Planned.
+**Status:** Implemented. Substeps 35.1–35.5 pass their acceptance checks; see each substep below.
 **Prerequisite:** Step 34.
 
 Implement and verify substeps 35.1–35.5 in order. Keep the parent planned until every substep's acceptance checks pass. Put the code in `src/archdiscov/assistant/tools/` (keep `__init__.py` light), reuse the `Model` base and the step 34 `ToolDeclaration`, `ToolCall`, and `ToolResult` contracts, and call existing public services, never the CLI. The tool set is fixed: resource search, resource inspection, neighbours/relationship traversal, path lookup, coverage inspection, evidence retrieval, listing and running the five analyzers over the selected snapshot, and reading saved results and comparisons.
@@ -2459,7 +2459,7 @@ Implement and verify substeps 35.1–35.5 in order. Keep the parent planned unti
 **Acceptance check:** Each analyzer kind runs through its tool with exact results, parameter bounds, truncation, partial coverage, unknown resource IDs, and the Azure unsupported result; saved results and comparisons load only when user-selected and valid, and tampered or mismatched files fail safely.
 
 #### Step 35.5: Verify and document the tool boundary
-**Status:** Planned.
+**Status:** Implemented. `tools/catalog.py` defines `ALL_TOOLS` (the eleven tools in declaration order) and `default_registry()`; declarations now inline `$ref`/`$defs`, so every provider receives one plain schema. `tests/assistant/tools/test_tool_boundary.py` derives its checks from the registry: a schema audit (no property names suggesting paths, files, snapshots, URLs, hosts, commands, or writes; no URI, hostname, or path formats; closed objects; every string, integer, and list bounded), provider validity (declarations fit the step 34 bounds and replay through a `CompletionRequest` and the fake provider with ordered tool names), a scenario per tool for success, invalid input, unknown IDs, and Azure (including the unsupported analyzer result) that fails until a new tool is added, and exact returned-ID tracking across multi-tool runs, compared with an independent walk of the delivered JSON. The import-isolation test now dispatches every tool with Anthropic, OpenAI, boto3, and botocore blocked. [docs/assistant-tools.md](docs/assistant-tools.md) documents the tools, sessions, limits, truncation, errors, `untrusted_text`, and the run record, and is linked from the README and the provider page without claiming orchestration or real providers; documentation-drift tests check tool names and inputs, limits, truncation reasons, error messages, the untrusted-text bound, and the run-record fields. Focused and full offline tests, acceptance, Ruff lint and format, documentation links, and whitespace checks pass with `.venv/bin/python`.
 **Prerequisite:** Step 35.4.
 
 - Add cross-cutting tests that the tool set has no write, network, shell, or filesystem-path inputs (derived from the declared schemas), returned-ID tracking is exact across a multi-tool run, and every tool declaration is valid for step 34 providers.

@@ -16,6 +16,8 @@ from archdiscov.assistant.provider import (
     RequestLimits,
     UnsupportedCapabilityError,
 )
+from archdiscov.assistant.tools import contracts as tool_contracts
+from archdiscov.assistant.tools.catalog import default_registry
 from archdiscov.cli import app
 from archdiscov.models.analysis.parameters import AnalyzerParameters
 from archdiscov.models.comparison.results import DEFAULT_RESULT_LIMIT, MAX_RESULT_LIMIT
@@ -264,6 +266,65 @@ def test_the_readme_links_the_provider_contracts_without_claiming_real_providers
         assert claim not in text
     provider_doc = PROVIDERS_DOC.read_text(encoding="utf-8")
     assert "the fake is the only provider" in provider_doc
+
+
+# ---- assistant tools ---------------------------------------------------------------
+
+TOOLS_DOC = DOCS / "assistant-tools.md"
+
+
+def test_documented_tools_match_the_registry():
+    rows = table_rows(TOOLS_DOC, "| Tool | Inputs")
+    declarations = default_registry().declarations()
+    assert [row[0].strip("`") for row in rows] == [item.name for item in declarations]
+    for (name, inputs, _returns), declaration in zip(
+        (row[:3] for row in rows), declarations, strict=True
+    ):
+        schema = declaration.input_schema
+        expected = [
+            f"**`{field}`**" if field in schema.get("required", []) else f"`{field}`"
+            for field in schema.get("properties", {})
+        ]
+        assert inputs == (", ".join(expected) or "none"), name
+
+
+def test_documented_tool_limits_match_the_model():
+    rows = table_rows(TOOLS_DOC, "| Limit | Default")
+    fields = tool_contracts.ToolLimits.model_fields
+    assert [row[0].strip("`") for row in rows] == list(fields)
+    for name, default, allowed in (row[:3] for row in rows):
+        field = fields[name.strip("`")]
+        check_default(default, field, name)
+        assert documented_range(allowed) == field_range(field), name
+
+
+def test_documented_truncation_reasons_and_errors_match_the_code():
+    reasons = table_rows(TOOLS_DOC, "| Truncation reason")
+    assert [row[0].strip("`") for row in reasons] == [
+        reason.value for reason in tool_contracts.TruncationReason
+    ]
+    errors = table_rows(TOOLS_DOC, "| Code | Message")
+    assert {row[0].strip("`"): row[1] for row in errors} == {
+        code.value: message for code, message in tool_contracts.TOOL_ERROR_MESSAGES.items()
+    }
+    assert [row[0].strip("`") for row in errors] == [
+        code.value for code in tool_contracts.ToolErrorCode
+    ]
+
+
+def test_documented_untrusted_text_and_run_record_rules_match_the_code():
+    text = TOOLS_DOC.read_text(encoding="utf-8")
+    assert f"truncated to\n{tool_contracts.MAX_UNTRUSTED_TEXT_CHARS} characters" in text
+    fields = ", ".join(f"`{name}`" for name in tool_contracts.ID_FIELDS)
+    assert fields.replace(", `resource_ids`", ", and `resource_ids`") in " ".join(text.split())
+
+
+def test_the_readme_links_the_tools_without_claiming_orchestration():
+    text = README.read_text(encoding="utf-8")
+    assert "docs/assistant-tools.md" in text
+    for claim in ("orchestration is implemented", "`ask` command is implemented"):
+        assert claim not in text
+    assert "No command uses them yet" in TOOLS_DOC.read_text(encoding="utf-8")
 
 
 # ---- commands ----------------------------------------------------------------------
