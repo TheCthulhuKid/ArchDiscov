@@ -123,6 +123,7 @@ def test_defaults_are_explicit() -> None:
         "max_tool_calls": 32,
         "max_tool_calls_per_turn": 1,
         "max_latency_seconds": 300.0,
+        "transcript": None,
     }
     assert FakeProviderConfig().request_limits() == RequestLimits()
 

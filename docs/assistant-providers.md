@@ -125,6 +125,7 @@ request_timeout_seconds = 30
 |---|---|---|---|
 | `kind` | all | required | `fake`, `anthropic`, `openai_compatible`, `bedrock` |
 | `model` | `fake` | `fake` | non-blank, up to 256 characters |
+| `transcript` | `fake` | none | a fake transcript file, relative to the configuration file or absolute; required to build the provider |
 | `model` | `anthropic`, `openai_compatible`, `bedrock` | required | non-blank, up to 256 characters |
 | `connect_timeout_seconds` | all | 10 | >0–60 |
 | `request_timeout_seconds` | all | 60 | >0–600, at most `max_latency_seconds` |
@@ -147,6 +148,22 @@ Numbers are strictly typed: `"5"` or `true` is not a number. Endpoints may use H
 for loopback hosts (`localhost`, `127.0.0.1`, `::1`), and never carry user info, a query,
 or a fragment. `request_limits()` turns a configuration into the per-request limits
 above; the remaining fields bound the whole run.
+
+### Building providers
+
+`build_provider(config, config_dir=)` in `assistant/providers.py` turns a configuration into
+a provider through `ADAPTERS`, a table keyed by kind, so each real adapter (steps 40-42)
+plugs in there. It resolves the referenced credential and passes it only to the adapter.
+`load_provider(path)` loads a file and builds its provider, resolving relative paths
+against the file's directory.
+
+- The fake needs a `transcript`, loaded with the fake transcript limits; without one the
+  build fails with `provider_transcript_missing`, and an unreadable or invalid transcript
+  fails with the fake's own error codes.
+- A kind without an adapter fails with `provider_adapter_unavailable`, before its
+  credential is read or any request is made.
+
+Errors name the file and the kind, never the configuration's values or credentials.
 
 ### Credentials
 

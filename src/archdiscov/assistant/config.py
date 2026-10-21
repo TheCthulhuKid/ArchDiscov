@@ -5,8 +5,9 @@ are references only: an environment variable name for API-key providers, or an A
 profile for Bedrock. Values are resolved by `resolve_api_key` when a provider is
 constructed, never stored on the configuration, and never accepted as CLI arguments.
 
-Only the fake provider is constructible now; the other kinds define the configuration
-their adapters (steps 40-42) will use.
+`assistant/providers.py` builds a provider from a configuration. Only the fake provider has
+an adapter now; the other kinds define the configuration their adapters (steps 40-42) will
+use.
 """
 
 import os
@@ -127,10 +128,15 @@ class _EndpointConfig(_ProviderConfigBase):
 
 
 class FakeProviderConfig(_ProviderConfigBase):
-    """The scripted fake provider; it needs no credentials or network."""
+    """The scripted fake provider; it needs no credentials or network.
+
+    Building it needs `transcript`, a fake transcript file; a relative path is resolved
+    against the configuration file's directory.
+    """
 
     kind: Literal[ProviderKind.FAKE] = ProviderKind.FAKE
     model: ModelName = "fake"
+    transcript: Annotated[NonEmptyString, Field(max_length=4_096)] | None = None
 
 
 class AnthropicProviderConfig(_EndpointConfig):
@@ -192,13 +198,15 @@ class ProviderConfigErrorCode(StrEnum):
     INVALID = "provider_config_invalid"
     CREDENTIAL_MISSING = "provider_credential_missing"
     CREDENTIAL_EMPTY = "provider_credential_empty"
+    TRANSCRIPT_MISSING = "provider_transcript_missing"
+    ADAPTER_UNAVAILABLE = "provider_adapter_unavailable"
 
 
 class ProviderConfigError(Exception):
     """A configuration or credential failure with a fixed message.
 
-    Diagnostics name the file path and the referenced variable name, never file
-    contents, field values, or resolved credentials.
+    Diagnostics name the file path, the referenced variable name, and the provider kind,
+    never file contents, field values, or resolved credentials.
     """
 
     messages: ClassVar[Mapping[ProviderConfigErrorCode, str]] = {
@@ -214,6 +222,12 @@ class ProviderConfigError(Exception):
         ProviderConfigErrorCode.CREDENTIAL_EMPTY: (
             "Configured credential environment variable is empty."
         ),
+        ProviderConfigErrorCode.TRANSCRIPT_MISSING: (
+            "Fake provider configuration names no transcript file."
+        ),
+        ProviderConfigErrorCode.ADAPTER_UNAVAILABLE: (
+            "No adapter is available for the configured provider kind yet."
+        ),
     }
 
     def __init__(
@@ -222,6 +236,7 @@ class ProviderConfigError(Exception):
         *,
         path: Path | None = None,
         variable: str | None = None,
+        kind: ProviderKind | None = None,
         details: tuple[ValidationIssue, ...] = (),
     ) -> None:
         self.code = ProviderConfigErrorCode(code)
@@ -229,6 +244,7 @@ class ProviderConfigError(Exception):
         super().__init__(self.message)
         self.path = path
         self.variable = variable
+        self.kind = kind
         self.details = details
 
 

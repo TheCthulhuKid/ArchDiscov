@@ -29,7 +29,7 @@ from pathlib import Path
 
 from archdiscov.assistant import config, conversation, fake, instructions, orchestrator, provider
 from archdiscov.assistant import answer_rendering, answer_results, answer_validation, answers
-from archdiscov.assistant import answer_service, redaction, repair
+from archdiscov.assistant import answer_service, providers, redaction, repair
 from archdiscov.assistant import rejections, runs
 from archdiscov.assistant.tools import contracts as tool_contracts
 from archdiscov.assistant.tools import session as tool_session
@@ -125,6 +125,11 @@ request = provider.CompletionRequest(
 )
 assert provider.complete(replayed, request).stop_reason == provider.StopReason.TOOL_USE
 assert config.parse_provider_config({{"kind": "fake"}}).kind == config.ProviderKind.FAKE
+built = providers.build_provider(
+    config.parse_provider_config({{"kind": "fake", "transcript": {str(TRANSCRIPT)!r}}}),
+    config_dir=Path("."),
+)
+assert built.remaining_turns > 0
 print(",".join(module for module in BLOCKED if module in sys.modules))
 """
 
