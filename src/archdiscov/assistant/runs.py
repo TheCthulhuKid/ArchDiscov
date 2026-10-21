@@ -44,8 +44,8 @@ class RunLimits(Contract):
     max_tool_calls_per_turn: int = Field(default=1, ge=1, le=32, strict=True)
     max_tool_calls: int = Field(default=32, ge=1, le=200, strict=True)
     max_output_tokens: int = Field(default=4_096, ge=1, le=128_000, strict=True)
+    # Characters of assistant text and tool-result content added to the conversation.
     max_total_output_chars: int = Field(default=200_000, ge=1_000, le=1_000_000, strict=True)
-    """Characters of assistant text and tool-result content added to the conversation."""
     request_timeout_seconds: float = Field(default=60.0, gt=0, le=600, strict=True)
     overall_timeout_seconds: float = Field(default=300.0, gt=0, le=3_600, strict=True)
 
@@ -97,17 +97,12 @@ class RunLimitKind(StrEnum):
 
 class MalformedOutputReason(StrEnum):
     PROVIDER_REPORTED = "provider_reported"
-    """The provider raised `provider_malformed_output`."""
     CONVERSATION_INVALID = "conversation_invalid"
-    """The response cannot extend the conversation (for example, a reused call ID)."""
     TOOL_CALLS_WITHOUT_TOOLS = "tool_calls_without_tools"
-    """The response called tools although none were offered."""
     PROPOSAL_MALFORMED = "proposal_malformed"
-    """`submit_answer` arguments were not a JSON object within the size limit."""
     PROPOSAL_INVALID = "proposal_invalid"
-    """`submit_answer` arguments did not match the answer proposal contract."""
     PROPOSAL_MIXED = "proposal_mixed"
-    """`submit_answer` was called together with other tools."""
+    TOOL_NOT_OFFERED = "tool_not_offered"
 
 
 class Answered(Contract):
@@ -247,7 +242,6 @@ class TranscriptToolCall(Contract):
     call_id: ToolCallId
     name: ToolName
     arguments: TranscriptText | None
-    """Sanitized compact JSON; None when the arguments were malformed."""
     malformed_arguments: MalformedArgumentsReason | None = None
     result: TranscriptText
     result_is_error: bool
@@ -279,11 +273,11 @@ class TranscriptTurn(Contract):
     request: NonNegativeInt
     latency_seconds: NonNegativeFloat
     stop_reason: StopReason | None
-    """None when the request ended in an error or the run ended first."""
     usage: TokenUsage = Field(default_factory=TokenUsage)
     text: TranscriptText | None = None
     tool_calls: tuple[TranscriptToolCall, ...] = Field(default=(), max_length=32)
     error: ProviderErrorCode | None = None
+    repair: bool = False
 
 
 def total_usage(turns: Iterable[TranscriptTurn]) -> TokenUsage:
@@ -297,36 +291,52 @@ def total_usage(turns: Iterable[TranscriptTurn]) -> TokenUsage:
     return TokenUsage(**totals)
 
 
+class TranscriptRepair(Contract):
+    """The outcome a repair was offered for, recorded as outcomes are, and the repair prompt."""
+
+    outcome: RunOutcome
+    prompt: TranscriptText
+
+
+def _require_recorded(outcome: RunOutcome) -> None:
+    """Answer text and proposals must have been recorded with `transcript_outcome`."""
+    if isinstance(outcome, Answered):
+        text = outcome.message.text
+        if len(text) > MAX_TRANSCRIPT_TEXT_CHARS or looks_secret(text):
+            raise validation_error(
+                "run_transcript_secret", "record answers with transcript_outcome"
+            )
+    if isinstance(outcome, Proposed) and looks_secret(outcome.proposal.model_dump_json()):
+        raise validation_error("run_transcript_secret", "record proposals with transcript_outcome")
+
+
 class RunTranscript(Contract):
     """What a run did, for evaluation and debugging; holds no credential fields."""
 
     provider_kind: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
     model: Annotated[str, Field(min_length=1, max_length=256)]
     limits: RunLimits
-    turns: tuple[TranscriptTurn, ...] = Field(default=(), max_length=50)
+    # max_provider_requests allows at most 50, plus the repair turn.
+    turns: tuple[TranscriptTurn, ...] = Field(default=(), max_length=51)
     usage: TokenUsage
     latency_seconds: NonNegativeFloat
     outcome: RunOutcome
+    # Set whenever a repair was offered, even when no room was left to request it.
+    repair: TranscriptRepair | None = None
 
     @model_validator(mode="after")
     def validate_run(self) -> Self:
         if looks_secret(self.model):
             raise validation_error("run_transcript_secret", "secret-looking model name")
-        if isinstance(self.outcome, Answered):
-            text = self.outcome.message.text
-            if len(text) > MAX_TRANSCRIPT_TEXT_CHARS or looks_secret(text):
-                raise validation_error(
-                    "run_transcript_secret", "record answers with transcript_outcome"
-                )
-        if isinstance(self.outcome, Proposed) and looks_secret(
-            self.outcome.proposal.model_dump_json()
-        ):
-            raise validation_error(
-                "run_transcript_secret", "record proposals with transcript_outcome"
-            )
+        _require_recorded(self.outcome)
+        if self.repair is not None:
+            _require_recorded(self.repair.outcome)
         if [turn.request for turn in self.turns] != list(range(len(self.turns))):
             raise validation_error("run_transcript_counts", "turns are numbered from zero")
-        if len(self.turns) > self.limits.max_provider_requests:
+        repairs = [turn.request for turn in self.turns if turn.repair]
+        if repairs and (self.repair is None or repairs != [len(self.turns) - 1]):
+            raise validation_error("run_transcript_counts", "one repair turn, offered and last")
+        if len(self.turns) - len(repairs) > self.limits.max_provider_requests:
             raise validation_error("run_transcript_counts", "more turns than requests allowed")
         if sum(len(turn.tool_calls) for turn in self.turns) > self.limits.max_tool_calls:
             raise validation_error("run_transcript_counts", "more tool calls than allowed")

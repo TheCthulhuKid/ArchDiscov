@@ -3,9 +3,10 @@
 This page describes the tool-calling loop in `src/archdiscov/assistant/orchestrator.py`: how
 one question is answered with the [assistant tools](assistant-tools.md) through a
 [provider](assistant-providers.md), and how every run ends. No command uses it yet, the only
-provider is the scripted fake, and answers are not yet validated here: the loop returns them
-as-is, and [assistant answers](assistant-answers.md) describes the structured answer and its
-validation. Rendering, repair, and the `ask` command are later steps.
+provider is the scripted fake, and the loop does not validate answers: it returns them as-is,
+and [assistant answers](assistant-answers.md) describes the structured answer, its
+validation, the answer service that repairs and renders it, and its rendering. The `ask`
+command is a later step.
 
 ## The loop
 
@@ -15,7 +16,8 @@ and returns a `RunResult`: the outcome, the transcript, the final conversation, 
 the tools returned (the session's run record, so use one session per run).
 `run_assistant` runs the same loop from synchronous code and refuses to run inside an event
 loop (`RunInEventLoopError`), so both give identical results. `offer_answer_tool=False`
-omits `submit_answer` from the tools offered.
+omits `submit_answer` from the tools offered, and `repair=` adds the one repair turn
+described below.
 
 1. The conversation starts with the system instructions and the user's question.
 2. Each request offers every registered tool, then `submit_answer`, and per-request limits,
@@ -32,6 +34,24 @@ omits `submit_answer` from the tools offered.
 
 The loop makes no judgement about answer content and never retries a rejected answer.
 Providers retry only their own transport and rate-limit errors.
+
+## Repair turn
+
+A `repair` callback is consulted once, when a run ends on a response, with the outcome and
+that response. When it returns a repair prompt (user or tool-result messages), the loop:
+
+- adds the response first if it had not joined the conversation (a mixed `submit_answer`
+  call), since the prompt answers its calls;
+- adds the prompt, whose characters count toward `max_total_output_chars`;
+- offers only `submit_answer` and makes one reserved request outside
+  `max_provider_requests`, so a run that used every request still gets it;
+- skips the request when no room is left: `total_output` when the prompt reaches the
+  output limit, `overall_deadline` when no time is left.
+
+The repair request is otherwise an ordinary request, with the same deadlines, limits, and
+outcomes, except that calling any other tool ends the run with `tool_not_offered`, since no
+request is left to read its result. There is never a second repair; whether the repaired
+answer is acceptable is for the caller to decide.
 
 ## Limits
 
@@ -83,6 +103,7 @@ Every run ends with exactly one `RunOutcome`.
 | `proposal_malformed` | `submit_answer` arguments were not a JSON object within the size limit |
 | `proposal_invalid` | `submit_answer` arguments did not match the proposal contract |
 | `proposal_mixed` | `submit_answer` was called together with other tools |
+| `tool_not_offered` | the repair response called a tool other than `submit_answer` |
 
 Cancelling the run's task raises `RunCancelled`, an `asyncio.CancelledError` whose `result`
 is the partial run with the `cancelled` outcome; a request still in flight is recorded
@@ -106,7 +127,9 @@ every change is a reviewed change that bumps the version.
 `RunTranscript` records a run for evaluation and debugging: the provider kind and model,
 the limits, each request (latency, stop reason or error, usage, assistant text, and the tool
 calls that ran, with their arguments and results), total usage, total latency, and the
-outcome. Text is bounded to 4,000 characters (`MAX_TRANSCRIPT_TEXT_CHARS`) after sensitive
+outcome. When a repair was offered, it also records the outcome repaired (recorded as
+outcomes are) and the repair prompt, and marks the repair request's turn with `repair`; the
+repair turn is the last and the only one beyond `max_provider_requests`. Text is bounded to 4,000 characters (`MAX_TRANSCRIPT_TEXT_CHARS`) after sensitive
 keys and secret-looking values (API keys, AWS access key IDs, bearer tokens, private keys,
 and long opaque tokens) are redacted. An answer is recorded redacted as well, and a
 proposal with its narrative redacted and any secret-looking cited ID replaced by a unique

@@ -8,7 +8,7 @@ import pytest
 import typer.main
 from annotated_types import Ge, Gt, Le
 
-from archdiscov.assistant import answer_rendering, answer_results, answer_validation
+from archdiscov.assistant import answer_results, answer_validation
 from archdiscov.assistant import answers as assistant_answers
 from archdiscov.assistant import config as assistant_config
 from archdiscov.assistant import conversation as assistant_conversation
@@ -385,7 +385,7 @@ def test_documented_instructions_and_transcript_bounds_match_the_code():
     text = " ".join(ORCHESTRATION_DOC.read_text(encoding="utf-8").split())
     assert f"version `{assistant_instructions.INSTRUCTIONS_VERSION}`" in text
     assert f"{assistant_runs.MAX_TRANSCRIPT_TEXT_CHARS:,} characters" in text
-    assert "answers are not yet validated" in text
+    assert "the loop does not validate answers" in text
 
 
 def test_the_readme_links_the_loop_without_claiming_ask_or_validation():
@@ -428,7 +428,7 @@ def test_documented_failure_explanations_match_the_reasons():
     ]
     text = " ".join(ANSWERS_DOC.read_text(encoding="utf-8").split())
     assert f"`MAX_RETRIEVED` ({answer_results.MAX_RETRIEVED})" in text
-    assert f"`MAX_LISTED_REJECTIONS` ({answer_rendering.MAX_LISTED_REJECTIONS})" in text
+    assert f"`MAX_LISTED_REJECTIONS` ({assistant_rejections.MAX_LISTED_REJECTIONS})" in text
 
 
 def test_documented_rejections_match_the_codes():
@@ -467,7 +467,7 @@ def test_the_readme_links_answers_without_claiming_rendering_or_ask():
     assert "docs/assistant-answers.md" in text
     for claim in ("answers are rendered", "repair is implemented", "`ask` command is implemented"):
         assert claim not in text
-    assert "renderings, the single repair attempt, the `ask` command" in " ".join(
+    assert "renderings, the `ask` command" in " ".join(
         ANSWERS_DOC.read_text(encoding="utf-8").split()
     )
 

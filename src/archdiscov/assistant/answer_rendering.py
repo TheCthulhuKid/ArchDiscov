@@ -62,6 +62,7 @@ from .answers import (
 )
 from .provider import PROVIDER_ERROR_MESSAGES
 from .redaction import redact_secrets
+from .rejections import MAX_LISTED_REJECTIONS
 from .runs import MalformedOutputReason, RunLimitKind
 from .tools.contracts import UntrustedText, untrusted
 from .tools.record import RunContext
@@ -468,9 +469,6 @@ def _retrieved_summary(context: RunContext) -> str:
 
 # ---- failures ------------------------------------------------------------------------
 
-MAX_LISTED_REJECTIONS = 40
-"""Rejections a failure lists; the rest are counted."""
-
 _MALFORMED = {
     MalformedOutputReason.PROVIDER_REPORTED: "The provider reported output that does not fit "
     "the conversation contracts.",
@@ -484,6 +482,8 @@ _MALFORMED = {
     "contract after one repair attempt.",
     MalformedOutputReason.PROPOSAL_MIXED: "The structured answer was submitted together with "
     "other tool calls after one repair attempt.",
+    MalformedOutputReason.TOOL_NOT_OFFERED: "The repair response called a tool other than "
+    "submit_answer, the only tool offered.",
 }
 
 _LIMITS = {

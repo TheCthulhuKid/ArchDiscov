@@ -14,6 +14,8 @@ from archdiscov.models.validation_errors import validation_error
 
 from .conversation import Contract
 
+MAX_LISTED_REJECTIONS = 40
+
 
 class RejectionCode(StrEnum):
     SIDE_UNAVAILABLE = "answer_side_unavailable"

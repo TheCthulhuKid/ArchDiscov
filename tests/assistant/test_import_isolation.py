@@ -29,7 +29,7 @@ from pathlib import Path
 
 from archdiscov.assistant import config, conversation, fake, instructions, orchestrator, provider
 from archdiscov.assistant import answer_rendering, answer_results, answer_validation, answers
-from archdiscov.assistant import redaction
+from archdiscov.assistant import answer_service, redaction, repair
 from archdiscov.assistant import rejections, runs
 from archdiscov.assistant.tools import contracts as tool_contracts
 from archdiscov.assistant.tools import session as tool_session
@@ -86,6 +86,18 @@ rendered = answer_rendering.render_answer(
 assert rendered.narrative.summary == "Nothing applicable."
 failed = answer_results.AnswerOutcome(status="failed", failure="cancelled")
 assert answer_rendering.render_failure(session, failed).failure.reason == "cancelled"
+assert repair.NO_PROPOSAL
+twice = fake.FakeTranscript.model_validate(
+    {{"turns": [{{"kind": "respond", "response": reply}}] * 2}}
+)
+answered = answer_service.answer_question(
+    "q",
+    provider=fake.FakeProvider(twice),
+    session=tool_session.ToolSession.from_paths(Path({str(SNAPSHOT)!r})),
+    provider_kind="fake",
+    model="fake",
+)
+assert answered.outcome.failure == "no_proposal_after_repair"
 assert answer_results.final_outcome(
     run.outcome, (), repaired=True
 ).failure == answer_results.FailureReason.NO_PROPOSAL_AFTER_REPAIR

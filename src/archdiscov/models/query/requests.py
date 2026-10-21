@@ -30,9 +30,9 @@ class QueryPathsRequest(Model):
     resource_id: NonEmptyString
     options: QueryTraversalOptions = Field(default_factory=QueryTraversalOptions)
     limits: QueryPathLimits = Field(default_factory=QueryPathLimits)
+    # Resources paths must not enter, like cycle-rejected ones: candidates leading into them still
+    # cost work, but exclusion is never reported as truncation.
     exclude_resource_ids: list[NonEmptyString] = Field(default_factory=list)
-    """Resources paths must not enter, like cycle-rejected ones: candidates leading into
-    them still cost work, but exclusion is never reported as truncation."""
 
 
 class QueryInspectRequest(Model):

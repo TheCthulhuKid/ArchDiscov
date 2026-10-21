@@ -8,7 +8,6 @@ import pytest
 
 from archdiscov.assistant import answer_rendering
 from archdiscov.assistant.answer_rendering import (
-    MAX_LISTED_REJECTIONS,
     NOT_VALIDATED,
     RETRIEVED_NOT_ANSWER,
     render_failure,
@@ -23,7 +22,7 @@ from archdiscov.assistant.answer_validation import validate_proposal
 from archdiscov.assistant.fake import FakeProvider, FakeTranscript
 from archdiscov.assistant.orchestrator import run_assistant
 from archdiscov.assistant.provider import PROVIDER_ERROR_MESSAGES, ProviderErrorCode
-from archdiscov.assistant.rejections import RejectionCode, reject
+from archdiscov.assistant.rejections import MAX_LISTED_REJECTIONS, RejectionCode, reject
 from archdiscov.assistant.runs import MalformedOutputReason, Proposed, RunLimitKind
 from archdiscov.assistant.tools.contracts import ToolLimits
 from archdiscov.assistant.tools.session import ToolSession

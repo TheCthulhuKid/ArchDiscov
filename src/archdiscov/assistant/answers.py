@@ -131,7 +131,6 @@ class AcknowledgedLimitation(Contract):
     side: AnswerSide = AnswerSide.PRIMARY
     finding_id: CitedId
     limitation: LimitationCode
-    """One of the finding's limitation codes."""
 
 
 class AnswerContext(Contract):

@@ -96,7 +96,6 @@ class AnswerOutcome(Contract):
     status: AnswerStatus
     failure: FailureReason | None = None
     rejections: tuple[Rejection, ...] = ()
-    """The final proposal's rejections, for `rejected_after_repair`."""
     malformed: MalformedOutputReason | None = None
     provider_error: ProviderErrorCode | None = None
     limit: RunLimitKind | None = None
@@ -172,7 +171,6 @@ MAX_RENDERED_ENTRIES = 20
 MAX_STATEMENTS = 2 * 3 * MAX_CITED_IDS + 2 * MAX_RENDERED_ENTRIES + 2
 MAX_QUOTED = 3 * MAX_STATEMENTS
 MAX_RETRIEVED = 100
-"""Retrieved-finding conclusions a failure shows; further findings are counted."""
 MAX_UNVERIFIED = 50
 _REFERENCE = re.compile(r"\[(\d+)\]")
 

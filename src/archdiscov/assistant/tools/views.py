@@ -113,8 +113,8 @@ class ResourceView(Model):
     logical_address: UntrustedText | None
     name: UntrustedText | None
     tags: BoundedList[TagView]
+    # Terraform plan actions: planned changes, not deployed state.
     lifecycle_actions: tuple[LifecycleAction, ...] = ()
-    """Terraform plan actions: planned changes, not deployed state."""
 
 
 def resource_view(resource: Resource, tag_limit: int) -> ResourceView:
@@ -148,10 +148,10 @@ def _tag_value(value: JsonValue) -> UntrustedText:
 
 
 class AttributeView(Model):
+    # A resource-relative pointer, as in fact citations (`/cidr_blocks`, `/attributes/x`).
     key: UntrustedText
-    """A resource-relative pointer, as in fact citations (`/cidr_blocks`, `/attributes/x`)."""
+    # Compact JSON of the sanitized value.
     value: UntrustedText
-    """Compact JSON of the sanitized value."""
 
 
 # Shown elsewhere in the views, or structure rather than configuration.

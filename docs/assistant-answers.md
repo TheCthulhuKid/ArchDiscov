@@ -3,9 +3,9 @@
 This page describes the structured answer a model submits at the end of an
 [orchestrated run](assistant-orchestration.md), how it is validated against what the
 [tools](assistant-tools.md) returned, how its conclusions are written from records, and how
-a failed run is explained. No command uses this yet, and the only provider is the scripted
-fake: the readable and JSON renderings, the single repair attempt, the `ask` command, and
-real providers are later steps.
+a failed run is explained, and the answer service that repairs once and composes them. No
+command uses this yet, and the only provider is the scripted fake: the readable and JSON
+renderings, the `ask` command, and real providers are later steps.
 
 ## Boundary
 
@@ -164,3 +164,28 @@ holds:
 | `cancelled` | the cancellation |
 
 Declared and planned snapshots are qualified as they are in answers.
+
+## Repair and the answer service
+
+`answer_question_async(question, provider=, session=, provider_kind=, model=, limits=,
+registry=, clock=)` (`assistant/answer_service.py`) runs the
+[tool-calling loop](assistant-orchestration.md) with a repair callback, validates the
+proposal, and returns an `AnswerResult`: the `AnswerOutcome`, the `RenderedAnswer`, the
+transcript (repair turn included), and the IDs tools returned. `answer_question` runs it
+from synchronous code, refused inside a running event loop; cancelling the task raises
+`AnswerCancelled`, whose `result` explains the cancelled run.
+
+A repair is offered once, for a rejected proposal, a plain-text answer, or a malformed,
+invalid, or mixed `submit_answer` call; limits, provider errors, cancellation, and other
+malformed output fail without one. The prompt (`assistant/repair.py`) carries only fixed
+text:
+
+| Run ended with | Repair prompt |
+|---|---|
+| a rejected proposal | a tool result for the `submit_answer` call listing each rejection's code, location, and fixed message, up to `MAX_LISTED_REJECTIONS` with the rest counted |
+| a malformed, invalid, or mixed submission | a tool result with the reason and a fixed explanation; other calls in a mixed response are answered as not run |
+| a plain-text answer | a user message saying only that no proposal was submitted; the text is never quoted |
+
+The repaired proposal is validated again: valid is `answered_after_repair`, rejected is
+`rejected_after_repair`, and plain text is `no_proposal_after_repair`. The answer is then
+rendered from records, or the failure explained, as described above.
