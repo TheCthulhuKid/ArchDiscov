@@ -17,6 +17,8 @@ from archdiscov.assistant import fake as assistant_fake
 from archdiscov.assistant import instructions as assistant_instructions
 from archdiscov.assistant import rejections as assistant_rejections
 from archdiscov.assistant import runs as assistant_runs
+from archdiscov.assistant.config import ProviderConfigError, ProviderConfigErrorCode
+from archdiscov.assistant.fake import FakeScriptError, FakeScriptErrorCode
 from archdiscov.assistant.provider import (
     ProviderError,
     ProviderErrorCode,
@@ -26,6 +28,7 @@ from archdiscov.assistant.provider import (
 from archdiscov.assistant.tools import contracts as tool_contracts
 from archdiscov.assistant.tools.catalog import default_registry
 from archdiscov.cli import app
+from archdiscov.cli_diagnostics import assistant_exit_code
 from archdiscov.models.analysis.parameters import AnalyzerParameters
 from archdiscov.models.comparison.results import DEFAULT_RESULT_LIMIT, MAX_RESULT_LIMIT
 from archdiscov.models.enums import AnalysisStatus, AnalyzerKind
@@ -33,7 +36,7 @@ from archdiscov.models.query.parameters import QueryPathLimits
 from archdiscov.models.query.requests import QueryNeighboursRequest, QuerySearchRequest
 from archdiscov.services import DEFAULT_REGISTRY
 from archdiscov.services.ask import RunSummary
-from tests.cli.test_ask_cli import ENVELOPE
+from tests.cli.test_ask_cli import ENVELOPE, PRE_RUN_ERRORS
 from tests.documentation.markdown import DOC_FILES, code_blocks, table_rows
 from tests.paths import PROJECT_ROOT
 
@@ -452,15 +455,6 @@ def test_documented_answer_json_matches_the_contract():
     assert [row[0].strip("`") for row in answer] == list(answer_results.RenderedAnswer.model_fields)
 
 
-def test_documented_ask_json_matches_the_envelope():
-    rows = table_rows(ANSWERS_DOC, "| Envelope key | Holds")
-    assert [row[0].strip("`") for row in rows] == ENVELOPE
-    assert f"`{cli_ask_output.ASK_JSON_VERSION}`" in rows[0][1]
-    summary = dict((row[0].strip("`"), row[1]) for row in rows)["summary"]
-    for field in RunSummary.model_fields:
-        assert f"`{field}`" in summary, field
-
-
 def test_documented_rejections_match_the_codes():
     rows = table_rows(ANSWERS_DOC, "| Code | Check | Message")
     assert [row[0].strip("`") for row in rows] == [
@@ -500,6 +494,66 @@ def test_the_readme_links_answers_without_claiming_rendering():
     assert "the only provider with an adapter is the scripted fake" in " ".join(
         ANSWERS_DOC.read_text(encoding="utf-8").split()
     )
+
+
+# ---- ask command -------------------------------------------------------------------
+
+ASK_DOC = DOCS / "ask-command.md"
+# Raised while loading a fake transcript, before the run; the other codes are scripting errors.
+FAKE_LOAD_ERRORS = (
+    FakeScriptErrorCode.UNREADABLE,
+    FakeScriptErrorCode.TOO_LARGE,
+    FakeScriptErrorCode.INVALID,
+)
+
+
+def test_documented_ask_json_matches_the_envelope():
+    rows = table_rows(ASK_DOC, "| Envelope key | Holds")
+    assert [row[0].strip("`") for row in rows] == ENVELOPE
+    assert f"`{cli_ask_output.ASK_JSON_VERSION}`" in rows[0][1]
+    summary = dict((row[0].strip("`"), row[1]) for row in rows)["summary"]
+    for field in RunSummary.model_fields:
+        assert f"`{field}`" in summary, field
+
+
+def test_documented_ask_options_match_the_command():
+    rows = table_rows(ASK_DOC, "| Option | Required")
+    [command] = [
+        command for name, command in typer.main.get_command(app).commands.items() if name == "ask"
+    ]
+    params = {
+        next((opt for opt in param.opts if opt.startswith("--")), param.name.upper()): param
+        for param in command.params
+        if param.name != "help"
+    }
+    assert [row[0].strip("`") for row in rows] == list(params)
+    for name, required, _ in rows:
+        assert (required == "yes") == params[name.strip("`")].required, name
+    assert f"{assistant_conversation.MAX_TEXT_CHARS:,} characters (`MAX_TEXT_CHARS`)" in rows[0][2]
+
+
+def test_documented_ask_exit_codes_match_the_code():
+    rows = {int(row[0]): row[1] for row in table_rows(ASK_DOC, "| Exit code | When")}
+    codes = {answer_results.SUCCESS_EXIT_CODE, *answer_results.FAILURE_EXIT_CODES.values()}
+    assert set(rows) == codes | {1, 2, 3}
+    for status in answer_results.AnswerStatus:
+        if status != answer_results.AnswerStatus.FAILED:
+            assert f"`{status.value}`" in rows[answer_results.SUCCESS_EXIT_CODE], status
+    for reason, code in answer_results.FAILURE_EXIT_CODES.items():
+        assert f"`{reason.value}`" in rows[code], reason
+    errors = [*map(ProviderConfigError, ProviderConfigErrorCode)]
+    errors += [FakeScriptError(code) for code in FAKE_LOAD_ERRORS]
+    for error in errors:
+        assert f"`{error.code.value}`" in rows[assistant_exit_code(error)], error.code
+    for _, code, error in PRE_RUN_ERRORS:
+        assert f"`{error}`" in rows[code], error
+
+
+def test_the_readme_lists_and_links_the_ask_command():
+    text = README.read_text(encoding="utf-8")
+    assert "| `ask` |" in text and "docs/ask-command.md" in text
+    assert "tests/acceptance/test_installed_ask.py" in text
+    assert (PROJECT_ROOT / "tests/acceptance/test_installed_ask.py").is_file()
 
 
 # ---- commands ----------------------------------------------------------------------
@@ -557,7 +611,7 @@ def test_documented_command_options_exist(document):
         )
 
 
-def test_every_analysis_query_and_comparison_option_is_documented():
+def test_every_analysis_query_comparison_and_ask_option_is_documented():
     names = command_options()
     documented = "\n".join(
         block for path in DOC_FILES for block in code_blocks(path) if "archdiscov" in block
@@ -571,6 +625,7 @@ def test_every_analysis_query_and_comparison_option_is_documented():
         "query inspect",
         "query neighbours",
         "query paths",
+        "ask",
     ):
         for option in names[command] - {"--json"}:
             assert option in documented, (command, option)

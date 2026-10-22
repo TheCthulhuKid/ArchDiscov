@@ -4,7 +4,7 @@ This page describes the structured answer a model submits at the end of an
 [orchestrated run](assistant-orchestration.md), how it is validated against what the
 [tools](assistant-tools.md) returned, how its conclusions are written from records, and how
 a failed run is explained, the answer service that repairs once and composes them, and the
-readable and JSON renderings. The `ask` command presents them; the only provider with an
+readable and JSON renderings. The [`ask` command](ask-command.md) presents them; the only provider with an
 adapter is the scripted fake, and real providers are later steps.
 
 ## Boundary
@@ -273,42 +273,14 @@ transcript, snapshot, or saved comparison file is 1, and invalid configuration, 
 snapshots, or saved comparisons, including a provider kind without an adapter and a saved
 comparison of snapshots that were not selected (`result_snapshot_unselected`), are 2. A saved
 comparison's diagnostic names its own file. Once the run starts, everything is an
-answer outcome with the exit codes above.
+answer outcome with the exit codes above, except a fake scripting error (`FakeScriptError`,
+such as a transcript with no turn left), which is raised as a test failure, exits 2, and
+writes no transcript.
 
 ## The ask command
 
 `archdiscov ask QUESTION --snapshot PATH --config PATH [--compare PATH]
 [--comparison-result PATH ...] [--transcript PATH] [--json]` (`cli_ask.py`) is presentation
-over the ask service. It answers one question per run, with no chat or conversation memory.
-The provider comes only from `--config`; nothing falls back to the fake provider. Recorded
-differences need a saved comparison of the selected snapshots (made with `compare`), given
-with `--comparison-result`, because no tool compares snapshots itself.
-
-```sh
-archdiscov compare --left earlier.json --right current.json --output comparison.json
-archdiscov ask "What changed in ownership between the two snapshots?" \
-  --snapshot earlier.json --compare current.json --comparison-result comparison.json \
-  --config provider.toml
-archdiscov ask "Which resources are reachable from the internet?" \
-  --snapshot snapshot.json --config provider.toml --transcript run.json
-```
-
-The readable form shows the run summary first (the snapshot, comparison, and saved
-comparison paths, the provider kind and model, the limits, the provider requests and
-whether the repair was requested, the tool calls by name, the reported tokens, and the
-transcript path), then the answer as described under [Renderings](#renderings). The
-command exits with the answer outcome's exit code; errors before the run starts are safe diagnostics, as JSON with
-`--json`, with the exit codes of the ask service.
-
-With `--json`, the output is a versioned envelope:
-
-| Envelope key | Holds |
-|---|---|
-| `schema_version` | `1`; changes whenever the envelope's own shape does |
-| `snapshot_path` | the `--snapshot` path |
-| `comparison_path` | the `--compare` path, or `null` |
-| `comparison_result_paths` | the `--comparison-result` paths, in order; `[]` when none |
-| `config_path` | the `--config` path |
-| `transcript_path` | the `--transcript` path, or `null` |
-| `summary` | the `RunSummary`: `snapshots`, `provider_kind`, `model`, `limits`, and `usage` |
-| `result` | the answer JSON above (`answer_data`), with its own `schema_version` and `exit_code` |
+over the ask service: the run summary, then the renderings above. Its options, output, JSON
+envelope, configuration, transcripts, and exit codes are described in
+[the ask command](ask-command.md).

@@ -211,20 +211,24 @@ def _existing_transcript(tmp_path: Path) -> tuple[Path, list, dict]:
     return _answered(tmp_path), ["--transcript", existing], {}
 
 
+# Each case's exit code and diagnostic code; the command documentation lists them too.
+PRE_RUN_ERRORS = [
+    (_missing_config, 1, "provider_config_unreadable"),
+    (_invalid_config, 2, "provider_transcript_missing"),
+    (_no_adapter, 2, "provider_adapter_unavailable"),
+    (_blank_question, 2, "invalid_question"),
+    (_unknown_snapshot, 1, "snapshot_io_error"),
+    (_invalid_comparison, 2, "invalid_snapshot"),
+    (_missing_comparison_result, 1, "snapshot_io_error"),
+    (_invalid_comparison_result, 2, "invalid_comparison_result"),
+    (_unselected_comparison_result, 2, "result_snapshot_unselected"),
+    (_existing_transcript, 3, "snapshot_conflict"),
+]
+
+
 @pytest.mark.parametrize(
     ("case", "code", "error"),
-    [
-        (_missing_config, 1, "provider_config_unreadable"),
-        (_invalid_config, 2, "provider_transcript_missing"),
-        (_no_adapter, 2, "provider_adapter_unavailable"),
-        (_blank_question, 2, "invalid_question"),
-        (_unknown_snapshot, 1, "snapshot_io_error"),
-        (_invalid_comparison, 2, "invalid_snapshot"),
-        (_missing_comparison_result, 1, "snapshot_io_error"),
-        (_invalid_comparison_result, 2, "invalid_comparison_result"),
-        (_unselected_comparison_result, 2, "result_snapshot_unselected"),
-        (_existing_transcript, 3, "snapshot_conflict"),
-    ],
+    PRE_RUN_ERRORS,
     ids=lambda value: getattr(value, "__name__", str(value)).strip("_"),
 )
 @pytest.mark.parametrize("as_json", [False, True], ids=["readable", "json"])
