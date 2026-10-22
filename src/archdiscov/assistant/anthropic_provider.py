@@ -13,11 +13,20 @@ Messages API request and the response back to the shared contracts. The response
 untrusted: only text, tool-use, and reasoning blocks are mapped, and anything else is
 malformed output. Reasoning blocks must go back unchanged and in their original order, so
 a response holding them becomes a continuation of its whole content, replayed verbatim.
-Until the error mapping (step 40.4), any SDK error is `ProviderUnavailableError`.
+
+Failures map to typed provider errors by the SDK's exception classes, never by message text,
+and chain the SDK exception without copying its text. Only transport and rate-limit errors
+(including overload) are retried, up to `max_retries`, after a bounded exponential backoff
+or the server's `retry-after`, never longer than the request timeout.
 """
 
+import asyncio
+import json
 import logging
-from collections.abc import Callable, Iterable, Mapping
+import math
+import time
+from collections.abc import Awaitable, Callable, Iterable, Mapping
+from itertools import count
 from typing import Any
 
 import anthropic
@@ -48,12 +57,16 @@ from .conversation import (
 from .provider import (
     CompletionRequest,
     CompletionResponse,
+    ProviderAuthenticationError,
     ProviderCapabilities,
     ProviderCapability,
     ProviderError,
     ProviderInvalidRequestError,
     ProviderMalformedOutputError,
+    ProviderRateLimitError,
     ProviderRefusalError,
+    ProviderTimeoutError,
+    ProviderTransportError,
     ProviderTruncatedOutputError,
     ProviderUnavailableError,
     StopReason,
@@ -89,6 +102,31 @@ _STOP_REASONS: Mapping[str, StopReason] = {
     "model_context_window_exceeded": StopReason.LENGTH,
     "refusal": StopReason.REFUSAL,
 }
+# The provider error for each SDK failure, found through the failure's class hierarchy, so a
+# subclass (such as `APITimeoutError` of `APIConnectionError`) maps before its base.
+SDK_ERRORS: Mapping[type[Exception], type[ProviderError]] = {
+    anthropic.BadRequestError: ProviderInvalidRequestError,
+    anthropic.NotFoundError: ProviderInvalidRequestError,
+    anthropic.RequestTooLargeError: ProviderInvalidRequestError,
+    anthropic.UnprocessableEntityError: ProviderInvalidRequestError,
+    anthropic.AuthenticationError: ProviderAuthenticationError,
+    anthropic.PermissionDeniedError: ProviderAuthenticationError,
+    anthropic.RateLimitError: ProviderRateLimitError,
+    anthropic.OverloadedError: ProviderRateLimitError,
+    anthropic.InternalServerError: ProviderUnavailableError,
+    anthropic.ServiceUnavailableError: ProviderUnavailableError,
+    anthropic.DeadlineExceededError: ProviderUnavailableError,
+    anthropic.APIStatusError: ProviderInvalidRequestError,
+    anthropic.APITimeoutError: ProviderTimeoutError,
+    anthropic.APIConnectionError: ProviderTransportError,
+    anthropic.APIResponseValidationError: ProviderMalformedOutputError,
+    json.JSONDecodeError: ProviderMalformedOutputError,
+    anthropic.APIError: ProviderUnavailableError,
+}
+_SDK_FAILURES = (anthropic.APIError, json.JSONDecodeError)
+RETRY_BACKOFF_SECONDS = 0.5
+MAX_RETRY_WAIT_SECONDS = 30.0
+
 # These stops are usable only as text without tool calls; otherwise they are this error.
 _TEXT_ONLY_STOPS: Mapping[StopReason, type[ProviderError]] = {
     StopReason.LENGTH: ProviderTruncatedOutputError,
@@ -141,7 +179,8 @@ class AnthropicProvider:
     """A `Provider` over the Messages API, built from one configuration and its key.
 
     `transport` and `async_transport` replace the network transports, so tests can mock
-    the API; the guard wraps them as it wraps the real ones.
+    the API; the guard wraps them as it wraps the real ones. `sleep` and `async_sleep` wait
+    between retries.
     """
 
     def __init__(
@@ -151,9 +190,14 @@ class AnthropicProvider:
         *,
         transport: httpx2.BaseTransport | None = None,
         async_transport: httpx2.AsyncBaseTransport | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+        async_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         _quiet_sdk_loggers()
         self.model = config.model
+        self._max_retries = config.max_retries
+        self._sleep = sleep
+        self._async_sleep = async_sleep
         self._connect_timeout = config.connect_timeout_seconds
         self.base_url = DEFAULT_BASE_URL if config.endpoint is None else str(config.endpoint)
         timeout = httpx2.Timeout(
@@ -190,24 +234,34 @@ class AnthropicProvider:
     @property
     def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(
-            capabilities=frozenset({ProviderCapability.TOOL_CALLING, ProviderCapability.PARALLEL_TOOL_CALLS})
+            capabilities=frozenset(
+                {ProviderCapability.TOOL_CALLING, ProviderCapability.PARALLEL_TOOL_CALLS}
+            )
         )
 
     def complete(self, request: CompletionRequest) -> CompletionResponse:
         params = self._params(request)
-        try:
-            message = self._client.messages.create(**params)
-        except anthropic.APIError as error:
-            raise ProviderUnavailableError() from error
-        return _response(message)
+        # The last attempt's failure is raised by `_retry_wait`, which ends the loop.
+        for attempt in count():
+            try:
+                return _response(self._client.messages.create(**params))
+            except _SDK_FAILURES as error:
+                self._sleep(self._retry_wait(error, attempt, request))
 
     async def complete_async(self, request: CompletionRequest) -> CompletionResponse:
         params = self._params(request)
-        try:
-            message = await self._async_client.messages.create(**params)
-        except anthropic.APIError as error:
-            raise ProviderUnavailableError() from error
-        return _response(message)
+        for attempt in count():
+            try:
+                return _response(await self._async_client.messages.create(**params))
+            except _SDK_FAILURES as error:
+                await self._async_sleep(self._retry_wait(error, attempt, request))
+
+    def _retry_wait(self, error: Exception, attempt: int, request: CompletionRequest) -> float:
+        """Seconds to wait before the next attempt; raises the provider error when final."""
+        failure = provider_error(error)
+        if not failure.retryable or attempt >= self._max_retries:
+            raise failure from error
+        return retry_wait(error, attempt, request.limits.timeout_seconds)
 
     def _params(self, request: CompletionRequest) -> dict[str, Any]:
         """The `messages.create` arguments for one request; no sampling or forced tool choice."""
@@ -234,6 +288,33 @@ class AnthropicProvider:
                 type="auto", disable_parallel_tool_use=limits.max_tool_calls_per_turn == 1
             )
         return params
+
+
+# ---- failures -------------------------------------------------------------------------
+
+
+def provider_error(error: Exception) -> ProviderError:
+    """The typed, fixed-message error for an SDK failure."""
+    return next(SDK_ERRORS[cls] for cls in type(error).__mro__ if cls in SDK_ERRORS)()
+
+
+def retry_wait(error: Exception, attempt: int, timeout_seconds: float) -> float:
+    """The server's `retry-after`, else exponential backoff, capped by the request timeout."""
+    wait = _retry_after(error)
+    if wait is None:
+        wait = RETRY_BACKOFF_SECONDS * 2**attempt
+    return min(wait, MAX_RETRY_WAIT_SECONDS, timeout_seconds)
+
+
+def _retry_after(error: Exception) -> float | None:
+    """`retry-after` in seconds, when the response sent a usable one."""
+    response = getattr(error, "response", None)
+    value = None if response is None else response.headers.get("retry-after")
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return None
+    return seconds if math.isfinite(seconds) and seconds >= 0 else None
 
 
 # ---- requests -------------------------------------------------------------------------

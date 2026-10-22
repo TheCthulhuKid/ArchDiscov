@@ -242,6 +242,17 @@ def test_documented_anthropic_stop_reasons_match_the_adapter():
         assert f"`{anthropic_provider._STOP_REASONS[reason].value}`" in row[1], reason
 
 
+def test_documented_anthropic_failures_match_the_adapter():
+    rows = table_rows(PROVIDERS_DOC, "| SDK exception | Status")
+    documented = {row[0].strip("`"): row[2].strip("`") for row in rows}
+    assert documented == {
+        cls.__name__: error.code.value for cls, error in anthropic_provider.SDK_ERRORS.items()
+    }
+    text = " ".join(PROVIDERS_DOC.read_text(encoding="utf-8").split())
+    assert f"`RETRY_BACKOFF_SECONDS` ({anthropic_provider.RETRY_BACKOFF_SECONDS:g})" in text
+    assert f"`MAX_RETRY_WAIT_SECONDS` ({anthropic_provider.MAX_RETRY_WAIT_SECONDS:g})" in text
+
+
 def test_documented_request_limits_match_the_model():
     rows = table_rows(PROVIDERS_DOC, "| Request limit")
     assert [row[0].strip("`") for row in rows] == list(RequestLimits.model_fields)
@@ -286,7 +297,7 @@ def test_the_readme_links_the_provider_contracts_without_claiming_real_providers
     for claim in ("Anthropic adapter is implemented", "OpenAI-compatible adapter is implemented"):
         assert claim not in text
     provider_doc = PROVIDERS_DOC.read_text(encoding="utf-8")
-    assert "whose error mapping and retries are still being added" in " ".join(provider_doc.split())
+    assert "the other kinds have no adapter yet" in " ".join(provider_doc.split())
 
 
 # ---- assistant tools ---------------------------------------------------------------

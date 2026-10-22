@@ -6,7 +6,7 @@ format: the fake replays them directly, and each real adapter (steps 40-42) adds
 harness that turns them into mocked transport responses for its mapping layer.
 """
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any, Protocol
 
 import httpx2
@@ -26,14 +26,13 @@ from archdiscov.assistant.provider import (
     CompletionResponse,
     Provider,
     ProviderCapabilities,
+    ProviderErrorCode,
     StopReason,
 )
 
 
 class ProviderHarness(Protocol):
     name: str
-    # False until the adapter maps provider errors, retries, and timeouts (step 40.4).
-    maps_errors: bool
 
     def build(
         self,
@@ -48,7 +47,6 @@ class ProviderHarness(Protocol):
 
 class FakeHarness:
     name = "fake"
-    maps_errors = True
 
     def build(
         self,
@@ -69,14 +67,18 @@ class FakeHarness:
         return len(provider.requests)
 
 
+type Served = httpx2.Response | Exception | Callable[[httpx2.Request], httpx2.Response]
+
+
 class MockApi(httpx2.MockTransport):
     """A mocked API: answers each request with the next response, and keeps the requests.
 
-    A response may be an exception, raised as the transport would. A `DelayedResponse` whose
-    delay exceeds the request's read timeout is a read timeout.
+    A response may be a function of the request, or an exception, raised as the transport
+    would. A `DelayedResponse` whose delay exceeds the request's read timeout is a read
+    timeout.
     """
 
-    def __init__(self, responses: Sequence[httpx2.Response | Exception]) -> None:
+    def __init__(self, responses: Sequence[Served]) -> None:
         self.requests: list[httpx2.Request] = []
         self._responses = list(responses)
         super().__init__(self._handle)
@@ -84,6 +86,8 @@ class MockApi(httpx2.MockTransport):
     def _handle(self, request: httpx2.Request) -> httpx2.Response:
         self.requests.append(request)
         response = self._responses.pop(0)
+        if callable(response):
+            response = response(request)
         if isinstance(response, Exception):
             raise response
         if getattr(response, "delay", 0.0) > request.extensions["timeout"]["read"]:
@@ -165,11 +169,57 @@ class _ScopedAnthropicProvider(AnthropicProvider):
         return self._capabilities
 
 
+def _status(status: int, error_type: str) -> Callable[[httpx2.Request], httpx2.Response]:
+    """An API error whose message echoes the request, so a leak of it would show."""
+
+    def respond(request: httpx2.Request) -> httpx2.Response:
+        error = {"type": error_type, "message": f"Rejected: {request.content.decode()}"}
+        return httpx2.Response(status, json={"type": "error", "error": error})
+
+    return respond
+
+
+def _transport(error: type[httpx2.TransportError]) -> Callable[[httpx2.Request], Exception]:
+    return lambda request: error("scripted transport failure", request=request)
+
+
+def _cut_short(stop: str) -> Callable[[httpx2.Request], httpx2.Response]:
+    return lambda request: httpx2.Response(
+        200, json={**messages_body(_EMPTY), "content": [], "stop_reason": stop}
+    )
+
+
+_EMPTY = CompletionResponse.model_validate(
+    {"message": {"role": "assistant", "text": "-"}, "stop_reason": "end"}
+)
+# How the Messages API shows each scripted provider error.
+_FAILURES: dict[ProviderErrorCode, Callable[[httpx2.Request], Any]] = {
+    ProviderErrorCode.AUTHENTICATION: _status(401, "authentication_error"),
+    ProviderErrorCode.RATE_LIMIT: _status(429, "rate_limit_error"),
+    ProviderErrorCode.TIMEOUT: _transport(httpx2.ReadTimeout),
+    ProviderErrorCode.TRANSPORT: _transport(httpx2.ConnectError),
+    ProviderErrorCode.INVALID_REQUEST: _status(400, "invalid_request_error"),
+    ProviderErrorCode.MALFORMED_OUTPUT: lambda request: httpx2.Response(
+        200, content=b"{not json", headers={"content-type": "application/json"}
+    ),
+    ProviderErrorCode.TRUNCATED_OUTPUT: _cut_short("max_tokens"),
+    ProviderErrorCode.REFUSAL: _cut_short("refusal"),
+    ProviderErrorCode.UNAVAILABLE: _status(503, "api_error"),
+}
+
+
+def _no_wait(seconds: float) -> None:
+    """Retries in the suite do not wait; the adapter tests check the waits."""
+
+
+async def _no_wait_async(seconds: float) -> None:
+    """Retries in the suite do not wait; the adapter tests check the waits."""
+
+
 class AnthropicHarness:
     """The Anthropic adapter over a mocked Messages API that serves the scripted turns."""
 
     name = "anthropic"
-    maps_errors = False
 
     def __init__(self) -> None:
         self._apis: dict[Provider, MockApi] = {}
@@ -191,7 +241,12 @@ class AnthropicHarness:
                 "max_retries": max_retries,
             }
         )
-        options: dict[str, Any] = {"transport": api, "async_transport": api}
+        options: dict[str, Any] = {
+            "transport": api,
+            "async_transport": api,
+            "sleep": _no_wait,
+            "async_sleep": _no_wait_async,
+        }
         provider = (
             AnthropicProvider(config, ANTHROPIC_KEY, **options)
             if capabilities is None
@@ -203,10 +258,10 @@ class AnthropicHarness:
         return provider
 
     @staticmethod
-    def _served(turn: Any) -> httpx2.Response:
-        if not isinstance(turn, FakeRespond):
-            raise NotImplementedError("scripted provider errors arrive with step 40.4")
-        return DelayedResponse(turn.delay_seconds, json=messages_body(turn.response))
+    def _served(turn: Any) -> Served:
+        if isinstance(turn, FakeRespond):
+            return DelayedResponse(turn.delay_seconds, json=messages_body(turn.response))
+        return _FAILURES[turn.error]
 
     def attempts(self, provider: Provider) -> int:
         return len(self._apis[provider].requests)

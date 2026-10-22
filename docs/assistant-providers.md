@@ -4,9 +4,9 @@ This page describes the provider-neutral layer under `src/archdiscov/assistant/`
 conversation and tool-call contracts, provider errors and capabilities, the `Provider`
 protocol, provider configuration, and the scripted fake provider used to test everything
 above it. The `ask` command builds its provider from a configuration file: the fake or the
-[Anthropic adapter](#anthropic-adapter), whose error mapping and retries are still being
-added; the other kinds have no adapter yet. The [assistant tools](assistant-tools.md), [orchestration](assistant-orchestration.md),
-and [answers](assistant-answers.md) build on this layer. Only an adapter module imports a
+[Anthropic adapter](#anthropic-adapter); the other kinds have no adapter yet. The
+[assistant tools](assistant-tools.md), [orchestration](assistant-orchestration.md), and
+[answers](assistant-answers.md) build on this layer. Only an adapter module imports a
 vendor SDK, and only when its kind is built.
 
 ## Conversation contracts
@@ -191,16 +191,15 @@ makes no request. The client comes only from the configuration:
   sets the configured key, so `ANTHROPIC_CUSTOM_HEADERS` cannot add headers or replace the
   credential. A client with its own transport uses no environment proxy.
 - Redirects are not followed, the SDK's own retries are off (`max_retries = 0`; the
-  adapter's retries arrive with its error mapping), and the timeouts are
-  `connect_timeout_seconds` and `request_timeout_seconds`.
+  adapter retries, as described under [failures](#failures-and-retries)), and the timeouts
+  are `connect_timeout_seconds` and `request_timeout_seconds`.
 - OpenTelemetry spans are off, and the `anthropic` and `httpx2` loggers are held at
   `WARNING` whatever `ANTHROPIC_LOG` or the root level says, because their debug records
   hold request bodies.
 
 The adapter declares tool calling and parallel tool calls without asking the API, since
 every Messages API model supports tool use; a model the API does not know is refused by its
-response. Until the error mapping and retries are added, any API or connection error is
-`provider_unavailable`.
+response, as `provider_invalid_request`.
 
 Each request becomes one `messages.create` call:
 
@@ -235,6 +234,40 @@ unchanged and in their original order. A response holding them keeps its whole c
 order, as an `anthropic` continuation, and the next request replays that content verbatim;
 a response without them is rebuilt from its text and tool calls. A continuation from
 another provider kind is refused as `provider_invalid_request` before anything is sent.
+
+#### Failures and retries
+
+A failure maps to a provider error by the SDK's exception class, never by message text,
+through the class hierarchy, so a subclass maps before its base. The error has its fixed
+message and chains the SDK exception for local debugging, copying none of its text,
+headers, or request ID.
+
+| SDK exception | Status | Provider error |
+|---|---|---|
+| `BadRequestError` | 400 | `provider_invalid_request` |
+| `NotFoundError` | 404, such as an unknown model | `provider_invalid_request` |
+| `RequestTooLargeError` | 413 | `provider_invalid_request` |
+| `UnprocessableEntityError` | 422 | `provider_invalid_request` |
+| `AuthenticationError` | 401 | `provider_authentication` |
+| `PermissionDeniedError` | 403 | `provider_authentication` |
+| `RateLimitError` | 429 | `provider_rate_limit` |
+| `OverloadedError` | 529 | `provider_rate_limit` |
+| `InternalServerError` | other 5xx | `provider_unavailable` |
+| `ServiceUnavailableError` | 503 | `provider_unavailable` |
+| `DeadlineExceededError` | 504 | `provider_unavailable` |
+| `APIStatusError` | any other status, such as a redirect | `provider_invalid_request` |
+| `APITimeoutError` | none: the request timed out | `provider_timeout` |
+| `APIConnectionError` | none: the API could not be reached | `provider_transport` |
+| `APIResponseValidationError` | a response that does not fit the SDK | `provider_malformed_output` |
+| `JSONDecodeError` | a success body that is not JSON | `provider_malformed_output` |
+| `APIError` | any other SDK failure | `provider_unavailable` |
+
+Only transport and rate-limit errors, overload included, are retried, up to the
+configuration's `max_retries`, and a timeout never is. Before each retry the adapter waits
+the response's `retry-after` seconds, or else `RETRY_BACKOFF_SECONDS` (0.5) doubled for each
+earlier retry, never longer than `MAX_RETRY_WAIT_SECONDS` (30) or the request timeout. The
+wait goes through an injected sleep, so tests never wait. Retries and waits count toward
+the request's deadline in the [orchestrator](assistant-orchestration.md#limits).
 
 ### Credentials
 

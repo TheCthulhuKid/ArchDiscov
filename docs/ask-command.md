@@ -10,9 +10,10 @@ instead. Each run is one question: there is no chat or conversation memory.
 The scripted fake replays a transcript and needs no credentials or network. An
 `anthropic` configuration answers through the
 [Anthropic adapter](assistant-providers.md#anthropic-adapter) with the key its
-`api_key_env` names; until its error mapping is added, any API or connection error ends the
-run as `provider_error` (6) with `provider_unavailable`. The other real kinds are accepted in
-configuration but fail before the run with `provider_adapter_unavailable`.
+`api_key_env` names; an API or connection error ends the run as `provider_error` (6) with
+the [provider error](assistant-providers.md#failures-and-retries) it maps to, after any
+retries. The other real kinds are accepted in configuration but fail before the run with
+`provider_adapter_unavailable`.
 
 ## Usage
 

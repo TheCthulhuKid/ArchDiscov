@@ -9,12 +9,19 @@ import logging
 from pathlib import Path
 from typing import Any
 
+import anthropic
 import httpx2
 import pytest
 from pydantic import SecretStr
 
 from archdiscov.assistant import anthropic_provider
-from archdiscov.assistant.anthropic_provider import DEFAULT_BASE_URL, AnthropicProvider
+from archdiscov.assistant.anthropic_provider import (
+    DEFAULT_BASE_URL,
+    MAX_RETRY_WAIT_SECONDS,
+    RETRY_BACKOFF_SECONDS,
+    SDK_ERRORS,
+    AnthropicProvider,
+)
 from archdiscov.assistant.config import (
     ProviderConfigError,
     ProviderConfigErrorCode,
@@ -33,11 +40,15 @@ from archdiscov.assistant.orchestrator import run_assistant
 from archdiscov.assistant.provider import (
     CompletionRequest,
     CompletionResponse,
+    ProviderAuthenticationError,
     ProviderCapability,
     ProviderError,
     ProviderInvalidRequestError,
     ProviderMalformedOutputError,
+    ProviderRateLimitError,
     ProviderRefusalError,
+    ProviderTimeoutError,
+    ProviderTransportError,
     ProviderTruncatedOutputError,
     ProviderUnavailableError,
     RequestLimits,
@@ -100,10 +111,34 @@ def _api(*bodies: dict) -> MockApi:
     return MockApi([httpx2.Response(200, json=body) for body in bodies])
 
 
-def _provider(api: MockApi, endpoint: str | None = ENDPOINT) -> AnthropicProvider:
-    data = ANTHROPIC if endpoint is None else {**ANTHROPIC, "endpoint": endpoint}
+class Waits(list):
+    """The waits between retries, recorded instead of slept."""
+
+    def sleep(self, seconds: float) -> None:
+        self.append(seconds)
+
+    async def sleep_async(self, seconds: float) -> None:
+        self.append(seconds)
+
+
+def _provider(
+    api: MockApi,
+    endpoint: str | None = ENDPOINT,
+    *,
+    max_retries: int = 0,
+    waits: Waits | None = None,
+) -> AnthropicProvider:
+    data = {**ANTHROPIC, "max_retries": max_retries}
+    if endpoint is not None:
+        data["endpoint"] = endpoint
+    waits = Waits() if waits is None else waits
     return AnthropicProvider(
-        parse_provider_config(data), SecretStr(SECRET), transport=api, async_transport=api
+        parse_provider_config(data),
+        SecretStr(SECRET),
+        transport=api,
+        async_transport=api,
+        sleep=waits.sleep,
+        async_sleep=waits.sleep_async,
     )
 
 
@@ -196,7 +231,7 @@ def test_only_the_configuration_chooses_the_target_and_credential(
 def test_redirects_are_not_followed() -> None:
     elsewhere = httpx2.Response(307, headers={"location": "https://elsewhere.example.com/v1"})
     api = MockApi([elsewhere])
-    with pytest.raises(ProviderUnavailableError):
+    with pytest.raises(ProviderInvalidRequestError):
         _send(_provider(api))
     assert [request.url.host for request in api.requests] == ["gateway.example.com"]
 
@@ -517,3 +552,131 @@ def test_another_providers_continuation_is_never_sent() -> None:
     with pytest.raises(ProviderInvalidRequestError):
         _send(_provider(api), request=_request(foreign, {"role": "user", "text": "Go on."}))
     assert api.requests == []
+
+
+# ---- failures ----------------------------------------------------------------------
+
+
+def _error(status: int, headers: dict | None = None) -> httpx2.Response:
+    """An API error whose message holds the key, a tool result, and the question."""
+    message = f"{SECRET} tool result: db-a reachable; question: {QUESTION}"
+    body = {"type": "error", "error": {"type": "api_error", "message": message}}
+    return httpx2.Response(status, json=body, headers=headers)
+
+
+@pytest.mark.parametrize(
+    ("status", "error"),
+    [
+        (400, ProviderInvalidRequestError),
+        (401, ProviderAuthenticationError),
+        (403, ProviderAuthenticationError),
+        (404, ProviderInvalidRequestError),
+        (409, ProviderInvalidRequestError),
+        (413, ProviderInvalidRequestError),
+        (422, ProviderInvalidRequestError),
+        (429, ProviderRateLimitError),
+        (500, ProviderUnavailableError),
+        (502, ProviderUnavailableError),
+        (503, ProviderUnavailableError),
+        (504, ProviderUnavailableError),
+        (529, ProviderRateLimitError),
+    ],
+)
+def test_statuses_map_to_fixed_safe_errors(caplog, status: int, error) -> None:
+    caplog.set_level(logging.DEBUG)
+    with pytest.raises(ProviderError) as raised:
+        _send(_provider(MockApi([_error(status)])))
+    assert type(raised.value) is error
+    assert raised.value.retryable is (error is ProviderRateLimitError)
+    rendered = "".join(_renderings(raised.value)) + caplog.text
+    for leaked in (SECRET, QUESTION, "db-a reachable"):
+        assert leaked not in rendered
+
+
+@pytest.mark.parametrize(
+    ("served", "error"),
+    [
+        (lambda request: httpx2.ReadTimeout("slow", request=request), ProviderTimeoutError),
+        (lambda request: httpx2.ConnectError("refused", request=request), ProviderTransportError),
+        (
+            lambda request: httpx2.Response(
+                200, content=b"{not json", headers={"content-type": "application/json"}
+            ),
+            ProviderMalformedOutputError,
+        ),
+    ],
+    ids=["timeout", "connection", "unparseable"],
+)
+@pytest.mark.parametrize("mode", ["sync", "async"])
+def test_transport_failures_map_to_typed_errors(served, error, mode: str) -> None:
+    with pytest.raises(error):
+        _send(_provider(MockApi([served])), mode)
+
+
+def test_every_sdk_failure_class_has_a_provider_error() -> None:
+    sdk = {
+        cls
+        for cls in vars(anthropic).values()
+        if isinstance(cls, type) and issubclass(cls, anthropic.APIError)
+    }
+    for cls in sdk:
+        assert any(base in SDK_ERRORS for base in cls.__mro__), cls
+
+
+@pytest.mark.parametrize("mode", ["sync", "async"])
+@pytest.mark.parametrize("status", [429, 529])
+def test_rate_limits_are_retried_with_exponential_backoff(mode: str, status: int) -> None:
+    waits = Waits()
+    api = MockApi([_error(status), _error(status), httpx2.Response(200, json=_body(TEXT))])
+    response = _send(_provider(api, max_retries=2, waits=waits), mode)
+    assert response.message.text == TEXT["text"]
+    assert len(api.requests) == 3
+    assert waits == [RETRY_BACKOFF_SECONDS, RETRY_BACKOFF_SECONDS * 2]
+
+
+@pytest.mark.parametrize("mode", ["sync", "async"])
+def test_retries_stop_at_the_configured_count(mode: str) -> None:
+    waits = Waits()
+    api = MockApi([lambda request: httpx2.ConnectError("refused", request=request)] * 3)
+    with pytest.raises(ProviderTransportError):
+        _send(_provider(api, max_retries=2, waits=waits), mode)
+    assert len(api.requests) == 3 and len(waits) == 2
+
+
+@pytest.mark.parametrize(
+    "served",
+    [
+        _error(503),
+        _error(400),
+        lambda request: httpx2.ReadTimeout("slow", request=request),
+    ],
+    ids=["unavailable", "invalid-request", "timeout"],
+)
+def test_other_failures_are_never_retried(served) -> None:
+    waits = Waits()
+    api = MockApi([served, httpx2.Response(200, json=_body(TEXT))])
+    with pytest.raises(ProviderError):
+        _send(_provider(api, max_retries=3, waits=waits))
+    assert len(api.requests) == 1 and waits == []
+
+
+@pytest.mark.parametrize(
+    ("retry_after", "timeout", "wait"),
+    [
+        ("2", 60, 2.0),
+        ("0", 60, 0.0),
+        ("20", 10, 10.0),
+        ("120", 60, MAX_RETRY_WAIT_SECONDS),
+        ("soon", 60, RETRY_BACKOFF_SECONDS),
+        ("-1", 60, RETRY_BACKOFF_SECONDS),
+        ("nan", 60, RETRY_BACKOFF_SECONDS),
+    ],
+    ids=["honoured", "immediate", "request-timeout", "capped", "not-a-number", "negative", "nan"],
+)
+def test_retry_after_is_honoured_within_bounds(retry_after: str, timeout: int, wait) -> None:
+    waits = Waits()
+    api = MockApi(
+        [_error(429, {"retry-after": retry_after}), httpx2.Response(200, json=_body(TEXT))]
+    )
+    _send(_provider(api, max_retries=1, waits=waits), request=_request(timeout_seconds=timeout))
+    assert waits == [wait]
