@@ -10,10 +10,14 @@ from typing import Any, NoReturn
 import typer
 from pydantic import BaseModel
 
+from .assistant.config import ProviderConfigError, ProviderConfigErrorCode
+from .assistant.fake import FakeScriptError, FakeScriptErrorCode
+from .assistant.tools.session import ToolSessionError
 from .services import (
     AnalysisValidationError,
     AnalyzerError,
     EvidenceNotFoundError,
+    InvalidQuestionError,
     SnapshotConflictError,
     SnapshotError,
     SnapshotIOError,
@@ -99,3 +103,36 @@ def safe_failures(snapshot_path: Path, as_json: bool) -> Iterator[None]:
         fail_snapshot_error(error, as_json)
     except (AnalyzerError, AnalysisValidationError) as error:
         fail_analysis_error(error, as_json)
+
+
+# An unreadable file is an I/O error; every other configuration or script error is invalid input.
+_UNREADABLE = {ProviderConfigErrorCode.UNREADABLE, FakeScriptErrorCode.UNREADABLE}
+
+
+def assistant_exit_code(error: ProviderConfigError | FakeScriptError) -> int:
+    return 1 if error.code in _UNREADABLE else 2
+
+
+def fail_assistant_error(error: ProviderConfigError | FakeScriptError, as_json: bool) -> NoReturn:
+    """Print a safe provider-configuration or fake-script diagnostic and exit."""
+    diagnostic = _diagnostic(error.code.value, str(error), error.path, error.details or None)
+    for name in ("variable", "kind"):
+        if (value := getattr(error, name, None)) is not None:
+            diagnostic[name] = str(value)
+    print_error(diagnostic, as_json=as_json)
+    raise typer.Exit(assistant_exit_code(error))
+
+
+@contextmanager
+def safe_assistant_failures(snapshot_path: Path, as_json: bool) -> Iterator[None]:
+    """`safe_failures`, plus question, session, provider-configuration, and script failures."""
+    with safe_failures(snapshot_path, as_json):
+        try:
+            yield
+        except (ProviderConfigError, FakeScriptError) as error:
+            fail_assistant_error(error, as_json)
+        except (InvalidQuestionError, ToolSessionError) as error:
+            print_error(
+                _diagnostic(error.code, str(error), getattr(error, "path", None)), as_json=as_json
+            )
+            raise typer.Exit(2) from None

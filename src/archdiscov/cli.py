@@ -8,6 +8,7 @@ import typer
 from pydantic import ValidationError
 
 from archdiscov.cli_analysis import analyze, findings
+from archdiscov.cli_ask import ask
 from archdiscov.cli_collection import collection_request, outcome_data, print_outcomes
 from archdiscov.cli_comparison import compare, comparison
 from archdiscov.cli_diagnostics import emit_model, print_error, snapshot_exit_code
@@ -38,6 +39,7 @@ app.command()(analyze)
 app.command()(findings)
 app.command()(compare)
 app.command()(comparison)
+app.command()(ask)
 
 
 @app.callback(invoke_without_command=True)

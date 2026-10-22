@@ -1,11 +1,11 @@
 # Assistant tools
 
-This page describes the bounded, typed tools under `src/archdiscov/assistant/tools/` that a
-future assistant will call. The tools call the same query and analysis services as the
+This page describes the bounded, typed tools under `src/archdiscov/assistant/tools/` that the
+assistant calls. The tools call the same query and analysis services as the
 CLI, over data the user selected, and return allowlisted views with explicit truncation.
-No command uses them yet: the [tool-calling loop](assistant-orchestration.md) exists, while
-answer validation and the `ask` command are later steps, and the only provider is the scripted fake described in
-[assistant provider contracts](assistant-providers.md).
+The `ask` command offers them to the model through the
+[tool-calling loop](assistant-orchestration.md), and the only provider is the scripted fake
+described in [assistant provider contracts](assistant-providers.md).
 
 ## Tool set
 
@@ -47,7 +47,8 @@ A `ToolSession` is created from user input only: one snapshot, optionally a seco
 comparisons, and any saved analysis results and comparisons. Each snapshot is indexed once.
 Each saved result is verified against the selected snapshot it names when the session is
 created; a tampered result fails with the existing safe validation error, and a result for
-an unselected snapshot is rejected. The model reads saved results by their number in
+an unselected snapshot is rejected (`ToolSessionError`, code `result_snapshot_unselected`).
+`ToolSession.from_paths` names the failing file for a saved comparison in either case. The model reads saved results by their number in
 `list_saved_results`, and gets `tool_unavailable` when none were selected.
 
 ## Limits and truncation

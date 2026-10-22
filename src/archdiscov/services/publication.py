@@ -28,6 +28,25 @@ def render_json(model: BaseModel) -> str:
     return text
 
 
+def _unwritable(path: Path, *, subject: str) -> SnapshotIOError:
+    return SnapshotIOError(
+        f"Unable to save {subject}; check the parent directory, write permissions, "
+        "and filesystem hard-link support.",
+        path=path,
+    )
+
+
+def require_new_path(path: Path, *, subject: str) -> None:
+    """Refuse a destination `publish_text` would refuse, before any work is done for it.
+
+    Publication still makes the atomic check; this only fails early and cheaply.
+    """
+    if os.path.lexists(path):
+        raise SnapshotConflictError(path)
+    if not path.parent.is_dir():
+        raise _unwritable(path, subject=subject)
+
+
 def publish_text(text: str, path: Path, *, subject: str) -> Path:
     """Atomically publish text at a new path; never overwrite an existing destination."""
     temporary_path: Path | None = None
@@ -52,11 +71,7 @@ def publish_text(text: str, path: Path, *, subject: str) -> Path:
             raise SnapshotConflictError(path) from exc
         committed = True
     except OSError as exc:
-        raise SnapshotIOError(
-            f"Unable to save {subject}; check the parent directory, write permissions, "
-            "and filesystem hard-link support.",
-            path=path,
-        ) from exc
+        raise _unwritable(path, subject=subject) from exc
     finally:
         if temporary_path is not None:
             try:

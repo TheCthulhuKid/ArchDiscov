@@ -4,8 +4,8 @@ This page describes the structured answer a model submits at the end of an
 [orchestrated run](assistant-orchestration.md), how it is validated against what the
 [tools](assistant-tools.md) returned, how its conclusions are written from records, and how
 a failed run is explained, the answer service that repairs once and composes them, and the
-readable and JSON renderings. No command uses this yet, and the only provider is the
-scripted fake: the `ask` command and real providers are later steps.
+readable and JSON renderings. The [`ask` command](ask-command.md) presents them; the only provider with an
+adapter is the scripted fake, and real providers are later steps.
 
 ## Boundary
 
@@ -214,7 +214,7 @@ described above, built from the run record alone.
 ## Renderings
 
 `src/archdiscov/cli_answer_output.py` presents a `RenderedAnswer` in the style of the other
-CLI output modules, for the `ask` command to use. Both forms come from the rendered answer
+CLI output modules, and the `ask` command uses it. Both forms come from the rendered answer
 alone, every string is redacted of secret-looking text on the way out, and readable lines
 lose control characters such as terminal escapes.
 
@@ -245,3 +245,42 @@ The JSON form (`answer_data`) is a contract:
 | `qualifications` | answer-wide fixed statements |
 | `narrative` | the model's `summary` and `explanation`, marked `"source": "model"` |
 | `failure` | for failures: the reason, the `retrieved` conclusions, and the `unverified` statements |
+
+## The ask service
+
+`ask_question(question, snapshot_path=, config_path=, comparison_path=,
+comparison_result_paths=)` in `services/ask.py` (with `ask_question_async`) is what the
+`ask` command calls. It refuses an empty, blank, or oversized question as
+`invalid_question` (2) before anything else, then builds the provider from the
+configuration before reading any snapshot, loads the snapshots and any saved comparisons
+of them into a tool session, takes the run limits from the configuration, and runs the
+answer service. Its `AskResult` holds the `AnswerResult` and a `RunSummary`: each
+snapshot as rendered, the provider kind and model, the limits, and the tool usage from the
+transcript (provider requests, tool calls by name, whether the repair was requested, and
+token usage). Cancelling raises `AskCancelled`, whose `result` explains the cancelled run;
+the synchronous `ask_question` turns an interrupt (Ctrl-C) into the same `AskCancelled`.
+
+With `transcript_path=`, the service publishes the run's `RunTranscript` JSON (already
+redacted and bounded) at that path, atomically and never overwriting. Before the run starts,
+and so before any provider request, it refuses an existing path, including a dangling symlink,
+as `snapshot_conflict` (3) and a path whose parent directory is missing as `snapshot_io_error`
+(1). Every run that starts writes its transcript, failed and cancelled runs included; a run
+that never starts writes none. If saving fails after the run, the save error is raised, except
+on cancellation, where it is logged so the cancellation still propagates.
+
+Errors before the run starts keep the existing CLI codes: an unreadable configuration,
+transcript, snapshot, or saved comparison file is 1, and invalid configuration, transcripts,
+snapshots, or saved comparisons, including a provider kind without an adapter and a saved
+comparison of snapshots that were not selected (`result_snapshot_unselected`), are 2. A saved
+comparison's diagnostic names its own file. Once the run starts, everything is an
+answer outcome with the exit codes above, except a fake scripting error (`FakeScriptError`,
+such as a transcript with no turn left), which is raised as a test failure, exits 2, and
+writes no transcript.
+
+## The ask command
+
+`archdiscov ask QUESTION --snapshot PATH --config PATH [--compare PATH]
+[--comparison-result PATH ...] [--transcript PATH] [--json]` (`cli_ask.py`) is presentation
+over the ask service: the run summary, then the renderings above. Its options, output, JSON
+envelope, configuration, transcripts, and exit codes are described in
+[the ask command](ask-command.md).

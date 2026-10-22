@@ -3,10 +3,10 @@
 This page describes the provider-neutral layer under `src/archdiscov/assistant/`: the
 conversation and tool-call contracts, provider errors and capabilities, the `Provider`
 protocol, provider configuration, and the scripted fake provider used to test everything
-above it. No command uses this layer yet, and the only constructible provider is the
-fake; the [assistant tools](assistant-tools.md) exist, while orchestration, answer
-validation, and the `ask` command are later steps. None of these modules imports a vendor
-SDK.
+above it. The `ask` command builds its provider from a configuration file, and the only
+constructible provider is the fake; the [assistant tools](assistant-tools.md),
+[orchestration](assistant-orchestration.md), and [answers](assistant-answers.md) build on
+this layer. None of these modules imports a vendor SDK.
 
 ## Conversation contracts
 
@@ -110,8 +110,9 @@ answer renderer in a later step.
 
 `assistant/config.py` loads a TOML file of at most 64 KiB (`MAX_CONFIG_BYTES`) with
 `load_provider_config(path)`, or validates data with `parse_provider_config`. The file
-is one table selected by `kind`. No command reads it yet; the fake is the only provider,
-and the other kinds define the configuration their adapters will use.
+is one table selected by `kind`. The `ask` command reads it with `--config`;
+the fake is the only provider, and the other kinds define the configuration their adapters
+will use.
 
 ```toml
 kind = "anthropic"
@@ -125,6 +126,7 @@ request_timeout_seconds = 30
 |---|---|---|---|
 | `kind` | all | required | `fake`, `anthropic`, `openai_compatible`, `bedrock` |
 | `model` | `fake` | `fake` | non-blank, up to 256 characters |
+| `transcript` | `fake` | none | a fake transcript file, relative to the configuration file or absolute; required to build the provider |
 | `model` | `anthropic`, `openai_compatible`, `bedrock` | required | non-blank, up to 256 characters |
 | `connect_timeout_seconds` | all | 10 | >0–60 |
 | `request_timeout_seconds` | all | 60 | >0–600, at most `max_latency_seconds` |
@@ -147,6 +149,22 @@ Numbers are strictly typed: `"5"` or `true` is not a number. Endpoints may use H
 for loopback hosts (`localhost`, `127.0.0.1`, `::1`), and never carry user info, a query,
 or a fragment. `request_limits()` turns a configuration into the per-request limits
 above; the remaining fields bound the whole run.
+
+### Building providers
+
+`build_provider(config, config_dir=)` in `assistant/providers.py` turns a configuration into
+a provider through `ADAPTERS`, a table keyed by kind, so each real adapter (steps 40-42)
+plugs in there. It resolves the referenced credential and passes it only to the adapter.
+`load_provider(path)` loads a file and builds its provider, resolving relative paths
+against the file's directory.
+
+- The fake needs a `transcript`, loaded with the fake transcript limits; without one the
+  build fails with `provider_transcript_missing`, and an unreadable or invalid transcript
+  fails with the fake's own error codes.
+- A kind without an adapter fails with `provider_adapter_unavailable`, before its
+  credential is read or any request is made.
+
+Errors name the file and the kind, never the configuration's values or credentials.
 
 ### Credentials
 

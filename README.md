@@ -36,7 +36,7 @@ evidence inspection; it does not provide live Azure collection or analysis.
 | Graph resource ownership, lookup, containment, dependencies, and evidence/coverage | [Implemented and verified together across schemas 1–3](docs/graph-index.md#composed-graph-boundary), including external/unresolved terminals and complete-context coverage |
 | Resource search, inspection, neighbours, and paths | [Implemented Python services and `archdiscov query` CLI](docs/graph-queries.md) with exact filters, bounds, detached data, citations, and coverage/provenance limitations |
 | Snapshot comparison | [Implemented](docs/comparison-results.md): `compare` and `comparison` CLI, identity matching without guessing, field-level differences with citations on both sides, lifecycle, source-kind, and coverage qualification, atomic no-overwrite results verified against both snapshots; recorded differences, not drift detection or proof of change |
-| LLM assistant/providers | [Provider-neutral contracts, configuration, and a scripted fake provider](docs/assistant-providers.md), [bounded typed assistant tools](docs/assistant-tools.md), the [tool-calling loop](docs/assistant-orchestration.md), and [structured answers with validation, one repair, conclusions rendered from records, failure explanations, and readable and JSON renderings](docs/assistant-answers.md) implemented for testing; no command uses them, and real providers and the `ask` command are planned |
+| LLM assistant/providers | [Provider-neutral contracts, configuration, and a scripted fake provider](docs/assistant-providers.md), [bounded typed assistant tools](docs/assistant-tools.md), the [tool-calling loop](docs/assistant-orchestration.md), and [structured answers with validation, one repair, conclusions rendered from records, failure explanations, and readable and JSON renderings](docs/assistant-answers.md) behind the [`ask` command](docs/ask-command.md), which answers one question with a configured provider, verified offline through the installed CLI with the five example questions; only the fake provider has an adapter, and real providers are planned |
 
 ## Installation and development
 
@@ -664,7 +664,7 @@ It returns a detached `EvidenceInspection` after revalidation and raises
 JSON data is available through `result.model_dump(mode="json")`; the CLI only supplies
 file selection and presentation around this service and the persistence APIs.
 
-#### Query, analysis, and comparison commands
+#### Query, analysis, comparison, and ask commands
 
 These commands read saved snapshots offline and call public application services:
 
@@ -673,9 +673,11 @@ These commands read saved snapshots offline and call public application services
 | `query search`, `inspect`, `neighbours`, `paths` | Read recorded resources and structure with exact filters and bounded results ([graph queries](docs/graph-queries.md)). |
 | `analyze`, `findings` | Run one of the five analyzers and save an immutable result, then show it after verifying it against its snapshot ([analyzer reference](docs/analyzers.md)). |
 | `compare`, `comparison` | Compare two selected snapshots and save an immutable result, then show it after verifying it against both ([comparison results](docs/comparison-results.md)). |
+| `ask` | Answer one question from the selected snapshots with a configured provider, as a validated answer cited from tool results or an explained failure, with an optional transcript ([the ask command](docs/ask-command.md)). |
 
-Saved results follow the [result file contracts](docs/result-contracts.md). Only the
-natural-language `ask` command remains planned (phase 4). Commands provide readable output
+Saved results follow the [result file contracts](docs/result-contracts.md). The
+natural-language `ask` command works only with the scripted fake provider; a real provider
+kind fails safely before the run, and real adapters remain planned (phase 4). Commands provide readable output
 and machine-readable JSON, and call public application services rather than containing
 discovery or analysis logic.
 
@@ -984,9 +986,9 @@ Finding IDs are scoped to the selected snapshot's analysis results; resource IDs
 existing stable identity contract. An answer references findings rather than embedding
 provider-authored factual prose. A future renderer will obtain conclusions from validated
 findings. These legacy contracts remain unchanged. Separate analysis contracts now
-describe analyzer kinds, typed parameters, paths and structured limitations; only the
-ownership, security-group impact, and cross-account trust analyzers are implemented; there are no severity scores, provider messages, or
-ask commands yet.
+describe analyzer kinds, typed parameters, paths and structured limitations, and the
+[`ask` command](docs/ask-command.md) uses its own answer contracts; there are no severity
+scores.
 
 | Status | Meaning and required limitations |
 | --- | --- |
@@ -1039,7 +1041,7 @@ See [analysis result contracts](docs/analysis-results.md) for the API, ID rules,
 fixtures, and integrity boundary. [Graph resource lookup, containment, dependencies, and evidence/coverage](docs/graph-index.md)
 are implemented, as are [bounded graph queries and the `query` CLI](docs/graph-queries.md).
 The [ownership analyzer, atomic result persistence, and `analyze`/`findings` CLI](docs/ownership-analysis.md)
-the [security-group impact analyzer](docs/security-group-impact.md), the [cross-account trust analyzer](docs/cross-account-trust.md), and the [database-access analyzer](docs/database-access.md), and the [internet-exposure analyzer](docs/internet-exposure.md) are implemented, as is [snapshot comparison](docs/comparison-results.md). The assistant itself remains a later step; its [provider contracts and fake provider](docs/assistant-providers.md), [tools](docs/assistant-tools.md), [tool-calling loop](docs/assistant-orchestration.md), and [answer validation, repair, and rendering](docs/assistant-answers.md) are in place; the `ask` command and real providers are not. The [analyzer reference](docs/analyzers.md) and [result file contracts](docs/result-contracts.md) compare them.
+the [security-group impact analyzer](docs/security-group-impact.md), the [cross-account trust analyzer](docs/cross-account-trust.md), and the [database-access analyzer](docs/database-access.md), and the [internet-exposure analyzer](docs/internet-exposure.md) are implemented, as is [snapshot comparison](docs/comparison-results.md). The assistant's [provider contracts and fake provider](docs/assistant-providers.md), [tools](docs/assistant-tools.md), [tool-calling loop](docs/assistant-orchestration.md), and [answer validation, repair, and rendering](docs/assistant-answers.md) are in place behind the `ask` command; real providers are not. The [analyzer reference](docs/analyzers.md) and [result file contracts](docs/result-contracts.md) compare them.
 
 ### Planned assistant behavior
 
@@ -1227,7 +1229,13 @@ limitations, planned lifecycle, or an indeterminate difference), not only that a
 | CloudFormation unresolved references | `tests/ingestion/cloudformation/test_cloudformation_import.py::test_conditions_local_getatt_and_conditional_missing_target`<br>`tests/acceptance/test_readme_scenarios.py::test_cloudformation_unresolved_references_are_indeterminate_between_two_templates` |
 | Safe matching of observed and declared resources | `tests/comparison/test_matching.py::test_names_and_short_ids_never_match`<br>`tests/comparison/test_matching.py::test_logical_addresses_never_match_across_iac_contexts_or_observations`<br>`tests/acceptance/test_readme_scenarios.py::test_observed_and_declared_resources_are_matched_only_by_identity` |
 
-Phase 4 scenarios remain planned and use fake-provider transcripts: fabricated citations,
+`tests/acceptance/test_installed_ask.py` runs the installed `ask` command outside the checkout
+through both entry points, with the offline guard and no credentials: it answers the five
+example questions above with fake-provider transcripts and checks that a missing
+configuration, an unknown snapshot, a real provider kind without an adapter, a provider error,
+a run limit, and an existing transcript path fail safely with their
+[documented exit codes](docs/ask-command.md#exit-codes). Other phase 4 scenarios remain
+planned and use fake-provider transcripts: fabricated citations,
 unsupported claims, malicious imported text, provider errors, and tool-call limits. Run the
 same question fixtures across configured providers and record answer status, finding IDs,
 citation validity, tool usage, latency, and available token usage. External-provider and

@@ -29,7 +29,7 @@ from pathlib import Path
 
 from archdiscov.assistant import config, conversation, fake, instructions, orchestrator, provider
 from archdiscov.assistant import answer_rendering, answer_results, answer_validation, answers
-from archdiscov.assistant import answer_service, redaction, repair
+from archdiscov.assistant import answer_service, providers, redaction, repair
 from archdiscov.assistant import rejections, runs
 from archdiscov.assistant.tools import contracts as tool_contracts
 from archdiscov.assistant.tools import session as tool_session
@@ -125,6 +125,23 @@ request = provider.CompletionRequest(
 )
 assert provider.complete(replayed, request).stop_reason == provider.StopReason.TOOL_USE
 assert config.parse_provider_config({{"kind": "fake"}}).kind == config.ProviderKind.FAKE
+built = providers.build_provider(
+    config.parse_provider_config({{"kind": "fake", "transcript": {str(TRANSCRIPT)!r}}}),
+    config_dir=Path("."),
+)
+assert built.remaining_turns > 0
+import json
+import tempfile
+
+from archdiscov.services import ask
+
+with tempfile.TemporaryDirectory() as directory:
+    settings = Path(directory) / "provider.toml"
+    script = Path(directory) / "run.json"
+    script.write_text(json.dumps({{"turns": [{{"kind": "respond", "response": reply}}] * 2}}))
+    settings.write_text("kind = 'fake'" + chr(10) + "transcript = 'run.json'", encoding="utf-8")
+    asked = ask.ask_question("q", snapshot_path=Path({str(SNAPSHOT)!r}), config_path=settings)
+assert asked.summary.provider_kind == "fake"
 print(",".join(module for module in BLOCKED if module in sys.modules))
 """
 

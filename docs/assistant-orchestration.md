@@ -2,11 +2,11 @@
 
 This page describes the tool-calling loop in `src/archdiscov/assistant/orchestrator.py`: how
 one question is answered with the [assistant tools](assistant-tools.md) through a
-[provider](assistant-providers.md), and how every run ends. No command uses it yet, the only
-provider is the scripted fake, and the loop does not validate answers: it returns them as-is,
-and [assistant answers](assistant-answers.md) describes the structured answer, its
-validation, the answer service that repairs and renders it, and its rendering. The `ask`
-command is a later step.
+[provider](assistant-providers.md), and how every run ends. The `ask` command runs it through
+the answer service, the only provider is the scripted fake, and the loop does not validate
+answers: it returns them as-is, and [assistant answers](assistant-answers.md) describes the
+structured answer, its validation, the answer service that repairs and renders it, and its
+rendering.
 
 ## The loop
 
