@@ -7,10 +7,11 @@ then submits a structured proposal; the answer shown is
 [validated and rendered from records](assistant-answers.md), and a failed run is explained
 instead. Each run is one question: there is no chat or conversation memory.
 
-The only provider that answers is the scripted fake, which replays a transcript and needs no
-credentials or network. The [Anthropic adapter](assistant-providers.md#anthropic-adapter) is
-being added: an `anthropic` configuration builds, but its first request fails as
-`provider_error` (6) without contacting the API. The other real kinds are accepted in
+The scripted fake replays a transcript and needs no credentials or network. An
+`anthropic` configuration answers through the
+[Anthropic adapter](assistant-providers.md#anthropic-adapter) with the key its
+`api_key_env` names; until its error mapping is added, any API or connection error ends the
+run as `provider_error` (6) with `provider_unavailable`. The other real kinds are accepted in
 configuration but fail before the run with `provider_adapter_unavailable`.
 
 ## Usage

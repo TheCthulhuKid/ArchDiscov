@@ -1,13 +1,14 @@
-"""Building the Anthropic adapter: only the configuration chooses its target and credential.
+"""The Anthropic adapter: built only from its configuration, mapping requests and responses.
 
-Requests go to a mock transport; nothing reaches the network.
+Requests go to a mocked Messages API; nothing reaches the network.
 """
 
 import asyncio
+import json
 import logging
 from pathlib import Path
+from typing import Any
 
-import anthropic
 import httpx2
 import pytest
 from pydantic import SecretStr
@@ -19,28 +20,41 @@ from archdiscov.assistant.config import (
     ProviderConfigErrorCode,
     parse_provider_config,
 )
+from archdiscov.assistant.conversation import (
+    AssistantMessage,
+    Conversation,
+    MalformedArgumentsReason,
+    MalformedToolArguments,
+    ParsedToolArguments,
+    TokenUsage,
+    ToolCall,
+)
+from archdiscov.assistant.orchestrator import run_assistant
 from archdiscov.assistant.provider import (
     CompletionRequest,
+    CompletionResponse,
     ProviderCapability,
+    ProviderError,
+    ProviderInvalidRequestError,
+    ProviderMalformedOutputError,
+    ProviderRefusalError,
+    ProviderTruncatedOutputError,
     ProviderUnavailableError,
+    RequestLimits,
+    StopReason,
     complete,
 )
 from archdiscov.assistant.providers import load_provider
+from archdiscov.assistant.tools.session import ToolSession
+from tests.assistant.provider_harness import MockApi
 from tests.assistant.test_config import ANTHROPIC
+from tests.assistant.test_continuations import THINKING
+from tests.assistant.test_orchestrator import SNAPSHOT
+from tests.assistant.test_provider_contract import INSPECT, SEARCH
 from tests.assistant.test_secret_leaks import SECRET, _renderings
 
 ENDPOINT = "https://gateway.example.com/anthropic"
 QUESTION = "Which databases are reachable?"
-MESSAGE = {
-    "id": "msg_1",
-    "type": "message",
-    "role": "assistant",
-    "model": "claude-sonnet-5-5",
-    "content": [{"type": "text", "text": "None."}],
-    "stop_reason": "end_turn",
-    "stop_sequence": None,
-    "usage": {"input_tokens": 3, "output_tokens": 1},
-}
 HOSTILE_ENVIRONMENT = {
     "ANTHROPIC_API_KEY": "sk-ant-api03-environmentKEY0123456789abcdef",
     "ANTHROPIC_AUTH_TOKEN": "environment-token",
@@ -61,41 +75,57 @@ SDK_HEADERS = {
     "host",
     "user-agent",
 }
+TEXT = {"type": "text", "text": "None of them."}
+LOOKUP = {"type": "tool_use", "id": "toolu_1", "name": "search_resources", "input": {"type": "x"}}
+INSPECTION = {"type": "tool_use", "id": "toolu_2", "name": "inspect_resource", "input": {}}
 
 
-class Recorder(httpx2.MockTransport):
-    """A mock API that answers every request with `response` and keeps what it was sent."""
+def _body(
+    *content: dict, stop: str = "end_turn", usage: dict | None = None, **fields: Any
+) -> dict[str, Any]:
+    return {
+        "id": "msg_1",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-sonnet-5-5",
+        "content": list(content),
+        "stop_reason": stop,
+        "stop_sequence": None,
+        "usage": usage or {"input_tokens": 3, "output_tokens": 1},
+        **fields,
+    }
 
-    def __init__(self, response: httpx2.Response | None = None) -> None:
-        self.requests: list[httpx2.Request] = []
-        super().__init__(self._handle)
-        self.response = response or httpx2.Response(200, json=MESSAGE)
 
-    def _handle(self, request: httpx2.Request) -> httpx2.Response:
-        self.requests.append(request)
-        return self.response
+def _api(*bodies: dict) -> MockApi:
+    return MockApi([httpx2.Response(200, json=body) for body in bodies])
 
 
-def _provider(recorder: Recorder, endpoint: str | None = ENDPOINT) -> AnthropicProvider:
+def _provider(api: MockApi, endpoint: str | None = ENDPOINT) -> AnthropicProvider:
     data = ANTHROPIC if endpoint is None else {**ANTHROPIC, "endpoint": endpoint}
     return AnthropicProvider(
-        parse_provider_config(data),
-        SecretStr(SECRET),
-        transport=recorder,
-        async_transport=recorder,
+        parse_provider_config(data), SecretStr(SECRET), transport=api, async_transport=api
     )
 
 
-def _send(provider: AnthropicProvider, mode: str) -> None:
-    params = {
-        "model": provider.model,
-        "max_tokens": 16,
-        "messages": [{"role": "user", "content": QUESTION}],
-    }
+def _request(*messages: dict, tools=(SEARCH, INSPECT), **limits: Any) -> CompletionRequest:
+    return CompletionRequest(
+        conversation=Conversation.model_validate(
+            {"messages": [{"role": "user", "text": QUESTION}, *messages]}
+        ),
+        tools=tools,
+        limits=RequestLimits(**limits),
+    )
+
+
+def _send(provider: AnthropicProvider, mode: str = "sync", request=None) -> CompletionResponse:
+    request = request or _request()
     if mode == "sync":
-        provider._create(**params)
-    else:
-        asyncio.run(provider._create_async(**params))
+        return complete(provider, request)
+    return asyncio.run(provider.complete_async(request))
+
+
+def _sent(api: MockApi, index: int = 0) -> dict[str, Any]:
+    return json.loads(api.requests[index].content)
 
 
 def _config(tmp_path: Path, extra: str = "") -> Path:
@@ -105,6 +135,9 @@ def _config(tmp_path: Path, extra: str = "") -> Path:
         encoding="utf-8",
     )
     return path
+
+
+# ---- construction ------------------------------------------------------------------
 
 
 def test_a_configuration_builds_the_adapter_without_a_request(tmp_path: Path) -> None:
@@ -148,47 +181,339 @@ def test_only_the_configuration_chooses_the_target_and_credential(
 ) -> None:
     for name, value in HOSTILE_ENVIRONMENT.items():
         monkeypatch.setenv(name, value)
-    recorder = Recorder()
-    _send(_provider(recorder, endpoint), mode)
-    [request] = recorder.requests
+    api = _api(_body(TEXT))
+    _send(_provider(api, endpoint), mode)
+    [request] = api.requests
     assert str(request.url) == f"{endpoint or DEFAULT_BASE_URL}/v1/messages"
     assert request.headers["authorization"] == f"Bearer {SECRET}"
     assert {name for name in request.headers if not name.startswith("x-stainless-")} == (
         SDK_HEADERS
     )
+    body = request.content.decode()
+    assert not any(value in body for value in HOSTILE_ENVIRONMENT.values())
 
 
 def test_redirects_are_not_followed() -> None:
     elsewhere = httpx2.Response(307, headers={"location": "https://elsewhere.example.com/v1"})
-    recorder = Recorder(elsewhere)
-    with pytest.raises(anthropic.APIStatusError):
-        _send(_provider(recorder), "sync")
-    assert [request.url.host for request in recorder.requests] == ["gateway.example.com"]
-
-
-def test_requests_wait_for_the_mapping_and_are_never_sent() -> None:
-    recorder = Recorder()
-    provider = _provider(recorder)
-    request = CompletionRequest.model_validate(
-        {"conversation": {"messages": [{"role": "user", "text": QUESTION}]}}
-    )
+    api = MockApi([elsewhere])
     with pytest.raises(ProviderUnavailableError):
-        complete(provider, request)
-    with pytest.raises(ProviderUnavailableError):
-        asyncio.run(provider.complete_async(request))
-    assert recorder.requests == []
+        _send(_provider(api))
+    assert [request.url.host for request in api.requests] == ["gateway.example.com"]
 
 
 def test_no_key_or_request_body_reaches_a_rendering_or_log(caplog) -> None:
     caplog.set_level(logging.DEBUG)
     for name in anthropic_provider._SDK_LOGGERS:
         logging.getLogger(name).setLevel(logging.DEBUG)
-    recorder = Recorder(httpx2.Response(400, json={"type": "error", "error": {"type": "x"}}))
-    provider = _provider(recorder)
-    with pytest.raises(anthropic.BadRequestError) as raised:
-        _send(provider, "sync")
+    api = MockApi([httpx2.Response(400, json={"type": "error", "error": {"type": "x"}})])
+    provider = _provider(api)
+    with pytest.raises(ProviderError) as raised:
+        _send(provider)
     for name in anthropic_provider._SDK_LOGGERS:
         assert logging.getLogger(name).getEffectiveLevel() == logging.WARNING
-    for rendering in (*_renderings(provider), caplog.text):
+    for rendering in (*_renderings(provider), *_renderings(raised.value), caplog.text):
         assert SECRET not in rendering and QUESTION not in rendering
-    assert SECRET not in "".join(_renderings(raised.value))
+
+
+# ---- requests ----------------------------------------------------------------------
+
+EXCHANGE = (
+    {
+        "role": "assistant",
+        "text": "Searching.",
+        "tool_calls": [
+            {
+                "id": "call_0",
+                "name": "search_resources",
+                "arguments": {"kind": "parsed", "value": {"type": "rds_instance"}},
+            },
+            {
+                "id": "call_1",
+                "name": "inspect_resource",
+                "arguments": {"kind": "malformed", "reason": "invalid_json"},
+            },
+        ],
+    },
+    {
+        "role": "tool",
+        "results": [
+            {"call_id": "call_0", "content": "[]"},
+            {"call_id": "call_1", "content": "Arguments were not JSON.", "is_error": True},
+        ],
+    },
+    {"role": "user", "text": "Submit your answer now."},
+)
+
+
+def test_a_request_maps_every_message_tool_and_limit() -> None:
+    api = _api(_body(TEXT))
+    request = CompletionRequest(
+        conversation=Conversation.model_validate(
+            {
+                "messages": [
+                    {"role": "system", "text": "Answer only from tool results."},
+                    {"role": "user", "text": QUESTION},
+                    *EXCHANGE,
+                ]
+            }
+        ),
+        tools=(SEARCH, INSPECT),
+        limits=RequestLimits(max_output_tokens=512, max_tool_calls_per_turn=4),
+    )
+    _send(_provider(api), request=request)
+    assert _sent(api) == {
+        "model": "claude-sonnet-5-5",
+        "max_tokens": 512,
+        "system": [{"type": "text", "text": "Answer only from tool results."}],
+        "messages": [
+            {"role": "user", "content": [{"type": "text", "text": QUESTION}]},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "Searching."},
+                    {
+                        "type": "tool_use",
+                        "id": "call_0",
+                        "name": "search_resources",
+                        "input": {"type": "rds_instance"},
+                    },
+                    # A malformed call was never run; it is replayed with no input.
+                    {"type": "tool_use", "id": "call_1", "name": "inspect_resource", "input": {}},
+                ],
+            },
+            {
+                # Tool results and the prompt after them share one user turn.
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "call_0",
+                        "content": "[]",
+                        "is_error": False,
+                    },
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "call_1",
+                        "content": "Arguments were not JSON.",
+                        "is_error": True,
+                    },
+                    {"type": "text", "text": "Submit your answer now."},
+                ],
+            },
+        ],
+        "tools": [
+            {"name": tool.name, "description": tool.description, "input_schema": tool.input_schema}
+            for tool in (SEARCH, INSPECT)
+        ],
+        "tool_choice": {"type": "auto", "disable_parallel_tool_use": False},
+    }
+
+
+def test_one_call_per_turn_disables_parallel_tool_use_and_no_tools_sends_none() -> None:
+    api = _api(_body(TEXT), _body(TEXT))
+    provider = _provider(api)
+    _send(provider, request=_request(max_tool_calls_per_turn=1))
+    _send(provider, request=_request(tools=()))
+    assert _sent(api, 0)["tool_choice"] == {"type": "auto", "disable_parallel_tool_use": True}
+    assert set(_sent(api, 1)) == {"model", "max_tokens", "messages"}
+
+
+def test_no_key_or_sampling_parameter_is_in_the_body() -> None:
+    api = _api(_body(TEXT))
+    _send(_provider(api), request=_request(max_tool_calls_per_turn=4))
+    body = api.requests[0].content.decode()
+    assert SECRET not in body
+    assert set(json.loads(body)) == {"model", "max_tokens", "messages", "tools", "tool_choice"}
+
+
+# ---- responses ---------------------------------------------------------------------
+
+
+def _call(block: dict, arguments=None) -> ToolCall:
+    value = arguments if arguments is not None else ParsedToolArguments(value=block["input"])
+    return ToolCall(id=block["id"], name=block["name"], arguments=value)
+
+
+def _malformed(reason: MalformedArgumentsReason) -> MalformedToolArguments:
+    return MalformedToolArguments(reason=reason)
+
+
+@pytest.mark.parametrize(
+    ("body", "message", "stop"),
+    [
+        (_body(TEXT), AssistantMessage(text=TEXT["text"]), StopReason.END),
+        (_body(TEXT, stop="stop_sequence"), AssistantMessage(text=TEXT["text"]), StopReason.END),
+        (
+            _body(LOOKUP, stop="tool_use"),
+            AssistantMessage(tool_calls=(_call(LOOKUP),)),
+            StopReason.TOOL_USE,
+        ),
+        (
+            _body(LOOKUP, INSPECTION, stop="tool_use"),
+            AssistantMessage(tool_calls=(_call(LOOKUP), _call(INSPECTION))),
+            StopReason.TOOL_USE,
+        ),
+        (
+            _body(
+                {"type": "text", "text": "Let me "},
+                {"type": "text", "text": "look."},
+                LOOKUP,
+                stop="tool_use",
+            ),
+            AssistantMessage(text="Let me look.", tool_calls=(_call(LOOKUP),)),
+            StopReason.TOOL_USE,
+        ),
+        (
+            _body({**LOOKUP, "input": "{not json"}, {**INSPECTION, "input": [1]}, stop="tool_use"),
+            AssistantMessage(
+                tool_calls=(
+                    _call(LOOKUP, _malformed(MalformedArgumentsReason.INVALID_JSON)),
+                    _call(INSPECTION, _malformed(MalformedArgumentsReason.NOT_OBJECT)),
+                )
+            ),
+            StopReason.TOOL_USE,
+        ),
+        (_body(TEXT, stop="max_tokens"), AssistantMessage(text=TEXT["text"]), StopReason.LENGTH),
+        (
+            _body(TEXT, stop="model_context_window_exceeded"),
+            AssistantMessage(text=TEXT["text"]),
+            StopReason.LENGTH,
+        ),
+        (_body(TEXT, stop="refusal"), AssistantMessage(text=TEXT["text"]), StopReason.REFUSAL),
+    ],
+    ids=[
+        "text",
+        "stop-sequence",
+        "single-call",
+        "parallel-calls",
+        "text-and-calls",
+        "malformed-arguments",
+        "max-tokens-text",
+        "context-window-text",
+        "refusal-text",
+    ],
+)
+@pytest.mark.parametrize("mode", ["sync", "async"])
+def test_responses_map_to_the_shared_contracts(body, message, stop, mode: str) -> None:
+    response = _send(_provider(_api(body)), mode)
+    assert response == CompletionResponse(
+        message=message, stop_reason=stop, usage=TokenUsage(input_tokens=3, output_tokens=1)
+    )
+
+
+@pytest.mark.parametrize(
+    ("body", "error"),
+    [
+        (_body(stop="max_tokens"), ProviderTruncatedOutputError),
+        (
+            _body(TEXT, {**LOOKUP, "input": {"type": "rd"}}, stop="max_tokens"),
+            ProviderTruncatedOutputError,
+        ),
+        (_body(stop="refusal"), ProviderRefusalError),
+        (_body(TEXT, LOOKUP, stop="refusal"), ProviderRefusalError),
+        (
+            _body(TEXT, {"type": "server_tool_use", "id": "s", "name": "web_search", "input": {}}),
+            ProviderMalformedOutputError,
+        ),
+        (_body(TEXT, {"type": "hologram"}), ProviderMalformedOutputError),
+        (_body(TEXT, stop="pause_turn"), ProviderMalformedOutputError),
+        (_body(TEXT, stop="improvised"), ProviderMalformedOutputError),
+        (_body(TEXT, LOOKUP), ProviderMalformedOutputError),
+        (_body(LOOKUP, stop="end_turn"), ProviderMalformedOutputError),
+        (_body(stop="end_turn"), ProviderMalformedOutputError),
+        (_body({"type": "text", "text": 5}), ProviderMalformedOutputError),
+        (
+            _body({**LOOKUP, "name": "not a tool name"}, stop="tool_use"),
+            ProviderMalformedOutputError,
+        ),
+        (_body(TEXT, usage={"input_tokens": -1, "output_tokens": 1}), ProviderMalformedOutputError),
+    ],
+    ids=[
+        "max-tokens-empty",
+        "max-tokens-partial-call",
+        "refusal-empty",
+        "refusal-with-call",
+        "server-tool-block",
+        "unknown-block",
+        "pause-turn",
+        "unknown-stop",
+        "calls-at-end-turn",
+        "no-calls-at-tool-use",
+        "empty",
+        "text-not-a-string",
+        "invalid-tool-name",
+        "negative-usage",
+    ],
+)
+def test_unusable_responses_are_typed_errors_without_provider_text(body, error) -> None:
+    with pytest.raises(error) as raised:
+        _send(_provider(_api(body)))
+    assert str(raised.value) == error.message
+    assert "None of them" not in "".join(_renderings(raised.value))
+
+
+@pytest.mark.parametrize(
+    ("usage", "expected"),
+    [
+        (
+            {
+                "input_tokens": 10,
+                "output_tokens": 5,
+                "cache_read_input_tokens": 3,
+                "cache_creation_input_tokens": 2,
+            },
+            TokenUsage(
+                input_tokens=10,
+                output_tokens=5,
+                cache_read_input_tokens=3,
+                cache_write_input_tokens=2,
+            ),
+        ),
+        ({"input_tokens": 10, "output_tokens": 5}, TokenUsage(input_tokens=10, output_tokens=5)),
+    ],
+    ids=["with-cache", "without-cache"],
+)
+def test_usage_maps_cache_creation_to_cache_write(usage, expected) -> None:
+    assert _send(_provider(_api(_body(TEXT, usage=usage)))).usage == expected
+
+
+# ---- continuations -----------------------------------------------------------------
+
+
+def test_reasoning_is_replayed_verbatim_and_in_order_on_the_next_request() -> None:
+    first = _body(
+        THINKING,
+        {"type": "text", "text": "Searching."},
+        {"type": "redacted_thinking", "data": "ZW5jcnlwdGVk"},
+        {**LOOKUP, "input": {}},
+        stop="tool_use",
+    )
+    api = _api(first, _body(TEXT))
+    result = run_assistant(
+        QUESTION,
+        provider=_provider(api),
+        session=ToolSession.from_paths(SNAPSHOT),
+        provider_kind="anthropic",
+        model="claude-sonnet-5-5",
+    )
+    assert result.outcome.kind == "answered"
+    replayed = _sent(api, 1)["messages"][1]
+    assert replayed == {"role": "assistant", "content": first["content"]}
+    assert result.transcript.turns[0].continuation_bytes > 0
+    assert THINKING["signature"] not in result.transcript.model_dump_json()
+
+
+def test_a_response_without_reasoning_has_no_continuation() -> None:
+    assert _send(_provider(_api(_body(TEXT)))).message.continuation is None
+
+
+def test_another_providers_continuation_is_never_sent() -> None:
+    api = _api(_body(TEXT))
+    foreign = {
+        "role": "assistant",
+        "text": "Earlier.",
+        "continuation": {"provider_kind": "fake", "blocks": [THINKING]},
+    }
+    with pytest.raises(ProviderInvalidRequestError):
+        _send(_provider(api), request=_request(foreign, {"role": "user", "text": "Go on."}))
+    assert api.requests == []

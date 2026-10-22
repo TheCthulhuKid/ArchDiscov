@@ -9,7 +9,7 @@ import typer.main
 from annotated_types import Ge, Gt, Le
 
 from archdiscov import cli_answer_output, cli_ask_output
-from archdiscov.assistant import answer_results, answer_validation
+from archdiscov.assistant import answer_results, answer_validation, anthropic_provider
 from archdiscov.assistant import answers as assistant_answers
 from archdiscov.assistant import config as assistant_config
 from archdiscov.assistant import conversation as assistant_conversation
@@ -233,6 +233,15 @@ def test_documented_provider_configuration_matches_the_models():
     assert set(CONFIG_MODELS) == {kind.value for kind in assistant_config.ProviderKind}
 
 
+def test_documented_anthropic_stop_reasons_match_the_adapter():
+    rows = table_rows(PROVIDERS_DOC, "| `stop_reason` | Maps to")
+    documented = {reason.strip("` ") for row in rows[:-1] for reason in row[0].split(",")}
+    assert documented == set(anthropic_provider._STOP_REASONS)
+    for row in rows[:-1]:
+        reason = row[0].split(",")[0].strip("` ")
+        assert f"`{anthropic_provider._STOP_REASONS[reason].value}`" in row[1], reason
+
+
 def test_documented_request_limits_match_the_model():
     rows = table_rows(PROVIDERS_DOC, "| Request limit")
     assert [row[0].strip("`") for row in rows] == list(RequestLimits.model_fields)
@@ -277,7 +286,7 @@ def test_the_readme_links_the_provider_contracts_without_claiming_real_providers
     for claim in ("Anthropic adapter is implemented", "OpenAI-compatible adapter is implemented"):
         assert claim not in text
     provider_doc = PROVIDERS_DOC.read_text(encoding="utf-8")
-    assert "the fake is the only provider that answers" in provider_doc
+    assert "whose error mapping and retries are still being added" in " ".join(provider_doc.split())
 
 
 # ---- assistant tools ---------------------------------------------------------------
@@ -491,7 +500,7 @@ def test_the_readme_links_answers_without_claiming_rendering():
     assert "docs/assistant-answers.md" in text
     for claim in ("answers are rendered", "repair is implemented"):
         assert claim not in text
-    assert "the only provider that answers is the scripted fake" in " ".join(
+    assert "the other real providers are later steps" in " ".join(
         ANSWERS_DOC.read_text(encoding="utf-8").split()
     )
 

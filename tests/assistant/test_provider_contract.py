@@ -54,6 +54,13 @@ def harness(request) -> ProviderHarness:
     return request.param
 
 
+@pytest.fixture
+def mapped_errors(harness: ProviderHarness) -> None:
+    """Skip error and timeout cases for an adapter whose error mapping is still to come."""
+    if not harness.maps_errors:
+        pytest.skip(f"{harness.name} maps provider errors from step 40.4")
+
+
 @pytest.fixture(params=["sync", "async"])
 def send(request):
     """Send through the checked entry points, in both forms."""
@@ -172,7 +179,7 @@ def test_conversations_with_tool_exchanges_are_accepted(harness: ProviderHarness
 
 @pytest.mark.parametrize("code", SCRIPTABLE_ERRORS, ids=lambda code: code.value)
 def test_errors_carry_stable_codes_and_safe_diagnostics(
-    harness: ProviderHarness, send, code: ProviderErrorCode
+    harness: ProviderHarness, send, code: ProviderErrorCode, mapped_errors
 ) -> None:
     provider = harness.build([_fail(code)])
     with pytest.raises(ProviderError) as raised:
@@ -192,7 +199,7 @@ def test_errors_carry_stable_codes_and_safe_diagnostics(
 
 @pytest.mark.parametrize("code", [ProviderErrorCode.TRANSPORT, ProviderErrorCode.RATE_LIMIT])
 def test_retryable_errors_are_retried_up_to_the_configured_count(
-    harness: ProviderHarness, send, code: ProviderErrorCode
+    harness: ProviderHarness, send, code: ProviderErrorCode, mapped_errors
 ) -> None:
     provider = harness.build([_fail(code), _fail(code), _respond(TEXT)], max_retries=2)
     assert send(provider, _request()) == TEXT
@@ -215,7 +222,7 @@ def test_retryable_errors_are_retried_up_to_the_configured_count(
     ids=lambda code: code.value,
 )
 def test_other_errors_are_never_retried(
-    harness: ProviderHarness, send, code: ProviderErrorCode
+    harness: ProviderHarness, send, code: ProviderErrorCode, mapped_errors
 ) -> None:
     provider = harness.build([_fail(code), _respond(TEXT)], max_retries=3)
     with pytest.raises(ProviderError):
@@ -274,7 +281,7 @@ def test_text_only_providers_still_answer_text_requests(harness: ProviderHarness
 
 
 def test_requests_beyond_the_timeout_fail_as_timeouts_without_retry(
-    harness: ProviderHarness, send
+    harness: ProviderHarness, send, mapped_errors
 ) -> None:
     provider = harness.build([_respond(TEXT, delay_seconds=20), _respond(TEXT)], max_retries=2)
     with pytest.raises(ProviderError) as raised:

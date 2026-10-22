@@ -3,9 +3,9 @@
 This page describes the provider-neutral layer under `src/archdiscov/assistant/`: the
 conversation and tool-call contracts, provider errors and capabilities, the `Provider`
 protocol, provider configuration, and the scripted fake provider used to test everything
-above it. The `ask` command builds its provider from a configuration file, and the only
-provider that answers is the fake; the [Anthropic adapter](#anthropic-adapter) is being
-added. The [assistant tools](assistant-tools.md), [orchestration](assistant-orchestration.md),
+above it. The `ask` command builds its provider from a configuration file: the fake or the
+[Anthropic adapter](#anthropic-adapter), whose error mapping and retries are still being
+added; the other kinds have no adapter yet. The [assistant tools](assistant-tools.md), [orchestration](assistant-orchestration.md),
 and [answers](assistant-answers.md) build on this layer. Only an adapter module imports a
 vendor SDK, and only when its kind is built.
 
@@ -122,8 +122,8 @@ answer renderer in a later step.
 `assistant/config.py` loads a TOML file of at most 64 KiB (`MAX_CONFIG_BYTES`) with
 `load_provider_config(path)`, or validates data with `parse_provider_config`. The file
 is one table selected by `kind`. The `ask` command reads it with `--config`;
-the fake is the only provider that answers, and the other kinds define the configuration
-their adapters use.
+the fake and `anthropic` have adapters, and the other kinds define the configuration their
+adapters will use.
 
 ```toml
 kind = "anthropic"
@@ -197,9 +197,44 @@ makes no request. The client comes only from the configuration:
   `WARNING` whatever `ANTHROPIC_LOG` or the root level says, because their debug records
   hold request bodies.
 
-The adapter declares tool calling and parallel tool calls. Its request and response
-mapping is not in place yet, so every request fails with `provider_unavailable` before
-anything is sent.
+The adapter declares tool calling and parallel tool calls without asking the API, since
+every Messages API model supports tool use; a model the API does not know is refused by its
+response. Until the error mapping and retries are added, any API or connection error is
+`provider_unavailable`.
+
+Each request becomes one `messages.create` call:
+
+- System messages become `system`. User, assistant, and tool-result messages follow in
+  order, and consecutive user-role messages (tool results and a repair prompt) share one
+  turn. Tool calls become `tool_use` blocks (a call with malformed arguments, which never
+  ran, is replayed with an empty input) and tool results become `tool_result` blocks with
+  `is_error`.
+- Tools become `name`, `description`, and `input_schema`, with `tool_choice` `auto` and
+  `disable_parallel_tool_use` when `max_tool_calls_per_turn` is 1. `max_tokens` is
+  `max_output_tokens`, and the request's timeout is passed with it, which also keeps the
+  SDK from requiring streaming for a large `max_tokens`.
+- No sampling parameters, forced tool choice, prefill, or thinking settings are sent; the
+  model's defaults apply.
+
+The response is untrusted. Text blocks are joined into the message text and `tool_use`
+blocks become tool calls; an input that arrives as a string is parsed as JSON text, and any
+other non-object input is a malformed-arguments value. Any other block type, including
+server tools, is `provider_malformed_output`, as is a response that does not fit the
+contracts. Usage maps input, output, cache read, and cache creation (as cache write) tokens.
+
+| `stop_reason` | Maps to |
+|---|---|
+| `end_turn`, `stop_sequence` | `end` |
+| `tool_use` | `tool_use` |
+| `max_tokens`, `model_context_window_exceeded` | `length` for text alone; otherwise `provider_truncated_output` |
+| `refusal` | `refusal` for text alone; otherwise `provider_refusal` |
+| any other, such as `pause_turn` | `provider_malformed_output` |
+
+Current Claude models return `thinking` and `redacted_thinking` blocks that must go back
+unchanged and in their original order. A response holding them keeps its whole content, in
+order, as an `anthropic` continuation, and the next request replays that content verbatim;
+a response without them is rebuilt from its text and tool calls. A continuation from
+another provider kind is refused as `provider_invalid_request` before anything is sent.
 
 ### Credentials
 
