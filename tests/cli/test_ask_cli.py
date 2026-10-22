@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import pytest
+from click import unstyle
 from typer.testing import CliRunner
 
 from archdiscov import cli_ask
@@ -264,9 +265,13 @@ def test_missing_arguments_are_usage_errors(arguments: list[str]) -> None:
     assert result.exit_code == 2 and "Missing" in result.stderr
 
 
-def test_help_describes_the_command() -> None:
+@pytest.mark.parametrize("styled", [False, True], ids=["plain", "styled"])
+def test_help_describes_the_command(styled: bool, monkeypatch) -> None:
+    monkeypatch.setenv("TERM", "xterm")
+    monkeypatch.setenv("TTY_COMPATIBLE", "1" if styled else "0")
     result = runner.invoke(app, ["ask", "--help"])
     assert result.exit_code == 0
+    text = unstyle(result.stdout)
     for option in (
         "--snapshot",
         "--config",
@@ -275,5 +280,5 @@ def test_help_describes_the_command() -> None:
         "--transcript",
         "--json",
     ):
-        assert option in result.stdout
-    assert "no" in result.stdout and "conversation memory" in result.stdout
+        assert option in text
+    assert "no" in text and "conversation memory" in text
