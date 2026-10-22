@@ -9,7 +9,7 @@ import typer.main
 from annotated_types import Ge, Gt, Le
 
 from archdiscov import cli_answer_output, cli_ask_output
-from archdiscov.assistant import answer_results, answer_validation, anthropic_provider
+from archdiscov.assistant import adapters, answer_results, answer_validation, anthropic_provider
 from archdiscov.assistant import answers as assistant_answers
 from archdiscov.assistant import config as assistant_config
 from archdiscov.assistant import conversation as assistant_conversation
@@ -249,8 +249,8 @@ def test_documented_anthropic_failures_match_the_adapter():
         cls.__name__: error.code.value for cls, error in anthropic_provider.SDK_ERRORS.items()
     }
     text = " ".join(PROVIDERS_DOC.read_text(encoding="utf-8").split())
-    assert f"`RETRY_BACKOFF_SECONDS` ({anthropic_provider.RETRY_BACKOFF_SECONDS:g})" in text
-    assert f"`MAX_RETRY_WAIT_SECONDS` ({anthropic_provider.MAX_RETRY_WAIT_SECONDS:g})" in text
+    assert f"`RETRY_BACKOFF_SECONDS` ({adapters.RETRY_BACKOFF_SECONDS:g})" in text
+    assert f"`MAX_RETRY_WAIT_SECONDS` ({adapters.MAX_RETRY_WAIT_SECONDS:g})" in text
 
 
 def test_documented_request_limits_match_the_model():

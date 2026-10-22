@@ -196,7 +196,10 @@ receives `POST {endpoint}/v1/messages` with the key as `Authorization: Bearer`, 
 SDK sends in place of `x-api-key`, so a gateway that accepts only `x-api-key` is not
 supported. Plain HTTP is accepted only for loopback hosts, such as a local mock server.
 
-The client comes only from the configuration:
+The client comes only from the configuration. The guarded clients, logger quieting, retry
+loop, and the response rules every protocol shares live in `assistant/adapters.py`, which
+imports no vendor SDK, so each adapter supplies only its SDK's header names, exception
+table, and mapping:
 
 - The key from `api_key_env` and the base URL (`endpoint`, the API root without `/v1`, or
   `https://api.anthropic.com`) are passed explicitly, so the SDK's own environment
@@ -377,6 +380,8 @@ Example transcripts are in `tests/fixtures/assistant/`. The shared contract suit
 retry, and timeout cases. The orchestration and answer-service suites and the README example
 questions run through every harness too, and check that each adapter reaches the same run
 and answer as the fake from the same turns; the Anthropic harness serves them from a mocked
-Messages API. Two orchestration cases are the fake's alone: a response arriving after the
+Messages API. An adapter's harness subclasses `MockedHarness`, giving its protocol's response
+body and how its API shows each scripted error; the mocked transport, scripted failures, and
+the loopback server for installed-command tests are in `tests/support/mock_api.py`. Two orchestration cases are the fake's alone: a response arriving after the
 provider's own timeout, which an HTTP client cannot receive, and another provider's
 continuation, since an adapter marks its own.

@@ -12,12 +12,7 @@ other network use.
 
 import hashlib
 import json
-import threading
-from collections.abc import Iterator
-from contextlib import contextmanager
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -32,6 +27,7 @@ from tests.assistant.test_providers import UNADAPTED_KIND, unadapted_config
 from tests.services.test_ask import _fake
 from tests.support.ask_examples import EXAMPLES, README_QUESTIONS, write_example
 from tests.support.installed_cli import ENTRY_POINTS, run_installed
+from tests.support.mock_api import mock_api_server
 
 # Each entry point runs every case once per module: keep them on one xdist worker.
 pytestmark = pytest.mark.xdist_group("installed-ask")
@@ -146,55 +142,13 @@ def _failed_runs(ws: Workspace) -> dict:
     return failed
 
 
-class _MessagesApi(BaseHTTPRequestHandler):
-    """A mock Messages API: each POST gets the server's next body; requests are kept."""
-
-    server: "MockMessagesServer"
-
-    def do_POST(self) -> None:
-        body = self.rfile.read(int(self.headers["content-length"]))
-        self.server.requests.append((self.path, dict(self.headers), json.loads(body)))
-        payload = json.dumps(self.server.bodies.pop(0)).encode()
-        self.send_response(200)
-        self.send_header("content-type", "application/json")
-        self.send_header("content-length", str(len(payload)))
-        self.end_headers()
-        self.wfile.write(payload)
-
-    def log_message(self, *args: Any) -> None:
-        """Requests are kept on the server, not logged."""
-
-
-class MockMessagesServer(ThreadingHTTPServer):
-    def __init__(self, bodies: list[dict]) -> None:
-        self.bodies = bodies
-        self.requests: list[tuple[str, dict, dict]] = []
-        super().__init__(("127.0.0.1", 0), _MessagesApi)
-
-    @property
-    def port(self) -> int:
-        return self.server_address[1]
-
-
-@contextmanager
-def mock_messages_api(bodies: list[dict]) -> Iterator[MockMessagesServer]:
-    server = MockMessagesServer(bodies)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        yield server
-    finally:
-        server.shutdown()
-        server.server_close()
-
-
 def _through_the_adapter(ws: Workspace) -> tuple[dict, str, list]:
     """The adapted example answered in JSON and readably through the mock Messages API."""
     directory = ws.path("examples", ADAPTED)
     turns = json.loads((directory / "transcript.json").read_text(encoding="utf-8"))["turns"]
     bodies = [messages_body(turn.response) for turn in FakeTranscript(turns=turns).turns]
     arguments = [EXAMPLES[ADAPTED].question, "--snapshot", directory / "snapshot.json"]
-    with mock_messages_api(bodies * 2) as api:
+    with mock_api_server(bodies * 2) as api:
         config = _anthropic_config(directory, f"http://127.0.0.1:{api.port}")
         env = ws.guard.allowing(api.port, **{KEY_VARIABLE: DUMMY_KEY})
         command = ["ask", *map(str, arguments), "--config", str(config)]

@@ -23,9 +23,10 @@ from archdiscov.assistant.answer_rendering import (
 from archdiscov.assistant.answer_results import RenderedAnswer
 from archdiscov.assistant.answers import InsufficientReason
 from archdiscov.cli import app
-from tests.assistant.provider_harness import AnthropicHarness, MockApi
+from tests.assistant.provider_harness import AnthropicHarness
 from tests.paths import PROJECT_ROOT
 from tests.support.ask_examples import EXAMPLES, README_QUESTIONS, ExampleRun, write_example
+from tests.support.mock_api import MockApi
 
 runner = CliRunner()
 INSUFFICIENT_COVERAGE = INSUFFICIENT_REASONS[InsufficientReason.LIMITED_COVERAGE]
