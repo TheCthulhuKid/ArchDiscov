@@ -15,7 +15,7 @@ from archdiscov.assistant.runs import RunTranscript
 from archdiscov.cli import app
 from archdiscov.cli_answer_output import ANSWER_JSON_VERSION
 from archdiscov.cli_ask_output import ASK_JSON_VERSION
-from archdiscov.services import AskCancelled
+from archdiscov.services import AskCancelled, compare_snapshots, load_snapshot, save_comparison
 from archdiscov.services.ask import RunSummary
 from tests.assistant.test_answer_service import PLAIN_TEXT, SEARCH, _proposal, _rejected, _submit
 from tests.assistant.test_orchestrator import _calls, _fail, _text
@@ -35,6 +35,7 @@ ENVELOPE = [
     "schema_version",
     "snapshot_path",
     "comparison_path",
+    "comparison_result_paths",
     "config_path",
     "transcript_path",
     "summary",
@@ -87,6 +88,7 @@ def test_an_answer_is_a_json_envelope(tmp_path: Path) -> None:
     data = _envelope(result.stdout)
     assert (data["snapshot_path"], data["config_path"]) == (str(SNAPSHOT), str(config))
     assert data["comparison_path"] is None and data["transcript_path"] is None
+    assert data["comparison_result_paths"] == []
     assert data["summary"]["usage"]["tool_calls"] == {"search_resources": 1}
     assert data["result"]["exit_code"] == 0
     assert data["result"]["answer"]["outcome"]["status"] == "answered"
@@ -185,6 +187,24 @@ def _invalid_comparison(tmp_path: Path) -> tuple[Path, list, dict]:
     return _answered(tmp_path), ["--compare", invalid], {}
 
 
+def _missing_comparison_result(tmp_path: Path) -> tuple[Path, list, dict]:
+    return _answered(tmp_path), ["--comparison-result", tmp_path / "missing.json"], {}
+
+
+def _invalid_comparison_result(tmp_path: Path) -> tuple[Path, list, dict]:
+    invalid = tmp_path / "comparison.json"
+    invalid.write_text("{}", encoding="utf-8")
+    return _answered(tmp_path), ["--comparison-result", invalid], {}
+
+
+def _unselected_comparison_result(tmp_path: Path) -> tuple[Path, list, dict]:
+    """A saved comparison of another snapshot with itself."""
+    other = load_snapshot(COMPARISON)
+    path = tmp_path / "comparison.json"
+    save_comparison(compare_snapshots(other, other), path, left=other, right=other)
+    return _answered(tmp_path), ["--comparison-result", path], {}
+
+
 def _existing_transcript(tmp_path: Path) -> tuple[Path, list, dict]:
     existing = tmp_path / "transcript.json"
     existing.write_text("kept", encoding="utf-8")
@@ -200,6 +220,9 @@ def _existing_transcript(tmp_path: Path) -> tuple[Path, list, dict]:
         (_blank_question, 2, "invalid_question"),
         (_unknown_snapshot, 1, "snapshot_io_error"),
         (_invalid_comparison, 2, "invalid_snapshot"),
+        (_missing_comparison_result, 1, "snapshot_io_error"),
+        (_invalid_comparison_result, 2, "invalid_comparison_result"),
+        (_unselected_comparison_result, 2, "result_snapshot_unselected"),
         (_existing_transcript, 3, "snapshot_conflict"),
     ],
     ids=lambda value: getattr(value, "__name__", str(value)).strip("_"),
@@ -212,8 +235,11 @@ def test_errors_before_the_run_are_safe_diagnostics(
     result = _run(config, *extra, *(["--json"] if as_json else []), **overrides)
     assert result.exit_code == code
     if as_json:
-        assert json.loads(result.stdout)["error"]["code"] == error
-        assert result.stderr == ""
+        diagnostic = json.loads(result.stdout)["error"]
+        assert diagnostic["code"] == error and result.stderr == ""
+        if "--comparison-result" in extra:
+            # A saved comparison's failure names that file, not the snapshot.
+            assert diagnostic["path"] == str(extra[-1])
     else:
         assert result.stdout == ""
         assert result.stderr.startswith(f"Error [{error}]: ")
@@ -237,6 +263,13 @@ def test_missing_arguments_are_usage_errors(arguments: list[str]) -> None:
 def test_help_describes_the_command() -> None:
     result = runner.invoke(app, ["ask", "--help"])
     assert result.exit_code == 0
-    for option in ("--snapshot", "--config", "--compare", "--transcript", "--json"):
+    for option in (
+        "--snapshot",
+        "--config",
+        "--compare",
+        "--comparison-result",
+        "--transcript",
+        "--json",
+    ):
         assert option in result.stdout
     assert "no" in result.stdout and "conversation memory" in result.stdout

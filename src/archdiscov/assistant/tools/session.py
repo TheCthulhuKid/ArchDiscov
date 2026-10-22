@@ -14,6 +14,7 @@ from archdiscov.graph import GraphIndex
 from archdiscov.models.analysis.results import AnalysisResult
 from archdiscov.models.comparison.results import ComparisonResult
 from archdiscov.services.analyses import load_analysis
+from archdiscov.services.analysis_diagnostics import AnalysisValidationError
 from archdiscov.services.analysis_validation import validate_analysis_result
 from archdiscov.services.comparison_results import (
     parse_comparison_result,
@@ -30,8 +31,11 @@ from .record import RunRecord
 class ToolSessionError(ValueError):
     """A saved result that names no selected snapshot; the message is fixed."""
 
+    code = "result_snapshot_unselected"
+
     def __init__(self) -> None:
         super().__init__("Saved result does not belong to the selected snapshots.")
+        self.path: Path | None = None
 
 
 class ToolSession:
@@ -55,14 +59,7 @@ class ToolSession:
             validate_analysis_result(result, self._snapshot_for(result.snapshot_id))
             for result in analyses
         )
-        self._comparisons = tuple(
-            validate_comparison_result(
-                result,
-                self._snapshot_for(result.left.snapshot_id),
-                self._snapshot_for(result.right.snapshot_id),
-            )
-            for result in comparisons
-        )
+        self._comparisons = tuple(self._verified_comparison(result) for result in comparisons)
         self._limits = ToolLimits() if limits is None else limits
         self._record = RunRecord()
         for index in (self._index, self._comparison_index):
@@ -81,16 +78,34 @@ class ToolSession:
         comparison_result_paths: Sequence[Path] = (),
         limits: ToolLimits | None = None,
     ) -> "ToolSession":
-        """Load user-selected files with the shared snapshot and result validation."""
-        return cls(
+        """Load user-selected files with the shared snapshot and result validation.
+
+        A saved comparison that is invalid or names no selected snapshot fails with its path.
+        """
+        session = cls(
             load_snapshot(snapshot_path),
             comparison=None if comparison_path is None else load_snapshot(comparison_path),
             analyses=[load_analysis(path) for path in analysis_paths],
-            comparisons=[
-                parse_comparison_result(read_json(Path(path), subject="comparison result"))
-                for path in comparison_result_paths
-            ],
             limits=limits,
+        )
+        session._comparisons = tuple(
+            session._load_comparison(Path(path)) for path in comparison_result_paths
+        )
+        return session
+
+    def _load_comparison(self, path: Path) -> ComparisonResult:
+        data = read_json(path, subject="comparison result")
+        try:
+            return self._verified_comparison(parse_comparison_result(data))
+        except (AnalysisValidationError, ToolSessionError) as exc:
+            exc.path = path
+            raise
+
+    def _verified_comparison(self, result: ComparisonResult) -> ComparisonResult:
+        return validate_comparison_result(
+            result,
+            self._snapshot_for(result.left.snapshot_id),
+            self._snapshot_for(result.right.snapshot_id),
         )
 
     def _snapshot_for(self, snapshot_id: UUID) -> SupportedSnapshot:

@@ -5,7 +5,6 @@ and where its files are, redacted and sanitised the same way.
 """
 
 from collections.abc import Iterator
-from pathlib import Path
 
 import typer
 
@@ -16,6 +15,9 @@ from .services import AskResult
 
 ASK_JSON_VERSION = "1"
 
+# The selected paths as given, keyed as in the JSON envelope; lists hold repeatable options.
+type AskPaths = dict[str, str | list[str] | None]
+
 _TOKEN_LABELS = {
     "input_tokens": "input",
     "output_tokens": "output",
@@ -24,29 +26,31 @@ _TOKEN_LABELS = {
 }
 
 
-def ask_data(result: AskResult, paths: dict[str, Path | None]) -> dict:
+def ask_data(result: AskResult, paths: AskPaths) -> dict:
     """The JSON contract: a version, the selected paths, the run summary, and the answer."""
     return redacted_data(
         {
             "schema_version": ASK_JSON_VERSION,
-            **{name: None if path is None else str(path) for name, path in paths.items()},
+            **paths,
             "summary": result.summary.model_dump(mode="json"),
             "result": answer_data(result.answer.rendered),
         }
     )
 
 
-def print_ask(result: AskResult, paths: dict[str, Path | None]) -> None:
+def print_ask(result: AskResult, paths: AskPaths) -> None:
     typer.echo(display_text(_summary(result, paths)))
     typer.echo("")
     print_answer(result.answer.rendered)
 
 
-def _summary(result: AskResult, paths: dict[str, Path | None]) -> Iterator[str]:
+def _summary(result: AskResult, paths: AskPaths) -> Iterator[str]:
     summary, usage = result.summary, result.summary.usage
     yield f"Snapshot: {paths['snapshot_path']}"
     if paths["comparison_path"] is not None:
         yield f"Comparison: {paths['comparison_path']}"
+    for path in paths["comparison_result_paths"]:
+        yield f"Comparison result: {path}"
     yield f"Provider: {summary.provider_kind}, model {summary.model}"
     yield f"Limits: {_limits(summary.limits)}"
     repair = " (repair requested)" if usage.repair_requested else ""

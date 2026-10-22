@@ -14,7 +14,7 @@ import asyncio
 import logging
 import time
 from collections import Counter
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from pydantic import Field, ValidationError
@@ -109,19 +109,26 @@ async def ask_question_async(
     snapshot_path: Path,
     config_path: Path,
     comparison_path: Path | None = None,
+    comparison_result_paths: Sequence[Path] = (),
     transcript_path: Path | None = None,
     environ: Mapping[str, str] | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> AskResult:
     """Answer `question` over the selected snapshots; failures are outcomes, not errors.
 
+    Saved comparisons in `comparison_result_paths` must be made from the selected snapshots;
+    the model reads them with `get_saved_comparison`.
     With `transcript_path`, the run's `RunTranscript` JSON is published there without
     overwriting; an existing path or a missing parent raises before the run starts. Cancelling
     the task raises `AskCancelled`, whose `result` explains the cancelled run.
     """
     _check_question(question)
     config, provider = load_provider(config_path, environ=environ)
-    session = ToolSession.from_paths(snapshot_path, comparison_path=comparison_path)
+    session = ToolSession.from_paths(
+        snapshot_path,
+        comparison_path=comparison_path,
+        comparison_result_paths=comparison_result_paths,
+    )
     limits = RunLimits.from_config(config)
     if transcript_path is not None:
         require_new_path(transcript_path, subject=_TRANSCRIPT)
@@ -163,6 +170,7 @@ def ask_question(
     snapshot_path: Path,
     config_path: Path,
     comparison_path: Path | None = None,
+    comparison_result_paths: Sequence[Path] = (),
     transcript_path: Path | None = None,
     environ: Mapping[str, str] | None = None,
     clock: Callable[[], float] = time.monotonic,
@@ -179,6 +187,7 @@ def ask_question(
                 snapshot_path=snapshot_path,
                 config_path=config_path,
                 comparison_path=comparison_path,
+                comparison_result_paths=comparison_result_paths,
                 transcript_path=transcript_path,
                 environ=environ,
                 clock=clock,

@@ -47,7 +47,8 @@ A `ToolSession` is created from user input only: one snapshot, optionally a seco
 comparisons, and any saved analysis results and comparisons. Each snapshot is indexed once.
 Each saved result is verified against the selected snapshot it names when the session is
 created; a tampered result fails with the existing safe validation error, and a result for
-an unselected snapshot is rejected. The model reads saved results by their number in
+an unselected snapshot is rejected (`ToolSessionError`, code `result_snapshot_unselected`).
+`ToolSession.from_paths` names the failing file for a saved comparison in either case. The model reads saved results by their number in
 `list_saved_results`, and gets `tool_unavailable` when none were selected.
 
 ## Limits and truncation

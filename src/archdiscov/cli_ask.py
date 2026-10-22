@@ -5,7 +5,7 @@ from typing import Annotated
 
 import typer
 
-from .cli_ask_output import ask_data, print_ask
+from .cli_ask_output import AskPaths, ask_data, print_ask
 from .cli_diagnostics import json_output as emit_json
 from .cli_diagnostics import safe_assistant_failures
 from .cli_options import JsonOption
@@ -22,6 +22,13 @@ def ask(
         Path | None,
         typer.Option("--compare", help="Second snapshot JSON, for comparison questions."),
     ] = None,
+    comparison_result: Annotated[
+        list[Path] | None,
+        typer.Option(
+            "--comparison-result",
+            help="Saved comparison of the selected snapshots for the model to read; repeatable.",
+        ),
+    ] = None,
     transcript: Annotated[
         Path | None,
         typer.Option("--transcript", help="New run-transcript path; never overwritten."),
@@ -36,11 +43,13 @@ def ask(
     or limit reached, 130 cancelled; 1, 2, and 3 for file, input, and conflict errors before
     the run starts.
     """
+    comparison_results = comparison_result or []
     paths = {
-        "snapshot_path": snapshot,
-        "comparison_path": compare,
-        "config_path": config,
-        "transcript_path": transcript,
+        "snapshot_path": str(snapshot),
+        "comparison_path": None if compare is None else str(compare),
+        "comparison_result_paths": [str(path) for path in comparison_results],
+        "config_path": str(config),
+        "transcript_path": None if transcript is None else str(transcript),
     }
     with safe_assistant_failures(snapshot, json_output):
         try:
@@ -49,6 +58,7 @@ def ask(
                 snapshot_path=snapshot,
                 config_path=config,
                 comparison_path=compare,
+                comparison_result_paths=comparison_results,
                 transcript_path=transcript,
             )
         except AskCancelled as cancelled:
@@ -58,7 +68,7 @@ def ask(
         raise typer.Exit(code)
 
 
-def _present(result: AskResult, paths: dict[str, Path | None], as_json: bool) -> None:
+def _present(result: AskResult, paths: AskPaths, as_json: bool) -> None:
     if as_json:
         emit_json(ask_data(result, paths))
     else:

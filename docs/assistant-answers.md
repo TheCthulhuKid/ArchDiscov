@@ -248,11 +248,12 @@ The JSON form (`answer_data`) is a contract:
 
 ## The ask service
 
-`ask_question(question, snapshot_path=, config_path=, comparison_path=)` in
-`services/ask.py` (with `ask_question_async`) is what the `ask` command calls. It refuses
-an empty, blank, or oversized question as `invalid_question` (2) before anything else, then
-builds the provider from the configuration before reading any snapshot, loads the
-snapshots into a tool session, takes the run limits from the configuration, and runs the
+`ask_question(question, snapshot_path=, config_path=, comparison_path=,
+comparison_result_paths=)` in `services/ask.py` (with `ask_question_async`) is what the
+`ask` command calls. It refuses an empty, blank, or oversized question as
+`invalid_question` (2) before anything else, then builds the provider from the
+configuration before reading any snapshot, loads the snapshots and any saved comparisons
+of them into a tool session, takes the run limits from the configuration, and runs the
 answer service. Its `AskResult` holds the `AnswerResult` and a `RunSummary`: each
 snapshot as rendered, the provider kind and model, the limits, and the tool usage from the
 transcript (provider requests, tool calls by name, whether the repair was requested, and
@@ -268,27 +269,35 @@ that never starts writes none. If saving fails after the run, the save error is 
 on cancellation, where it is logged so the cancellation still propagates.
 
 Errors before the run starts keep the existing CLI codes: an unreadable configuration,
-transcript, or snapshot file is 1, and invalid configuration, transcripts, or snapshots,
-including a provider kind without an adapter, are 2. Once the run starts, everything is an
+transcript, snapshot, or saved comparison file is 1, and invalid configuration, transcripts,
+snapshots, or saved comparisons, including a provider kind without an adapter and a saved
+comparison of snapshots that were not selected (`result_snapshot_unselected`), are 2. A saved
+comparison's diagnostic names its own file. Once the run starts, everything is an
 answer outcome with the exit codes above.
 
 ## The ask command
 
-`archdiscov ask QUESTION --snapshot PATH --config PATH [--compare PATH] [--transcript PATH]
-[--json]` (`cli_ask.py`) is presentation over the ask service. It answers one question
-per run, with no chat or conversation memory. The provider comes only from `--config`;
-nothing falls back to the fake provider.
+`archdiscov ask QUESTION --snapshot PATH --config PATH [--compare PATH]
+[--comparison-result PATH ...] [--transcript PATH] [--json]` (`cli_ask.py`) is presentation
+over the ask service. It answers one question per run, with no chat or conversation memory.
+The provider comes only from `--config`; nothing falls back to the fake provider. Recorded
+differences need a saved comparison of the selected snapshots (made with `compare`), given
+with `--comparison-result`, because no tool compares snapshots itself.
 
 ```sh
+archdiscov compare --left earlier.json --right current.json --output comparison.json
+archdiscov ask "What changed in ownership between the two snapshots?" \
+  --snapshot earlier.json --compare current.json --comparison-result comparison.json \
+  --config provider.toml
 archdiscov ask "Which resources are reachable from the internet?" \
   --snapshot snapshot.json --config provider.toml --transcript run.json
 ```
 
-The readable form shows the run summary first (the snapshot and comparison paths, the
-provider kind and model, the limits, the provider requests and whether the repair was
-requested, the tool calls by name, the reported tokens, and the transcript path), then the
-answer as described under [Renderings](#renderings). The command exits with the answer
-outcome's exit code; errors before the run starts are safe diagnostics, as JSON with
+The readable form shows the run summary first (the snapshot, comparison, and saved
+comparison paths, the provider kind and model, the limits, the provider requests and
+whether the repair was requested, the tool calls by name, the reported tokens, and the
+transcript path), then the answer as described under [Renderings](#renderings). The
+command exits with the answer outcome's exit code; errors before the run starts are safe diagnostics, as JSON with
 `--json`, with the exit codes of the ask service.
 
 With `--json`, the output is a versioned envelope:
@@ -298,6 +307,7 @@ With `--json`, the output is a versioned envelope:
 | `schema_version` | `1`; changes whenever the envelope's own shape does |
 | `snapshot_path` | the `--snapshot` path |
 | `comparison_path` | the `--compare` path, or `null` |
+| `comparison_result_paths` | the `--comparison-result` paths, in order; `[]` when none |
 | `config_path` | the `--config` path |
 | `transcript_path` | the `--transcript` path, or `null` |
 | `summary` | the `RunSummary`: `snapshots`, `provider_kind`, `model`, `limits`, and `usage` |

@@ -397,8 +397,9 @@ def test_saved_comparisons_are_scoped_per_side(compared: tuple[Path, Path, Path]
 
 def test_saved_comparisons_need_both_snapshots(compared: tuple[Path, Path, Path]) -> None:
     left_path, _, result_path = compared
-    with pytest.raises(ToolSessionError):
+    with pytest.raises(ToolSessionError) as raised:
         ToolSession.from_paths(left_path, comparison_result_paths=[result_path])
+    assert raised.value.path == result_path
 
 
 def test_tampered_saved_comparison_fails_safely(
@@ -409,7 +410,9 @@ def test_tampered_saved_comparison_fails_safely(
     data["matched"][0]["differences"][0]["right_value"] = "fabricated"
     tampered = tmp_path / "tampered-comparison.json"
     tampered.write_text(json.dumps(data), encoding="utf-8")
-    with pytest.raises(ComparisonValidationError):
+    with pytest.raises(ComparisonValidationError) as raised:
         ToolSession.from_paths(
-            left_path, comparison_path=right_path, comparison_result_paths=[tampered]
+            left_path, comparison_path=right_path, comparison_result_paths=[result_path, tampered]
         )
+    assert raised.value.path == tampered
+    assert "fabricated" not in str(raised.value)
