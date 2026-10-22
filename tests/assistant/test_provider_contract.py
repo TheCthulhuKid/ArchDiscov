@@ -32,7 +32,7 @@ from archdiscov.assistant.provider import (
     complete,
     complete_async,
 )
-from tests.assistant.provider_harness import HARNESSES, ProviderHarness
+from tests.assistant.provider_harness import ProviderHarness
 
 SECRET = "sk-ant-api03-SECRETvalue0123456789abcdefXYZ"
 SEARCH = ToolDeclaration(
@@ -47,11 +47,6 @@ TEXT_ONLY = ProviderCapabilities()
 SCRIPTABLE_ERRORS = [
     code for code in ProviderErrorCode if code != ProviderErrorCode.UNSUPPORTED_CAPABILITY
 ]
-
-
-@pytest.fixture(params=HARNESSES, ids=lambda harness: harness.name)
-def harness(request) -> ProviderHarness:
-    return request.param
 
 
 @pytest.fixture(params=["sync", "async"])

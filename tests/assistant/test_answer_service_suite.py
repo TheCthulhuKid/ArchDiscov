@@ -26,14 +26,15 @@ from archdiscov.assistant.answer_service import (
     AnswerResult,
     answer_question_async,
 )
-from archdiscov.assistant.fake import FakeClock, FakeProvider, FakeTranscript
+from archdiscov.assistant.fake import FakeClock
 from archdiscov.assistant.provider import ProviderErrorCode
 from archdiscov.assistant.runs import MalformedOutputReason, RunLimitKind, RunLimits
 from archdiscov.assistant.tools.session import ToolSession
 from archdiscov.cli_answer_output import answer_data, answer_text
+from tests.assistant.provider_harness import HARNESSES, FakeHarness, ProviderHarness
 from tests.assistant.test_answer_service import PLAIN_TEXT, _proposal, _rejected, _submit
 from tests.assistant.test_orchestration_suite import CASES as LOOP_CASES
-from tests.assistant.test_orchestration_suite import QUESTION, SEARCH, SECRET
+from tests.assistant.test_orchestration_suite import QUESTION, SEARCH, SECRET, capabilities
 from tests.assistant.test_orchestrator import SNAPSHOT, _calls, _text
 from tests.assistant.test_orchestrator_async import _HangingProvider
 from tests.assistant.test_secret_leaks import _renderings
@@ -135,7 +136,7 @@ _LOOP_MALFORMED = {
 
 
 def _from_loop(case: dict) -> dict:
-    options = {"capabilities": case["capabilities"]} if "capabilities" in case else {}
+    options = {key: case[key] for key in ("capabilities", "fake_only") if key in case}
     return _case(lambda _: case["turns"], case["limits"], **options)
 
 
@@ -148,25 +149,22 @@ FROM_LOOP: dict[Identity, dict] = {
 CASES = {**SCRIPTED, **FROM_LOOP}
 
 
-def _run(case: dict) -> tuple[AnswerResult, int]:
+def _run(case: dict, harness: ProviderHarness) -> tuple[AnswerResult, int]:
     session = ToolSession.from_paths(SNAPSHOT)
-    data: dict[str, Any] = {"turns": case["turns"](session)}
-    if "capabilities" in case:
-        data["capabilities"] = {"capabilities": case["capabilities"]}
     clock = FakeClock()
-    provider = FakeProvider(FakeTranscript.model_validate(data), clock=clock)
+    provider = harness.build(case["turns"](session), capabilities=capabilities(case), clock=clock)
     result = asyncio.run(
         answer_question_async(
             QUESTION,
             provider=provider,
             session=session,
-            provider_kind="fake",
+            provider_kind=harness.name,
             model="fake",
             limits=RunLimits.model_validate(case["limits"]),
             clock=clock.monotonic,
         )
     )
-    return result, len(provider.requests)
+    return result, harness.attempts(provider)
 
 
 def _cancelled() -> tuple[AnswerResult, int]:
@@ -191,8 +189,19 @@ def _cancelled() -> tuple[AnswerResult, int]:
     return asyncio.run(scenario()), provider.calls
 
 
-def _result(identity: Identity) -> tuple[AnswerResult, int]:
-    return _cancelled() if identity == ("failed", "cancelled", "") else _run(CASES[identity])
+FAKE = FakeHarness()
+
+
+def _result(identity: Identity, harness: ProviderHarness = FAKE) -> tuple[AnswerResult, int]:
+    """The case's answer and provider attempts; skipped for a harness that cannot script it."""
+    if identity == ("failed", "cancelled", ""):
+        if harness.name != FAKE.name:
+            pytest.skip("cancellation is scripted by its own hanging provider")
+        return _cancelled()
+    case = CASES[identity]
+    if "fake_only" in case and harness.name != FAKE.name:
+        pytest.skip(case["fake_only"])
+    return _run(case, harness)
 
 
 def test_every_answer_outcome_is_covered() -> None:
@@ -203,8 +212,8 @@ def test_every_answer_outcome_is_covered() -> None:
 @pytest.mark.parametrize(
     "identity", sorted(_expected()), ids=lambda item: "-".join(filter(None, item))
 )
-def test_each_answer_outcome_is_reached_and_rendered(identity: Identity) -> None:
-    result, requests = _result(identity)
+def test_each_answer_outcome_is_reached_and_rendered(identity: Identity, harness) -> None:
+    result, requests = _result(identity, harness)
     outcome = result.outcome
     assert _identity(outcome) == identity
     exit_code = (
@@ -233,8 +242,8 @@ def test_each_answer_outcome_is_reached_and_rendered(identity: Identity) -> None
 @pytest.mark.parametrize(
     "identity", sorted(_expected()), ids=lambda item: "-".join(filter(None, item))
 )
-def test_no_secret_or_fabricated_claim_leaks(identity: Identity) -> None:
-    result, _ = _result(identity)
+def test_no_secret_or_fabricated_claim_leaks(identity: Identity, harness) -> None:
+    result, _ = _result(identity, harness)
     text = answer_text(result.rendered)
     data = json.dumps(answer_data(result.rendered))
     for rendering in [*_renderings(result), text, data]:
@@ -251,3 +260,18 @@ def test_no_secret_or_fabricated_claim_leaks(identity: Identity) -> None:
         assert all(FABRICATED not in item for item in conclusion.statements)
         assert all(FABRICATED not in item.untrusted_text for item in conclusion.data)
     assert all(FABRICATED not in item for item in rendered.qualifications)
+
+
+@pytest.mark.parametrize("identity", sorted(CASES), ids=lambda item: "-".join(filter(None, item)))
+def test_every_harness_reaches_the_same_answer(identity: Identity) -> None:
+    if "fake_only" in CASES[identity]:
+        pytest.skip(CASES[identity]["fake_only"])
+    results = [_result(identity, harness)[0] for harness in HARNESSES]
+    fake, *adapters = (
+        result.model_copy(
+            update={"transcript": result.transcript.model_copy(update={"provider_kind": "any"})}
+        )
+        for result in results
+    )
+    for result in adapters:
+        assert result == fake

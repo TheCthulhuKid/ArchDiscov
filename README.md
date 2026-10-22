@@ -1136,7 +1136,9 @@ deterministic assembly, and cancellation. Run the collection journey with:
 .venv/bin/python -m pytest tests/acceptance/test_whole_architecture_acceptance.py -q
 ```
 
-GitHub Actions runs the full offline suite and quality checks, not live account scans.
+GitHub Actions runs the full offline suite and quality checks, not live account scans or
+live provider calls; the [Anthropic smoke test](docs/assistant-providers.md#live-smoke-test)
+is deselected by default and runs only with `-m live` and its variables.
 Real-AWS checks require explicit runtime credentials and remain opt-in.
 
 ### Phase 2 offline acceptance

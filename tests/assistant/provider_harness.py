@@ -3,7 +3,9 @@
 A harness builds a provider that behaves as a list of fake-transcript turns describes,
 and reports how many attempts reached it. The turns are the provider-neutral scenario
 format: the fake replays them directly, and each real adapter (steps 40-42) adds a
-harness that turns them into mocked transport responses for its mapping layer.
+harness that turns them into mocked transport responses for its mapping layer. A harness's
+`name` is the provider kind a run declares. Scripted delays advance the given `FakeClock`,
+so runs that depend on deadlines behave alike under every harness.
 """
 
 from collections.abc import Callable, Sequence
@@ -40,6 +42,7 @@ class ProviderHarness(Protocol):
         *,
         capabilities: ProviderCapabilities | None = None,
         max_retries: int = 0,
+        clock: FakeClock | None = None,
     ) -> Provider: ...
 
     def attempts(self, provider: Provider) -> int: ...
@@ -54,12 +57,15 @@ class FakeHarness:
         *,
         capabilities: ProviderCapabilities | None = None,
         max_retries: int = 0,
+        clock: FakeClock | None = None,
     ) -> Provider:
         data: dict[str, Any] = {"turns": list(turns)}
         if capabilities is not None:
             data["capabilities"] = capabilities.model_dump(mode="json")
         return FakeProvider(
-            FakeTranscript.model_validate(data), clock=FakeClock(), max_retries=max_retries
+            FakeTranscript.model_validate(data),
+            clock=FakeClock() if clock is None else clock,
+            max_retries=max_retries,
         )
 
     def attempts(self, provider: Provider) -> int:
@@ -74,13 +80,14 @@ class MockApi(httpx2.MockTransport):
     """A mocked API: answers each request with the next response, and keeps the requests.
 
     A response may be a function of the request, or an exception, raised as the transport
-    would. A `DelayedResponse` whose delay exceeds the request's read timeout is a read
-    timeout.
+    would. A `DelayedResponse` advances `clock` by its delay, up to the request's read
+    timeout, and a delay beyond that timeout is a read timeout.
     """
 
-    def __init__(self, responses: Sequence[Served]) -> None:
+    def __init__(self, responses: Sequence[Served], clock: FakeClock | None = None) -> None:
         self.requests: list[httpx2.Request] = []
         self._responses = list(responses)
+        self._clock = clock
         super().__init__(self._handle)
 
     def _handle(self, request: httpx2.Request) -> httpx2.Response:
@@ -90,7 +97,10 @@ class MockApi(httpx2.MockTransport):
             response = response(request)
         if isinstance(response, Exception):
             raise response
-        if getattr(response, "delay", 0.0) > request.extensions["timeout"]["read"]:
+        delay, timeout = getattr(response, "delay", 0.0), request.extensions["timeout"]["read"]
+        if self._clock is not None:
+            self._clock.sleep(min(delay, timeout))
+        if delay > timeout:
             raise httpx2.ReadTimeout("scripted delay", request=request)
         return response
 
@@ -120,6 +130,8 @@ def messages_body(response: CompletionResponse) -> dict[str, Any]:
     """The Messages API body that the Anthropic adapter maps back to `response`."""
     message = response.message
     if message.continuation is not None:
+        if message.continuation.provider_kind != "anthropic":
+            raise ValueError("the Messages API returns only its own continuations")
         content: list[Any] = list(message.continuation.blocks)
     else:
         content = [] if message.text is None else [TextBlock(type="text", text=message.text)]
@@ -230,9 +242,9 @@ class AnthropicHarness:
         *,
         capabilities: ProviderCapabilities | None = None,
         max_retries: int = 0,
+        clock: FakeClock | None = None,
     ) -> Provider:
-        transcript = FakeTranscript.model_validate({"turns": list(turns)})
-        api = MockApi([self._served(turn) for turn in transcript.turns])
+        api = self.api(turns, clock)
         config = parse_provider_config(
             {
                 "kind": "anthropic",
@@ -256,6 +268,12 @@ class AnthropicHarness:
         )
         self._apis[provider] = api
         return provider
+
+    @classmethod
+    def api(cls, turns: Sequence[dict[str, Any]], clock: FakeClock | None = None) -> MockApi:
+        """A mocked Messages API that serves the turns, for callers that build the adapter."""
+        transcript = FakeTranscript.model_validate({"turns": list(turns)})
+        return MockApi([cls._served(turn) for turn in transcript.turns], clock)
 
     @staticmethod
     def _served(turn: Any) -> Served:

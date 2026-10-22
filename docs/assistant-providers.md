@@ -269,6 +269,22 @@ earlier retry, never longer than `MAX_RETRY_WAIT_SECONDS` (30) or the request ti
 wait goes through an injected sleep, so tests never wait. Retries and waits count toward
 the request's deadline in the [orchestrator](assistant-orchestration.md#limits).
 
+#### Live smoke test
+
+`tests/live/test_anthropic_live.py` asks one README question through the real Messages API.
+It is marked `live`, which the default pytest options deselect (`-m "not live"`), so the
+normal run and CI never collect it, and it skips unless two variables are set: one naming
+the environment variable that holds the key, and one naming the model. It is capped at four
+requests (plus the one repair) of 4,096 output tokens each and one retry, and it accepts a
+validated answer or an explained failure. It needs a key, network access, and spends real
+tokens, so run it only on purpose:
+
+```sh
+ARCHDISCOV_LIVE_ANTHROPIC_KEY_ENV=ANTHROPIC_API_KEY \
+ARCHDISCOV_LIVE_ANTHROPIC_MODEL=claude-sonnet-5-5 \
+.venv/bin/python -m pytest -m live tests/live
+```
+
 ### Credentials
 
 - Credentials are references only: `api_key_env` names an environment variable, and
@@ -344,4 +360,9 @@ nothing waits, and every attempt is recorded in `requests` with the clock readin
 Example transcripts are in `tests/fixtures/assistant/`. The shared contract suite in
 `tests/assistant/test_provider_contract.py` runs every provider harness in
 `tests/assistant/provider_harness.py` through the same mapping, error, capability,
-retry, and timeout cases.
+retry, and timeout cases. The orchestration and answer-service suites and the README example
+questions run through every harness too, and check that each adapter reaches the same run
+and answer as the fake from the same turns; the Anthropic harness serves them from a mocked
+Messages API. Two orchestration cases are the fake's alone: a response arriving after the
+provider's own timeout, which an HTTP client cannot receive, and another provider's
+continuation, since an adapter marks its own.
