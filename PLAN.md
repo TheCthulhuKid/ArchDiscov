@@ -2813,6 +2813,82 @@ Implement and verify substeps 39.1–39.6 in order. Keep the parent planned unti
 
 **Acceptance check:** Text, tool-use, multi-tool, error, rate-limit, malformed, and truncated cases pass; fake-provider transcripts run through the adapter's mapping layer; a missing or empty key fails safely before any request; no credentials or network are needed in normal tests.
 
+Implement and verify substeps 40.1–40.6 in order. Keep the parent planned until every substep's acceptance checks pass. The adapter lives in `src/archdiscov/assistant/anthropic_provider.py` (not `anthropic.py`, which would read as the SDK), is registered in `ADAPTERS`, and is the only module that imports the SDK, lazily, so the import-isolation test keeps every other assistant module importable with vendor SDKs blocked. It implements the step 34 `Provider` protocol unchanged except for 40.2: the orchestrator, answer service, and `ask` do not learn which provider they talk to. The shared contract suite in `tests/assistant/test_provider_contract.py` already exists (step 34.5) with a harness seam; this step adds the first real harness rather than a new suite, and extends the suite only with cases every adapter must share. Normal tests mock the SDK's HTTP transport; nothing reaches the network or reads a real key unless the opt-in live tests are run on request.
+
+#### Step 40.1: Add the SDK and build the client from configuration
+**Status:** Planned.
+**Prerequisite:** Step 39.
+
+- Add the `anthropic` dependency with `uv` (the 1.x line, built on `httpx2`, which is already locked) and keep `uv.lock` in sync. Register an adapter for `ProviderKind.ANTHROPIC` in `ADAPTERS` that imports the adapter module only when called.
+- Construct the client explicitly from the configuration: the resolved key from `SecretStr`, the configured `endpoint` or the documented default base URL, `max_retries=0` (the adapter owns retries, 40.4), timeouts from `connect_timeout_seconds` and the request limit, and an injectable HTTP client so tests pass a mock transport. Nothing the SDK would otherwise read from the environment (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, CLI profiles, workload identity) can change the target or the credential, and SDK debug logging cannot emit request bodies or headers.
+- A missing or empty key still fails in `build_provider` with `provider_credential_missing` or `provider_credential_empty` before any client exists. The adapter's `repr`, errors, and logs never hold the key.
+- Tests that use `anthropic` as "a real kind without an adapter" (`tests/services/test_ask.py::_unadapted`, the CLI and installed `ask` tests, provider factory and documentation tests) move to a kind that still has none, derived from `ADAPTERS` where possible so steps 41–42 need no edits.
+
+**Advice:** Keep construction free of network calls: building a provider must not contact the API, so `ask` refuses bad configuration before any request.
+
+**Acceptance check:** A TOML configuration with a key variable builds the adapter; a missing or empty variable fails before any request; with `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and `ANTHROPIC_API_KEY` set to other values, a mocked request still goes to the configured URL with the configured key; no key appears in any `repr`, error, or captured log; the import-isolation test passes with the SDK blocked for every module except the adapter.
+
+#### Step 40.2: Carry provider continuation blocks through the conversation
+**Status:** Planned.
+**Prerequisite:** Step 40.1.
+
+- Current Claude models always think, and their `thinking` blocks must be sent back unchanged in a tool loop; dropping or editing them can fail the request. `AssistantMessage` holds only text and tool calls, so add an optional, bounded, opaque continuation (for example `continuation: ProviderContinuation | None`, holding the provider kind and the provider's own blocks as JSON) that an adapter attaches to the message it returns and reads back when the message is replayed.
+- The continuation is not model output: validation, citations, rendering, and the tool registry never read it, and a continuation from another provider kind is rejected rather than replayed. It counts toward the conversation size bounds.
+- Keep it out of run transcripts and every rendering: record at most its kind and size. Its signatures are long opaque tokens that the secret checks would reject, and it holds no evidence.
+- The fake provider may script a continuation and must return it unchanged, so the orchestration suite proves it survives a tool round trip; existing transcripts and fixtures stay valid without one.
+
+**Advice:** Keep it vendor-neutral in name and shape, because Bedrock Converse (step 42) has the same need for reasoning blocks; do not model thinking text as assistant text.
+
+**Acceptance check:** Contracts with and without a continuation round-trip through JSON; an oversized or foreign-kind continuation is rejected with a safe diagnostic; the orchestrator replays a fake continuation unchanged on the next request; transcripts and renderings of such a run contain no continuation content; existing fixtures load unchanged.
+
+#### Step 40.3: Map requests and responses, with a mock-transport harness
+**Status:** Planned.
+**Prerequisite:** Step 40.2.
+
+- Map a `CompletionRequest` to one Messages API request: system messages to the top-level `system`; user and assistant messages in order; tool calls to `tool_use` blocks after the replayed continuation; each `ToolResultMessage` to one user message of `tool_result` blocks with `is_error`; tool declarations to `name`, `description`, and `input_schema`; `max_tokens` from the limits; `tool_choice` `auto`, with `disable_parallel_tool_use` when `max_tool_calls_per_turn` is 1. Send no sampling parameters, forced tool choice, or prefill, which current models reject. If the SDK refuses a non-streaming request for a large `max_tokens`, use its streaming call internally and return the final message; the protocol stays non-streaming.
+- Map the response: `text` blocks to the message text; `tool_use` blocks to `ToolCall`s through `parse_tool_arguments`, so a non-object input is a typed malformed value; `thinking` and `redacted_thinking` blocks to the continuation; any other block type to `ProviderMalformedOutputError`. Stop reasons: `end_turn` and `stop_sequence` to `end`, `tool_use` to `tool_use`, `max_tokens` to `length` when text survives and to `ProviderTruncatedOutputError` when nothing usable or a partial tool call remains, `refusal` to `refusal` (or `ProviderRefusalError` with no text), and `pause_turn` or an unknown value to `ProviderMalformedOutputError`. Usage maps input, output, cache read, and cache creation (as cache write) tokens.
+- Declare static capabilities: tool calling and parallel tool calls, since every Messages API model supports tool use. A model the API does not know fails as `provider_invalid_request` from its 404 (40.4) rather than through a Models API lookup, which would add a request and network use at construction. Record this decision in the docs.
+- Add `AnthropicHarness` to `tests/assistant/provider_harness.py`. It turns fake-transcript turns into mocked HTTP responses (success bodies, error statuses, and delays as transport timeouts) and counts the attempts that reached the transport, so the whole shared contract suite runs against the adapter's mapping layer, sync and async.
+
+**Advice:** Treat every response as untrusted: map only known block types and fields, and never pass provider text into an error. Build request and response bodies with the SDK's own types, not hand-written dicts.
+
+**Acceptance check:** The shared contract suite passes for the fake and Anthropic harnesses. Adapter tests cover text, a single call, parallel calls, mixed text and calls, malformed and non-object arguments, `max_tokens` with text and with a partial tool call, refusal with and without text, unknown blocks and stop reasons, usage with and without cache fields, and a thinking block replayed unchanged on the next request. Request-body tests show the exact system, messages, tools, `tool_choice`, and `max_tokens` sent, and that no key, environment value, or sampling parameter is in the body.
+
+#### Step 40.4: Map errors, retries, and timeouts
+**Status:** Planned.
+**Prerequisite:** Step 40.3.
+
+- Map failures by the SDK's typed exceptions, never by message text: 400 and 413 to `provider_invalid_request`, 401 and 403 to `provider_authentication`, 404 to `provider_invalid_request`, 429 to `provider_rate_limit`, 529 (`overloaded_error`) to `provider_rate_limit`, other 5xx to `provider_unavailable`, connection failures to `provider_transport`, the SDK timeout to `provider_timeout`, and an unparseable success body to `provider_malformed_output`. Each error chains the SDK exception for local debugging and copies none of its text, headers, or request ID into the message or diagnostic.
+- Retry only the retryable codes (transport and rate limit, including overload), up to `max_retries`, with bounded exponential backoff through an injected sleep, honouring `retry-after` only when it fits inside the request timeout; a timeout is never retried, as the contract requires.
+- Document the mapping as a table in `docs/assistant-providers.md`, so a drift test can check it against the adapter's lookup table.
+
+**Advice:** Keep the mapping a lookup table keyed by status and exception class, not an `if` chain; it is the part steps 41–42 copy.
+
+**Acceptance check:** Each status and exception maps to its code with a fixed message and the right retryable flag; retries stop at the configured count, wait within bounds without real sleeping, and honour or cap `retry-after`; error bodies containing a key, a tool result, or the question never appear in any error, diagnostic, or captured log.
+
+#### Step 40.5: Run fake transcripts through the adapter, and add opt-in live tests
+**Status:** Planned.
+**Prerequisite:** Step 40.4.
+
+- Run the step 36 orchestration suite, the step 38 answer-service suite, and the step 39 README example questions through the Anthropic harness as well as the fake, so the same scripted turns pass through the adapter's request and response mapping to the same outcomes and answers.
+- Add opt-in live smoke tests under a `live` marker excluded by default (`-m "not live"` in the pytest options and CI), run only when an explicit variable names the key variable and model. They ask one tool-using question, check a validated answer or explained failure, and cap tokens, requests, and cost. Document how to run them; never run them in CI or without being asked.
+
+**Advice:** Do not fork the suites: parameterise them over harnesses as the contract suite does, so steps 41–42 add one harness each.
+
+**Acceptance check:** Every orchestration, answer-service, and example case passes through both harnesses with identical outcomes; the default test run collects no live test and needs no key or network; a live run without its variables skips with a clear reason.
+
+#### Step 40.6: Verify the installed command and document the adapter
+**Status:** Planned.
+**Prerequisite:** Step 40.5.
+
+- Extend the installed `ask` acceptance test: an `anthropic` configuration with no key in the guarded environment fails with `provider_credential_missing` (exit 2) before any request, and with an `endpoint` pointing at a loopback mock server and a dummy key, answers a README question offline, with the offline guard allowing only that loopback connection.
+- Document the adapter in `docs/assistant-providers.md` (configuration, credentials, base URL for gateways, capabilities, continuation handling, request mapping, error and retry table, live tests) and update `docs/ask-command.md`, the README capability table and provider text, and the drift tests that pin "only the fake provider has an adapter".
+- Run focused and full offline tests, the acceptance suite, Ruff lint and format, documentation links, and whitespace checks with `.venv/bin/python`. Mark each substep and the parent implemented only after their acceptance checks pass.
+
+**Advice:** Reuse `tests/support/installed_cli.py` and the offline guard; if the guard cannot allow one loopback port, add that narrowly rather than disabling it.
+
+**Acceptance check:** The installed command refuses a missing key safely and answers through the adapter against a local mock server with no credentials or internet access; the documentation matches the adapter's tables and options; all checks pass.
+
 ### Step 41: Add the OpenAI-compatible adapter
 **Status:** Planned.
 **Prerequisites:** Steps 34–40.
