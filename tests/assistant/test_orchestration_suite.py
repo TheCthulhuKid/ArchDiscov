@@ -25,7 +25,7 @@ from archdiscov.assistant.runs import (
 )
 from archdiscov.assistant.tools.registry import ToolRegistry
 from archdiscov.assistant.tools.session import ToolSession
-from tests.assistant.test_orchestrator import SNAPSHOT, _calls, _fail, _text
+from tests.assistant.test_orchestrator import SNAPSHOT, _calls, _continued, _fail, _text
 from tests.assistant.test_orchestrator_async import _HangingProvider
 
 SECRET = "sk-ant-api03-SECRETvalue0123456789abcdefXYZ"
@@ -119,6 +119,9 @@ CASES: dict[tuple[str, str], dict] = {
         [_calls(("a", "submit_answer", PROPOSAL), SEARCH, ignore_request_limits=True)]
     ),
     ("malformed_output", "tool_not_offered"): _case([_text(), _calls(SEARCH)], repair=True),
+    ("malformed_output", "continuation_foreign"): _case(
+        [_continued(_calls(SEARCH), "other"), _text()]
+    ),
     ("proposed", ""): _case([_calls(SEARCH), _calls(("a", "submit_answer", PROPOSAL))]),
     ("provider_error", "provider_unsupported_capability"): _case([_text()], capabilities=[]),
     **{

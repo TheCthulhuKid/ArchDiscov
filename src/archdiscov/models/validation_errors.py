@@ -84,6 +84,9 @@ SAFE_VALIDATION_MESSAGES = MappingProxyType(
         "tool_arguments_too_large": (
             "Conversation constraint failed: tool arguments exceed the size limit."
         ),
+        "continuation_too_large": (
+            "Conversation constraint failed: provider continuation exceeds the size limit."
+        ),
         "assistant_message_empty": (
             "Conversation constraint failed: assistant message needs text or tool calls."
         ),

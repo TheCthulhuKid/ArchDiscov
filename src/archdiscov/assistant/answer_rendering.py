@@ -484,6 +484,8 @@ _MALFORMED = {
     "other tool calls after one repair attempt.",
     MalformedOutputReason.TOOL_NOT_OFFERED: "The repair response called a tool other than "
     "submit_answer, the only tool offered.",
+    MalformedOutputReason.CONTINUATION_FOREIGN: "A response carried state from another "
+    "provider, which cannot be sent back to this one.",
 }
 
 _LIMITS = {

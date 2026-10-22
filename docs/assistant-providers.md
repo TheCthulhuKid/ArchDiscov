@@ -18,7 +18,8 @@ belong to adapters.
 | Contract | Holds |
 |---|---|
 | `SystemMessage`, `UserMessage` | `text` |
-| `AssistantMessage` | `text`, `tool_calls`, or both; never neither |
+| `AssistantMessage` | `text`, `tool_calls`, or both; never neither; and an optional `continuation` |
+| `ProviderContinuation` | `provider_kind` and one or more opaque JSON `blocks` |
 | `ToolResultMessage` | one or more `ToolResult`s, such as the results of one parallel turn |
 | `ToolDeclaration` | `name`, `description`, and an `input_schema` describing a JSON object |
 | `ToolCall` | provider-assigned `id`, `name`, and `arguments` |
@@ -37,6 +38,14 @@ the raw text, so the orchestrator can answer the model with a tool error.
 `parse_tool_arguments` classifies provider text or decoded values without raising;
 duplicate keys and non-finite numbers are invalid JSON.
 
+A `ProviderContinuation` holds blocks one provider needs back unchanged with its own
+message, such as the reasoning blocks current Claude models return and expect again in a
+tool loop. Only the adapter for its `provider_kind` reads it: it is not model output, so
+answer validation, citations, renderings, and tools never see it. The orchestrator replays
+it with the message, ends the run with `continuation_foreign` if a response carries another
+provider's continuation, counts its JSON size toward the total-output limit, and records
+only that size in the transcript. The fake provider returns a scripted continuation as-is.
+
 `parse_conversation` validates detached data and reports only stable codes and known
 field names, never input text or arguments.
 
@@ -48,6 +57,7 @@ field names, never input text or arguments.
 | `MAX_TOOL_ARGUMENT_BYTES` | 16,384 | bytes of tool arguments, as text or compact JSON |
 | `MAX_TOOL_RESULT_CHARS` | 262,144 | characters in tool result content |
 | `MAX_TOOL_CALL_ID_CHARS` | 256 | characters in a tool call ID |
+| `MAX_CONTINUATION_BYTES` | 262,144 | bytes of a continuation's blocks as compact JSON |
 
 ## Provider protocol
 

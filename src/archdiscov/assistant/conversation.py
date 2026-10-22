@@ -1,7 +1,9 @@
 """Conversation and tool-call contracts shared by every provider.
 
 These model the lowest common shape of the Anthropic, OpenAI, and Bedrock formats;
-vendor-specific fields belong to adapters. The structured answer proposal is not
+vendor-specific fields belong to adapters. Blocks a provider needs back unchanged, such as
+reasoning, ride on an assistant message as an opaque `ProviderContinuation` that only that
+provider's adapter reads. The structured answer proposal is not
 defined here (step 37 owns it); answers reuse the `Answer` status vocabulary in
 `models/results.py`.
 """
@@ -29,12 +31,14 @@ MAX_TOOL_INPUT_SCHEMA_BYTES = 32_768
 MAX_TOOL_ARGUMENT_BYTES = 16_384
 MAX_TOOL_RESULT_CHARS = 262_144
 MAX_TOOL_CALL_ID_CHARS = 256
+MAX_CONTINUATION_BYTES = 262_144
 
 # Bedrock is the strictest of the three formats: a leading letter, then letters,
 # digits, and underscores, at most 64 characters.
 ToolName = Annotated[str, Field(pattern=r"^[A-Za-z][A-Za-z0-9_]{0,63}$")]
 ToolCallId = Annotated[NonEmptyString, Field(max_length=MAX_TOOL_CALL_ID_CHARS)]
 MessageText = Annotated[NonEmptyString, Field(max_length=MAX_TEXT_CHARS)]
+ProviderKindName = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")]
 
 
 class Contract(Model):
@@ -165,12 +169,35 @@ class UserMessage(Contract):
     text: MessageText
 
 
+class ProviderContinuation(Contract):
+    """Blocks one provider needs back unchanged with its message, such as reasoning.
+
+    Opaque to everything but that provider's adapter: it is not model output, so nothing
+    validates, cites, renders, or records its content.
+    """
+
+    provider_kind: ProviderKindName
+    blocks: tuple[dict[str, JsonValue], ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def bound_size(self) -> Self:
+        if self.size > MAX_CONTINUATION_BYTES:
+            raise validation_error("continuation_too_large", "continuation exceeds the limit")
+        return self
+
+    @property
+    def size(self) -> int:
+        """Bytes of the blocks as compact JSON."""
+        return _json_size(self.blocks)
+
+
 class AssistantMessage(Contract):
-    """Model output: text, tool calls, or both, never neither."""
+    """Model output: text, tool calls, or both, never neither, and any continuation."""
 
     role: Literal[MessageRole.ASSISTANT] = MessageRole.ASSISTANT
     text: MessageText | None = None
     tool_calls: tuple[ToolCall, ...] = ()
+    continuation: ProviderContinuation | None = None
 
     @model_validator(mode="after")
     def validate_content(self) -> Self:
@@ -245,6 +272,7 @@ _DIAGNOSTIC_FIELDS = frozenset(
         UserMessage,
         AssistantMessage,
         ToolResultMessage,
+        ProviderContinuation,
         ToolCall,
         ToolResult,
         ToolDeclaration,

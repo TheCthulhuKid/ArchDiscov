@@ -130,6 +130,7 @@ SCRIPTED: dict[Identity, dict] = {
 _LOOP_MALFORMED = {
     ("malformed_output", "conversation_invalid"),
     ("malformed_output", "provider_reported"),
+    ("malformed_output", "continuation_foreign"),
 }
 
 

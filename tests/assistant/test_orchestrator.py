@@ -69,6 +69,14 @@ def _calls(*calls: tuple[str, str, Any], text: str | None = None, **turn: Any) -
     }
 
 
+def _continued(turn: dict, provider_kind: str = "fake", *blocks: dict) -> dict:
+    """The scripted turn with a continuation on its message; one thinking block by default."""
+    blocks = blocks or ({"type": "thinking", "thinking": "", "signature": "c2lnbmF0dXJl"},)
+    message = {**turn["response"]["message"]}
+    message["continuation"] = {"provider_kind": provider_kind, "blocks": list(blocks)}
+    return {**turn, "response": {**turn["response"], "message": message}}
+
+
 def _fail(code: str) -> dict:
     return {"kind": "fail", "error": code}
 

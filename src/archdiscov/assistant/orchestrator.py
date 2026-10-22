@@ -185,7 +185,9 @@ class _Run:
     def respond(self, response: CompletionResponse) -> None:
         """Discard a late response, reject one that cannot continue the run, or accept it."""
         self.in_flight = False
-        self.output_chars += len(response.message.text or "")
+        message = response.message
+        continuation = 0 if message.continuation is None else message.continuation.size
+        self.output_chars += len(message.text or "") + continuation
         if (overrun := self._overrun()) is not None:
             # A late response is discarded: the deadline already decided the run.
             self._turn()
@@ -197,24 +199,43 @@ class _Run:
             self._accept(response)
 
     def _rejection(self, message: AssistantMessage) -> RunOutcome | None:
-        """Why the response cannot be added to the conversation, checked in order, or None."""
-        calls = message.tool_calls
-        if calls and not self.tools:
-            return MalformedOutput(reason=MalformedOutputReason.TOOL_CALLS_WITHOUT_TOOLS)
-        if self.output_chars > self.limits.max_total_output_chars:
-            return LimitReached(limit=RunLimitKind.TOTAL_OUTPUT)
-        if not self._extends_conversation(message):
-            return MalformedOutput(reason=MalformedOutputReason.CONVERSATION_INVALID)
-        if self._submits(message) and len(calls) > 1:
-            return MalformedOutput(reason=MalformedOutputReason.PROPOSAL_MIXED)
-        if self.repair is not None and calls and not self._submits(message):
-            # No request is left to read their results, and they were not offered.
-            return MalformedOutput(reason=MalformedOutputReason.TOOL_NOT_OFFERED)
-        if len(calls) > self.limits.max_tool_calls_per_turn:
-            return LimitReached(limit=RunLimitKind.TOOL_CALLS_PER_TURN)
-        if not self._submits(message) and self.tool_calls + len(calls) > self.limits.max_tool_calls:
-            return LimitReached(limit=RunLimitKind.TOOL_CALLS)
-        return None
+        """Why the response cannot be added to the conversation, or None.
+
+        The checks run in `_REJECTIONS` order and the first that fails decides.
+        """
+        return next((outcome for fails, outcome in _REJECTIONS if fails(self, message)), None)
+
+    def _calls_without_tools(self, message: AssistantMessage) -> bool:
+        return bool(message.tool_calls) and not self.tools
+
+    def _foreign_continuation(self, message: AssistantMessage) -> bool:
+        # Another provider's blocks would be replayed to this one.
+        continuation = message.continuation
+        return continuation is not None and continuation.provider_kind != self.provider_kind
+
+    def _over_total_output(self, _: AssistantMessage) -> bool:
+        return self.output_chars > self.limits.max_total_output_chars
+
+    def _breaks_conversation(self, message: AssistantMessage) -> bool:
+        try:
+            Conversation(messages=(*self.messages, message))
+        except ValidationError:
+            return True
+        return False
+
+    def _mixes_proposal(self, message: AssistantMessage) -> bool:
+        return self._submits(message) and len(message.tool_calls) > 1
+
+    def _calls_unoffered_tools(self, message: AssistantMessage) -> bool:
+        # During the repair, no request is left to read their results, and they were not offered.
+        return self.repair is not None and bool(message.tool_calls) and not self._submits(message)
+
+    def _over_turn_calls(self, message: AssistantMessage) -> bool:
+        return len(message.tool_calls) > self.limits.max_tool_calls_per_turn
+
+    def _over_run_calls(self, message: AssistantMessage) -> bool:
+        calls = self.tool_calls + len(message.tool_calls)
+        return not self._submits(message) and calls > self.limits.max_tool_calls
 
     def _accept(self, response: CompletionResponse) -> None:
         """End with a proposal or an answer, end when no request is left, or run the tools."""
@@ -243,13 +264,6 @@ class _Run:
             return Proposed(proposal=AnswerProposal.model_validate(arguments.value))
         except ValidationError:
             return MalformedOutput(reason=MalformedOutputReason.PROPOSAL_INVALID)
-
-    def _extends_conversation(self, message: AssistantMessage) -> bool:
-        try:
-            Conversation(messages=(*self.messages, message))
-        except ValidationError:
-            return False
-        return True
 
     def _run_tools(self, response: CompletionResponse) -> None:
         message = response.message
@@ -315,6 +329,11 @@ class _Run:
                 ),
                 error=None if error is None else error.code,
                 repair=self.repair is not None,
+                continuation_bytes=(
+                    None
+                    if message is None or message.continuation is None
+                    else message.continuation.size
+                ),
             )
         )
 
@@ -336,6 +355,31 @@ class _Run:
             conversation=Conversation(messages=tuple(self.messages)),
             returned=self.session.record.returned(),
         )
+
+
+# Each check a response must pass, in order, and the outcome that ends the run if it fails.
+_REJECTIONS: tuple[tuple[Callable[[_Run, AssistantMessage], bool], RunOutcome], ...] = (
+    (
+        _Run._calls_without_tools,
+        MalformedOutput(reason=MalformedOutputReason.TOOL_CALLS_WITHOUT_TOOLS),
+    ),
+    (
+        _Run._foreign_continuation,
+        MalformedOutput(reason=MalformedOutputReason.CONTINUATION_FOREIGN),
+    ),
+    (_Run._over_total_output, LimitReached(limit=RunLimitKind.TOTAL_OUTPUT)),
+    (
+        _Run._breaks_conversation,
+        MalformedOutput(reason=MalformedOutputReason.CONVERSATION_INVALID),
+    ),
+    (_Run._mixes_proposal, MalformedOutput(reason=MalformedOutputReason.PROPOSAL_MIXED)),
+    (
+        _Run._calls_unoffered_tools,
+        MalformedOutput(reason=MalformedOutputReason.TOOL_NOT_OFFERED),
+    ),
+    (_Run._over_turn_calls, LimitReached(limit=RunLimitKind.TOOL_CALLS_PER_TURN)),
+    (_Run._over_run_calls, LimitReached(limit=RunLimitKind.TOOL_CALLS)),
+)
 
 
 def _prompt_text(message: Message) -> str:
