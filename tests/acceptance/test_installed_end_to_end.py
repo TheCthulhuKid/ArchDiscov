@@ -9,6 +9,7 @@ the offline guard, which fails and records any network use.
 import hashlib
 import json
 import shutil
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -265,3 +266,32 @@ def test_the_offline_guard_blocks_network_use(tmp_path):
     assert result.stdout.split() == ["blocked", "blocked"]
     assert len(guard.attempts) == 2
     assert str(PROJECT_ROOT) not in guard.env["PYTHONPATH"]
+
+
+def test_the_offline_guard_opens_only_the_allowed_loopback_port(tmp_path):
+    guard = OfflineGuard(tmp_path)
+    with socket.create_server(("127.0.0.1", 0)) as server:
+        port = server.getsockname()[1]
+        script = (
+            "import socket\n"
+            "def raw():\n"
+            f"    with socket.socket() as s:\n        s.connect(('127.0.0.1', {port}))\n"
+            "for call in (\n"
+            f"    lambda: socket.create_connection(('127.0.0.1', {port})).close(),\n"
+            "    raw,\n"
+            f"    lambda: socket.create_connection(('127.0.0.1', {port + 1})),\n"
+            f"    lambda: socket.create_connection(('localhost', {port})),\n"
+            "    lambda: socket.getaddrinfo('example.com', 443),\n"
+            "):\n"
+            "    try:\n        call()\n        print('open')\n"
+            "    except OSError:\n        print('blocked')\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            env=guard.allowing(port),
+            capture_output=True,
+            text=True,
+            cwd=tmp_path,
+        )
+    assert result.stdout.split() == ["open", "open", "blocked", "blocked", "blocked"]
+    assert len(guard.attempts) == 3

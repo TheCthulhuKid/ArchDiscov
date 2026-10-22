@@ -294,7 +294,8 @@ def test_documented_bounds_match_the_constants():
 def test_the_readme_links_the_provider_contracts_without_claiming_real_providers():
     text = README.read_text(encoding="utf-8")
     assert "docs/assistant-providers.md" in text
-    for claim in ("Anthropic adapter is implemented", "OpenAI-compatible adapter is implemented"):
+    assert "docs/assistant-providers.md#anthropic-adapter" in text
+    for claim in ("OpenAI-compatible adapter is implemented", "Bedrock adapter is implemented"):
         assert claim not in text
     provider_doc = PROVIDERS_DOC.read_text(encoding="utf-8")
     assert "the other kinds have no adapter yet" in " ".join(provider_doc.split())

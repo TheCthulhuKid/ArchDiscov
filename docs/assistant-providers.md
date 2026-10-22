@@ -182,7 +182,21 @@ Errors name the file and the kind, never the configuration's values or credentia
 
 `assistant/anthropic_provider.py` is the only module that imports the `anthropic` SDK,
 and `ADAPTERS` imports it only when an `anthropic` configuration is built. Building it
-makes no request. The client comes only from the configuration:
+makes no request.
+
+```toml
+kind = "anthropic"
+model = "claude-sonnet-5-5"
+api_key_env = "ANTHROPIC_API_KEY"
+endpoint = "https://llm-gateway.example.com/anthropic"   # optional: a gateway's API root
+```
+
+Without `endpoint`, requests go to `https://api.anthropic.com`. A gateway at `endpoint`
+receives `POST {endpoint}/v1/messages` with the key as `Authorization: Bearer`, which the
+SDK sends in place of `x-api-key`, so a gateway that accepts only `x-api-key` is not
+supported. Plain HTTP is accepted only for loopback hosts, such as a local mock server.
+
+The client comes only from the configuration:
 
 - The key from `api_key_env` and the base URL (`endpoint`, the API root without `/v1`, or
   `https://api.anthropic.com`) are passed explicitly, so the SDK's own environment

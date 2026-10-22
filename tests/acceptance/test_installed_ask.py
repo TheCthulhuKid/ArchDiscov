@@ -1,26 +1,37 @@
 """The installed `ask` command, outside the checkout, with the fake provider and no network.
 
 Both entry points answer the five README example questions in both output forms, and refuse
-a missing configuration, an unknown snapshot, a real provider kind without an adapter, and an
-existing transcript path before the run, and report a scripted provider error and a run limit
-as answer outcomes, each with its documented exit code. The child sees no credentials and no
-checkout: its whole `PYTHONPATH` is the offline guard, which fails and records network use.
+a missing configuration, an unknown snapshot, a real provider kind without an adapter, an
+Anthropic configuration without its key, and an existing transcript path before the run, and
+report a scripted provider error and a run limit as answer outcomes, each with its documented
+exit code. The Anthropic adapter also answers a README question through a mock Messages API
+on one loopback port, the only connection the run may make. The child sees no credentials
+and no checkout: its whole `PYTHONPATH` is the offline guard, which fails and records any
+other network use.
 """
 
 import hashlib
+import json
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from archdiscov.assistant.fake import FakeTranscript
 from archdiscov.assistant.runs import RunTranscript
 from archdiscov.models.enums import AnalyzerKind
 from tests.acceptance.test_installed_end_to_end import Workspace
+from tests.assistant.provider_harness import messages_body
 from tests.assistant.test_answer_service import SEARCH
 from tests.assistant.test_orchestrator import _calls, _fail
 from tests.assistant.test_providers import UNADAPTED_KIND, unadapted_config
 from tests.services.test_ask import _fake
 from tests.support.ask_examples import EXAMPLES, README_QUESTIONS, write_example
-from tests.support.installed_cli import ENTRY_POINTS
+from tests.support.installed_cli import ENTRY_POINTS, run_installed
 
 # Each entry point runs every case once per module: keep them on one xdist worker.
 pytestmark = pytest.mark.xdist_group("installed-ask")
@@ -29,6 +40,10 @@ pytestmark = pytest.mark.xdist_group("installed-ask")
 README_EXAMPLES = [kind.value for kind in AnalyzerKind]
 # The example whose snapshot and configuration the failure cases reuse.
 SNAPSHOT = "internet_exposure"
+# The example the Anthropic adapter answers through the mock Messages API.
+ADAPTED = "ownership"
+KEY_VARIABLE = "ASK_INSTALLED_ANTHROPIC_KEY"
+DUMMY_KEY = "sk-ant-api03-INSTALLEDdummy0123456789abcdefXYZ"
 
 
 def _digest(path: Path) -> str:
@@ -60,7 +75,23 @@ def _existing_transcript(ws: Workspace, snapshot: Path) -> tuple[list, int, str]
     return options, 3, "snapshot_conflict"
 
 
-REFUSALS = [_missing_config, _unknown_snapshot, _no_adapter, _existing_transcript]
+def _anthropic_config(directory: Path, endpoint: str | None = None) -> Path:
+    path = directory / "anthropic.toml"
+    lines = ['kind = "anthropic"', 'model = "claude-sonnet-5-5"', f'api_key_env = "{KEY_VARIABLE}"']
+    if endpoint is not None:
+        lines.append(f'endpoint = "{endpoint}"')
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def _missing_key(ws: Workspace, snapshot: Path) -> tuple[list, int, str]:
+    directory = ws.path("cases", "missing-key")
+    directory.mkdir(parents=True)
+    options = ["--snapshot", snapshot, "--config", _anthropic_config(directory)]
+    return options, 2, "provider_credential_missing"
+
+
+REFUSALS = [_missing_config, _unknown_snapshot, _no_adapter, _missing_key, _existing_transcript]
 # Scripted runs that start and fail: (turns, extra configuration, exit code, failure reason).
 FAILED_RUNS = {
     "provider-error": ([_fail("provider_unavailable")], "", 6, "provider_error"),
@@ -115,12 +146,73 @@ def _failed_runs(ws: Workspace) -> dict:
     return failed
 
 
+class _MessagesApi(BaseHTTPRequestHandler):
+    """A mock Messages API: each POST gets the server's next body; requests are kept."""
+
+    server: "MockMessagesServer"
+
+    def do_POST(self) -> None:
+        body = self.rfile.read(int(self.headers["content-length"]))
+        self.server.requests.append((self.path, dict(self.headers), json.loads(body)))
+        payload = json.dumps(self.server.bodies.pop(0)).encode()
+        self.send_response(200)
+        self.send_header("content-type", "application/json")
+        self.send_header("content-length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def log_message(self, *args: Any) -> None:
+        """Requests are kept on the server, not logged."""
+
+
+class MockMessagesServer(ThreadingHTTPServer):
+    def __init__(self, bodies: list[dict]) -> None:
+        self.bodies = bodies
+        self.requests: list[tuple[str, dict, dict]] = []
+        super().__init__(("127.0.0.1", 0), _MessagesApi)
+
+    @property
+    def port(self) -> int:
+        return self.server_address[1]
+
+
+@contextmanager
+def mock_messages_api(bodies: list[dict]) -> Iterator[MockMessagesServer]:
+    server = MockMessagesServer(bodies)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield server
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def _through_the_adapter(ws: Workspace) -> tuple[dict, str, list]:
+    """The adapted example answered in JSON and readably through the mock Messages API."""
+    directory = ws.path("examples", ADAPTED)
+    turns = json.loads((directory / "transcript.json").read_text(encoding="utf-8"))["turns"]
+    bodies = [messages_body(turn.response) for turn in FakeTranscript(turns=turns).turns]
+    arguments = [EXAMPLES[ADAPTED].question, "--snapshot", directory / "snapshot.json"]
+    with mock_messages_api(bodies * 2) as api:
+        config = _anthropic_config(directory, f"http://127.0.0.1:{api.port}")
+        env = ws.guard.allowing(api.port, **{KEY_VARIABLE: DUMMY_KEY})
+        command = ["ask", *map(str, arguments), "--config", str(config)]
+        data = json.loads(
+            run_installed(ws.entry_point, ws.root, *command, "--json", env=env).stdout
+        )
+        readable = run_installed(ws.entry_point, ws.root, *command, env=env).stdout
+    assert api.bodies == []
+    return data, readable, api.requests
+
+
 def journey(entry_point: str, root: Path) -> dict:
     ws = Workspace(entry_point, root)
     summary = {
         "examples": _examples(ws),
         "refusals": _refusals(ws),
         "failed": _failed_runs(ws),
+        "adapter": _through_the_adapter(ws),
     }
     assert ws.guard.attempts == []
     return summary
@@ -166,6 +258,8 @@ def test_errors_before_the_run_fail_safely(summaries, entry_point):
     assert refused["no_adapter"]["kind"] == UNADAPTED_KIND.value
     assert "variable" not in refused["no_adapter"]
     assert refused["missing_config"]["path"].endswith("missing.toml")
+    # A missing key names its variable, never a value, and stops the run before any request.
+    assert refused["missing_key"]["variable"] == KEY_VARIABLE
 
 
 @pytest.mark.parametrize("entry_point", ENTRY_POINTS)
@@ -180,3 +274,20 @@ def test_answers_do_not_depend_on_the_entry_point(summaries):
     script, module = (summaries[entry_point] for entry_point in ENTRY_POINTS)
     for name in README_EXAMPLES:
         assert script["examples"][name][1]["result"] == module["examples"][name][1]["result"]
+
+
+@pytest.mark.parametrize("entry_point", ENTRY_POINTS)
+def test_the_anthropic_adapter_answers_through_a_loopback_api(summaries, entry_point):
+    data, readable, requests = summaries[entry_point]["adapter"]
+    _, fake, _ = summaries[entry_point]["examples"][ADAPTED]
+    assert data["summary"]["provider_kind"] == "anthropic"
+    assert data["result"] == fake["result"]
+    assert data["result"]["answer"]["status"] == EXAMPLES[ADAPTED].status
+    assert "Provider: anthropic, model claude-sonnet-5-5" in readable.splitlines()
+    assert f"Status: {EXAMPLES[ADAPTED].status}" in readable.splitlines()
+    assert requests and all(path == "/v1/messages" for path, _, _ in requests)
+    for _, headers, body in requests:
+        lowered = {name.lower(): value for name, value in headers.items()}
+        assert lowered["authorization"] == f"Bearer {DUMMY_KEY}"
+        assert body["model"] == "claude-sonnet-5-5"
+    assert DUMMY_KEY not in json.dumps(data) + readable
