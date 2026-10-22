@@ -277,7 +277,7 @@ def test_the_readme_links_the_provider_contracts_without_claiming_real_providers
     for claim in ("Anthropic adapter is implemented", "OpenAI-compatible adapter is implemented"):
         assert claim not in text
     provider_doc = PROVIDERS_DOC.read_text(encoding="utf-8")
-    assert "the fake is the only provider" in provider_doc
+    assert "the fake is the only provider that answers" in provider_doc
 
 
 # ---- assistant tools ---------------------------------------------------------------
@@ -491,7 +491,7 @@ def test_the_readme_links_answers_without_claiming_rendering():
     assert "docs/assistant-answers.md" in text
     for claim in ("answers are rendered", "repair is implemented"):
         assert claim not in text
-    assert "the only provider with an adapter is the scripted fake" in " ".join(
+    assert "the only provider that answers is the scripted fake" in " ".join(
         ANSWERS_DOC.read_text(encoding="utf-8").split()
     )
 

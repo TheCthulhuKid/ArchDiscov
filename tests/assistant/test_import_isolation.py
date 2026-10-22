@@ -130,6 +130,16 @@ built = providers.build_provider(
     config_dir=Path("."),
 )
 assert built.remaining_turns > 0
+# Only building a vendor adapter imports its SDK.
+anthropic_config = config.parse_provider_config(
+    {{"kind": "anthropic", "model": "m", "api_key_env": "ASK_KEY"}}
+)
+try:
+    providers.build_provider(anthropic_config, config_dir=Path("."), environ={{"ASK_KEY": "k"}})
+except ImportError as error:
+    assert "blocked vendor SDK: anthropic" in str(error), error
+else:
+    raise AssertionError("the Anthropic adapter was built without its SDK")
 import json
 import tempfile
 

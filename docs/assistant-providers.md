@@ -4,9 +4,10 @@ This page describes the provider-neutral layer under `src/archdiscov/assistant/`
 conversation and tool-call contracts, provider errors and capabilities, the `Provider`
 protocol, provider configuration, and the scripted fake provider used to test everything
 above it. The `ask` command builds its provider from a configuration file, and the only
-constructible provider is the fake; the [assistant tools](assistant-tools.md),
-[orchestration](assistant-orchestration.md), and [answers](assistant-answers.md) build on
-this layer. None of these modules imports a vendor SDK.
+provider that answers is the fake; the [Anthropic adapter](#anthropic-adapter) is being
+added. The [assistant tools](assistant-tools.md), [orchestration](assistant-orchestration.md),
+and [answers](assistant-answers.md) build on this layer. Only an adapter module imports a
+vendor SDK, and only when its kind is built.
 
 ## Conversation contracts
 
@@ -111,8 +112,8 @@ answer renderer in a later step.
 `assistant/config.py` loads a TOML file of at most 64 KiB (`MAX_CONFIG_BYTES`) with
 `load_provider_config(path)`, or validates data with `parse_provider_config`. The file
 is one table selected by `kind`. The `ask` command reads it with `--config`;
-the fake is the only provider, and the other kinds define the configuration their adapters
-will use.
+the fake is the only provider that answers, and the other kinds define the configuration
+their adapters use.
 
 ```toml
 kind = "anthropic"
@@ -161,10 +162,34 @@ against the file's directory.
 - The fake needs a `transcript`, loaded with the fake transcript limits; without one the
   build fails with `provider_transcript_missing`, and an unreadable or invalid transcript
   fails with the fake's own error codes.
-- A kind without an adapter fails with `provider_adapter_unavailable`, before its
-  credential is read or any request is made.
+- `anthropic` builds the [Anthropic adapter](#anthropic-adapter).
+- A kind without an adapter (`openai_compatible` and `bedrock`) fails with
+  `provider_adapter_unavailable`, before its credential is read or any request is made.
 
 Errors name the file and the kind, never the configuration's values or credentials.
+
+### Anthropic adapter
+
+`assistant/anthropic_provider.py` is the only module that imports the `anthropic` SDK,
+and `ADAPTERS` imports it only when an `anthropic` configuration is built. Building it
+makes no request. The client comes only from the configuration:
+
+- The key from `api_key_env` and the base URL (`endpoint`, the API root without `/v1`, or
+  `https://api.anthropic.com`) are passed explicitly, so the SDK's own environment
+  credentials, profiles, workload identity, and `ANTHROPIC_BASE_URL` are never used.
+- Every request passes through a transport that keeps only the SDK's own headers and then
+  sets the configured key, so `ANTHROPIC_CUSTOM_HEADERS` cannot add headers or replace the
+  credential. A client with its own transport uses no environment proxy.
+- Redirects are not followed, the SDK's own retries are off (`max_retries = 0`; the
+  adapter's retries arrive with its error mapping), and the timeouts are
+  `connect_timeout_seconds` and `request_timeout_seconds`.
+- OpenTelemetry spans are off, and the `anthropic` and `httpx2` loggers are held at
+  `WARNING` whatever `ANTHROPIC_LOG` or the root level says, because their debug records
+  hold request bodies.
+
+The adapter declares tool calling and parallel tool calls. Its request and response
+mapping is not in place yet, so every request fails with `provider_unavailable` before
+anything is sent.
 
 ### Credentials
 

@@ -5,6 +5,7 @@ description = "Evidence-backed AWS architecture discovery and analysis"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "anthropic>=2.1.0",
     "boto3>=1.43.108",
     "mcp>=2.3.0",
     "openai>=3.26.1",

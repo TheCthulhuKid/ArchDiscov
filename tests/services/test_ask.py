@@ -24,6 +24,7 @@ from archdiscov.services.snapshot_errors import SnapshotIOError
 from tests.assistant.test_answer_service import PLAIN_TEXT, SEARCH, _proposal, _rejected, _submit
 from tests.assistant.test_orchestrator import _calls, _fail, _text
 from tests.assistant.test_orchestrator_async import _HangingProvider
+from tests.assistant.test_providers import UNADAPTED_KIND, unadapted_config
 from tests.assistant.test_secret_leaks import SECRET
 from tests.paths import FIXTURES_ROOT
 
@@ -191,12 +192,6 @@ def _failure(capsys, action) -> tuple[int, dict]:
     return raised.value.exit_code, json.loads(output.out)["error"]
 
 
-def _unadapted(tmp_path: Path) -> Path:
-    path = tmp_path / "provider.toml"
-    path.write_text('kind = "anthropic"\nmodel = "m"\napi_key_env = "ASK_KEY"\n', encoding="utf-8")
-    return path
-
-
 @pytest.mark.parametrize("question", ["", " \n\t", "q" * (MAX_TEXT_CHARS + 1)])
 def test_an_unsendable_question_is_refused_first(tmp_path: Path, capsys, question: str) -> None:
     missing = tmp_path / "missing.toml"
@@ -233,9 +228,10 @@ def test_invalid_configuration_is_invalid_input(tmp_path: Path, capsys, config, 
 
 def test_a_kind_without_an_adapter_fails_before_any_snapshot_is_read(tmp_path, capsys) -> None:
     code, error = _failure(
-        capsys, lambda: _ask(_unadapted(tmp_path), snapshot_path=tmp_path / "missing.json")
+        capsys, lambda: _ask(unadapted_config(tmp_path), snapshot_path=tmp_path / "missing.json")
     )
-    assert (code, error["code"], error["kind"]) == (2, "provider_adapter_unavailable", "anthropic")
+    expected = (2, "provider_adapter_unavailable", UNADAPTED_KIND.value)
+    assert (code, error["code"], error["kind"]) == expected
 
 
 def test_an_unusable_transcript_is_reported(tmp_path: Path, capsys) -> None:

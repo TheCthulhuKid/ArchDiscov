@@ -4,8 +4,8 @@ This page describes the structured answer a model submits at the end of an
 [orchestrated run](assistant-orchestration.md), how it is validated against what the
 [tools](assistant-tools.md) returned, how its conclusions are written from records, and how
 a failed run is explained, the answer service that repairs once and composes them, and the
-readable and JSON renderings. The [`ask` command](ask-command.md) presents them; the only provider with an
-adapter is the scripted fake, and real providers are later steps.
+readable and JSON renderings. The [`ask` command](ask-command.md) presents them; the only provider that
+answers is the scripted fake, and real providers are later steps.
 
 ## Boundary
 

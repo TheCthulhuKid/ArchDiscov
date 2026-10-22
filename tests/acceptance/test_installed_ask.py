@@ -17,7 +17,8 @@ from archdiscov.models.enums import AnalyzerKind
 from tests.acceptance.test_installed_end_to_end import Workspace
 from tests.assistant.test_answer_service import SEARCH
 from tests.assistant.test_orchestrator import _calls, _fail
-from tests.services.test_ask import _fake, _unadapted
+from tests.assistant.test_providers import UNADAPTED_KIND, unadapted_config
+from tests.services.test_ask import _fake
 from tests.support.ask_examples import EXAMPLES, README_QUESTIONS, write_example
 from tests.support.installed_cli import ENTRY_POINTS
 
@@ -47,7 +48,7 @@ def _unknown_snapshot(ws: Workspace, snapshot: Path) -> tuple[list, int, str]:
 def _no_adapter(ws: Workspace, snapshot: Path) -> tuple[list, int, str]:
     directory = ws.path("cases", "no-adapter")
     directory.mkdir(parents=True)
-    config = _unadapted(directory)
+    config = unadapted_config(directory)
     return ["--snapshot", snapshot, "--config", config], 2, "provider_adapter_unavailable"
 
 
@@ -162,7 +163,7 @@ def test_errors_before_the_run_fail_safely(summaries, entry_point):
     refused = summaries[entry_point]["refusals"]
     assert list(refused) == [case.__name__.strip("_") for case in REFUSALS]
     # The real kind is refused before its credential variable is looked up.
-    assert refused["no_adapter"]["kind"] == "anthropic"
+    assert refused["no_adapter"]["kind"] == UNADAPTED_KIND.value
     assert "variable" not in refused["no_adapter"]
     assert refused["missing_config"]["path"].endswith("missing.toml")
 

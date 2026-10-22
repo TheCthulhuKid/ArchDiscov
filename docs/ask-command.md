@@ -7,9 +7,11 @@ then submits a structured proposal; the answer shown is
 [validated and rendered from records](assistant-answers.md), and a failed run is explained
 instead. Each run is one question: there is no chat or conversation memory.
 
-The only provider with an adapter is the scripted fake, which replays a transcript and needs
-no credentials or network. Real provider kinds are accepted in configuration but fail before
-the run with `provider_adapter_unavailable` until their adapters are added.
+The only provider that answers is the scripted fake, which replays a transcript and needs no
+credentials or network. The [Anthropic adapter](assistant-providers.md#anthropic-adapter) is
+being added: an `anthropic` configuration builds, but its first request fails as
+`provider_error` (6) without contacting the API. The other real kinds are accepted in
+configuration but fail before the run with `provider_adapter_unavailable`.
 
 ## Usage
 
@@ -56,9 +58,10 @@ max_requests = 8
 ```
 
 A real kind names its credential by environment variable (`api_key_env`) or AWS profile,
-never by value, and the key is never accepted as an option. Until its adapter exists, a
-real kind fails with `provider_adapter_unavailable` before its credential is read or any
-snapshot is loaded.
+never by value, and the key is never accepted as an option. A missing or empty key fails
+with `provider_credential_missing` or `provider_credential_empty` before any snapshot is
+loaded. A kind without an adapter fails with `provider_adapter_unavailable` before its
+credential is read.
 
 ## Readable output
 

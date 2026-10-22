@@ -4,7 +4,8 @@
 configuration references, and passes it to that kind's adapter, so steps 40-42 add a
 provider by registering an adapter here, without changing callers. A kind without an
 adapter fails before any credential is read or any request is made. Credentials go only to
-the adapter: they are never returned, logged, or recorded.
+the adapter: they are never returned, logged, or recorded. A vendor adapter's module is
+imported only when that kind is built, so nothing else needs its SDK.
 """
 
 from collections.abc import Callable, Mapping
@@ -13,6 +14,7 @@ from pathlib import Path
 from pydantic import SecretStr
 
 from .config import (
+    AnthropicProviderConfig,
     FakeProviderConfig,
     ProviderConfig,
     ProviderConfigError,
@@ -34,7 +36,16 @@ def _fake(config: FakeProviderConfig, _: SecretStr | None, config_dir: Path) -> 
     return FakeProvider(transcript, max_retries=config.max_retries)
 
 
-ADAPTERS: Mapping[ProviderKind, Adapter] = {ProviderKind.FAKE: _fake}
+def _anthropic(config: AnthropicProviderConfig, api_key: SecretStr, _: Path) -> Provider:
+    from .anthropic_provider import AnthropicProvider
+
+    return AnthropicProvider(config, api_key)
+
+
+ADAPTERS: Mapping[ProviderKind, Adapter] = {
+    ProviderKind.FAKE: _fake,
+    ProviderKind.ANTHROPIC: _anthropic,
+}
 
 
 def build_provider(

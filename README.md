@@ -36,7 +36,7 @@ evidence inspection; it does not provide live Azure collection or analysis.
 | Graph resource ownership, lookup, containment, dependencies, and evidence/coverage | [Implemented and verified together across schemas 1–3](docs/graph-index.md#composed-graph-boundary), including external/unresolved terminals and complete-context coverage |
 | Resource search, inspection, neighbours, and paths | [Implemented Python services and `archdiscov query` CLI](docs/graph-queries.md) with exact filters, bounds, detached data, citations, and coverage/provenance limitations |
 | Snapshot comparison | [Implemented](docs/comparison-results.md): `compare` and `comparison` CLI, identity matching without guessing, field-level differences with citations on both sides, lifecycle, source-kind, and coverage qualification, atomic no-overwrite results verified against both snapshots; recorded differences, not drift detection or proof of change |
-| LLM assistant/providers | [Provider-neutral contracts, configuration, and a scripted fake provider](docs/assistant-providers.md), [bounded typed assistant tools](docs/assistant-tools.md), the [tool-calling loop](docs/assistant-orchestration.md), and [structured answers with validation, one repair, conclusions rendered from records, failure explanations, and readable and JSON renderings](docs/assistant-answers.md) behind the [`ask` command](docs/ask-command.md), which answers one question with a configured provider, verified offline through the installed CLI with the five example questions; only the fake provider has an adapter, and real providers are planned |
+| LLM assistant/providers | [Provider-neutral contracts, configuration, and a scripted fake provider](docs/assistant-providers.md), [bounded typed assistant tools](docs/assistant-tools.md), the [tool-calling loop](docs/assistant-orchestration.md), and [structured answers with validation, one repair, conclusions rendered from records, failure explanations, and readable and JSON renderings](docs/assistant-answers.md) behind the [`ask` command](docs/ask-command.md), which answers one question with a configured provider, verified offline through the installed CLI with the five example questions; only the fake provider answers so far; the Anthropic adapter is being added and the other real providers are planned |
 
 ## Installation and development
 
@@ -676,8 +676,9 @@ These commands read saved snapshots offline and call public application services
 | `ask` | Answer one question from the selected snapshots with a configured provider, as a validated answer cited from tool results or an explained failure, with an optional transcript ([the ask command](docs/ask-command.md)). |
 
 Saved results follow the [result file contracts](docs/result-contracts.md). The
-natural-language `ask` command works only with the scripted fake provider; a real provider
-kind fails safely before the run, and real adapters remain planned (phase 4). Commands provide readable output
+natural-language `ask` command answers only with the scripted fake provider so far; the
+Anthropic adapter is being added, other real provider kinds fail safely before the run, and
+their adapters remain planned (phase 4). Commands provide readable output
 and machine-readable JSON, and call public application services rather than containing
 discovery or analysis logic.
 

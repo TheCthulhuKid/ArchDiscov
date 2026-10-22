@@ -20,6 +20,7 @@ from archdiscov.services import AskCancelled, compare_snapshots, load_snapshot, 
 from archdiscov.services.ask import RunSummary
 from tests.assistant.test_answer_service import PLAIN_TEXT, SEARCH, _proposal, _rejected, _submit
 from tests.assistant.test_orchestrator import _calls, _fail, _text
+from tests.assistant.test_providers import unadapted_config
 from tests.assistant.test_secret_leaks import SECRET
 from tests.services.test_ask import (
     COMPARISON,
@@ -28,7 +29,6 @@ from tests.services.test_ask import (
     _cancelled,
     _fake,
     _session,
-    _unadapted,
 )
 
 runner = CliRunner()
@@ -171,7 +171,7 @@ def _invalid_config(tmp_path: Path) -> tuple[Path, list, dict]:
 
 
 def _no_adapter(tmp_path: Path) -> tuple[Path, list, dict]:
-    return _unadapted(tmp_path), [], {}
+    return unadapted_config(tmp_path), [], {}
 
 
 def _blank_question(tmp_path: Path) -> tuple[Path, list, dict]:
