@@ -257,6 +257,14 @@ snapshot as rendered, the provider kind and model, the limits, and the tool usag
 transcript (provider requests, tool calls by name, whether the repair was requested, and
 token usage). Cancelling raises `AskCancelled`, whose `result` explains the cancelled run.
 
+With `transcript_path=`, the service publishes the run's `RunTranscript` JSON (already
+redacted and bounded) at that path, atomically and never overwriting. Before the run starts,
+and so before any provider request, it refuses an existing path, including a dangling symlink,
+as `snapshot_conflict` (3) and a path whose parent directory is missing as `snapshot_io_error`
+(1). Every run that starts writes its transcript, failed and cancelled runs included; a run
+that never starts writes none. If saving fails after the run, the save error is raised, except
+on cancellation, where it is logged so the cancellation still propagates.
+
 Errors before the run starts keep the existing CLI codes: an unreadable configuration,
 transcript, or snapshot file is 1, and invalid configuration, transcripts, or snapshots,
 including a provider kind without an adapter, are 2. Once the run starts, everything is an

@@ -12,11 +12,12 @@ import pytest
 import typer
 
 from archdiscov.assistant.answer_results import FAILURE_EXIT_CODES, FailureReason
-from archdiscov.assistant.runs import RunLimits
+from archdiscov.assistant.runs import RunLimits, RunTranscript
 from archdiscov.assistant.tools.session import ToolSession
 from archdiscov.cli_diagnostics import safe_assistant_failures
 from archdiscov.services import ask as ask_module
 from archdiscov.services.ask import AskCancelled, AskResult, ToolUsage, ask_question
+from archdiscov.services.snapshot_errors import SnapshotIOError
 from tests.assistant.test_answer_service import PLAIN_TEXT, SEARCH, _proposal, _rejected, _submit
 from tests.assistant.test_orchestrator import _calls, _fail, _text
 from tests.assistant.test_orchestrator_async import _HangingProvider
@@ -41,6 +42,7 @@ def _ask(config_path: Path, **paths: Path) -> AskResult:
         snapshot_path=paths.get("snapshot_path", SNAPSHOT),
         config_path=config_path,
         comparison_path=paths.get("comparison_path"),
+        transcript_path=paths.get("transcript_path"),
     )
 
 
@@ -116,7 +118,7 @@ def test_a_comparison_snapshot_is_summarised_as_the_second_side(tmp_path: Path) 
     _check_summary(result)
 
 
-def test_cancelling_explains_the_cancelled_question(tmp_path: Path, monkeypatch) -> None:
+def _cancelled(tmp_path: Path, monkeypatch, transcript_path: Path | None = None) -> AskResult:
     config_path = _fake(tmp_path, [_text()])
     provider = _HangingProvider(answer_first=True)
     built = ask_module.load_provider
@@ -129,7 +131,12 @@ def test_cancelling_explains_the_cancelled_question(tmp_path: Path, monkeypatch)
 
     async def scenario() -> AskResult:
         task = asyncio.create_task(
-            ask_module.ask_question_async(QUESTION, snapshot_path=SNAPSHOT, config_path=config_path)
+            ask_module.ask_question_async(
+                QUESTION,
+                snapshot_path=SNAPSHOT,
+                config_path=config_path,
+                transcript_path=transcript_path,
+            )
         )
         await asyncio.wait_for(provider.entered.wait(), timeout=5)
         task.cancel()
@@ -137,7 +144,11 @@ def test_cancelling_explains_the_cancelled_question(tmp_path: Path, monkeypatch)
             await task
         return raised.value.result
 
-    result = asyncio.run(scenario())
+    return asyncio.run(scenario())
+
+
+def test_cancelling_explains_the_cancelled_question(tmp_path: Path, monkeypatch) -> None:
+    result = _cancelled(tmp_path, monkeypatch)
     assert result.answer.outcome.failure == "cancelled"
     assert result.answer.outcome.exit_code == 130
     _check_summary(result)
@@ -207,3 +218,91 @@ def test_unknown_and_invalid_snapshots_are_refused(tmp_path: Path, capsys, side:
     invalid.write_text('{"schema_version": "2"}', encoding="utf-8")
     code, error = _failure(capsys, lambda: _ask(config, **{side: invalid}))
     assert code == 2 and error["path"] == str(invalid)
+
+
+# ---- transcripts -------------------------------------------------------------------
+
+
+def _written(result: AskResult, path: Path) -> RunTranscript:
+    text = path.read_text(encoding="utf-8")
+    assert SECRET not in text
+    transcript = RunTranscript.model_validate_json(text)
+    assert transcript == result.answer.transcript
+    return transcript
+
+
+def _no_run(monkeypatch) -> None:
+    async def refused(*args, **kwargs):
+        raise AssertionError("the run must not start")
+
+    monkeypatch.setattr(ask_module, "answer_question_async", refused)
+
+
+def test_a_transcript_is_written_on_request(tmp_path: Path) -> None:
+    config = _fake(tmp_path, [_calls(SEARCH), _submit("a", _proposal(_session()))])
+    path = tmp_path / "transcript.json"
+    result = _ask(config, transcript_path=path)
+    assert _written(result, path).outcome.kind == "proposed"
+
+
+@pytest.mark.parametrize(
+    ("turns", "config"),
+    [([_fail("provider_unavailable")], ""), ([_calls(SEARCH)], "max_requests = 1\n")],
+    ids=["provider-error", "limit"],
+)
+def test_failed_runs_write_their_transcript(tmp_path: Path, turns, config: str) -> None:
+    path = tmp_path / "transcript.json"
+    result = _ask(_fake(tmp_path, turns, config), transcript_path=path)
+    assert result.answer.outcome.exit_code == 6
+    assert _written(result, path).outcome == result.answer.transcript.outcome
+
+
+def test_a_cancelled_run_writes_its_transcript(tmp_path: Path, monkeypatch) -> None:
+    path = tmp_path / "transcript.json"
+    result = _cancelled(tmp_path, monkeypatch, transcript_path=path)
+    assert _written(result, path).outcome.kind == "cancelled"
+
+
+def test_a_failed_save_does_not_hide_the_cancellation(tmp_path: Path, monkeypatch) -> None:
+    def unwritable(text: str, path: Path, *, subject: str) -> Path:
+        raise SnapshotIOError("Unable to save transcript.", path=path)
+
+    monkeypatch.setattr(ask_module, "publish_text", unwritable)
+    result = _cancelled(tmp_path, monkeypatch, transcript_path=tmp_path / "transcript.json")
+    assert result.answer.outcome.exit_code == 130
+
+
+@pytest.mark.parametrize("kind", ["file", "dangling-symlink"])
+def test_an_existing_transcript_path_is_refused_before_the_run(
+    tmp_path: Path, capsys, monkeypatch, kind: str
+) -> None:
+    config = _fake(tmp_path, [_text(PLAIN_TEXT)])
+    path = tmp_path / "transcript.json"
+    if kind == "file":
+        path.write_text("kept", encoding="utf-8")
+    else:
+        path.symlink_to(tmp_path / "missing-target.json")
+    _no_run(monkeypatch)
+    code, error = _failure(capsys, lambda: _ask(config, transcript_path=path))
+    assert (code, error["code"], error["path"]) == (3, "snapshot_conflict", str(path))
+    assert path.is_symlink() or path.read_text(encoding="utf-8") == "kept"
+
+
+def test_a_transcript_path_without_a_parent_is_refused_before_the_run(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    config = _fake(tmp_path, [_text(PLAIN_TEXT)])
+    path = tmp_path / "missing" / "transcript.json"
+    _no_run(monkeypatch)
+    code, error = _failure(capsys, lambda: _ask(config, transcript_path=path))
+    assert (code, error["code"], error["path"]) == (1, "snapshot_io_error", str(path))
+
+
+def test_no_transcript_is_written_when_the_run_does_not_start(tmp_path: Path, capsys) -> None:
+    config = _fake(tmp_path, [_text(PLAIN_TEXT)])
+    path = tmp_path / "transcript.json"
+    code, _ = _failure(
+        capsys,
+        lambda: _ask(config, snapshot_path=tmp_path / "missing.json", transcript_path=path),
+    )
+    assert code == 1 and not path.exists()

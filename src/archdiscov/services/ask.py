@@ -4,9 +4,13 @@ The provider is built from the configuration before any snapshot is read, so a
 configuration problem costs nothing. Errors before the run starts are raised as the existing
 typed errors (`ProviderConfigError`, `FakeScriptError`, `SnapshotError`) for the caller's
 diagnostics; once the run starts, everything that happens is an answer outcome.
+
+A requested transcript destination is checked before the run starts, so a conflict costs no
+provider request, and the transcript is written for every run that started, failed or not.
 """
 
 import asyncio
+import logging
 import time
 from collections import Counter
 from collections.abc import Callable, Mapping
@@ -26,6 +30,13 @@ from archdiscov.assistant.orchestrator import run_sync
 from archdiscov.assistant.providers import load_provider
 from archdiscov.assistant.runs import RunLimits, RunTranscript
 from archdiscov.assistant.tools.session import ToolSession
+
+from .publication import publish_text, render_json, require_new_path
+from .snapshot_errors import SnapshotError
+
+_TRANSCRIPT = "transcript"
+
+_logger = logging.getLogger(__name__)
 
 
 class ToolUsage(Contract):
@@ -70,22 +81,32 @@ class AskCancelled(asyncio.CancelledError):
         self.result = result
 
 
+def _write_transcript(answer: AnswerResult, path: Path | None) -> None:
+    if path is not None:
+        publish_text(render_json(answer.transcript), path, subject=_TRANSCRIPT)
+
+
 async def ask_question_async(
     question: str,
     *,
     snapshot_path: Path,
     config_path: Path,
     comparison_path: Path | None = None,
+    transcript_path: Path | None = None,
     environ: Mapping[str, str] | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> AskResult:
     """Answer `question` over the selected snapshots; failures are outcomes, not errors.
 
-    Cancelling the task raises `AskCancelled`, whose `result` explains the cancelled run.
+    With `transcript_path`, the run's `RunTranscript` JSON is published there without
+    overwriting; an existing path or a missing parent raises before the run starts. Cancelling
+    the task raises `AskCancelled`, whose `result` explains the cancelled run.
     """
     config, provider = load_provider(config_path, environ=environ)
     session = ToolSession.from_paths(snapshot_path, comparison_path=comparison_path)
     limits = RunLimits.from_config(config)
+    if transcript_path is not None:
+        require_new_path(transcript_path, subject=_TRANSCRIPT)
 
     def result(answer: AnswerResult) -> AskResult:
         summary = RunSummary(
@@ -108,7 +129,13 @@ async def ask_question_async(
             clock=clock,
         )
     except AnswerCancelled as cancelled:
+        try:
+            _write_transcript(cancelled.result, transcript_path)
+        except SnapshotError:
+            # A failed save must not turn the cancellation into another error.
+            _logger.warning("Unable to save the transcript of a cancelled question.")
         raise AskCancelled(result(cancelled.result)) from cancelled
+    _write_transcript(answer, transcript_path)
     return result(answer)
 
 
@@ -118,6 +145,7 @@ def ask_question(
     snapshot_path: Path,
     config_path: Path,
     comparison_path: Path | None = None,
+    transcript_path: Path | None = None,
     environ: Mapping[str, str] | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> AskResult:
@@ -129,6 +157,7 @@ def ask_question(
             snapshot_path=snapshot_path,
             config_path=config_path,
             comparison_path=comparison_path,
+            transcript_path=transcript_path,
             environ=environ,
             clock=clock,
         ),
