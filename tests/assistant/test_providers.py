@@ -1,4 +1,4 @@
-"""Building providers from configuration: the fake from its transcript, nothing else yet."""
+"""Building providers from configuration, and refusing kinds that have no adapter yet."""
 
 import json
 import shutil
@@ -22,11 +22,20 @@ from tests.paths import TESTS_ROOT
 
 TRANSCRIPT = TESTS_ROOT / "fixtures" / "assistant" / "multi_step.json"
 SNAPSHOT = TESTS_ROOT / "fixtures" / "snapshots" / "network.json"
-UNADAPTED = {
+EXAMPLES = {
     ProviderKind.ANTHROPIC: ANTHROPIC,
     ProviderKind.OPENAI_COMPATIBLE: OPENAI,
     ProviderKind.BEDROCK: BEDROCK,
 }
+# Shrinks as adapters are registered, so callers never name a kind that has gained one.
+UNADAPTED = {kind: data for kind, data in EXAMPLES.items() if kind not in ADAPTERS}
+UNADAPTED_KIND = next(iter(UNADAPTED), None)
+
+
+def unadapted_config(directory: Path) -> Path:
+    """A configuration file for `UNADAPTED_KIND`."""
+    lines = (f'{key} = "{value}"' for key, value in UNADAPTED[UNADAPTED_KIND].items())
+    return _config(directory, "\n".join(lines) + "\n")
 
 
 def _config(directory: Path, body: str) -> Path:
@@ -35,9 +44,9 @@ def _config(directory: Path, body: str) -> Path:
     return path
 
 
-def test_every_kind_has_an_adapter_or_an_unadapted_example() -> None:
-    assert set(ADAPTERS) | set(UNADAPTED) == set(ProviderKind)
-    assert not set(ADAPTERS) & set(UNADAPTED)
+def test_every_real_kind_has_an_example_and_the_fake_an_adapter() -> None:
+    assert set(EXAMPLES) == set(ProviderKind) - {ProviderKind.FAKE}
+    assert ProviderKind.FAKE in ADAPTERS
 
 
 @pytest.mark.parametrize("absolute", [False, True], ids=["relative", "absolute"])
@@ -110,11 +119,12 @@ def test_kinds_without_an_adapter_fail_before_reading_credentials(kind: Provider
 
 def test_no_secret_appears_in_errors_or_providers(tmp_path: Path) -> None:
     config = parse_provider_config(ANTHROPIC)
-    environ = {ANTHROPIC["api_key_env"]: SECRET}
+    variable = ANTHROPIC["api_key_env"]
     with pytest.raises(ProviderConfigError) as raised:
-        build_provider(config, config_dir=tmp_path, environ=environ)
+        build_provider(config, config_dir=tmp_path, environ={variable: " "})
+    anthropic = build_provider(config, config_dir=tmp_path, environ={variable: SECRET})
     shutil.copy(TRANSCRIPT, tmp_path / "run.json")
-    _, provider = load_provider(_config(tmp_path, 'kind = "fake"\ntranscript = "run.json"\n'))
-    for value in (raised.value, provider):
+    _, fake = load_provider(_config(tmp_path, 'kind = "fake"\ntranscript = "run.json"\n'))
+    for value in (raised.value, anthropic, fake):
         for rendering in _renderings(value):
             assert SECRET not in rendering

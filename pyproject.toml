@@ -5,6 +5,7 @@ description = "Evidence-backed AWS architecture discovery and analysis"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "anthropic>=2.1.0",
     "boto3>=1.43.108",
     "mcp>=2.3.0",
     "openai>=3.26.1",
@@ -32,7 +33,9 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--import-mode=importlib -ra"
+# Live tests call a real provider API; they run only when asked for with `-m live`.
+addopts = '--import-mode=importlib -ra -m "not live"'
+markers = ["live: calls a real provider API; opt-in only, never in CI"]
 
 [tool.ruff]
 target-version = "py313"

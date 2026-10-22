@@ -2,7 +2,9 @@
 
 `EXPECTED` is computed from `RunOutcome`, `RunLimitKind`, `MalformedOutputReason`,
 `ProviderErrorCode`, and the answer stop reasons, so a new outcome, limit, reason, or code
-fails `test_every_outcome_is_covered` until a case is added below.
+fails `test_every_outcome_is_covered` until a case is added below. Each case runs through
+every provider harness, so the same turns pass through each adapter's mapping layer to the
+same run; a case marked `fake_only` describes behaviour only the fake can script.
 """
 
 import asyncio
@@ -12,9 +14,9 @@ from typing import Any, get_args
 import pytest
 
 from archdiscov.assistant.conversation import AssistantMessage, UserMessage
-from archdiscov.assistant.fake import FakeClock, FakeProvider, FakeTranscript
+from archdiscov.assistant.fake import FakeClock
 from archdiscov.assistant.orchestrator import RunCancelled, RunResult, run_assistant_async
-from archdiscov.assistant.provider import ProviderErrorCode
+from archdiscov.assistant.provider import ProviderCapabilities, ProviderErrorCode
 from archdiscov.assistant.runs import (
     Answered,
     MalformedOutputReason,
@@ -25,7 +27,8 @@ from archdiscov.assistant.runs import (
 )
 from archdiscov.assistant.tools.registry import ToolRegistry
 from archdiscov.assistant.tools.session import ToolSession
-from tests.assistant.test_orchestrator import SNAPSHOT, _calls, _fail, _text
+from tests.assistant.provider_harness import HARNESSES, FakeHarness, ProviderHarness
+from tests.assistant.test_orchestrator import SNAPSHOT, _calls, _continued, _fail, _text
 from tests.assistant.test_orchestrator_async import _HangingProvider
 
 SECRET = "sk-ant-api03-SECRETvalue0123456789abcdefXYZ"
@@ -99,6 +102,7 @@ CASES: dict[tuple[str, str], dict] = {
     ("limit_reached", "request_deadline"): _case(
         [_calls(SEARCH, delay_seconds=20, ignore_request_limits=True)],
         {"request_timeout_seconds": 10},
+        fake_only="an HTTP client cannot receive a response after its own read timeout",
     ),
     ("limit_reached", "overall_deadline"): _case(
         [_calls(SEARCH, delay_seconds=10), {**_text(), "delay_seconds": 8}],
@@ -119,6 +123,10 @@ CASES: dict[tuple[str, str], dict] = {
         [_calls(("a", "submit_answer", PROPOSAL), SEARCH, ignore_request_limits=True)]
     ),
     ("malformed_output", "tool_not_offered"): _case([_text(), _calls(SEARCH)], repair=True),
+    ("malformed_output", "continuation_foreign"): _case(
+        [_continued(_calls(SEARCH), "other"), _text()],
+        fake_only="an adapter marks every continuation with its own kind",
+    ),
     ("proposed", ""): _case([_calls(SEARCH), _calls(("a", "submit_answer", PROPOSAL))]),
     ("provider_error", "provider_unsupported_capability"): _case([_text()], capabilities=[]),
     **{
@@ -137,12 +145,15 @@ CASES: dict[tuple[str, str], dict] = {
 }
 
 
-def _run_case(case: dict) -> RunResult:
-    data: dict[str, Any] = {"turns": case["turns"]}
-    if "capabilities" in case:
-        data["capabilities"] = {"capabilities": case["capabilities"]}
+def capabilities(case: dict) -> ProviderCapabilities | None:
+    if "capabilities" not in case:
+        return None
+    return ProviderCapabilities.model_validate({"capabilities": case["capabilities"]})
+
+
+def _run_case(case: dict, harness: ProviderHarness) -> RunResult:
     clock = FakeClock()
-    provider = FakeProvider(FakeTranscript.model_validate(data), clock=clock)
+    provider = harness.build(case["turns"], capabilities=capabilities(case), clock=clock)
     registry = ToolRegistry(case["registry"]) if "registry" in case else None
     offer_answer_tool = case.get("offer_answer_tool", True)
     return asyncio.run(
@@ -150,7 +161,7 @@ def _run_case(case: dict) -> RunResult:
             QUESTION,
             provider=provider,
             session=ToolSession.from_paths(SNAPSHOT),
-            provider_kind="fake",
+            provider_kind=harness.name,
             model="fake",
             limits=RunLimits.model_validate(case["limits"]),
             registry=registry,
@@ -189,8 +200,25 @@ def _run_cancelled() -> RunResult:
     return asyncio.run(scenario())
 
 
-def _result(identity: tuple[str, str]) -> RunResult:
-    return _run_cancelled() if identity == ("cancelled", "") else _run_case(CASES[identity])
+FAKE = FakeHarness()
+
+
+def _result(identity: tuple[str, str], harness: ProviderHarness = FAKE) -> RunResult:
+    """The case's run; skipped for a harness that cannot script it."""
+    if identity == ("cancelled", ""):
+        if harness.name != FAKE.name:
+            pytest.skip("cancellation is scripted by its own hanging provider")
+        return _run_cancelled()
+    case = CASES[identity]
+    if "fake_only" in case and harness.name != FAKE.name:
+        pytest.skip(case["fake_only"])
+    return _run_case(case, harness)
+
+
+def _comparable(result: RunResult) -> RunResult:
+    """The result without the provider kind, which names the harness."""
+    transcript = result.transcript.model_copy(update={"provider_kind": "any"})
+    return result.model_copy(update={"transcript": transcript})
 
 
 def test_every_outcome_is_covered() -> None:
@@ -200,8 +228,8 @@ def test_every_outcome_is_covered() -> None:
 @pytest.mark.parametrize(
     "identity", sorted(_expected()), ids=lambda item: "-".join(filter(None, item))
 )
-def test_each_outcome_is_reached_exactly(identity: tuple[str, str]) -> None:
-    result = _result(identity)
+def test_each_outcome_is_reached_exactly(identity: tuple[str, str], harness) -> None:
+    result = _result(identity, harness)
     assert _identity(result) == identity
     transcript = result.transcript
     assert RunTranscript.model_validate_json(transcript.model_dump_json()) == transcript
@@ -213,8 +241,8 @@ def test_each_outcome_is_reached_exactly(identity: tuple[str, str]) -> None:
 @pytest.mark.parametrize(
     "identity", sorted(_expected()), ids=lambda item: "-".join(filter(None, item))
 )
-def test_no_transcript_leaks_a_secret(identity: tuple[str, str]) -> None:
-    transcript = _result(identity).transcript
+def test_no_transcript_leaks_a_secret(identity: tuple[str, str], harness) -> None:
+    transcript = _result(identity, harness).transcript
     rendered = [
         transcript.model_dump_json(),
         repr(transcript),
@@ -223,6 +251,15 @@ def test_no_transcript_leaks_a_secret(identity: tuple[str, str]) -> None:
     for text in rendered:
         assert SECRET not in text
         assert SECRET[:20] not in text
+
+
+@pytest.mark.parametrize("identity", sorted(CASES), ids=lambda item: "-".join(filter(None, item)))
+def test_every_harness_reaches_the_same_run(identity: tuple[str, str]) -> None:
+    if "fake_only" in CASES[identity]:
+        pytest.skip(CASES[identity]["fake_only"])
+    fake, *adapters = (_comparable(_result(identity, harness)) for harness in HARNESSES)
+    for result in adapters:
+        assert result == fake
 
 
 def test_the_answered_result_keeps_the_raw_answer_for_validation() -> None:

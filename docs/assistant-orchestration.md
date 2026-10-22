@@ -70,7 +70,7 @@ configuration.
 
 The tool calls per turn may not exceed the tool calls per run, nor the request timeout the
 overall timeout. Total output counts the characters of assistant text and tool results
-added to the conversation. When the model asks for tools in the last request it may make,
+added to the conversation, and the JSON size of any provider continuation. When the model asks for tools in the last request it may make,
 the calls are not run, since nothing could read their results; when one turn asks for more
 calls than allowed, none of them run.
 
@@ -104,6 +104,7 @@ Every run ends with exactly one `RunOutcome`.
 | `proposal_invalid` | `submit_answer` arguments did not match the proposal contract |
 | `proposal_mixed` | `submit_answer` was called together with other tools |
 | `tool_not_offered` | the repair response called a tool other than `submit_answer` |
+| `continuation_foreign` | the response carried a continuation from another provider kind, which is never replayed |
 
 Cancelling the run's task raises `RunCancelled`, an `asyncio.CancelledError` whose `result`
 is the partial run with the `cancelled` outcome; a request still in flight is recorded
@@ -133,5 +134,6 @@ repair turn is the last and the only one beyond `max_provider_requests`. Text is
 keys and secret-looking values (API keys, AWS access key IDs, bearer tokens, private keys,
 and long opaque tokens) are redacted. An answer is recorded redacted as well, and a
 proposal with its narrative redacted and any secret-looking cited ID replaced by a unique
-placeholder, while the `RunResult` keeps the raw answer or proposal for validation. The transcript has no credential fields
-and rejects secret-looking text however it is built.
+placeholder, while the `RunResult` keeps the raw answer or proposal for validation. A
+provider continuation is never recorded: a turn holds only its size in `continuation_bytes`.
+The transcript has no credential fields and rejects secret-looking text however it is built.

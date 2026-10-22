@@ -3,10 +3,11 @@
 This page describes the provider-neutral layer under `src/archdiscov/assistant/`: the
 conversation and tool-call contracts, provider errors and capabilities, the `Provider`
 protocol, provider configuration, and the scripted fake provider used to test everything
-above it. The `ask` command builds its provider from a configuration file, and the only
-constructible provider is the fake; the [assistant tools](assistant-tools.md),
-[orchestration](assistant-orchestration.md), and [answers](assistant-answers.md) build on
-this layer. None of these modules imports a vendor SDK.
+above it. The `ask` command builds its provider from a configuration file: the fake or the
+[Anthropic adapter](#anthropic-adapter); the other kinds have no adapter yet. The
+[assistant tools](assistant-tools.md), [orchestration](assistant-orchestration.md), and
+[answers](assistant-answers.md) build on this layer. Only an adapter module imports a
+vendor SDK, and only when its kind is built.
 
 ## Conversation contracts
 
@@ -17,7 +18,8 @@ belong to adapters.
 | Contract | Holds |
 |---|---|
 | `SystemMessage`, `UserMessage` | `text` |
-| `AssistantMessage` | `text`, `tool_calls`, or both; never neither |
+| `AssistantMessage` | `text`, `tool_calls`, or both; never neither; and an optional `continuation` |
+| `ProviderContinuation` | `provider_kind` and one or more opaque JSON `blocks` |
 | `ToolResultMessage` | one or more `ToolResult`s, such as the results of one parallel turn |
 | `ToolDeclaration` | `name`, `description`, and an `input_schema` describing a JSON object |
 | `ToolCall` | provider-assigned `id`, `name`, and `arguments` |
@@ -36,6 +38,14 @@ the raw text, so the orchestrator can answer the model with a tool error.
 `parse_tool_arguments` classifies provider text or decoded values without raising;
 duplicate keys and non-finite numbers are invalid JSON.
 
+A `ProviderContinuation` holds blocks one provider needs back unchanged with its own
+message, such as the reasoning blocks current Claude models return and expect again in a
+tool loop. Only the adapter for its `provider_kind` reads it: it is not model output, so
+answer validation, citations, renderings, and tools never see it. The orchestrator replays
+it with the message, ends the run with `continuation_foreign` if a response carries another
+provider's continuation, counts its JSON size toward the total-output limit, and records
+only that size in the transcript. The fake provider returns a scripted continuation as-is.
+
 `parse_conversation` validates detached data and reports only stable codes and known
 field names, never input text or arguments.
 
@@ -47,6 +57,7 @@ field names, never input text or arguments.
 | `MAX_TOOL_ARGUMENT_BYTES` | 16,384 | bytes of tool arguments, as text or compact JSON |
 | `MAX_TOOL_RESULT_CHARS` | 262,144 | characters in tool result content |
 | `MAX_TOOL_CALL_ID_CHARS` | 256 | characters in a tool call ID |
+| `MAX_CONTINUATION_BYTES` | 262,144 | bytes of a continuation's blocks as compact JSON |
 
 ## Provider protocol
 
@@ -111,8 +122,8 @@ answer renderer in a later step.
 `assistant/config.py` loads a TOML file of at most 64 KiB (`MAX_CONFIG_BYTES`) with
 `load_provider_config(path)`, or validates data with `parse_provider_config`. The file
 is one table selected by `kind`. The `ask` command reads it with `--config`;
-the fake is the only provider, and the other kinds define the configuration their adapters
-will use.
+the fake and `anthropic` have adapters, and the other kinds define the configuration their
+adapters will use.
 
 ```toml
 kind = "anthropic"
@@ -161,10 +172,132 @@ against the file's directory.
 - The fake needs a `transcript`, loaded with the fake transcript limits; without one the
   build fails with `provider_transcript_missing`, and an unreadable or invalid transcript
   fails with the fake's own error codes.
-- A kind without an adapter fails with `provider_adapter_unavailable`, before its
-  credential is read or any request is made.
+- `anthropic` builds the [Anthropic adapter](#anthropic-adapter).
+- A kind without an adapter (`openai_compatible` and `bedrock`) fails with
+  `provider_adapter_unavailable`, before its credential is read or any request is made.
 
 Errors name the file and the kind, never the configuration's values or credentials.
+
+### Anthropic adapter
+
+`assistant/anthropic_provider.py` is the only module that imports the `anthropic` SDK,
+and `ADAPTERS` imports it only when an `anthropic` configuration is built. Building it
+makes no request.
+
+```toml
+kind = "anthropic"
+model = "claude-sonnet-5-5"
+api_key_env = "ANTHROPIC_API_KEY"
+endpoint = "https://llm-gateway.example.com/anthropic"   # optional: a gateway's API root
+```
+
+Without `endpoint`, requests go to `https://api.anthropic.com`. A gateway at `endpoint`
+receives `POST {endpoint}/v1/messages` with the key as `Authorization: Bearer`, which the
+SDK sends in place of `x-api-key`, so a gateway that accepts only `x-api-key` is not
+supported. Plain HTTP is accepted only for loopback hosts, such as a local mock server.
+
+The client comes only from the configuration:
+
+- The key from `api_key_env` and the base URL (`endpoint`, the API root without `/v1`, or
+  `https://api.anthropic.com`) are passed explicitly, so the SDK's own environment
+  credentials, profiles, workload identity, and `ANTHROPIC_BASE_URL` are never used.
+- Every request passes through a transport that keeps only the SDK's own headers and then
+  sets the configured key, so `ANTHROPIC_CUSTOM_HEADERS` cannot add headers or replace the
+  credential. A client with its own transport uses no environment proxy.
+- Redirects are not followed, the SDK's own retries are off (`max_retries = 0`; the
+  adapter retries, as described under [failures](#failures-and-retries)), and the timeouts
+  are `connect_timeout_seconds` and `request_timeout_seconds`.
+- OpenTelemetry spans are off, and the `anthropic` and `httpx2` loggers are held at
+  `WARNING` whatever `ANTHROPIC_LOG` or the root level says, because their debug records
+  hold request bodies.
+
+The adapter declares tool calling and parallel tool calls without asking the API, since
+every Messages API model supports tool use; a model the API does not know is refused by its
+response, as `provider_invalid_request`.
+
+Each request becomes one `messages.create` call:
+
+- System messages become `system`. User, assistant, and tool-result messages follow in
+  order, and consecutive user-role messages (tool results and a repair prompt) share one
+  turn. Tool calls become `tool_use` blocks (a call with malformed arguments, which never
+  ran, is replayed with an empty input) and tool results become `tool_result` blocks with
+  `is_error`.
+- Tools become `name`, `description`, and `input_schema`, with `tool_choice` `auto` and
+  `disable_parallel_tool_use` when `max_tool_calls_per_turn` is 1. `max_tokens` is
+  `max_output_tokens`, and the request's timeout is passed with it, which also keeps the
+  SDK from requiring streaming for a large `max_tokens`.
+- No sampling parameters, forced tool choice, prefill, or thinking settings are sent; the
+  model's defaults apply.
+
+The response is untrusted. Text blocks are joined into the message text and `tool_use`
+blocks become tool calls; an input that arrives as a string is parsed as JSON text, and any
+other non-object input is a malformed-arguments value. Any other block type, including
+server tools, is `provider_malformed_output`, as is a response that does not fit the
+contracts. Usage maps input, output, cache read, and cache creation (as cache write) tokens.
+
+| `stop_reason` | Maps to |
+|---|---|
+| `end_turn`, `stop_sequence` | `end` |
+| `tool_use` | `tool_use` |
+| `max_tokens`, `model_context_window_exceeded` | `length` for text alone; otherwise `provider_truncated_output` |
+| `refusal` | `refusal` for text alone; otherwise `provider_refusal` |
+| any other, such as `pause_turn` | `provider_malformed_output` |
+
+Current Claude models return `thinking` and `redacted_thinking` blocks that must go back
+unchanged and in their original order. A response holding them keeps its whole content, in
+order, as an `anthropic` continuation, and the next request replays that content verbatim;
+a response without them is rebuilt from its text and tool calls. A continuation from
+another provider kind is refused as `provider_invalid_request` before anything is sent.
+
+#### Failures and retries
+
+A failure maps to a provider error by the SDK's exception class, never by message text,
+through the class hierarchy, so a subclass maps before its base. The error has its fixed
+message and chains the SDK exception for local debugging, copying none of its text,
+headers, or request ID.
+
+| SDK exception | Status | Provider error |
+|---|---|---|
+| `BadRequestError` | 400 | `provider_invalid_request` |
+| `NotFoundError` | 404, such as an unknown model | `provider_invalid_request` |
+| `RequestTooLargeError` | 413 | `provider_invalid_request` |
+| `UnprocessableEntityError` | 422 | `provider_invalid_request` |
+| `AuthenticationError` | 401 | `provider_authentication` |
+| `PermissionDeniedError` | 403 | `provider_authentication` |
+| `RateLimitError` | 429 | `provider_rate_limit` |
+| `OverloadedError` | 529 | `provider_rate_limit` |
+| `InternalServerError` | other 5xx | `provider_unavailable` |
+| `ServiceUnavailableError` | 503 | `provider_unavailable` |
+| `DeadlineExceededError` | 504 | `provider_unavailable` |
+| `APIStatusError` | any other status, such as a redirect | `provider_invalid_request` |
+| `APITimeoutError` | none: the request timed out | `provider_timeout` |
+| `APIConnectionError` | none: the API could not be reached | `provider_transport` |
+| `APIResponseValidationError` | a response that does not fit the SDK | `provider_malformed_output` |
+| `JSONDecodeError` | a success body that is not JSON | `provider_malformed_output` |
+| `APIError` | any other SDK failure | `provider_unavailable` |
+
+Only transport and rate-limit errors, overload included, are retried, up to the
+configuration's `max_retries`, and a timeout never is. Before each retry the adapter waits
+the response's `retry-after` seconds, or else `RETRY_BACKOFF_SECONDS` (0.5) doubled for each
+earlier retry, never longer than `MAX_RETRY_WAIT_SECONDS` (30) or the request timeout. The
+wait goes through an injected sleep, so tests never wait. Retries and waits count toward
+the request's deadline in the [orchestrator](assistant-orchestration.md#limits).
+
+#### Live smoke test
+
+`tests/live/test_anthropic_live.py` asks one README question through the real Messages API.
+It is marked `live`, which the default pytest options deselect (`-m "not live"`), so the
+normal run and CI never collect it, and it skips unless two variables are set: one naming
+the environment variable that holds the key, and one naming the model. It is capped at four
+requests (plus the one repair) of 4,096 output tokens each and one retry, and it accepts a
+validated answer or an explained failure. It needs a key, network access, and spends real
+tokens, so run it only on purpose:
+
+```sh
+ARCHDISCOV_LIVE_ANTHROPIC_KEY_ENV=ANTHROPIC_API_KEY \
+ARCHDISCOV_LIVE_ANTHROPIC_MODEL=claude-sonnet-5-5 \
+.venv/bin/python -m pytest -m live tests/live
+```
 
 ### Credentials
 
@@ -241,4 +374,9 @@ nothing waits, and every attempt is recorded in `requests` with the clock readin
 Example transcripts are in `tests/fixtures/assistant/`. The shared contract suite in
 `tests/assistant/test_provider_contract.py` runs every provider harness in
 `tests/assistant/provider_harness.py` through the same mapping, error, capability,
-retry, and timeout cases.
+retry, and timeout cases. The orchestration and answer-service suites and the README example
+questions run through every harness too, and check that each adapter reaches the same run
+and answer as the fake from the same turns; the Anthropic harness serves them from a mocked
+Messages API. Two orchestration cases are the fake's alone: a response arriving after the
+provider's own timeout, which an HTTP client cannot receive, and another provider's
+continuation, since an adapter marks its own.

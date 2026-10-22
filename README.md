@@ -36,7 +36,7 @@ evidence inspection; it does not provide live Azure collection or analysis.
 | Graph resource ownership, lookup, containment, dependencies, and evidence/coverage | [Implemented and verified together across schemas 1–3](docs/graph-index.md#composed-graph-boundary), including external/unresolved terminals and complete-context coverage |
 | Resource search, inspection, neighbours, and paths | [Implemented Python services and `archdiscov query` CLI](docs/graph-queries.md) with exact filters, bounds, detached data, citations, and coverage/provenance limitations |
 | Snapshot comparison | [Implemented](docs/comparison-results.md): `compare` and `comparison` CLI, identity matching without guessing, field-level differences with citations on both sides, lifecycle, source-kind, and coverage qualification, atomic no-overwrite results verified against both snapshots; recorded differences, not drift detection or proof of change |
-| LLM assistant/providers | [Provider-neutral contracts, configuration, and a scripted fake provider](docs/assistant-providers.md), [bounded typed assistant tools](docs/assistant-tools.md), the [tool-calling loop](docs/assistant-orchestration.md), and [structured answers with validation, one repair, conclusions rendered from records, failure explanations, and readable and JSON renderings](docs/assistant-answers.md) behind the [`ask` command](docs/ask-command.md), which answers one question with a configured provider, verified offline through the installed CLI with the five example questions; only the fake provider has an adapter, and real providers are planned |
+| LLM assistant/providers | [Provider-neutral contracts, configuration, and a scripted fake provider](docs/assistant-providers.md), [bounded typed assistant tools](docs/assistant-tools.md), the [tool-calling loop](docs/assistant-orchestration.md), and [structured answers with validation, one repair, conclusions rendered from records, failure explanations, and readable and JSON renderings](docs/assistant-answers.md) behind the [`ask` command](docs/ask-command.md), which answers one question with a configured provider, verified offline through the installed CLI with the five example questions; the fake provider and the [Anthropic adapter](docs/assistant-providers.md#anthropic-adapter) answer, and the other real providers are planned |
 
 ## Installation and development
 
@@ -159,7 +159,7 @@ docker compose run --rm \
 
 For SSO, authenticate on the host first with `aws sso login --profile development`. The read-only mount exposes the host configuration and cached tokens; refresh them on the host when needed. Configured assume-role profiles can use the mounted source profiles. Profiles using `credential_process` need the referenced executable and any supporting files inside the container; host-only executables do not automatically become available. Use `archdiscov collect` for the seven implemented service families below.
 
-For future LLM-provider integration (phase 4, separate from cloud platforms), forward a variable already set in your host environment, for example `docker compose run --rm --env OPENAI_API_KEY dev bash`. Credentials belong in runtime configuration and are excluded from the image build context. Keep snapshots in the ignored `snapshots/` directory; committed test fixtures belong under `tests/`.
+For LLM providers (phase 4, separate from cloud platforms), forward a variable already set in your host environment, for example `docker compose run --rm --env ANTHROPIC_API_KEY dev bash`, and name it in the provider configuration's `api_key_env`; `ask` reads the key only from that variable. Credentials belong in runtime configuration and are excluded from the image build context. Keep snapshots in the ignored `snapshots/` directory; committed test fixtures belong under `tests/`.
 
 ## Architecture and interfaces
 
@@ -676,8 +676,9 @@ These commands read saved snapshots offline and call public application services
 | `ask` | Answer one question from the selected snapshots with a configured provider, as a validated answer cited from tool results or an explained failure, with an optional transcript ([the ask command](docs/ask-command.md)). |
 
 Saved results follow the [result file contracts](docs/result-contracts.md). The
-natural-language `ask` command works only with the scripted fake provider; a real provider
-kind fails safely before the run, and real adapters remain planned (phase 4). Commands provide readable output
+natural-language `ask` command answers with the scripted fake provider or the Anthropic
+adapter; other real provider kinds fail safely before the run, and their adapters remain
+planned (phase 4). Commands provide readable output
 and machine-readable JSON, and call public application services rather than containing
 discovery or analysis logic.
 
@@ -1074,7 +1075,7 @@ Every factual conclusion must cite discovered resources or configuration evidenc
 | 2. AWS and infrastructure-as-code ingestion | Complete (steps 10–22): supported AWS inventory, offline IaC imports, explicit CLI formats, permissions and offline acceptance |
 | Pre-phase-3 cloud boundary bridge (22.1–22.4) | Implemented foundation: scopes/identities/resources, schema `3` and conversion, offline Azure workflows, and common access/compatibility documentation; not live Azure support |
 | 3. Graph queries, deterministic findings, and snapshot comparisons | Complete (steps 23–33): result contracts and integrity, graph indexes, queries and the `query` CLI, the five analyzers with immutable result persistence, snapshot comparison, and offline [host and container acceptance](#phase-3-offline-acceptance) |
-| 4. LLM-provider adapters, orchestration, validated answers, and evaluations | In progress; separate from cloud platforms: [provider contracts, configuration, and the fake provider](docs/assistant-providers.md) (step 34), [assistant tools](docs/assistant-tools.md) (step 35), the [tool-calling loop](docs/assistant-orchestration.md) (step 36), [answer validation](docs/assistant-answers.md) (step 37), and [answer outcomes, repair, and renderings](docs/assistant-answers.md#outcomes-and-exit-codes) (step 38) |
+| 4. LLM-provider adapters, orchestration, validated answers, and evaluations | In progress; separate from cloud platforms: [provider contracts, configuration, and the fake provider](docs/assistant-providers.md) (step 34), [assistant tools](docs/assistant-tools.md) (step 35), the [tool-calling loop](docs/assistant-orchestration.md) (step 36), [answer validation](docs/assistant-answers.md) (step 37), [answer outcomes, repair, and renderings](docs/assistant-answers.md#outcomes-and-exit-codes) (step 38), the [`ask` command](docs/ask-command.md) (step 39), and the [Anthropic adapter](docs/assistant-providers.md#anthropic-adapter) (step 40) |
 
 The bridge prepares phase 3 to build common graph/query and ownership contracts.
 Security, network, and trust analyzers are initially planned for AWS; unsupported Azure
@@ -1135,7 +1136,9 @@ deterministic assembly, and cancellation. Run the collection journey with:
 .venv/bin/python -m pytest tests/acceptance/test_whole_architecture_acceptance.py -q
 ```
 
-GitHub Actions runs the full offline suite and quality checks, not live account scans.
+GitHub Actions runs the full offline suite and quality checks, not live account scans or
+live provider calls; the [Anthropic smoke test](docs/assistant-providers.md#live-smoke-test)
+is deselected by default and runs only with `-m live` and its variables.
 Real-AWS checks require explicit runtime credentials and remain opt-in.
 
 ### Phase 2 offline acceptance

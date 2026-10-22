@@ -23,6 +23,7 @@ from .conversation import (
     Contract,
     MalformedArgumentsReason,
     MalformedToolArguments,
+    ProviderKindName,
     TokenUsage,
     ToolCall,
     ToolCallId,
@@ -103,6 +104,7 @@ class MalformedOutputReason(StrEnum):
     PROPOSAL_INVALID = "proposal_invalid"
     PROPOSAL_MIXED = "proposal_mixed"
     TOOL_NOT_OFFERED = "tool_not_offered"
+    CONTINUATION_FOREIGN = "continuation_foreign"
 
 
 class Answered(Contract):
@@ -278,6 +280,8 @@ class TranscriptTurn(Contract):
     tool_calls: tuple[TranscriptToolCall, ...] = Field(default=(), max_length=32)
     error: ProviderErrorCode | None = None
     repair: bool = False
+    # Only the size: a continuation is opaque provider state, never evidence.
+    continuation_bytes: NonNegativeInt | None = None
 
 
 def total_usage(turns: Iterable[TranscriptTurn]) -> TokenUsage:
@@ -313,7 +317,7 @@ def _require_recorded(outcome: RunOutcome) -> None:
 class RunTranscript(Contract):
     """What a run did, for evaluation and debugging; holds no credential fields."""
 
-    provider_kind: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
+    provider_kind: ProviderKindName
     model: Annotated[str, Field(min_length=1, max_length=256)]
     limits: RunLimits
     # max_provider_requests allows at most 50, plus the repair turn.

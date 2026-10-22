@@ -7,9 +7,13 @@ then submits a structured proposal; the answer shown is
 [validated and rendered from records](assistant-answers.md), and a failed run is explained
 instead. Each run is one question: there is no chat or conversation memory.
 
-The only provider with an adapter is the scripted fake, which replays a transcript and needs
-no credentials or network. Real provider kinds are accepted in configuration but fail before
-the run with `provider_adapter_unavailable` until their adapters are added.
+The scripted fake replays a transcript and needs no credentials or network. An
+`anthropic` configuration answers through the
+[Anthropic adapter](assistant-providers.md#anthropic-adapter) with the key its
+`api_key_env` names; an API or connection error ends the run as `provider_error` (6) with
+the [provider error](assistant-providers.md#failures-and-retries) it maps to, after any
+retries. The other real kinds are accepted in configuration but fail before the run with
+`provider_adapter_unavailable`.
 
 ## Usage
 
@@ -55,10 +59,22 @@ transcript = "transcript.json"
 max_requests = 8
 ```
 
+An Anthropic configuration names the variable that holds its key, and optionally a
+gateway's API root as `endpoint`; the
+[Anthropic adapter](assistant-providers.md#anthropic-adapter) describes the rest:
+
+```toml
+kind = "anthropic"
+model = "claude-sonnet-5-5"
+api_key_env = "ANTHROPIC_API_KEY"
+max_requests = 6
+```
+
 A real kind names its credential by environment variable (`api_key_env`) or AWS profile,
-never by value, and the key is never accepted as an option. Until its adapter exists, a
-real kind fails with `provider_adapter_unavailable` before its credential is read or any
-snapshot is loaded.
+never by value, and the key is never accepted as an option. A missing or empty key fails
+with `provider_credential_missing` or `provider_credential_empty` before any snapshot is
+loaded. A kind without an adapter fails with `provider_adapter_unavailable` before its
+credential is read.
 
 ## Readable output
 
@@ -146,8 +162,11 @@ credentials, or the question.
 through the `archdiscov` script and `python -m archdiscov`, with an offline guard that fails
 any network use and an environment without credentials. It answers the five README example
 questions in both output forms, refuses a missing configuration, an unknown snapshot, a real
-provider kind without an adapter, and an existing transcript path, and reports a scripted
-provider error and a run limit, each with the exit code above. In-process tests in
+provider kind without an adapter, an Anthropic configuration without its key, and an existing
+transcript path, and reports a scripted provider error and a run limit, each with the exit
+code above. It also answers a README question through the Anthropic adapter against a mock
+Messages API on one loopback port, the only connection the guard allows, with the same
+answer as the fake provider. In-process tests in
 `tests/cli/test_ask_cli.py` and `tests/cli/test_ask_examples.py` cover every exit code,
 the envelope, and further examples (limited coverage, insufficient evidence, a Terraform
 plan, and a comparison).
