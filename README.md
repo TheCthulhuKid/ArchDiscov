@@ -36,7 +36,7 @@ evidence inspection; it does not provide live Azure collection or analysis.
 | Graph resource ownership, lookup, containment, dependencies, and evidence/coverage | [Implemented and verified together across schemas 1–3](docs/graph-index.md#composed-graph-boundary), including external/unresolved terminals and complete-context coverage |
 | Resource search, inspection, neighbours, and paths | [Implemented Python services and `archdiscov query` CLI](docs/graph-queries.md) with exact filters, bounds, detached data, citations, and coverage/provenance limitations |
 | Snapshot comparison | [Implemented](docs/comparison-results.md): `compare` and `comparison` CLI, identity matching without guessing, field-level differences with citations on both sides, lifecycle, source-kind, and coverage qualification, atomic no-overwrite results verified against both snapshots; recorded differences, not drift detection or proof of change |
-| LLM assistant/providers | [Provider-neutral contracts, configuration, and a scripted fake provider](docs/assistant-providers.md), [bounded typed assistant tools](docs/assistant-tools.md), the [tool-calling loop](docs/assistant-orchestration.md), and [structured answers with validation, one repair, conclusions rendered from records, failure explanations, and readable and JSON renderings](docs/assistant-answers.md) implemented for testing; no command uses them, and real providers and the `ask` command are planned |
+| LLM assistant/providers | [Provider-neutral contracts, configuration, and a scripted fake provider](docs/assistant-providers.md), [bounded typed assistant tools](docs/assistant-tools.md), the [tool-calling loop](docs/assistant-orchestration.md), and [structured answers with validation, one repair, conclusions rendered from records, failure explanations, and readable and JSON renderings](docs/assistant-answers.md) behind the `ask` command, which answers one question with a configured provider; only the fake provider has an adapter, and real providers are planned |
 
 ## Installation and development
 
@@ -674,8 +674,9 @@ These commands read saved snapshots offline and call public application services
 | `analyze`, `findings` | Run one of the five analyzers and save an immutable result, then show it after verifying it against its snapshot ([analyzer reference](docs/analyzers.md)). |
 | `compare`, `comparison` | Compare two selected snapshots and save an immutable result, then show it after verifying it against both ([comparison results](docs/comparison-results.md)). |
 
-Saved results follow the [result file contracts](docs/result-contracts.md). Only the
-natural-language `ask` command remains planned (phase 4). Commands provide readable output
+Saved results follow the [result file contracts](docs/result-contracts.md). The
+natural-language `ask` command exists, but only with the scripted fake provider; real
+providers remain planned (phase 4). Commands provide readable output
 and machine-readable JSON, and call public application services rather than containing
 discovery or analysis logic.
 
@@ -1039,7 +1040,7 @@ See [analysis result contracts](docs/analysis-results.md) for the API, ID rules,
 fixtures, and integrity boundary. [Graph resource lookup, containment, dependencies, and evidence/coverage](docs/graph-index.md)
 are implemented, as are [bounded graph queries and the `query` CLI](docs/graph-queries.md).
 The [ownership analyzer, atomic result persistence, and `analyze`/`findings` CLI](docs/ownership-analysis.md)
-the [security-group impact analyzer](docs/security-group-impact.md), the [cross-account trust analyzer](docs/cross-account-trust.md), and the [database-access analyzer](docs/database-access.md), and the [internet-exposure analyzer](docs/internet-exposure.md) are implemented, as is [snapshot comparison](docs/comparison-results.md). The assistant itself remains a later step; its [provider contracts and fake provider](docs/assistant-providers.md), [tools](docs/assistant-tools.md), [tool-calling loop](docs/assistant-orchestration.md), and [answer validation, repair, and rendering](docs/assistant-answers.md) are in place; the `ask` command and real providers are not. The [analyzer reference](docs/analyzers.md) and [result file contracts](docs/result-contracts.md) compare them.
+the [security-group impact analyzer](docs/security-group-impact.md), the [cross-account trust analyzer](docs/cross-account-trust.md), and the [database-access analyzer](docs/database-access.md), and the [internet-exposure analyzer](docs/internet-exposure.md) are implemented, as is [snapshot comparison](docs/comparison-results.md). The assistant's [provider contracts and fake provider](docs/assistant-providers.md), [tools](docs/assistant-tools.md), [tool-calling loop](docs/assistant-orchestration.md), and [answer validation, repair, and rendering](docs/assistant-answers.md) are in place behind the `ask` command; real providers are not. The [analyzer reference](docs/analyzers.md) and [result file contracts](docs/result-contracts.md) compare them.
 
 ### Planned assistant behavior
 

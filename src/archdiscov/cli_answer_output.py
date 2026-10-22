@@ -7,7 +7,7 @@ secret-looking text, and readable lines lose control characters.
 """
 
 import json
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 
 import typer
 
@@ -36,7 +36,7 @@ _EVIDENCE_HINT = "Inspect cited evidence with `archdiscov evidence ID --snapshot
 
 def answer_data(rendered: RenderedAnswer) -> dict:
     """The JSON contract: a version, the exit code, and the rendered answer, redacted."""
-    return _redacted(
+    return redacted_data(
         {
             "schema_version": ANSWER_JSON_VERSION,
             "exit_code": rendered.outcome.exit_code,
@@ -46,8 +46,12 @@ def answer_data(rendered: RenderedAnswer) -> dict:
 
 
 def answer_text(rendered: RenderedAnswer) -> str:
-    # Control characters, such as terminal escapes in the narrative, become spaces.
-    return "\n".join(redact_secrets(as_data(line)).rstrip() for line in _lines(rendered))
+    return display_text(_lines(rendered))
+
+
+def display_text(lines: Iterable[str]) -> str:
+    """Join readable lines, redacted, with control characters such as escapes as spaces."""
+    return "\n".join(redact_secrets(as_data(line)).rstrip() for line in lines)
 
 
 def print_answer(rendered: RenderedAnswer) -> None:
@@ -147,11 +151,12 @@ def _narrative(narrative: RenderedNarrative | None) -> Iterator[str]:
         yield from (f"  | {line}" for line in paragraph.splitlines() or [""])
 
 
-def _redacted(value):
+def redacted_data(value):
+    """JSON data with every string redacted of secret-looking text."""
     if isinstance(value, str):
         return redact_secrets(value)
     if isinstance(value, dict):
-        return {key: _redacted(item) for key, item in value.items()}
+        return {key: redacted_data(item) for key, item in value.items()}
     if isinstance(value, list):
-        return [_redacted(item) for item in value]
+        return [redacted_data(item) for item in value]
     return value

@@ -3,10 +3,10 @@
 This page describes the provider-neutral layer under `src/archdiscov/assistant/`: the
 conversation and tool-call contracts, provider errors and capabilities, the `Provider`
 protocol, provider configuration, and the scripted fake provider used to test everything
-above it. No command uses this layer yet, and the only constructible provider is the
-fake; the [assistant tools](assistant-tools.md) exist, while orchestration, answer
-validation, and the `ask` command are later steps. None of these modules imports a vendor
-SDK.
+above it. The `ask` command builds its provider from a configuration file, and the only
+constructible provider is the fake; the [assistant tools](assistant-tools.md),
+[orchestration](assistant-orchestration.md), and [answers](assistant-answers.md) build on
+this layer. None of these modules imports a vendor SDK.
 
 ## Conversation contracts
 
@@ -110,8 +110,9 @@ answer renderer in a later step.
 
 `assistant/config.py` loads a TOML file of at most 64 KiB (`MAX_CONFIG_BYTES`) with
 `load_provider_config(path)`, or validates data with `parse_provider_config`. The file
-is one table selected by `kind`. No command reads it yet; the fake is the only provider,
-and the other kinds define the configuration their adapters will use.
+is one table selected by `kind`. The `ask` command reads it with `--config`;
+the fake is the only provider, and the other kinds define the configuration their adapters
+will use.
 
 ```toml
 kind = "anthropic"

@@ -1,9 +1,10 @@
 """Answer one question about selected snapshots with the configured provider.
 
-The provider is built from the configuration before any snapshot is read, so a
-configuration problem costs nothing. Errors before the run starts are raised as the existing
-typed errors (`ProviderConfigError`, `FakeScriptError`, `SnapshotError`) for the caller's
-diagnostics; once the run starts, everything that happens is an answer outcome.
+The question is checked first, and the provider is built from the configuration before any
+snapshot is read, so a request or configuration problem costs nothing. Errors before the run
+starts are raised as typed errors (`InvalidQuestionError`, `ProviderConfigError`,
+`FakeScriptError`, `SnapshotError`) for the caller's diagnostics; once the run starts,
+everything that happens is an answer outcome.
 
 A requested transcript destination is checked before the run starts, so a conflict costs no
 provider request, and the transcript is written for every run that started, failed or not.
@@ -16,7 +17,7 @@ from collections import Counter
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, ValidationError
 
 from archdiscov.assistant.answer_rendering import rendered_snapshots
 from archdiscov.assistant.answer_results import RenderedSnapshot
@@ -25,7 +26,7 @@ from archdiscov.assistant.answer_service import (
     AnswerResult,
     answer_question_async,
 )
-from archdiscov.assistant.conversation import Contract, TokenUsage
+from archdiscov.assistant.conversation import MAX_TEXT_CHARS, Contract, TokenUsage, UserMessage
 from archdiscov.assistant.orchestrator import run_sync
 from archdiscov.assistant.providers import load_provider
 from archdiscov.assistant.runs import RunLimits, RunTranscript
@@ -73,6 +74,22 @@ class AskResult(Contract):
     summary: RunSummary
 
 
+class InvalidQuestionError(ValueError):
+    """A question the run cannot send; the message is fixed and never echoes the question."""
+
+    code = "invalid_question"
+
+    def __init__(self) -> None:
+        super().__init__(f"The question must contain text and at most {MAX_TEXT_CHARS} characters.")
+
+
+def _check_question(question: str) -> None:
+    try:
+        UserMessage(text=question)
+    except ValidationError as exc:
+        raise InvalidQuestionError() from exc
+
+
 class AskCancelled(asyncio.CancelledError):
     """Cancellation of a question, carrying its explained `cancelled` result."""
 
@@ -102,6 +119,7 @@ async def ask_question_async(
     overwriting; an existing path or a missing parent raises before the run starts. Cancelling
     the task raises `AskCancelled`, whose `result` explains the cancelled run.
     """
+    _check_question(question)
     config, provider = load_provider(config_path, environ=environ)
     session = ToolSession.from_paths(snapshot_path, comparison_path=comparison_path)
     limits = RunLimits.from_config(config)
@@ -149,16 +167,27 @@ def ask_question(
     environ: Mapping[str, str] | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> AskResult:
-    """Run `ask_question_async` from synchronous code; refused inside a running loop."""
-    return run_sync(
-        "ask_question",
-        lambda: ask_question_async(
-            question,
-            snapshot_path=snapshot_path,
-            config_path=config_path,
-            comparison_path=comparison_path,
-            transcript_path=transcript_path,
-            environ=environ,
-            clock=clock,
-        ),
-    )
+    """Run `ask_question_async` from synchronous code; refused inside a running loop.
+
+    An interrupt (Ctrl-C) cancels the run and raises `AskCancelled` with its explained result.
+    """
+    try:
+        return run_sync(
+            "ask_question",
+            lambda: ask_question_async(
+                question,
+                snapshot_path=snapshot_path,
+                config_path=config_path,
+                comparison_path=comparison_path,
+                transcript_path=transcript_path,
+                environ=environ,
+                clock=clock,
+            ),
+        )
+    except KeyboardInterrupt as interrupt:
+        # asyncio.run cancels the run on an interrupt, then raises KeyboardInterrupt in place
+        # of the cancellation, which carries the explained result.
+        cancelled = interrupt.__context__
+        if not isinstance(cancelled, AskCancelled):
+            raise
+        raise cancelled from None

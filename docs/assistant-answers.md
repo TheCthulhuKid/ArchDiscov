@@ -4,8 +4,8 @@ This page describes the structured answer a model submits at the end of an
 [orchestrated run](assistant-orchestration.md), how it is validated against what the
 [tools](assistant-tools.md) returned, how its conclusions are written from records, and how
 a failed run is explained, the answer service that repairs once and composes them, and the
-readable and JSON renderings. No command uses this yet, and the only provider is the
-scripted fake: the `ask` command and real providers are later steps.
+readable and JSON renderings. The `ask` command presents them; the only provider with an
+adapter is the scripted fake, and real providers are later steps.
 
 ## Boundary
 
@@ -214,7 +214,7 @@ described above, built from the run record alone.
 ## Renderings
 
 `src/archdiscov/cli_answer_output.py` presents a `RenderedAnswer` in the style of the other
-CLI output modules, for the `ask` command to use. Both forms come from the rendered answer
+CLI output modules, and the `ask` command uses it. Both forms come from the rendered answer
 alone, every string is redacted of secret-looking text on the way out, and readable lines
 lose control characters such as terminal escapes.
 
@@ -249,13 +249,15 @@ The JSON form (`answer_data`) is a contract:
 ## The ask service
 
 `ask_question(question, snapshot_path=, config_path=, comparison_path=)` in
-`services/ask.py` (with `ask_question_async`) is what the `ask` command will call. It
+`services/ask.py` (with `ask_question_async`) is what the `ask` command calls. It refuses
+an empty, blank, or oversized question as `invalid_question` (2) before anything else, then
 builds the provider from the configuration before reading any snapshot, loads the
 snapshots into a tool session, takes the run limits from the configuration, and runs the
 answer service. Its `AskResult` holds the `AnswerResult` and a `RunSummary`: each
 snapshot as rendered, the provider kind and model, the limits, and the tool usage from the
 transcript (provider requests, tool calls by name, whether the repair was requested, and
-token usage). Cancelling raises `AskCancelled`, whose `result` explains the cancelled run.
+token usage). Cancelling raises `AskCancelled`, whose `result` explains the cancelled run;
+the synchronous `ask_question` turns an interrupt (Ctrl-C) into the same `AskCancelled`.
 
 With `transcript_path=`, the service publishes the run's `RunTranscript` JSON (already
 redacted and bounded) at that path, atomically and never overwriting. Before the run starts,
@@ -269,3 +271,34 @@ Errors before the run starts keep the existing CLI codes: an unreadable configur
 transcript, or snapshot file is 1, and invalid configuration, transcripts, or snapshots,
 including a provider kind without an adapter, are 2. Once the run starts, everything is an
 answer outcome with the exit codes above.
+
+## The ask command
+
+`archdiscov ask QUESTION --snapshot PATH --config PATH [--compare PATH] [--transcript PATH]
+[--json]` (`cli_ask.py`) is presentation over the ask service. It answers one question
+per run, with no chat or conversation memory. The provider comes only from `--config`;
+nothing falls back to the fake provider.
+
+```sh
+archdiscov ask "Which resources are reachable from the internet?" \
+  --snapshot snapshot.json --config provider.toml --transcript run.json
+```
+
+The readable form shows the run summary first (the snapshot and comparison paths, the
+provider kind and model, the limits, the provider requests and whether the repair was
+requested, the tool calls by name, the reported tokens, and the transcript path), then the
+answer as described under [Renderings](#renderings). The command exits with the answer
+outcome's exit code; errors before the run starts are safe diagnostics, as JSON with
+`--json`, with the exit codes of the ask service.
+
+With `--json`, the output is a versioned envelope:
+
+| Envelope key | Holds |
+|---|---|
+| `schema_version` | `1`; changes whenever the envelope's own shape does |
+| `snapshot_path` | the `--snapshot` path |
+| `comparison_path` | the `--compare` path, or `null` |
+| `config_path` | the `--config` path |
+| `transcript_path` | the `--transcript` path, or `null` |
+| `summary` | the `RunSummary`: `snapshots`, `provider_kind`, `model`, `limits`, and `usage` |
+| `result` | the answer JSON above (`answer_data`), with its own `schema_version` and `exit_code` |

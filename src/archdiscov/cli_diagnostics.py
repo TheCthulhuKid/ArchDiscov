@@ -16,6 +16,7 @@ from .services import (
     AnalysisValidationError,
     AnalyzerError,
     EvidenceNotFoundError,
+    InvalidQuestionError,
     SnapshotConflictError,
     SnapshotError,
     SnapshotIOError,
@@ -123,9 +124,12 @@ def fail_assistant_error(error: ProviderConfigError | FakeScriptError, as_json: 
 
 @contextmanager
 def safe_assistant_failures(snapshot_path: Path, as_json: bool) -> Iterator[None]:
-    """`safe_failures`, plus provider-configuration and fake-script failures."""
+    """`safe_failures`, plus question, provider-configuration, and fake-script failures."""
     with safe_failures(snapshot_path, as_json):
         try:
             yield
         except (ProviderConfigError, FakeScriptError) as error:
             fail_assistant_error(error, as_json)
+        except InvalidQuestionError as error:
+            print_error(_diagnostic(error.code, str(error)), as_json=as_json)
+            raise typer.Exit(2) from None

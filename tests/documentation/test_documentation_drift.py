@@ -8,7 +8,7 @@ import pytest
 import typer.main
 from annotated_types import Ge, Gt, Le
 
-from archdiscov import cli_answer_output
+from archdiscov import cli_answer_output, cli_ask_output
 from archdiscov.assistant import answer_results, answer_validation
 from archdiscov.assistant import answers as assistant_answers
 from archdiscov.assistant import config as assistant_config
@@ -32,6 +32,8 @@ from archdiscov.models.enums import AnalysisStatus, AnalyzerKind
 from archdiscov.models.query.parameters import QueryPathLimits
 from archdiscov.models.query.requests import QueryNeighboursRequest, QuerySearchRequest
 from archdiscov.services import DEFAULT_REGISTRY
+from archdiscov.services.ask import RunSummary
+from tests.cli.test_ask_cli import ENVELOPE
 from tests.documentation.markdown import DOC_FILES, code_blocks, table_rows
 from tests.paths import PROJECT_ROOT
 
@@ -329,9 +331,8 @@ def test_documented_untrusted_text_and_run_record_rules_match_the_code():
 def test_the_readme_links_the_tools_without_claiming_orchestration():
     text = README.read_text(encoding="utf-8")
     assert "docs/assistant-tools.md" in text
-    for claim in ("orchestration is implemented", "`ask` command is implemented"):
-        assert claim not in text
-    assert "No command uses them yet" in TOOLS_DOC.read_text(encoding="utf-8")
+    assert "orchestration is implemented" not in text
+    assert "The `ask` command offers them" in TOOLS_DOC.read_text(encoding="utf-8")
 
 
 # ---- assistant orchestration -------------------------------------------------------
@@ -389,14 +390,10 @@ def test_documented_instructions_and_transcript_bounds_match_the_code():
     assert "the loop does not validate answers" in text
 
 
-def test_the_readme_links_the_loop_without_claiming_ask_or_validation():
+def test_the_readme_links_the_loop_without_claiming_validation():
     text = README.read_text(encoding="utf-8")
     assert "docs/assistant-orchestration.md" in text
-    for claim in (
-        "`ask` command is implemented",
-        "answer validation is implemented",
-        "answers are validated",
-    ):
+    for claim in ("answer validation is implemented", "answers are validated"):
         assert claim not in text
 
 
@@ -455,6 +452,15 @@ def test_documented_answer_json_matches_the_contract():
     assert [row[0].strip("`") for row in answer] == list(answer_results.RenderedAnswer.model_fields)
 
 
+def test_documented_ask_json_matches_the_envelope():
+    rows = table_rows(ANSWERS_DOC, "| Envelope key | Holds")
+    assert [row[0].strip("`") for row in rows] == ENVELOPE
+    assert f"`{cli_ask_output.ASK_JSON_VERSION}`" in rows[0][1]
+    summary = dict((row[0].strip("`"), row[1]) for row in rows)["summary"]
+    for field in RunSummary.model_fields:
+        assert f"`{field}`" in summary, field
+
+
 def test_documented_rejections_match_the_codes():
     rows = table_rows(ANSWERS_DOC, "| Code | Check | Message")
     assert [row[0].strip("`") for row in rows] == [
@@ -486,12 +492,12 @@ def test_documented_proposal_vocabulary_matches_the_contract():
     assert f"Version `{assistant_instructions.INSTRUCTIONS_VERSION}`" in text
 
 
-def test_the_readme_links_answers_without_claiming_rendering_or_ask():
+def test_the_readme_links_answers_without_claiming_rendering():
     text = README.read_text(encoding="utf-8")
     assert "docs/assistant-answers.md" in text
-    for claim in ("answers are rendered", "repair is implemented", "`ask` command is implemented"):
+    for claim in ("answers are rendered", "repair is implemented"):
         assert claim not in text
-    assert "scripted fake: the `ask` command and real providers are later steps" in " ".join(
+    assert "the only provider with an adapter is the scripted fake" in " ".join(
         ANSWERS_DOC.read_text(encoding="utf-8").split()
     )
 

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 _EXPORTS = {
     "AskCancelled": "ask",
     "AskResult": "ask",
+    "InvalidQuestionError": "ask",
     "ask_question": "ask",
     "ask_question_async": "ask",
     "load_analysis": "analyses",
@@ -81,6 +82,7 @@ __all__ = [
     "EvidenceNotFoundError",
     "IngestFormat",
     "IngestResult",
+    "InvalidQuestionError",
     "OwnershipAnalyzer",
     "Qualification",
     "QueryError",
@@ -148,7 +150,13 @@ if TYPE_CHECKING:
     )
     from .analyzer_errors import AnalyzerError
     from .analyzers import Analyzer, AnalyzerRegistry, build_result
-    from .ask import AskCancelled, AskResult, ask_question, ask_question_async
+    from .ask import (
+        AskCancelled,
+        AskResult,
+        InvalidQuestionError,
+        ask_question,
+        ask_question_async,
+    )
     from .async_ingestion import collect_and_save_async, collect_snapshots_async
     from .comparison import compare_snapshots
     from .comparison_results import (

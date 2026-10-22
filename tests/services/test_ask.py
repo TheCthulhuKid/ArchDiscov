@@ -6,12 +6,15 @@ through the CLI diagnostics so their safe output and exit codes are checked as u
 
 import asyncio
 import json
+import os
+import signal
 from pathlib import Path
 
 import pytest
 import typer
 
 from archdiscov.assistant.answer_results import FAILURE_EXIT_CODES, FailureReason
+from archdiscov.assistant.conversation import MAX_TEXT_CHARS
 from archdiscov.assistant.runs import RunLimits, RunTranscript
 from archdiscov.assistant.tools.session import ToolSession
 from archdiscov.cli_diagnostics import safe_assistant_failures
@@ -147,6 +150,28 @@ def _cancelled(tmp_path: Path, monkeypatch, transcript_path: Path | None = None)
     return asyncio.run(scenario())
 
 
+class _InterruptedProvider(_HangingProvider):
+    """Interrupts the process (as Ctrl-C does) while its request is in progress."""
+
+    async def complete_async(self, request):
+        asyncio.get_running_loop().call_soon(os.kill, os.getpid(), signal.SIGINT)
+        return await super().complete_async(request)
+
+
+def test_an_interrupt_raises_the_explained_cancellation(tmp_path: Path, monkeypatch) -> None:
+    config_path = _fake(tmp_path, [_text()])
+    provider = _InterruptedProvider()
+    built = ask_module.load_provider
+    monkeypatch.setattr(
+        ask_module, "load_provider", lambda path, *, environ=None: (built(path)[0], provider)
+    )
+    with pytest.raises(AskCancelled) as raised:
+        _ask(config_path)
+    result = raised.value.result
+    assert result.answer.outcome.exit_code == 130 and provider.settled
+    _check_summary(result)
+
+
 def test_cancelling_explains_the_cancelled_question(tmp_path: Path, monkeypatch) -> None:
     result = _cancelled(tmp_path, monkeypatch)
     assert result.answer.outcome.failure == "cancelled"
@@ -170,6 +195,18 @@ def _unadapted(tmp_path: Path) -> Path:
     path = tmp_path / "provider.toml"
     path.write_text('kind = "anthropic"\nmodel = "m"\napi_key_env = "ASK_KEY"\n', encoding="utf-8")
     return path
+
+
+@pytest.mark.parametrize("question", ["", " \n\t", "q" * (MAX_TEXT_CHARS + 1)])
+def test_an_unsendable_question_is_refused_first(tmp_path: Path, capsys, question: str) -> None:
+    missing = tmp_path / "missing.toml"
+    code, error = _failure(
+        capsys, lambda: ask_question(question, snapshot_path=SNAPSHOT, config_path=missing)
+    )
+    assert (code, error["code"]) == (2, "invalid_question")
+    # A fixed message cannot echo the question.
+    assert error["message"] == str(ask_module.InvalidQuestionError())
+    assert str(MAX_TEXT_CHARS) in error["message"]
 
 
 def test_a_missing_configuration_is_unreadable(tmp_path: Path, capsys) -> None:
