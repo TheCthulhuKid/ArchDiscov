@@ -158,6 +158,9 @@ credentials, or the question.
 
 ## Verification
 
+[Testing the CLI locally](local-cli-testing.md#ask-a-question-with-the-fake-provider) shows
+how to try the command by hand with a written fake transcript or the example helper.
+
 `tests/acceptance/test_installed_ask.py` runs the installed command outside the checkout,
 through the `archdiscov` script and `python -m archdiscov`, with an offline guard that fails
 any network use and an environment without credentials. It answers the five README example

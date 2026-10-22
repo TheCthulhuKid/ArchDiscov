@@ -565,6 +565,9 @@ only safe public diagnostics and maps error categories to the exit codes below.
 
 #### Implemented offline workflow
 
+[Testing the CLI locally](docs/local-cli-testing.md) walks through every command offline
+with the committed fixtures, including `ask` with the fake provider.
+
 Import the project's **own snapshot JSON**, then inspect an evidence-map ID in the saved file:
 
 ```bash

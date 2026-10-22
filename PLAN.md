@@ -2902,6 +2902,80 @@ Implement and verify substeps 40.1–40.6 in order. Keep the parent planned unti
 
 **Acceptance check:** Both protocols pass the shared adapter contract tests established in step 40; unsupported capabilities fail clearly; no network is needed in normal tests.
 
+Implement and verify substeps 41.1–41.6 in order. Keep the parent planned until every substep's acceptance checks pass. The adapter lives in `src/archdiscov/assistant/openai_provider.py`, is registered in `ADAPTERS` for `ProviderKind.OPENAI_COMPATIBLE`, and is the only module that imports `openai`, lazily, as step 40 does for `anthropic`. One adapter serves both protocols: the configured `protocol` selects a request and response mapping, and everything else (client, guard, failures, retries) is shared, so the orchestrator cannot tell the protocols or the adapters apart. The installed `openai` SDK (3.x) is already a dependency and uses `httpx2`, like `anthropic`; like it, it reads the environment (`OPENAI_BASE_URL`, `OPENAI_ORG_ID`, `OPENAI_PROJECT_ID`, `OPENAI_CUSTOM_HEADERS`, `OPENAI_ADMIN_KEY`, workload identity, `OPENAI_LOG`), so the same guards apply. Normal tests mock the HTTP transport; nothing reaches the network unless the opt-in live tests are run on request.
+
+#### Step 41.1: Share the adapter plumbing from step 40
+**Status:** Planned.
+**Prerequisite:** Step 40.
+
+- Move what is not Anthropic-specific out of `anthropic_provider.py` into a vendor-neutral module (for example `assistant/adapters.py`) that imports no SDK: the guarded transports (a header allowlist plus a credential setter, parameterised by the SDK's own header names and auth scheme), the logger quieting, the failure lookup through an exception's class hierarchy, the retry loop with injected sleeps, `retry_wait` and `retry-after` parsing, and the cut-short and unknown-block rules that apply to any response.
+- Move the reusable test support likewise: `MockApi`, `DelayedResponse`, the scripted-failure servers (statuses parameterised by each SDK's error body shape), the no-wait sleeps, the mock Messages API server from the installed test, and a harness base class that serves fake turns through a protocol's body builder.
+- Behaviour is unchanged: every Anthropic adapter, contract, suite, installed, and drift test passes without edits to its assertions.
+
+**Advice:** Extract only what the OpenAI adapter will demonstrably reuse; keep each SDK's lookup tables in its own adapter module, because they are the vendor-specific part.
+
+**Acceptance check:** The Anthropic tests pass unchanged; the shared module imports no vendor SDK (the import-isolation test covers it); `anthropic_provider.py` keeps only its mapping, tables, and client construction.
+
+#### Step 41.2: Build the OpenAI client and declare capabilities in configuration
+**Status:** Planned.
+**Prerequisite:** Step 41.1.
+
+- Register an adapter for `openai_compatible` that builds `openai.OpenAI` and `openai.AsyncOpenAI` from the configuration only: the resolved key, the required `endpoint` as the base URL, `max_retries=0`, the configured timeouts, no redirects, and the shared guarded transport, so `OPENAI_BASE_URL`, organisation and project headers, `OPENAI_CUSTOM_HEADERS`, admin keys, and workload identity cannot change the target, headers, or credential, and `OPENAI_LOG` cannot log bodies.
+- An OpenAI-compatible server cannot be asked whether a model supports function calling, so the configuration declares it: add `capabilities` to `OpenAICompatibleProviderConfig` (a list from `ProviderCapability`, defaulting to tool calling only, with parallel calls opt-in because some servers reject `parallel_tool_calls`). A request needing an undeclared capability is refused by `check_capabilities` before any call, which is how a model without function calling fails clearly, since `ask` always offers tools.
+- Tests that use `openai_compatible` as the kind without an adapter move to `bedrock` through `UNADAPTED_KIND`, which is derived from `ADAPTERS`; the documentation drift tests follow the new field.
+
+**Advice:** Building the provider must make no request, as for Anthropic; the protocol is chosen at construction and never guessed from the endpoint.
+
+**Acceptance check:** A TOML configuration builds the adapter for each protocol; a missing or empty key fails before any request; hostile `OPENAI_*` variables change neither the URL, the headers, nor the credential of a mocked request; no key reaches a `repr`, error, or captured log; a configuration declaring no tool calling refuses an `ask` run with `provider_unsupported_capability` before any request.
+
+#### Step 41.3: Map the Chat Completions protocol
+**Status:** Planned.
+**Prerequisite:** Step 41.2.
+
+- Requests: system messages as `system` messages; user messages; assistant messages with `content` and `tool_calls` (`type` `function`, arguments as compact JSON text, `{}` for malformed arguments that never ran); one `tool` message per result with its `tool_call_id` (the protocol has no error flag, so a failed tool's content already says so); tools as `function` declarations with `parameters`; `tool_choice` `auto`; `parallel_tool_calls` only when parallel calls are declared, set from `max_tool_calls_per_turn`; `max_completion_tokens`; the request timeout; no sampling parameters, `n`, or streaming.
+- Responses: only the first choice of a single-choice response; text from `content`; tool calls through `parse_tool_arguments`, so invalid JSON and non-object arguments are typed malformed values; `finish_reason` by lookup table (`stop` to `end`, `tool_calls` to `tool_use`, `length` to `length` for text alone and otherwise `provider_truncated_output`, `content_filter` to `provider_refusal`, anything else to `provider_malformed_output`); a `refusal` field to the `refusal` stop with its text; usage from `prompt_tokens`, `completion_tokens`, and `prompt_tokens_details.cached_tokens`. The protocol has no reasoning blocks to replay, so it never sets a continuation.
+- Add an `OpenAIHarness` for this protocol that serves fake turns as Chat Completions bodies built with the SDK's types, so the contract suite runs against it.
+
+**Advice:** Compatible servers differ; send only fields the protocol defines, and treat every response field as untrusted.
+
+**Acceptance check:** The contract suite passes for the fake, Anthropic, and Chat Completions harnesses. Adapter tests cover the exact request body, text, single and parallel calls, mixed text and calls, invalid-JSON and non-object arguments, `length` with text and with a partial call, refusal, content filtering, multiple or zero choices, unknown finish reasons, and usage with and without cached tokens.
+
+#### Step 41.4: Map the Responses protocol
+**Status:** Planned.
+**Prerequisite:** Step 41.3.
+
+- Requests: stateless (`store` false, no `previous_response_id`); system and user messages as input messages; an assistant message as its replayed output items when it carries a continuation, otherwise as a message item and `function_call` items; tool results as `function_call_output` items; tools as function tools with `parameters`; `tool_choice` `auto`; `parallel_tool_calls` as for Chat Completions; `max_output_tokens`; and, so reasoning models can continue, `include` of encrypted reasoning content. Check against the official Responses guidance whether `include` is safe for models and servers without reasoning, and make it a declared configuration choice if not.
+- Responses: `output_text` parts to text, `refusal` parts to the `refusal` stop, `function_call` items to tool calls, `reasoning` items to an `openai_compatible` continuation holding the whole ordered output for verbatim replay (as step 40 does for thinking blocks), and any other item type to `provider_malformed_output`; `status` `completed` to `end` or `tool_use`, `incomplete` with `max_output_tokens` to `length` or `provider_truncated_output`, with `content_filter` to `provider_refusal`; usage from `input_tokens`, `output_tokens`, and `input_tokens_details.cached_tokens`.
+- Add the Responses `OpenAIHarness`, so the contract suite runs against both protocols.
+
+**Advice:** Keep each protocol's mapping in its own pair of functions behind one table keyed by `OpenAIProtocol`, not branches through shared code.
+
+**Acceptance check:** The contract suite passes for all four harnesses; adapter tests cover the same response shapes as 41.3 for this protocol, the request body, and a reasoning item replayed unchanged and in order through the orchestrator; a foreign continuation is refused before any request.
+
+#### Step 41.5: Map failures and retries, and run the suites through both protocols
+**Status:** Planned.
+**Prerequisite:** Step 41.4.
+
+- Add the `openai` exception table, resolved through the shared lookup: 400, 404, 409, and 422 to `provider_invalid_request`; 401 and 403 to `provider_authentication`; 429 to `provider_rate_limit`; 5xx to `provider_unavailable`; the timeout, connection, response-validation, and unparseable-body failures as for Anthropic; and check that every `openai` API error class has a mapping. Retries, waits, and `retry-after` use the shared loop.
+- Run the orchestration and answer-service suites and the README example questions through both protocol harnesses, checking the same runs and answers as the fake, with the existing `fake_only` cases; generalise the examples' adapter hook so each harness configures its own provider kind.
+- Add opt-in live tests for each protocol under the `live` marker, skipped unless variables name the key variable, endpoint, model, and protocol, with the same caps as the Anthropic test.
+
+**Advice:** If the `openai` SDK raises protocol-specific errors (such as finish-reason errors) only from its parsing helpers, do not call those helpers; map the raw response instead.
+
+**Acceptance check:** Every status and transport failure maps to its code with the right retryable flag and no provider text; every suite and example case passes through both protocols with identical outcomes; the default run collects no live test.
+
+#### Step 41.6: Verify the installed command and document the adapter
+**Status:** Planned.
+**Prerequisite:** Step 41.5.
+
+- Extend the installed `ask` acceptance test: an `openai_compatible` configuration without its key fails before any request, and for each protocol, with an `endpoint` at the loopback mock server, answers a README question offline through both entry points.
+- Document the adapter in `docs/assistant-providers.md` (configuration and declared capabilities, credentials, endpoints and gateways, both protocol mappings, continuation handling, the failure table, and live tests), and update `docs/ask-command.md`, `docs/local-cli-testing.md`, the README capability table and provider text, and the drift tests that reject claims of an OpenAI-compatible adapter.
+- Run focused and full offline tests, the acceptance suite, Ruff lint and format, documentation links, and whitespace checks with `.venv/bin/python`. Mark each substep and the parent implemented only after their acceptance checks pass.
+
+**Advice:** Reuse the step 40 installed-test server and offline guard allowance rather than adding a second mechanism.
+
+**Acceptance check:** The installed command refuses a missing key safely and answers through each protocol against a local mock server with no credentials or internet access; the documentation matches the adapter's tables, options, and declared capabilities; all checks pass.
+
 ### Step 42: Add the Bedrock Converse adapter
 **Status:** Planned.
 **Prerequisites:** Steps 34–40.
