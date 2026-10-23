@@ -5,7 +5,8 @@ This page describes the structured answer a model submits at the end of an
 [tools](assistant-tools.md) returned, how its conclusions are written from records, and how
 a failed run is explained, the answer service that repairs once and composes them, and the
 readable and JSON renderings. The [`ask` command](ask-command.md) presents them with the scripted fake or the
-Anthropic adapter, and the other real providers are later steps.
+Anthropic adapter; the OpenAI-compatible adapter does not answer yet, and Bedrock is a later
+step.
 
 ## Boundary
 

@@ -5,9 +5,8 @@ are references only: an environment variable name for API-key providers, or an A
 profile for Bedrock. Values are resolved by `resolve_api_key` when a provider is
 constructed, never stored on the configuration, and never accepted as CLI arguments.
 
-`assistant/providers.py` builds a provider from a configuration. Only the fake provider has
-an adapter now; the other kinds define the configuration their adapters (steps 40-42) will
-use.
+`assistant/providers.py` builds a provider from a configuration through the adapter
+registered for its kind.
 """
 
 import os
@@ -37,7 +36,7 @@ from archdiscov.models.validation_errors import (
 )
 
 from .conversation import Contract
-from .provider import RequestLimits
+from .provider import ProviderCapability, RequestLimits, require_tool_calling_for_parallel_calls
 from .redaction import looks_secret
 
 MAX_CONFIG_BYTES = 65_536
@@ -146,12 +145,26 @@ class AnthropicProviderConfig(_EndpointConfig):
 
 
 class OpenAICompatibleProviderConfig(_EndpointConfig):
-    """Base URL, key variable, and protocol are explicit; nothing is guessed."""
+    """Base URL, key variable, protocol, and capabilities are explicit; nothing is guessed.
+
+    A compatible server cannot be asked what its model supports, so `capabilities` declares
+    it: tool calling by default, and parallel calls only when declared, because some servers
+    reject `parallel_tool_calls`.
+    """
 
     kind: Literal[ProviderKind.OPENAI_COMPATIBLE] = ProviderKind.OPENAI_COMPATIBLE
     api_key_env: EnvVarName
     endpoint: HttpUrl
     protocol: OpenAIProtocol
+    capabilities: frozenset[ProviderCapability] = frozenset({ProviderCapability.TOOL_CALLING})
+
+    @field_validator("capabilities")
+    @classmethod
+    def validate_capabilities(
+        cls, capabilities: frozenset[ProviderCapability]
+    ) -> frozenset[ProviderCapability]:
+        require_tool_calling_for_parallel_calls(capabilities)
+        return capabilities
 
 
 class BedrockProviderConfig(_ProviderConfigBase):

@@ -3,8 +3,10 @@
 This page describes the provider-neutral layer under `src/archdiscov/assistant/`: the
 conversation and tool-call contracts, provider errors and capabilities, the `Provider`
 protocol, provider configuration, and the scripted fake provider used to test everything
-above it. The `ask` command builds its provider from a configuration file: the fake or the
-[Anthropic adapter](#anthropic-adapter); the other kinds have no adapter yet. The
+above it. The `ask` command builds its provider from a configuration file: the fake, the
+[Anthropic adapter](#anthropic-adapter), or the
+[OpenAI-compatible adapter](#openai-compatible-adapter), which does not answer yet;
+`bedrock` has no adapter yet. The
 [assistant tools](assistant-tools.md), [orchestration](assistant-orchestration.md), and
 [answers](assistant-answers.md) build on this layer. Only an adapter module imports a
 vendor SDK, and only when its kind is built.
@@ -91,6 +93,9 @@ tools or its conversation already contains tool calls or results, and
 `complete` and `complete_async` run `check_capabilities` first, so a request needing an
 unsupported capability fails with `provider_unsupported_capability` before any provider
 call, rather than being degraded silently. No request requires `structured_output` yet.
+An adapter that cannot ask its API what a model supports, such as the
+[OpenAI-compatible adapter](#openai-compatible-adapter), declares what its configuration
+says.
 
 ### Errors and the retry boundary
 
@@ -122,8 +127,8 @@ answer renderer in a later step.
 `assistant/config.py` loads a TOML file of at most 64 KiB (`MAX_CONFIG_BYTES`) with
 `load_provider_config(path)`, or validates data with `parse_provider_config`. The file
 is one table selected by `kind`. The `ask` command reads it with `--config`;
-the fake and `anthropic` have adapters, and the other kinds define the configuration their
-adapters will use.
+the fake, `anthropic`, and `openai_compatible` have adapters, and `bedrock` defines the
+configuration its adapter will use.
 
 ```toml
 kind = "anthropic"
@@ -151,6 +156,7 @@ request_timeout_seconds = 30
 | `endpoint` | `anthropic` | none | HTTPS URL |
 | `endpoint` | `openai_compatible` | required | HTTPS URL |
 | `protocol` | `openai_compatible` | required | `responses`, `chat_completions` |
+| `capabilities` | `openai_compatible` | `tool_calling` | a list of `tool_calling`, `parallel_tool_calls` (which requires `tool_calling`), `structured_output` |
 | `profile` | `bedrock` | required | AWS profile name |
 | `region` | `bedrock` | required | a concrete AWS region, not `global` |
 | `role_arn` | `bedrock` | none | IAM role ARN |
@@ -173,8 +179,9 @@ against the file's directory.
   build fails with `provider_transcript_missing`, and an unreadable or invalid transcript
   fails with the fake's own error codes.
 - `anthropic` builds the [Anthropic adapter](#anthropic-adapter).
-- A kind without an adapter (`openai_compatible` and `bedrock`) fails with
-  `provider_adapter_unavailable`, before its credential is read or any request is made.
+- `openai_compatible` builds the [OpenAI-compatible adapter](#openai-compatible-adapter).
+- A kind without an adapter (`bedrock`) fails with `provider_adapter_unavailable`, before
+  its credential is read or any request is made.
 
 Errors name the file and the kind, never the configuration's values or credentials.
 
@@ -301,6 +308,47 @@ ARCHDISCOV_LIVE_ANTHROPIC_KEY_ENV=ANTHROPIC_API_KEY \
 ARCHDISCOV_LIVE_ANTHROPIC_MODEL=claude-sonnet-5-5 \
 .venv/bin/python -m pytest -m live tests/live
 ```
+
+### OpenAI-compatible adapter
+
+`assistant/openai_provider.py` is the only module that imports the `openai` SDK, and
+`ADAPTERS` imports it only when an `openai_compatible` configuration is built. One adapter
+serves OpenAI and compatible servers (gateways and local model servers) through either
+protocol. Building it makes no request. Until the protocol mappings land (steps 41.3 and
+41.4), it sends nothing: each request fails with `provider_unavailable`.
+
+```toml
+kind = "openai_compatible"
+model = "gpt-5"
+api_key_env = "OPENAI_API_KEY"
+endpoint = "https://api.openai.com/v1"   # required: the API root, including any /v1
+protocol = "responses"                    # or "chat_completions"; never guessed
+capabilities = ["tool_calling", "parallel_tool_calls"]
+```
+
+Nothing is guessed. `endpoint` and `protocol` are required, and requests go to
+`{endpoint}/responses` or `{endpoint}/chat/completions`. A compatible server cannot be
+asked what its model supports, so `capabilities` declares it: tool calling by default, and
+parallel tool calls only when listed, because some servers reject `parallel_tool_calls`.
+`ask` always offers tools, so a configuration that does not declare `tool_calling`, for a
+model without function calling, fails with `provider_unsupported_capability` before any
+request, and one that allows more than one call per turn without declaring
+`parallel_tool_calls` fails the same way.
+
+The client comes only from the configuration, through the same shared guarded clients as
+the Anthropic adapter:
+
+- The key from `api_key_env` and the `endpoint` are passed explicitly, so `OPENAI_API_KEY`
+  and `OPENAI_BASE_URL` are never used.
+- Every request passes through a transport that keeps only the SDK's own headers and then
+  sets the configured key as `Authorization: Bearer`, so `OPENAI_ORG_ID`,
+  `OPENAI_PROJECT_ID`, `OPENAI_CUSTOM_HEADERS`, and `OPENAI_ADMIN_KEY` cannot add headers
+  or replace the credential. Workload identity is never configured, and a client with its
+  own transport uses no environment proxy.
+- Redirects are not followed, the SDK's own retries are off (`max_retries = 0`), and the
+  timeouts are `connect_timeout_seconds` and `request_timeout_seconds`.
+- The `openai` and `httpx2` loggers are held at `WARNING` whatever `OPENAI_LOG` or the root
+  level says, because their debug records hold request bodies.
 
 ### Credentials
 

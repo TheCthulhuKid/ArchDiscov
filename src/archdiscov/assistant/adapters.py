@@ -36,6 +36,18 @@ from .provider import (
     StopReason,
 )
 
+# The HTTP headers every SDK's client sends itself; each adapter adds its SDK's own names.
+HTTP_HEADERS = frozenset(
+    {
+        "accept",
+        "accept-encoding",
+        "connection",
+        "content-length",
+        "content-type",
+        "host",
+        "user-agent",
+    }
+)
 RETRY_BACKOFF_SECONDS = 0.5
 MAX_RETRY_WAIT_SECONDS = 30.0
 

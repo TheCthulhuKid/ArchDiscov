@@ -201,6 +201,8 @@ def check_default(documented: str, field, where) -> None:
         assert documented == "none", where
     elif isinstance(field.default, (int, float)):
         assert decimal(documented) == field.default, where
+    elif isinstance(field.default, frozenset):
+        assert documented == ", ".join(f"`{item}`" for item in sorted(field.default)), where
     else:
         assert documented == f"`{field.default}`", where
 
@@ -295,10 +297,11 @@ def test_the_readme_links_the_provider_contracts_without_claiming_real_providers
     text = README.read_text(encoding="utf-8")
     assert "docs/assistant-providers.md" in text
     assert "docs/assistant-providers.md#anthropic-adapter" in text
+    assert "docs/assistant-providers.md#openai-compatible-adapter" in text
     for claim in ("OpenAI-compatible adapter is implemented", "Bedrock adapter is implemented"):
         assert claim not in text
     provider_doc = PROVIDERS_DOC.read_text(encoding="utf-8")
-    assert "the other kinds have no adapter yet" in " ".join(provider_doc.split())
+    assert "`bedrock` has no adapter yet" in " ".join(provider_doc.split())
 
 
 # ---- assistant tools ---------------------------------------------------------------
@@ -512,9 +515,7 @@ def test_the_readme_links_answers_without_claiming_rendering():
     assert "docs/assistant-answers.md" in text
     for claim in ("answers are rendered", "repair is implemented"):
         assert claim not in text
-    assert "the other real providers are later steps" in " ".join(
-        ANSWERS_DOC.read_text(encoding="utf-8").split()
-    )
+    assert "Bedrock is a later step" in " ".join(ANSWERS_DOC.read_text(encoding="utf-8").split())
 
 
 # ---- ask command -------------------------------------------------------------------

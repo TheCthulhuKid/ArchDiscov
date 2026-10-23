@@ -12,8 +12,12 @@ The scripted fake replays a transcript and needs no credentials or network. An
 [Anthropic adapter](assistant-providers.md#anthropic-adapter) with the key its
 `api_key_env` names; an API or connection error ends the run as `provider_error` (6) with
 the [provider error](assistant-providers.md#failures-and-retries) it maps to, after any
-retries. The other real kinds are accepted in configuration but fail before the run with
-`provider_adapter_unavailable`.
+retries. An `openai_compatible` configuration builds the
+[OpenAI-compatible adapter](assistant-providers.md#openai-compatible-adapter), which does
+not answer until its protocol mappings land: its run ends as `provider_error` (6) with
+`provider_unavailable` before anything is sent, or with `provider_unsupported_capability`
+when the configuration does not declare tool calling. A `bedrock` configuration is accepted
+but fails before the run with `provider_adapter_unavailable`.
 
 ## Usage
 

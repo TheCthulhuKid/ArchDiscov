@@ -34,6 +34,7 @@ from anthropic.types import (
 from pydantic import SecretStr, ValidationError
 
 from .adapters import (
+    HTTP_HEADERS,
     HeaderGuard,
     Retries,
     guarded_http_clients,
@@ -73,18 +74,7 @@ from .provider import (
 DEFAULT_BASE_URL = "https://api.anthropic.com"
 
 # What the SDK sends on its own; anything else (such as `ANTHROPIC_CUSTOM_HEADERS`) is dropped.
-_SDK_HEADERS = frozenset(
-    {
-        "accept",
-        "accept-encoding",
-        "anthropic-version",
-        "connection",
-        "content-length",
-        "content-type",
-        "host",
-        "user-agent",
-    }
-)
+_SDK_HEADERS = HTTP_HEADERS | {"anthropic-version"}
 _SDK_HEADER_PREFIX = "x-stainless-"
 _SDK_LOGGERS = ("anthropic", "httpx2")
 

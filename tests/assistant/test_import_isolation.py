@@ -132,15 +132,24 @@ built = providers.build_provider(
 )
 assert built.remaining_turns > 0
 # Only building a vendor adapter imports its SDK.
-anthropic_config = config.parse_provider_config(
-    {{"kind": "anthropic", "model": "m", "api_key_env": "ASK_KEY"}}
-)
-try:
-    providers.build_provider(anthropic_config, config_dir=Path("."), environ={{"ASK_KEY": "k"}})
-except ImportError as error:
-    assert "blocked vendor SDK: anthropic" in str(error), error
-else:
-    raise AssertionError("the Anthropic adapter was built without its SDK")
+vendor_configs = {{
+    "anthropic": {{"kind": "anthropic", "model": "m", "api_key_env": "ASK_KEY"}},
+    "openai": {{
+        "kind": "openai_compatible",
+        "model": "m",
+        "api_key_env": "ASK_KEY",
+        "endpoint": "https://api.example.com/v1",
+        "protocol": "responses",
+    }},
+}}
+for sdk, data in vendor_configs.items():
+    vendor = config.parse_provider_config(data)
+    try:
+        providers.build_provider(vendor, config_dir=Path("."), environ={{"ASK_KEY": "k"}})
+    except ImportError as error:
+        assert "blocked vendor SDK: " + sdk in str(error), error
+    else:
+        raise AssertionError("an adapter was built without its SDK: " + sdk)
 import json
 import tempfile
 

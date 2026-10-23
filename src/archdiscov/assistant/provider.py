@@ -6,7 +6,7 @@ answer; the single repair request belongs to the answer renderer (step 38). Run-
 limits such as total requests and deadlines belong to the orchestrator (step 36).
 """
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from enum import StrEnum
 from typing import Annotated, ClassVar, Protocol, Self, runtime_checkable
 
@@ -140,6 +140,16 @@ PROVIDER_ERROR_MESSAGES: Mapping[ProviderErrorCode, str] = {
 }
 
 
+def require_tool_calling_for_parallel_calls(capabilities: Collection[ProviderCapability]) -> None:
+    if (
+        ProviderCapability.PARALLEL_TOOL_CALLS in capabilities
+        and ProviderCapability.TOOL_CALLING not in capabilities
+    ):
+        raise validation_error(
+            "provider_parallel_calls_without_tools", "parallel calls need tool calling"
+        )
+
+
 class ProviderCapabilities(Contract):
     """What a provider can do; requests needing more are rejected, not degraded."""
 
@@ -147,13 +157,7 @@ class ProviderCapabilities(Contract):
 
     @model_validator(mode="after")
     def require_tool_calling_for_parallel_calls(self) -> Self:
-        if (
-            ProviderCapability.PARALLEL_TOOL_CALLS in self.capabilities
-            and ProviderCapability.TOOL_CALLING not in self.capabilities
-        ):
-            raise validation_error(
-                "provider_parallel_calls_without_tools", "parallel calls need tool calling"
-            )
+        require_tool_calling_for_parallel_calls(self.capabilities)
         return self
 
 
