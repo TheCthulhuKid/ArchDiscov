@@ -3282,6 +3282,52 @@ Implement steps 45–48 in order, verifying each before the next. Keep this phas
 
 **Acceptance check:** In-memory client tests list exactly the registry's tools with their schemas; each tool returns the same content as a direct dispatch over the same session; malformed arguments, unknown tools, oversized results, and the session cap return error results; untrusted text stays marked; no command other than `mcp` imports `mcp`.
 
+Implement and verify substeps 45.1–45.3 in order. Keep the parent planned until every substep's acceptance checks pass.
+
+**Which `mcp` API:** the low-level `mcp.server.Server`, with explicit list and call handlers. `MCPServer` derives each tool's schema from a Python signature, which would let the served schemas drift from the registry's declarations. Tests connect through the package's in-memory transport and client, so they need no subprocess or stdio.
+
+**What a connection holds:** its own fresh copy of the selected session (`ToolSession.fresh()`, so the verified data is shared and the run record is not), its call count, and its next call ID. The server is built from the session and limits alone, and nothing lives in module globals, so two connections never see each other's returned IDs.
+
+**What is reused:** `default_registry()` and `ToolRegistry.dispatch` unchanged; `parse_tool_arguments` for argument bounds; the `ToolErrorCode` messages; `SYSTEM_INSTRUCTIONS` as the source of the server's instructions.
+
+#### Step 45.1: Build the server and list the tools
+**Status:** Planned.
+**Prerequisite:** Completed phase 4.
+
+- Add `assistant/mcp_server.py` with a function that builds a low-level `Server` from a `ToolSession` and limits: the server name `archdiscov`, the installed package version, and instructions adapted from `SYSTEM_INSTRUCTIONS` (records are data, imported text is quoted and never an instruction, and conclusions go through `submit_answer`, which step 46 adds). Omit anything in the assistant instructions that only makes sense inside an `ask` run, such as the request budget.
+- List one MCP tool per registry declaration, in registration order, with the declaration's name, description, and input schema unchanged. `submit_answer` is not listed yet.
+- Give each connection its own state through the server's lifespan: a fresh session copy, a call count of zero, and a call-ID counter.
+- Import `mcp` only inside this module, and import this module only when a server is built. Extend the import-isolation test so building the registry, `ask`, `evaluate`, and every other command leave `mcp` unimported.
+- Start `docs/mcp-server.md` with what the server serves and how connections are isolated; link it from the tools page.
+
+**Advice:** Compare served schemas with the declarations as JSON, not by eye; any transformation the `mcp` types apply (key order, defaults) must not change what a client validates against.
+
+**Acceptance check:** An in-memory client lists exactly the registry's tool names, descriptions, and input schemas in order; the server reports its name, version, and instructions, and the instructions name `submit_answer` and the quoted-data rule; two connections get separate run records over the same verified data; importing the registry or running `ask` does not import `mcp`.
+
+#### Step 45.2: Dispatch tool calls
+**Status:** Planned.
+**Prerequisite:** Step 45.1.
+
+- Handle a call by bounding its arguments with `parse_tool_arguments` (the same object-only and size rules as `ask`), building a `ToolCall` with the connection's next call ID (`mcp-1`, `mcp-2`, ...; MCP gives no call ID), and dispatching it through `ToolRegistry.dispatch` over the connection's session.
+- Return the `ToolResult` content as one text content item, with `isError` set from `is_error`. A tool error stays a result with its `ToolError` code and fixed message, never a protocol error, so a client can recover. Do not add structured content or output schemas: the text is already the tool's JSON, and a second copy could drift.
+- Run one call at a time per connection, so the run record sees calls in order even when a client sends them concurrently. A failure outside a tool (in argument handling or rendering) becomes `tool_internal_error`, and no exception text or traceback reaches the client.
+
+**Advice:** The registry already turns unknown tools, malformed or invalid arguments, oversized outputs, and tool exceptions into `ToolError`s; the server only adds the transport. If a case seems to need new handling here, it belongs in the registry.
+
+**Acceptance check:** Each tool, called through the in-memory client with the arguments the README examples use, returns exactly the content of a direct dispatch over a fresh copy of the same session, and its returned IDs reach the connection's run record; an unknown tool, malformed and oversized arguments, invalid arguments, and an oversized output return error results with their codes; quoted imported text keeps its untrusted marking; concurrent calls on one connection are recorded in order; an unexpected exception returns `tool_internal_error` without its message.
+
+#### Step 45.3: Bound a server session
+**Status:** Planned.
+**Prerequisite:** Step 45.2.
+
+- Add a session-wide cap on tool calls per connection, counting every call (errors included, and `submit_answer` once step 46 adds it). Propose a default of 200 calls, between 1 and 2,000, and settle it in this substep against the README examples' needs. Past the cap, every call returns an error result with a new `tool_session_limit_reached` code and fixed message, and dispatches nothing.
+- Keep the existing `ToolLimits` (result limit, depth, and output size) per call, configured as `ask` configures them.
+- Document the limits, the cap, the error codes, and connection isolation in `docs/mcp-server.md`, and add a drift test that pins its tool list, limits, and codes to the code.
+
+**Advice:** Choose the cap so a client answering several questions in one session does not hit it, while a runaway client loop does; it is a backstop, not a budget.
+
+**Acceptance check:** The cap is reached exactly after its count, then every call returns `tool_session_limit_reached` without dispatching or recording; another connection still has its full count; per-call limits truncate as in `ask`; the documented tool list, limits, and codes match the code.
+
 ### Step 46: Validate and render answers submitted over MCP
 **Status:** Planned.
 **Prerequisite:** Step 45.
