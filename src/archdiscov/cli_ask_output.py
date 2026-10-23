@@ -1,16 +1,17 @@
 """Readable and JSON presentation of an `ask` run: the run summary, then the answer.
 
-The answer itself is presented by `cli_answer_output`; this module adds what the run used
-and where its files are, redacted and sanitised the same way.
+The answer itself is presented by `assistant/answer_output.py`; this module adds what the
+run used and where its files are, redacted and sanitised the same way.
 """
 
 from collections.abc import Iterator
 
 import typer
 
+from .assistant.answer_output import answer_data, display_text, redacted_data
 from .assistant.conversation import TokenUsage
 from .assistant.runs import RunLimits
-from .cli_answer_output import answer_data, display_text, print_answer, redacted_data
+from .cli_answer_output import print_answer
 from .services import AskResult
 
 ASK_JSON_VERSION = "1"

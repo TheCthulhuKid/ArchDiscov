@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 
+from archdiscov.assistant.answer_output import answer_data, answer_text
 from archdiscov.assistant.answer_results import (
     FAILURE_EXIT_CODES,
     SUCCESS_EXIT_CODE,
@@ -30,7 +31,6 @@ from archdiscov.assistant.fake import FakeClock
 from archdiscov.assistant.provider import ProviderErrorCode
 from archdiscov.assistant.runs import MalformedOutputReason, RunLimitKind, RunLimits
 from archdiscov.assistant.tools.session import ToolSession
-from archdiscov.cli_answer_output import answer_data, answer_text
 from tests.assistant.provider_harness import HARNESSES, FakeHarness, ProviderHarness
 from tests.assistant.test_answer_service import PLAIN_TEXT, _proposal, _rejected, _submit
 from tests.assistant.test_orchestration_suite import CASES as LOOP_CASES

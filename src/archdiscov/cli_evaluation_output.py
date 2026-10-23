@@ -9,6 +9,7 @@ from collections.abc import Iterator
 
 import typer
 
+from .assistant.answer_output import display_text, redacted_data
 from .assistant.evaluation import (
     Budget,
     CaseComparison,
@@ -22,7 +23,6 @@ from .assistant.evaluation import (
     ReportComparison,
     TokenDelta,
 )
-from .cli_answer_output import display_text, redacted_data
 from .cli_ask_output import TOKEN_LABELS, token_text
 from .services.evaluation import PreparedEvaluation
 

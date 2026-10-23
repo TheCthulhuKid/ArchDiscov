@@ -2,9 +2,11 @@
 
 A rejected, malformed, invalid, or mixed `submit_answer` call is answered with a tool result
 per call. The `submit_answer` result lists the typed rejection codes, their locations, and
-their fixed messages, or the fixed reason the call could not be read; any other call in a
-mixed response is answered as not run. A plain-text answer is followed by a user message
-saying only that no proposal was submitted; the text is never quoted back.
+their fixed messages, or the fixed reason the call could not be read, then what to do next;
+any other call in a mixed response is answered as not run. `submission_text` builds that
+result for any follow-up line, so another caller can report a submission the same way. A
+plain-text answer is followed by a user message saying only that no proposal was
+submitted; the text is never quoted back.
 """
 
 import json
@@ -52,7 +54,7 @@ def repair_prompt(
         raise ValueError("only an outcome that needs a repair is repaired")
     if isinstance(outcome, Answered):
         return (UserMessage(text=NO_PROPOSAL),)
-    submission = _submission(outcome, rejections)
+    submission = submission_text(outcome, rejections, RESUBMIT)
     return (
         ToolResultMessage(results=tuple(_answer(call, submission) for call in message.tool_calls)),
     )
@@ -66,27 +68,24 @@ def _answer(call: ToolCall, submission: str) -> ToolResult:
     )
 
 
-def _submission(outcome: Proposed | MalformedOutput, rejections: tuple[Rejection, ...]) -> str:
+def submission_text(
+    outcome: Proposed | MalformedOutput, rejections: tuple[Rejection, ...], follow_up: str
+) -> str:
+    """Why a submission was not accepted, then `follow_up`: the unreadable reason, or up to
+    `MAX_LISTED_REJECTIONS` rejections and how many more there were."""
     if isinstance(outcome, MalformedOutput):
-        return _json(
-            {
-                "error": outcome.reason.value,
-                "message": _UNREADABLE[outcome.reason],
-                "next": RESUBMIT,
-            }
-        )
-    listed = rejections[:MAX_LISTED_REJECTIONS]
-    return _json(
-        {
+        body = {"error": outcome.reason.value, "message": _UNREADABLE[outcome.reason]}
+    else:
+        listed = rejections[:MAX_LISTED_REJECTIONS]
+        body = {
             "error": "answer_rejected",
             "rejections": [
                 {"code": item.code.value, "location": item.location, "message": item.message}
                 for item in listed
             ],
             "unlisted": len(rejections) - len(listed),
-            "next": RESUBMIT,
         }
-    )
+    return _json({**body, "next": follow_up})
 
 
 def _json(value: dict) -> str:

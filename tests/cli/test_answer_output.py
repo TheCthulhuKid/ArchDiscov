@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 
+from archdiscov.assistant.answer_output import ANSWER_JSON_VERSION, answer_data, answer_text
 from archdiscov.assistant.answer_rendering import render_failure
 from archdiscov.assistant.answer_results import (
     AnswerOutcome,
@@ -24,7 +25,6 @@ from archdiscov.assistant.answer_service import answer_question
 from archdiscov.assistant.fake import FakeClock, FakeProvider, FakeTranscript
 from archdiscov.assistant.runs import RunLimits
 from archdiscov.assistant.tools.session import ToolSession
-from archdiscov.cli_answer_output import ANSWER_JSON_VERSION, answer_data, answer_text
 from archdiscov.services.snapshots import load_snapshot, validate_snapshot
 from tests.assistant.test_answer_claims import _call
 from tests.assistant.test_answer_service import PLAIN_TEXT, SEARCH, _proposal, _rejected, _submit

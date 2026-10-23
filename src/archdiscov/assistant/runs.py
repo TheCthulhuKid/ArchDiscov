@@ -12,7 +12,14 @@ from enum import StrEnum
 from itertools import count
 from typing import Annotated, Any, Literal, Self
 
-from pydantic import Field, JsonValue, NonNegativeFloat, NonNegativeInt, model_validator
+from pydantic import (
+    Field,
+    JsonValue,
+    NonNegativeFloat,
+    NonNegativeInt,
+    ValidationError,
+    model_validator,
+)
 
 from archdiscov.models.sanitization import sanitize_value
 from archdiscov.models.validation_errors import validation_error
@@ -25,6 +32,7 @@ from .conversation import (
     MalformedToolArguments,
     ProviderKindName,
     TokenUsage,
+    ToolArguments,
     ToolCall,
     ToolCallId,
     ToolName,
@@ -165,6 +173,16 @@ RunOutcome = Annotated[
     Answered | Proposed | LimitReached | ProviderFailed | MalformedOutput | Cancelled,
     Field(discriminator="kind"),
 ]
+
+
+def read_proposal(arguments: ToolArguments) -> Proposed | MalformedOutput:
+    """The proposal a `submit_answer` call carries, or why it cannot be read."""
+    if isinstance(arguments, MalformedToolArguments):
+        return MalformedOutput(reason=MalformedOutputReason.PROPOSAL_MALFORMED)
+    try:
+        return Proposed(proposal=AnswerProposal.model_validate(arguments.value))
+    except ValidationError:
+        return MalformedOutput(reason=MalformedOutputReason.PROPOSAL_INVALID)
 
 
 def _redacted_id(value: str, placeholders: Iterator[int]) -> str:

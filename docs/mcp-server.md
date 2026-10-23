@@ -5,8 +5,8 @@ Claude Code or Claude Desktop, so that the client's own model can answer questio
 selected snapshots with the same bounded, read-only tools the [`ask` command](ask-command.md)
 offers. It needs no provider configuration, credentials, or network. It is built in phase 5
 of the plan: this page describes what is implemented so far, the server in
-`src/archdiscov/assistant/mcp_server.py`, which lists and runs the tools within bounds.
-Submitting answers and the `archdiscov mcp` command follow in later steps.
+`src/archdiscov/assistant/mcp_server.py`, which lists and runs the tools within bounds and
+validates submitted answers. The `archdiscov mcp` command follows in a later step.
 
 ## What the server serves
 
@@ -22,7 +22,10 @@ verified snapshots. Clients see:
   its name, description, and input schema unchanged and no output schema: `search_resources`,
   `inspect_resource`, `get_neighbours`, `find_paths`, `inspect_coverage`, `get_evidence`,
   `list_analyzers`, `run_analyzer`, `list_saved_results`, `get_saved_analysis`, and
-  `get_saved_comparison`. `submit_answer` is not served yet.
+  `get_saved_comparison`;
+- then [`submit_answer`](#answers), with the same proposal schema as in `ask` and a
+  description for MCP: submit before presenting any conclusion, correct and resubmit a
+  rejected answer, and present an accepted one as returned.
 
 Only this module imports `mcp`, and nothing imports this module except to build a server:
 the other commands, `ask` runs, and evaluations never load the `mcp` package.
@@ -65,6 +68,46 @@ call returns `tool_session_limit_reached` and dispatches nothing, so nothing mor
 recorded; a new connection starts with its full count. The cap is a backstop against a
 runaway client, not a budget: answering every README example question in one connection
 takes a few dozen calls.
+
+## Answers
+
+`submit_answer` takes the same [proposal](assistant-answers.md#the-proposal) as in `ask`:
+status, contexts, cited conclusions, acknowledged limitations, and a short summary and
+explanation. Its description shares `ask`'s citation rules but replaces "Submit the final
+answer exactly once" with two MCP sentences: "Submit an answer before presenting any
+conclusion about the snapshots." and "If it is rejected, correct it and submit it again; if
+it is accepted, present the returned answer as it is."
+
+A `submit_answer` call is never dispatched as a tool. It counts toward the call cap like
+any call, its arguments get the same bounds, and it is read and
+[validated](assistant-answers.md#validation) exactly as an `ask` run validates a proposal,
+against every ID this connection's tools have returned so far. The result depends on the
+submission:
+
+| Submission | Error | Text items |
+|---|---|---|
+| unreadable | yes | one JSON object: `error` (`proposal_malformed` or `proposal_invalid`), `message`, `next` |
+| rejected | yes | one JSON object: `error` (`answer_rejected`), `rejections` (each with `code`, `location`, and `message`, at most 40), `unlisted`, `next` |
+| accepted | no | three: the line "The answer was accepted. Present it to the user as it is returned below, without adding conclusions to it.", the readable answer, and the answer JSON |
+
+The error objects have the same form as `ask`'s repair prompt, with `next` set to "Correct
+the answer and submit it again." An accepted answer is rendered as in `ask`, with the
+outcome `answered`: the readable answer is exactly what `ask` prints, and the answer JSON is
+what `ask --json` reports as its `result`. Tests submit every rejection scenario of the
+answer suite and the adversarial suite's proposals through the server and compare them with
+`validate_proposal`, and render every README example and the injected-text case through
+both and compare them, readable and JSON.
+
+The run record is session-wide: a proposal may cite any ID the connection's tools returned,
+whichever question they were called for. Each submission is validated on its own, with no
+repair budget, so an accepted answer is `answered` however many rejected ones came before
+it. Validating and rendering never change the run record.
+
+**What the server cannot enforce.** The client writes its own text to the user. The server
+validates and renders only what is submitted, and its instructions and the `submit_answer`
+description ask the client to present an accepted answer as returned; nothing stops a client
+from stating conclusions it never submitted, or from changing an accepted answer when it
+presents it. Treat only the answer the server returned as validated.
 
 ## Connections
 

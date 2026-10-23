@@ -197,16 +197,28 @@ class AnswerProposal(ToolInput):
         return self
 
 
-def submit_answer_declaration() -> ToolDeclaration:
+_CITATION_RULES = (
+    "Cite only finding, evidence, and resource IDs that tools returned in this conversation, "
+    "cite each piece of evidence with the finding or resource it belongs to, acknowledge "
+    "every limitation of the findings you cite, and keep the summary and explanation to "
+    "explanation: facts are taken from the cited records."
+)
+# An `ask` run ends with its one submission; an MCP client may resubmit after rejections.
+ASK_SUBMIT_DESCRIPTION = (
+    "Submit the final answer exactly once, after using the other tools. " + _CITATION_RULES
+)
+MCP_SUBMIT_DESCRIPTION = (
+    "Submit an answer before presenting any conclusion about the snapshots. "
+    + _CITATION_RULES
+    + " If it is rejected, correct it and submit it again; if it is accepted, present the "
+    "returned answer as it is."
+)
+
+
+def submit_answer_declaration(description: str = ASK_SUBMIT_DESCRIPTION) -> ToolDeclaration:
     """The terminal tool whose input is the proposal; it is never dispatched as a tool."""
     return ToolDeclaration(
         name=SUBMIT_ANSWER,
-        description=(
-            "Submit the final answer exactly once, after using the other tools. Cite only "
-            "finding, evidence, and resource IDs that tools returned in this conversation, "
-            "cite each piece of evidence with the finding or resource it belongs to, "
-            "acknowledge every limitation of the findings you cite, and keep the summary and "
-            "explanation to explanation: facts are taken from the cited records."
-        ),
+        description=description,
         input_schema=inline_schema(AnswerProposal.model_json_schema()),
     )

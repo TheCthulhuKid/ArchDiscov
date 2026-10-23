@@ -1,5 +1,6 @@
 """Keep the published analyzers, limits, and commands aligned with the executable definitions."""
 
+import json
 import re
 import typing
 from pathlib import Path
@@ -8,9 +9,10 @@ import pytest
 import typer.main
 from annotated_types import Ge, Gt, Le
 
-from archdiscov import cli_answer_output, cli_ask_output, cli_evaluation
+from archdiscov import cli_ask_output, cli_evaluation
 from archdiscov.assistant import (
     adapters,
+    answer_output,
     answer_results,
     answer_validation,
     anthropic_provider,
@@ -35,6 +37,7 @@ from archdiscov.assistant.provider import (
     StopReason,
     UnsupportedCapabilityError,
 )
+from archdiscov.assistant.repair import submission_text
 from archdiscov.assistant.tools import contracts as tool_contracts
 from archdiscov.assistant.tools.catalog import default_registry
 from archdiscov.cli import app
@@ -551,7 +554,7 @@ def test_documented_answer_outcomes_match_the_statuses_reasons_and_exit_codes():
 def test_documented_answer_json_matches_the_contract():
     top = table_rows(ANSWERS_DOC, "| Key | Holds")
     assert [row[0].strip("`") for row in top] == ["schema_version", "exit_code", "answer"]
-    assert f"`{cli_answer_output.ANSWER_JSON_VERSION}`" in top[0][1]
+    assert f"`{answer_output.ANSWER_JSON_VERSION}`" in top[0][1]
     answer = table_rows(ANSWERS_DOC, "| `answer` key | Holds")
     assert [row[0].strip("`") for row in answer] == list(answer_results.RenderedAnswer.model_fields)
 
@@ -691,7 +694,7 @@ def test_documented_mcp_call_errors_match_the_tool_error_codes():
 
 def test_documented_mcp_tools_and_limits_match_the_code():
     text = " ".join(MCP_DOC.read_text(encoding="utf-8").split())
-    served = text[text.index("no output schema: ") : text.index("`submit_answer` is not served")]
+    served = text[text.index("no output schema: ") : text.index("- then [`submit_answer`]")]
     names = [item.declaration.name for item in default_registry().tools.values()]
     assert re.findall(r"`([a-z_]+)`", served) == names
     tools = tool_contracts.ToolLimits.model_fields
@@ -700,6 +703,54 @@ def test_documented_mcp_tools_and_limits_match_the_code():
     cap = mcp_server.ServerLimits.model_fields["max_tool_calls"]
     bounds = {type(item).__name__: item for item in cap.metadata}
     assert f"{cap.default} by default, from {bounds['Ge'].ge} to {bounds['Le'].le:,}" in text
+
+
+def _keys(value) -> set[str]:
+    """Every key of a JSON object and of the objects nested in it."""
+    if isinstance(value, dict):
+        return set(value) | {key for item in value.values() for key in _keys(item)}
+    if isinstance(value, list):
+        return {key for item in value for key in _keys(item)}
+    return set()
+
+
+def test_documented_mcp_answers_match_the_code():
+    text = " ".join(MCP_DOC.read_text(encoding="utf-8").split())
+    # The description: `ask`'s opening replaced by the two quoted MCP sentences.
+    replaced = "Submit the final answer exactly once"
+    assert replaced in text and replaced in assistant_answers.ASK_SUBMIT_DESCRIPTION
+    assert replaced not in assistant_answers.MCP_SUBMIT_DESCRIPTION
+    for sentence in re.findall(r'MCP sentences: "([^"]+)" and "([^"]+)"', text)[0]:
+        assert sentence in assistant_answers.MCP_SUBMIT_DESCRIPTION, sentence
+    assert f'"{mcp_server.PRESENT_ANSWER}"' in text
+    assert f'`next` set to "{mcp_server.SUBMIT_FOLLOW_UP}"' in text
+    rows = {row[0]: row for row in table_rows(MCP_DOC, "| Submission | Error")}
+    assert list(rows) == ["unreadable", "rejected", "accepted"]
+    unreadable = assistant_runs.MalformedOutput(
+        reason=assistant_runs.MalformedOutputReason.PROPOSAL_INVALID
+    )
+    rejection = assistant_rejections.reject(assistant_rejections.RejectionCode.UNKNOWN_ID, "status")
+    # A rejection listing comes from a readable proposal; only its shape matters here.
+    proposal = assistant_answers.AnswerProposal.model_validate(
+        {
+            "status": "insufficient_evidence",
+            "contexts": [{"side": "primary", "source_kind": "aws"}],
+            "insufficient_reason": "no_applicable_findings",
+            "summary": "Nothing applicable.",
+        }
+    )
+    shapes = {
+        "unreadable": submission_text(unreadable, (), "next step"),
+        "rejected": submission_text(
+            assistant_runs.Proposed(proposal=proposal), (rejection,), "next step"
+        ),
+    }
+    for name, shape in shapes.items():
+        documented = set(re.findall(r"`([a-z_]+)`", rows[name][2]))
+        assert _keys(json.loads(shape)) <= documented, name
+        assert rows[name][1] == "yes"
+    assert f"at most {assistant_rejections.MAX_LISTED_REJECTIONS}" in rows["rejected"][2]
+    assert rows["accepted"][1] == "no" and rows["accepted"][2].startswith("three:")
 
 
 # ---- ask command -------------------------------------------------------------------
