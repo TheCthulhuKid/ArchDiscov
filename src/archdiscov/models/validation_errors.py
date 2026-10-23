@@ -191,6 +191,33 @@ SAFE_VALIDATION_MESSAGES = MappingProxyType(
             "Provider configuration constraint failed: encrypted reasoning needs the "
             "responses protocol."
         ),
+        "evaluation_duplicate": "Evaluation constraint failed: items must be unique.",
+        "evaluation_path": (
+            "Evaluation constraint failed: a path must be relative and stay inside the "
+            "suite's directory."
+        ),
+        "evaluation_expectation_shape": (
+            "Evaluation constraint failed: expectations must fit the outcomes they allow."
+        ),
+        "evaluation_case_shape": (
+            "Evaluation constraint failed: saved comparison results need a comparison snapshot."
+        ),
+        "evaluation_record_shape": (
+            "Evaluation constraint failed: a record's lists are sorted and unique, its checks "
+            "are in order with the safety checks, and it passed only if every check did."
+        ),
+        "evaluation_record_id": (
+            "Evaluation constraint failed: a record's ID must match its content."
+        ),
+        "evaluation_totals": "Evaluation constraint failed: totals must match the records.",
+        "evaluation_report_cases": (
+            "Evaluation constraint failed: records follow the suite's cases, all of them "
+            "unless the run was cancelled."
+        ),
+        "evaluation_budget": (
+            "Evaluation constraint failed: a budget must match the limits and the suite."
+        ),
+        "evaluation_secret": "Evaluation constraint failed: a model name looks like a secret.",
     }
 )
 

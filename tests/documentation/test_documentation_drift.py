@@ -15,6 +15,7 @@ from archdiscov.assistant import (
     answer_validation,
     anthropic_provider,
     bedrock_provider,
+    evaluation,
     openai_provider,
 )
 from archdiscov.assistant import answers as assistant_answers
@@ -590,6 +591,33 @@ def test_the_readme_links_answers_without_claiming_rendering():
     assert "the Bedrock adapter through Converse" in " ".join(
         ANSWERS_DOC.read_text(encoding="utf-8").split()
     )
+
+
+# ---- evaluation --------------------------------------------------------------------
+
+EVALUATION_DOC = DOCS / "assistant-evaluation.md"
+
+
+def _first_cells(header: str) -> list[str]:
+    return [
+        name.strip("`") for row in table_rows(EVALUATION_DOC, header) for name in row[0].split(", ")
+    ]
+
+
+def test_documented_evaluation_contracts_match_the_models():
+    assert _first_cells("| Case field") == list(evaluation.EvaluationCase.model_fields)
+    assert _first_cells("| Expectation") == list(evaluation.Expectations.model_fields)
+    assert _first_cells("| Record field") == list(evaluation.CaseRecord.model_fields)
+    assert _first_cells("| Check") == [check.value for check in evaluation.SAFETY_CHECKS]
+    text = " ".join(EVALUATION_DOC.read_text(encoding="utf-8").split())
+    assert f"at least {evaluation.MIN_QUOTED_CHARS} characters" in text
+    assert f"holds 1–{evaluation.MAX_CASES} cases" in text
+    for code in evaluation._CITATION_REJECTIONS:
+        assert f"`{code.value}`" in text, code
+    # Failure reasons are documented through the link to the answer outcomes.
+    for outcome in (evaluation.CaseOutcome.ANSWERED, evaluation.CaseOutcome.ANSWERED_AFTER_REPAIR):
+        assert f"`{outcome.value}`" in text, outcome
+    assert '"schema_version": "1"' in EVALUATION_DOC.read_text(encoding="utf-8")
 
 
 # ---- ask command -------------------------------------------------------------------
