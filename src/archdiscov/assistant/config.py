@@ -149,7 +149,9 @@ class OpenAICompatibleProviderConfig(_EndpointConfig):
 
     A compatible server cannot be asked what its model supports, so `capabilities` declares
     it: tool calling by default, and parallel calls only when declared, because some servers
-    reject `parallel_tool_calls`.
+    reject `parallel_tool_calls`. Likewise `encrypted_reasoning` asks a Responses server for
+    the encrypted reasoning a stateless reasoning model needs back, only when declared,
+    because servers without it may reject the request.
     """
 
     kind: Literal[ProviderKind.OPENAI_COMPATIBLE] = ProviderKind.OPENAI_COMPATIBLE
@@ -157,6 +159,15 @@ class OpenAICompatibleProviderConfig(_EndpointConfig):
     endpoint: HttpUrl
     protocol: OpenAIProtocol
     capabilities: frozenset[ProviderCapability] = frozenset({ProviderCapability.TOOL_CALLING})
+    encrypted_reasoning: bool = Field(default=False, strict=True)
+
+    @model_validator(mode="after")
+    def require_responses_for_encrypted_reasoning(self) -> Self:
+        if self.encrypted_reasoning and self.protocol is not OpenAIProtocol.RESPONSES:
+            raise validation_error(
+                "provider_config_reasoning_protocol", "encrypted reasoning needs responses"
+            )
+        return self
 
     @field_validator("capabilities")
     @classmethod

@@ -206,6 +206,8 @@ def check_default(documented: str, field, where) -> None:
         assert documented == "required", where
     elif field.default is None:
         assert documented == "none", where
+    elif isinstance(field.default, bool):
+        assert documented == f"`{str(field.default).lower()}`", where
     elif isinstance(field.default, (int, float)):
         assert decimal(documented) == field.default, where
     elif isinstance(field.default, frozenset):
@@ -259,6 +261,20 @@ def test_documented_chat_completions_finish_reasons_match_the_adapter():
         outcome = mapped[reason]
         code = outcome.value if isinstance(outcome, StopReason) else outcome.code.value
         assert target.startswith(f"`{code}`"), reason
+
+
+def test_documented_responses_statuses_match_the_adapter():
+    rows = table_rows(PROVIDERS_DOC, "| `status` | `incomplete_details.reason` | Maps to")
+    mapped = openai_provider._STATUSES
+    documented = [
+        (status.strip("`"), None if reason == "none" else reason.strip("`"))
+        for status, reason in (row[:2] for row in rows[:-1])
+    ]
+    assert documented == list(mapped)
+    for key, target in zip(documented, (row[2] for row in rows[:-1]), strict=True):
+        outcome = mapped[key]
+        code = outcome.value if isinstance(outcome, StopReason) else outcome.code.value
+        assert f"`{code}`" in target, key
 
 
 def test_documented_anthropic_failures_match_the_adapter():

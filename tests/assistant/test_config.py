@@ -96,6 +96,7 @@ protocol = "chat_completions"
     assert openai.protocol is OpenAIProtocol.CHAT_COMPLETIONS
     # A compatible server cannot be asked; only tool calling is assumed unless declared.
     assert openai.capabilities == {ProviderCapability.TOOL_CALLING}
+    assert openai.encrypted_reasoning is False
 
     bedrock = load_provider_config(
         _write(
@@ -192,6 +193,11 @@ def test_real_model_names_are_not_mistaken_for_secrets(model: str) -> None:
         ),
         ({**OPENAI, "capabilities": ["function_calling"]}, "enum"),
         ({**OPENAI, "capabilities": "tool_calling"}, "frozen_set_type"),
+        (
+            {**OPENAI, "protocol": "chat_completions", "encrypted_reasoning": True},
+            "provider_config_reasoning_protocol",
+        ),
+        ({**OPENAI, "encrypted_reasoning": "true"}, "bool_type"),
         ({**BEDROCK, "region": "global"}, "provider_config_region_invalid"),
         ({**BEDROCK, "region": "mars-1"}, "enum"),
         ({**BEDROCK, "role_arn": "role/x"}, "string_pattern_mismatch"),

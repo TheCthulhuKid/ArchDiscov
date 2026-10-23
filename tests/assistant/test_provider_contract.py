@@ -49,7 +49,7 @@ SCRIPTABLE_ERRORS = [
 ]
 
 
-@pytest.fixture(params=CONTRACT_HARNESSES, ids=lambda harness: harness.name)
+@pytest.fixture(params=CONTRACT_HARNESSES, ids=lambda harness: harness.label)
 def harness(request) -> ProviderHarness:
     return request.param
 
@@ -58,7 +58,7 @@ def harness(request) -> ProviderHarness:
 def mapped_errors(harness: ProviderHarness) -> None:
     """Skip error and timeout cases for an adapter whose error mapping is still to come."""
     if not harness.maps_errors:
-        pytest.skip(f"{harness.name} maps provider errors from step 41.5")
+        pytest.skip(f"{harness.label} maps provider errors from step 41.5")
 
 
 @pytest.fixture(params=["sync", "async"])

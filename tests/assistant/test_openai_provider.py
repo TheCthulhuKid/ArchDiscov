@@ -651,19 +651,6 @@ def test_a_response_without_usage_reports_none() -> None:
     assert _send(_chat(_api(body))).usage == TokenUsage()
 
 
-# ---- until the Responses mapping -------------------------------------------------
-
-
-def test_completing_with_responses_sends_nothing_until_it_is_mapped() -> None:
-    api = MockApi([])
-    provider = _provider(api, OpenAIProtocol.RESPONSES)
-    with pytest.raises(ProviderUnavailableError):
-        complete(provider, _request())
-    with pytest.raises(ProviderUnavailableError):
-        asyncio.run(provider.complete_async(_request()))
-    assert api.requests == []
-
-
 # ---- until the failure table -----------------------------------------------------
 
 

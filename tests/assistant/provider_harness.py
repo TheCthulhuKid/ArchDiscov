@@ -23,10 +23,20 @@ from openai.types.chat import (
 from openai.types.chat.chat_completion import Choice
 from openai.types.chat.chat_completion_message_function_tool_call import Function
 from openai.types.completion_usage import PromptTokensDetails
+from openai.types.responses import (
+    Response,
+    ResponseFunctionToolCall,
+    ResponseOutputMessage,
+    ResponseOutputRefusal,
+    ResponseOutputText,
+    ResponseUsage,
+)
+from openai.types.responses.response import IncompleteDetails
+from openai.types.responses.response_usage import InputTokensDetails
 from pydantic import SecretStr
 
 from archdiscov.assistant.anthropic_provider import AnthropicProvider
-from archdiscov.assistant.config import parse_provider_config
+from archdiscov.assistant.config import OpenAIProtocol, parse_provider_config
 from archdiscov.assistant.conversation import (
     MAX_TOOL_ARGUMENT_BYTES,
     MalformedArgumentsReason,
@@ -58,6 +68,8 @@ from tests.support.mock_api import (
 
 class ProviderHarness(Protocol):
     name: str
+    # Tells harnesses of one provider kind apart in test IDs.
+    label: str
     # False until the adapter maps provider errors, retries, and timeouts (step 41.5).
     maps_errors: bool
 
@@ -74,7 +86,7 @@ class ProviderHarness(Protocol):
 
 
 class FakeHarness:
-    name = "fake"
+    name = label = "fake"
     maps_errors = True
 
     def build(
@@ -186,6 +198,10 @@ class MockedHarness:
 
     def __init__(self) -> None:
         self._apis: dict[Provider, MockApi] = {}
+
+    @property
+    def label(self) -> str:
+        return self.name
 
     @staticmethod
     def body(response: CompletionResponse) -> dict[str, Any]:
@@ -301,6 +317,27 @@ def _arguments_text(arguments: ToolArguments) -> str:
     return _MALFORMED_ARGUMENTS[arguments.reason]
 
 
+def _usage(
+    usage: TokenUsage, usage_type: type, details_type: type, input_name: str, output_name: str
+) -> Any:
+    """The protocol's usage object for `usage`, holding only the reported counts."""
+    if usage == TokenUsage():
+        return None
+    details = {
+        "cached_tokens": usage.cache_read_input_tokens,
+        "cache_write_tokens": usage.cache_write_input_tokens,
+    }
+    return usage_type.model_construct(
+        **{
+            f"{input_name}_tokens": usage.input_tokens,
+            f"{output_name}_tokens": usage.output_tokens,
+            f"{input_name}_tokens_details": details_type.model_construct(
+                **{k: v for k, v in details.items() if v is not None}
+            ),
+        }
+    )
+
+
 def chat_completion_body(response: CompletionResponse) -> dict[str, Any]:
     """The Chat Completions body that the OpenAI-compatible adapter maps back to `response`."""
     message = response.message
@@ -331,19 +368,9 @@ def chat_completion_body(response: CompletionResponse) -> dict[str, Any]:
         model="gpt-5",
         choices=[choice],
     )
-    usage = response.usage
-    if usage != TokenUsage():
-        details = {
-            "cached_tokens": usage.cache_read_input_tokens,
-            "cache_write_tokens": usage.cache_write_input_tokens,
-        }
-        body.usage = CompletionUsage.model_construct(
-            prompt_tokens=usage.input_tokens,
-            completion_tokens=usage.output_tokens,
-            prompt_tokens_details=PromptTokensDetails.model_construct(
-                **{k: v for k, v in details.items() if v is not None}
-            ),
-        )
+    body.usage = _usage(
+        response.usage, CompletionUsage, PromptTokensDetails, "prompt", "completion"
+    )
     return body.model_dump(mode="json", exclude_unset=True)
 
 
@@ -353,30 +380,92 @@ def _openai_error(status: int, error_type: str) -> Served:
     )
 
 
+def responses_body(response: CompletionResponse) -> dict[str, Any]:
+    """The Responses body that the OpenAI-compatible adapter maps back to `response`."""
+    message = response.message
+    if message.continuation is not None:
+        if message.continuation.provider_kind != "openai_compatible":
+            raise ValueError("the Responses API returns only its own continuations")
+        output: list[Any] = list(message.continuation.blocks)
+    else:
+        output = [] if message.text is None else [_output_message(response)]
+        output += [
+            ResponseFunctionToolCall.model_construct(
+                type="function_call",
+                id=f"fc_{call.id}",
+                call_id=call.id,
+                name=call.name,
+                arguments=_arguments_text(call.arguments),
+            )
+            for call in message.tool_calls
+        ]
+    body = Response.model_construct(
+        id="resp_harness", object="response", created_at=0, model="gpt-5", output=output
+    )
+    if response.stop_reason == StopReason.LENGTH:
+        body.status = "incomplete"
+        body.incomplete_details = IncompleteDetails(reason="max_output_tokens")
+    else:
+        body.status = "completed"
+    body.usage = _usage(response.usage, ResponseUsage, InputTokensDetails, "input", "output")
+    # Malformed arguments and verbatim output break the SDK's types on purpose.
+    return body.model_dump(mode="json", exclude_unset=True, warnings=False)
+
+
+def _output_message(response: CompletionResponse) -> ResponseOutputMessage:
+    """The message item, its text an `output_text` part or, for a refusal, a `refusal` one."""
+    text = response.message.text
+    part: Any = (
+        ResponseOutputRefusal(type="refusal", refusal=text)
+        if response.stop_reason == StopReason.REFUSAL
+        else ResponseOutputText(type="output_text", text=text, annotations=[])
+    )
+    return ResponseOutputMessage(
+        type="message", id="msg_harness", role="assistant", status="completed", content=[part]
+    )
+
+
 def _finished(reason: str) -> Callable[[httpx2.Request], httpx2.Response]:
     body = chat_completion_body(_EMPTY)
     choice = {**body["choices"][0], "finish_reason": reason, "message": {"role": "assistant"}}
     return lambda request: httpx2.Response(200, json={**body, "choices": [choice]})
 
 
-class OpenAIHarness(MockedHarness):
-    """The OpenAI-compatible adapter over a mocked Chat Completions API."""
+def _incomplete(reason: str) -> Callable[[httpx2.Request], httpx2.Response]:
+    body = {
+        **responses_body(_EMPTY),
+        "status": "incomplete",
+        "incomplete_details": {"reason": reason},
+        "output": [],
+    }
+    return lambda request: httpx2.Response(200, json=body)
 
-    name = "openai_compatible"
-    maps_errors = False
-    # How the API shows each scripted provider error.
-    failures = {
+
+def _openai_failures(truncated: Served, refused: Served) -> dict[ProviderErrorCode, Served]:
+    """How an OpenAI-compatible API shows each scripted provider error."""
+    return {
         ProviderErrorCode.AUTHENTICATION: _openai_error(401, "invalid_request_error"),
         ProviderErrorCode.RATE_LIMIT: _openai_error(429, "requests"),
         ProviderErrorCode.TIMEOUT: transport_failure(httpx2.ReadTimeout),
         ProviderErrorCode.TRANSPORT: transport_failure(httpx2.ConnectError),
         ProviderErrorCode.INVALID_REQUEST: _openai_error(400, "invalid_request_error"),
         ProviderErrorCode.MALFORMED_OUTPUT: unparseable_body,
-        ProviderErrorCode.TRUNCATED_OUTPUT: _finished("length"),
-        ProviderErrorCode.REFUSAL: _finished("content_filter"),
+        ProviderErrorCode.TRUNCATED_OUTPUT: truncated,
+        ProviderErrorCode.REFUSAL: refused,
         ProviderErrorCode.UNAVAILABLE: _openai_error(503, "server_error"),
     }
-    body = staticmethod(chat_completion_body)
+
+
+class OpenAIHarness(MockedHarness):
+    """The OpenAI-compatible adapter over a mocked API of one protocol."""
+
+    name = "openai_compatible"
+    maps_errors = False
+    protocol: ClassVar[OpenAIProtocol]
+
+    @property
+    def label(self) -> str:
+        return self.protocol.value
 
     def adapter(self, api: MockApi, max_retries: int) -> Provider:
         config = parse_provider_config(
@@ -385,7 +474,7 @@ class OpenAIHarness(MockedHarness):
                 "model": "gpt-5",
                 "api_key_env": "OPENAI_API_KEY",
                 "endpoint": "https://api.openai.com/v1",
-                "protocol": "chat_completions",
+                "protocol": self.protocol.value,
                 "capabilities": ["tool_calling", "parallel_tool_calls"],
                 "max_retries": max_retries,
             }
@@ -393,6 +482,22 @@ class OpenAIHarness(MockedHarness):
         return OpenAIProvider(config, OPENAI_KEY, transport=api, async_transport=api)
 
 
+class ChatCompletionsHarness(OpenAIHarness):
+    protocol = OpenAIProtocol.CHAT_COMPLETIONS
+    failures = _openai_failures(_finished("length"), _finished("content_filter"))
+    body = staticmethod(chat_completion_body)
+
+
+class ResponsesHarness(OpenAIHarness):
+    protocol = OpenAIProtocol.RESPONSES
+    failures = _openai_failures(_incomplete("max_output_tokens"), _incomplete("content_filter"))
+    body = staticmethod(responses_body)
+
+
 HARNESSES: list[ProviderHarness] = [FakeHarness(), AnthropicHarness()]
 # The orchestration and answer-service suites run the OpenAI-compatible adapter from 41.5.
-CONTRACT_HARNESSES: list[ProviderHarness] = [*HARNESSES, OpenAIHarness()]
+CONTRACT_HARNESSES: list[ProviderHarness] = [
+    *HARNESSES,
+    ChatCompletionsHarness(),
+    ResponsesHarness(),
+]

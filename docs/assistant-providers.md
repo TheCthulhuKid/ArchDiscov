@@ -5,8 +5,8 @@ conversation and tool-call contracts, provider errors and capabilities, the `Pro
 protocol, provider configuration, and the scripted fake provider used to test everything
 above it. The `ask` command builds its provider from a configuration file: the fake, the
 [Anthropic adapter](#anthropic-adapter), or the
-[OpenAI-compatible adapter](#openai-compatible-adapter), which answers through Chat
-Completions and not yet through Responses; `bedrock` has no adapter yet. The
+[OpenAI-compatible adapter](#openai-compatible-adapter), which answers through Responses
+or Chat Completions; `bedrock` has no adapter yet. The
 [assistant tools](assistant-tools.md), [orchestration](assistant-orchestration.md), and
 [answers](assistant-answers.md) build on this layer. Only an adapter module imports a
 vendor SDK, and only when its kind is built.
@@ -157,6 +157,7 @@ request_timeout_seconds = 30
 | `endpoint` | `openai_compatible` | required | HTTPS URL |
 | `protocol` | `openai_compatible` | required | `responses`, `chat_completions` |
 | `capabilities` | `openai_compatible` | `tool_calling` | a list of `tool_calling`, `parallel_tool_calls` (which requires `tool_calling`), `structured_output` |
+| `encrypted_reasoning` | `openai_compatible` | `false` | `true` or `false`; `true` requires `protocol = "responses"` |
 | `profile` | `bedrock` | required | AWS profile name |
 | `region` | `bedrock` | required | a concrete AWS region, not `global` |
 | `role_arn` | `bedrock` | none | IAM role ARN |
@@ -314,12 +315,11 @@ ARCHDISCOV_LIVE_ANTHROPIC_MODEL=claude-sonnet-5-5 \
 `assistant/openai_provider.py` is the only module that imports the `openai` SDK, and
 `ADAPTERS` imports it only when an `openai_compatible` configuration is built. One adapter
 serves OpenAI and compatible servers (gateways and local model servers) through either
-protocol. Building it makes no request. It answers through
-[Chat Completions](#chat-completions); until the Responses mapping lands (step 41.4), a
-`responses` configuration sends nothing and each request fails with `provider_unavailable`.
-Until its failure table lands (step 41.5), any API or connection failure is
-`provider_unavailable`, an unparseable body is `provider_malformed_output`, and nothing is
-retried.
+protocol, [Responses](#responses) or [Chat Completions](#chat-completions), each a
+request-body and response function behind one table keyed by protocol, so the orchestrator
+cannot tell them apart. Building it makes no request. Until its failure table lands
+(step 41.5), any API or connection failure is `provider_unavailable`, an unparseable body
+is `provider_malformed_output`, and nothing is retried.
 
 ```toml
 kind = "openai_compatible"
@@ -328,6 +328,7 @@ api_key_env = "OPENAI_API_KEY"
 endpoint = "https://api.openai.com/v1"   # required: the API root, including any /v1
 protocol = "responses"                    # or "chat_completions"; never guessed
 capabilities = ["tool_calling", "parallel_tool_calls"]
+encrypted_reasoning = true                # responses only: replay a reasoning model's reasoning
 ```
 
 Nothing is guessed. `endpoint` and `protocol` are required, and requests go to
@@ -369,7 +370,8 @@ call, holding only fields the protocol defines:
   `tool_choice` `auto`. `parallel_tool_calls` is sent only when `parallel_tool_calls` is
   declared, set to whether `max_tool_calls_per_turn` exceeds 1. `max_completion_tokens` is
   `max_output_tokens`, and the request's timeout is passed with it.
-- No sampling parameters, `n`, or streaming are sent; the model's defaults apply.
+- No sampling parameters, `n`, or streaming are sent; the model's defaults apply. Both
+  protocols send the same tool choice and parallel-calls field.
 
 The response is untrusted. It must hold exactly one choice; several or none are
 `provider_malformed_output`. The message's `content` is the text, and its `function` tool
@@ -391,6 +393,55 @@ response that does not fit the contracts, is `provider_malformed_output`. A non-
 Chat Completions returns no reasoning to replay, so it never sets a continuation, and a
 conversation holding one, from any provider kind, is refused as `provider_invalid_request`
 before anything is sent.
+
+#### Responses
+
+With `protocol = "responses"`, each request becomes one stateless `responses.create` call:
+`store` is false and no `previous_response_id` is sent, so the whole conversation goes as
+`input` every time.
+
+- System and user messages become `message` input items with role `system` or `user`. An
+  assistant message that carries a continuation is replayed as its continuation's output
+  items, unchanged and in order; otherwise it becomes an `assistant` message item (when it
+  has text) followed by a `function_call` item per call, with its `call_id` and compact
+  JSON arguments (`{}` for malformed ones). Each tool result becomes a
+  `function_call_output` item with its `call_id`; as in Chat Completions there is no error
+  flag.
+- Tools become `function` tools with `name`, `description`, `parameters`, and `strict`
+  false, since Responses otherwise makes functions strict, which needs schemas the tool
+  contracts do not require. `tool_choice` and `parallel_tool_calls` are as for Chat
+  Completions, and `max_output_tokens` is `max_output_tokens`.
+- `include` holds `reasoning.encrypted_content` only when `encrypted_reasoning` is true.
+
+A stateless reasoning model needs its reasoning back with its function calls, and only the
+encrypted content can carry it, since nothing is stored. The official guidance could not
+be checked for whether asking for it is safe with models and servers that do not reason,
+and compatible servers need not know the field, so it is a declared choice, off by default,
+and valid only with `protocol = "responses"` (otherwise
+`provider_config_reasoning_protocol`). Turn it on for OpenAI reasoning models.
+
+The response is untrusted. Its `output` items are read in order: `message` items give their
+`output_text` parts as text and their `refusal` parts as a refusal, `function_call` items
+become tool calls (by `call_id`) through the shared argument parsing, and `reasoning`
+items are kept for replay; any other item or part type, such as a server tool call, is
+`provider_malformed_output`, as is a response that does not fit the contracts. A refusal
+part is the `refusal` stop with its text, whatever the status. Usage maps `input_tokens`
+(which include cached tokens), `output_tokens`, and `input_tokens_details` `cached_tokens`
+and `cache_write_tokens` as cache read and write.
+
+| `status` | `incomplete_details.reason` | Maps to |
+|---|---|---|
+| `completed` | none | `end`, or `tool_use` when it holds function calls |
+| `incomplete` | `max_output_tokens` | `length` for text alone; otherwise `provider_truncated_output` |
+| `incomplete` | `content_filter` | `provider_refusal` |
+| any other, such as `failed` | any | `provider_malformed_output` |
+
+A response holding a `reasoning` item with encrypted content keeps its whole output, in
+order, as an `openai_compatible` continuation, and the next request replays that output
+verbatim, as the Anthropic adapter does with thinking blocks. Reasoning without encrypted
+content cannot be replayed to a server that stores nothing, so such a response is rebuilt
+from its text and calls without it. A continuation from another provider kind is refused
+as `provider_invalid_request` before anything is sent.
 
 ### Credentials
 

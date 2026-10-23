@@ -14,11 +14,10 @@ The scripted fake replays a transcript and needs no credentials or network. An
 the [provider error](assistant-providers.md#failures-and-retries) it maps to, after any
 retries. An `openai_compatible` configuration builds the
 [OpenAI-compatible adapter](assistant-providers.md#openai-compatible-adapter), which
-answers with `protocol = "chat_completions"`; until its failure table lands, any API or
-connection error ends the run as `provider_error` (6) with `provider_unavailable`, without
-retries. With `protocol = "responses"`, the run ends the same way before anything is sent,
-until that mapping lands. Either protocol ends with `provider_unsupported_capability`
-before any request when the configuration does not declare tool calling. A `bedrock` configuration is accepted
+answers through either `protocol`; until its failure table lands, any API or connection
+error ends the run as `provider_error` (6) with `provider_unavailable`, without retries.
+Either protocol ends with `provider_unsupported_capability` before any request when the
+configuration does not declare tool calling. A `bedrock` configuration is accepted
 but fails before the run with `provider_adapter_unavailable`.
 
 ## Usage
