@@ -5,8 +5,9 @@ Claude Code or Claude Desktop, so that the client's own model can answer questio
 selected snapshots with the same bounded, read-only tools the [`ask` command](ask-command.md)
 offers. It needs no provider configuration, credentials, or network. It is built in phase 5
 of the plan: this page describes what is implemented so far, the server in
-`src/archdiscov/assistant/mcp_server.py`, which lists and runs the tools within bounds and
-validates submitted answers. The `archdiscov mcp` command follows in a later step.
+`src/archdiscov/assistant/mcp_server.py`, which lists and runs the tools within bounds,
+validates submitted answers, and offers the README questions as prompts. The
+`archdiscov mcp` command follows in a later step.
 
 ## What the server serves
 
@@ -25,7 +26,8 @@ verified snapshots. Clients see:
   `get_saved_comparison`;
 - then [`submit_answer`](#answers), with the same proposal schema as in `ask` and a
   description for MCP: submit before presenting any conclusion, correct and resubmit a
-  rejected answer, and present an accepted one as returned.
+  rejected answer, and present an accepted one as returned;
+- one [prompt](#prompts) per README example question.
 
 Only this module imports `mcp`, and nothing imports this module except to build a server:
 the other commands, `ask` runs, and evaluations never load the `mcp` package.
@@ -108,6 +110,20 @@ validates and renders only what is submitted, and its instructions and the `subm
 description ask the client to present an accepted answer as returned; nothing stops a client
 from stating conclusions it never submitted, or from changing an accepted answer when it
 presents it. Treat only the answer the server returned as validated.
+
+## Prompts
+
+The server offers the README's five example questions as prompts, from
+`assistant/questions.py`, which the README check also reads. Each prompt is named by the
+analyzer kind that answers its question (`internet_exposure`, `database_access`,
+`security_group_impact`, `cross_account_trust`, and `ownership`, in the README's order),
+takes no arguments, and returns one user message: the question exactly as the README states
+it, with no instructions of its own. A client can start a supported question from it in one
+step; the answer still goes through the tools and `submit_answer`.
+
+An unknown prompt name, or arguments for a prompt, is an MCP invalid-params error with the
+fixed message "No prompt with that name takes these arguments.", which never echoes the
+request.
 
 ## Connections
 

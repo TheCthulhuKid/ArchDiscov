@@ -191,6 +191,9 @@ from archdiscov.assistant.tools.catalog import default_registry
 from archdiscov.services.evaluation import evaluate_suite
 from tests.support.evaluation_suites import README_SUITE, write_fake_config
 
+from archdiscov.assistant import questions
+
+assert len(questions.README_QUESTIONS) == 5
 default_registry()
 assert CliRunner().invoke(app, ["--help"]).exit_code == 0
 example = README_SUITE.parent / "ownership"

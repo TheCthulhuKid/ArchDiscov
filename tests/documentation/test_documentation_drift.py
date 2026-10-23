@@ -37,6 +37,7 @@ from archdiscov.assistant.provider import (
     StopReason,
     UnsupportedCapabilityError,
 )
+from archdiscov.assistant.questions import README_QUESTIONS
 from archdiscov.assistant.repair import submission_text
 from archdiscov.assistant.tools import contracts as tool_contracts
 from archdiscov.assistant.tools.catalog import default_registry
@@ -703,6 +704,13 @@ def test_documented_mcp_tools_and_limits_match_the_code():
     cap = mcp_server.ServerLimits.model_fields["max_tool_calls"]
     bounds = {type(item).__name__: item for item in cap.metadata}
     assert f"{cap.default} by default, from {bounds['Ge'].ge} to {bounds['Le'].le:,}" in text
+
+
+def test_documented_mcp_prompts_match_the_questions():
+    text = " ".join(MCP_DOC.read_text(encoding="utf-8").split())
+    named = text[text.index("Each prompt is named by") : text.index("in the README's order")]
+    assert re.findall(r"`([a-z_]+)`", named) == [kind.value for kind in README_QUESTIONS]
+    assert f'"{mcp_server.UNKNOWN_PROMPT}"' in text
 
 
 def _keys(value) -> set[str]:

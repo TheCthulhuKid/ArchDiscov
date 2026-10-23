@@ -6,7 +6,9 @@ instructions. A call is bounded and dispatched as `ask` dispatches one, and its 
 the tool's JSON as text, a tool error included, so a client can recover from it. A
 submission is read and validated as `ask` validates a proposal, against the connection's
 run record: a rejected one returns `ask`'s rejection listing, and an accepted one returns
-`ask`'s readable and JSON answer, `answered` however many rejections came before.
+`ask`'s readable and JSON answer, `answered` however many rejections came before. The
+README's example questions are offered as prompts without arguments, each named by the
+analyzer kind that answers it and returning only the question.
 
 Each call is bounded by the session's per-call `ToolLimits`, and each connection by a cap
 on its tool calls. Each connection works on its own fresh copy of the selected session:
@@ -25,6 +27,7 @@ from importlib.metadata import version
 
 from mcp import types
 from mcp.server import Server, ServerRequestContext
+from mcp.shared.exceptions import MCPError
 from pydantic import Field, ValidationError
 
 from .answer_output import answer_data, answer_text
@@ -34,6 +37,7 @@ from .answer_validation import validate_proposal
 from .answers import MCP_SUBMIT_DESCRIPTION, SUBMIT_ANSWER, submit_answer_declaration
 from .conversation import Contract, ToolArguments, ToolCall, ToolResult, parse_tool_arguments
 from .instructions import MCP_INSTRUCTIONS
+from .questions import README_QUESTIONS
 from .repair import submission_text
 from .runs import MalformedOutput, read_proposal
 from .tools.catalog import default_registry
@@ -44,6 +48,8 @@ from .tools.session import ToolSession
 SERVER_NAME = "archdiscov"
 # What a client is told after a submission is not accepted, and before an accepted answer.
 SUBMIT_FOLLOW_UP = "Correct the answer and submit it again."
+# Fixed, so an invalid prompt request is never echoed back.
+UNKNOWN_PROMPT = "No prompt with that name takes these arguments."
 PRESENT_ANSWER = (
     "The answer was accepted. Present it to the user as it is returned below, without "
     "adding conclusions to it."
@@ -96,6 +102,26 @@ def _tools(registry: ToolRegistry) -> list[types.Tool]:
     ]
 
 
+def _prompts() -> list[types.Prompt]:
+    return [
+        types.Prompt(
+            name=kind.value,
+            description=f"The README example question the {kind.value} analyzer answers.",
+        )
+        for kind in README_QUESTIONS
+    ]
+
+
+def _prompt(params: types.GetPromptRequestParams) -> types.GetPromptResult:
+    """The question a prompt names, as the user's message; a prompt takes no arguments."""
+    # Analyzer kinds are string enums, so a prompt's name looks its question up directly.
+    question = README_QUESTIONS.get(params.name)
+    if question is None or params.arguments:
+        raise MCPError(types.INVALID_PARAMS, UNKNOWN_PROMPT)
+    content = types.TextContent(type="text", text=question)
+    return types.GetPromptResult(messages=[types.PromptMessage(role="user", content=content)])
+
+
 def _error(call_id: str, code: ToolErrorCode, connection: Connection) -> _Reply:
     result, _ = render(call_id, tool_error(code), connection.session.limits)
     return _Reply.of(result)
@@ -139,7 +165,7 @@ def build_server(session: ToolSession, limits: ServerLimits | None = None) -> Se
     the full `limits`."""
     limits = limits or ServerLimits()
     registry = default_registry()
-    tools = _tools(registry)
+    tools, prompts = _tools(registry), _prompts()
 
     @asynccontextmanager
     async def connection(_: Server[Connection]) -> AsyncIterator[Connection]:
@@ -149,6 +175,16 @@ def build_server(session: ToolSession, limits: ServerLimits | None = None) -> Se
         _: ServerRequestContext[Connection], __: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
         return types.ListToolsResult(tools=tools)
+
+    async def list_prompts(
+        _: ServerRequestContext[Connection], __: types.PaginatedRequestParams | None
+    ) -> types.ListPromptsResult:
+        return types.ListPromptsResult(prompts=prompts)
+
+    async def get_prompt(
+        _: ServerRequestContext[Connection], params: types.GetPromptRequestParams
+    ) -> types.GetPromptResult:
+        return _prompt(params)
 
     async def call_tool(
         context: ServerRequestContext[Connection], params: types.CallToolRequestParams
@@ -172,4 +208,6 @@ def build_server(session: ToolSession, limits: ServerLimits | None = None) -> Se
         lifespan=connection,
         on_list_tools=list_tools,
         on_call_tool=call_tool,
+        on_list_prompts=list_prompts,
+        on_get_prompt=get_prompt,
     )

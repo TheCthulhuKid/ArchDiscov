@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from archdiscov.assistant import providers
+from archdiscov.assistant import providers, questions
 from archdiscov.assistant.answer_rendering import (
     INSUFFICIENT_REASONS,
     LIMITED_COVERAGE,
@@ -102,7 +102,8 @@ def _readme_questions() -> list[str]:
 
 
 def test_the_examples_cover_every_readme_question_and_status() -> None:
-    assert _readme_questions() == list(README_QUESTIONS)
+    # The README's list is the production list the MCP prompts offer.
+    assert _readme_questions() == list(questions.README_QUESTIONS.values())
     assert set(README_QUESTIONS) <= {example.question for example in EXAMPLES.values()}
     assert {example.status for example in EXAMPLES.values()} == {
         "supported",
