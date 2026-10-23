@@ -368,8 +368,10 @@ def test_the_readme_links_the_provider_contracts_without_claiming_real_providers
     assert "Bedrock adapter is implemented" not in text
     # Every adapter that exists answers; none is described as built but silent.
     assert "does not answer" not in text
-    # The phase row lists the adapter as a finished step.
+    # The phase row lists every adapter as a finished step.
     assert "#openai-compatible-adapter) (step 41)," in text
+    assert "#bedrock-adapter) (step 42) |" in text
+    assert "in progress) |" not in text
     provider_doc = PROVIDERS_DOC.read_text(encoding="utf-8")
     assert "[Bedrock adapter](#bedrock-adapter), which is built" in " ".join(provider_doc.split())
 

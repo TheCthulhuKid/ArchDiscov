@@ -194,9 +194,11 @@ questions in both output forms, refuses a missing configuration, an unknown snap
 Bedrock profile that cannot be loaded, an Anthropic or OpenAI-compatible configuration
 without its key, and an existing transcript path, and reports a scripted provider error and a run
 limit, each with the exit code above. It also answers a README question through the
-Anthropic adapter and through the OpenAI-compatible adapter with each protocol, each against
-a mock API on one loopback port, the only connection the guard allows, with the same answer
-as the fake provider. In-process tests in
+Anthropic adapter, the OpenAI-compatible adapter with each protocol, and the Bedrock adapter,
+each against a mock API on one loopback port, the only connection the guard allows, with the
+same answer as the fake provider. The Bedrock run alone gets a dummy AWS profile through
+`AWS_CONFIG_FILE` and `AWS_SHARED_CREDENTIALS_FILE`, and its requests are SigV4-signed
+`POST /model/{modelId}/converse` calls. In-process tests in
 `tests/cli/test_ask_cli.py` and `tests/cli/test_ask_examples.py` cover every exit code,
 the envelope, and further examples (limited coverage, insufficient evidence, a Terraform
 plan, and a comparison).

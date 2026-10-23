@@ -241,11 +241,25 @@ A local server on `localhost` may use plain HTTP, such as
 offers tools, so a model that cannot call them cannot answer: leave `tool_calling` out of
 `capabilities` for it and the run is refused before any request.
 
+Amazon Bedrock needs no key: the [Bedrock adapter](assistant-providers.md#bedrock-adapter)
+signs with its own AWS profile, separate from the one collection uses, whose identity needs
+`bedrock:InvokeModel` on a model that supports tool use:
+
+```sh
+printf '%s\n' 'kind = "bedrock"' 'model = "eu.anthropic.claude-sonnet-5-5-v1:0"' \
+  'profile = "assistant"' 'region = "eu-west-1"' 'max_requests = 6' > $WORK/bedrock.toml
+archdiscov ask "Which resources appear to have no clear owner?" \
+  --snapshot $WORK/owners/snapshot.json --config $WORK/bedrock.toml \
+  --transcript $WORK/bedrock-run.json
+```
+
 The key is read only from the configured variable, never from an option or the file.
-Without it the command exits with 2 (`provider_credential_missing`) before any request; an
+Without it the command exits with 2 (`provider_credential_missing`) before any request, and
+a Bedrock profile that cannot be loaded exits with 2 (`provider_profile_unavailable`); an
 API failure ends the run with 6 and the provider error it maps to
 ([Anthropic](assistant-providers.md#failures-and-retries),
-[OpenAI-compatible](assistant-providers.md#openai-compatible-failures)).
+[OpenAI-compatible](assistant-providers.md#openai-compatible-failures),
+[Bedrock](assistant-providers.md#bedrock-failures)).
 
 ## Run the automated checks
 

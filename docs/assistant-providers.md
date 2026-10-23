@@ -544,10 +544,41 @@ Only the configuration chooses the target, the credential, and the retries:
   profile say, and the timeouts are `connect_timeout_seconds` and
   `request_timeout_seconds`.
 - The `boto3` and `botocore` loggers are held at `WARNING` whatever the root level says,
-  because their debug records hold request bodies.
+  because their debug records hold request bodies, and `botocore.credentials` at `ERROR`
+  (see [Bedrock failures](#bedrock-failures)).
 
 `AWS_CONFIG_FILE` and `AWS_SHARED_CREDENTIALS_FILE` still choose where profiles are read
 from, as for any AWS tool.
+
+The identity the adapter signs with (the profile's, or the role's when `role_arn` is set)
+needs these IAM permissions, and nothing else:
+
+- `bedrock:InvokeModel` on the model: the foundation model's ARN for a model ID, or the
+  inference profile's ARN for an inference profile. A cross-Region inference profile also
+  needs `bedrock:InvokeModel` on the underlying foundation model in every Region the profile
+  routes to. Converse uses this permission; the model must also be enabled for the account.
+- `sts:AssumeRole` on `role_arn`, for the profile's identity, when a role is set; the role's
+  trust policy must allow that identity.
+
+For example, for an inference profile:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "bedrock:InvokeModel",
+      "Resource": [
+        "arn:aws:bedrock:eu-west-1:123456789012:inference-profile/eu.anthropic.claude-sonnet-5-5-v1:0",
+        "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-5-5-v1:0"
+      ]
+    }
+  ]
+}
+```
+
+An access-denied answer is `provider_authentication` (exit 6), with no ARN or message.
 
 Bedrock models differ in tool support and cannot be asked cheaply, so `capabilities`
 declares it, as for the OpenAI-compatible adapter: tool calling by default, parallel tool
@@ -761,9 +792,13 @@ Example transcripts are in `tests/fixtures/assistant/`. The shared contract suit
 `tests/assistant/provider_harness.py` through the same mapping, error, capability,
 retry, and timeout cases. The orchestration and answer-service suites and the README example
 questions run through every harness too, and check that each adapter reaches the same run
-and answer as the fake from the same turns; the Anthropic harness serves them from a mocked
-Messages API. An adapter's harness subclasses `MockedHarness`, giving its protocol's response
-body and how its API shows each scripted error; the mocked transport, scripted failures, and
-the loopback server for installed-command tests are in `tests/support/mock_api.py`. Two orchestration cases are the fake's alone: a response arriving after the
-provider's own timeout, which an HTTP client cannot receive, and another provider's
-continuation, since an adapter marks its own.
+and answer as the fake from the same turns; each adapter's harness serves them from its own
+mocked API. An adapter's harness subclasses `MockedHarness`, giving its protocol's response
+body and how its API shows each scripted error; the Bedrock harness also says how its API
+serves a body and is made, since botocore is mocked through its `before-send` event (with
+`BotocoreApi`) rather than an HTTP transport, and reads a dummy AWS profile from
+`tests/fixtures/assistant/aws/`. The mocked transports, scripted failures, and the loopback
+server for installed-command tests are in `tests/support/mock_api.py`. Two orchestration
+cases are the fake's alone: a response arriving after the provider's own timeout, which an
+HTTP client cannot receive, and another provider's continuation, since an adapter marks its
+own.
