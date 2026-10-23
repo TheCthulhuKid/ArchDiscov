@@ -176,3 +176,57 @@ def test_assistant_modules_work_with_vendor_sdks_blocked() -> None:
     )
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout.strip() == ""
+
+
+# Every command module, an `ask` run, and an evaluation leave `mcp` unimported; only building
+# the MCP server imports it.
+MCP_SCRIPT = f"""
+import sys
+from pathlib import Path
+
+from typer.testing import CliRunner
+
+from archdiscov.cli import app
+from archdiscov.assistant.tools.catalog import default_registry
+from archdiscov.services.evaluation import evaluate_suite
+from tests.support.evaluation_suites import README_SUITE, write_fake_config
+
+default_registry()
+assert CliRunner().invoke(app, ["--help"]).exit_code == 0
+example = README_SUITE.parent / "ownership"
+asked = CliRunner().invoke(
+    app,
+    [
+        "ask",
+        "Which resources appear to have no clear owner?",
+        "--snapshot",
+        str(example / "snapshot.json"),
+        "--config",
+        str(example / "provider.toml"),
+    ],
+)
+assert asked.exit_code == 0, asked.output
+import tempfile
+
+with tempfile.TemporaryDirectory() as directory:
+    config = write_fake_config(Path(directory) / "fake.toml")
+    report = evaluate_suite(README_SUITE, [config])
+assert report.providers[0].totals.failed == 0
+assert not any(name == "mcp" or name.startswith("mcp.") for name in sys.modules)
+
+from archdiscov.assistant.mcp_server import build_server
+from archdiscov.assistant.tools.session import ToolSession
+
+build_server(ToolSession.from_paths(Path({str(SNAPSHOT)!r})))
+assert "mcp" in sys.modules
+"""
+
+
+def test_only_the_mcp_server_imports_mcp() -> None:
+    completed = subprocess.run(
+        [sys.executable, "-c", MCP_SCRIPT],
+        capture_output=True,
+        text=True,
+        cwd=PROJECT_ROOT,
+    )
+    assert completed.returncode == 0, completed.stderr

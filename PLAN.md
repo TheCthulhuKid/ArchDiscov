@@ -1,6 +1,6 @@
 # Archdiscov implementation plan
 
-This plan follows the four delivery increments in [README.md](README.md). Phases 1–2 and the cloud-platform foundation bridge 22.1–22.4 are complete. Phase 3 has implemented result contracts and integrity in step 23, the complete read-only graph index, composed acceptance, and synthetic profiling in steps 24.1–24.5, and the complete bounded query boundary (contracts, search, inspection, neighbours, paths, and the `query` CLI) in step 25, and analyzer execution, result persistence, the ownership analyzer in step 26, security-group impact analysis in step 27, and cross-account trust analysis in step 28; steps 29–33 remain planned below. Phase 4 provides direction and will be expanded when its prerequisites are complete.
+This plan follows the four delivery increments in [README.md](README.md) and adds a fifth. Phases 1–4 and the cloud-platform foundation bridge 22.1–22.4 are complete. Phase 5, an MCP server over the phase 4 assistant tools (steps 45–48), is planned below.
 
 The completed first milestone is a complete offline workflow:
 
@@ -12,7 +12,7 @@ This establishes the contracts that discovery, analysis, and the assistant will 
 
 The existing code in [src/archdiscov/models/architecture.py](src/archdiscov/models/architecture.py) provides recursive resource models, a discriminated resource union, validated account/region containment, local/external/unresolved dependencies, fact-level evidence citations, and operation coverage. Dedicated resource models cover EC2/network, IAM, ELBv2, ECS, Lambda, RDS/Aurora, and SQS configuration; other types can use `UnknownResource`.
 
-The installable package, Docker development environment, detached snapshot validation, immutable persistence, evidence inspection, offline `ingest`/`evidence` CLI, and minimal `Finding`/`Answer` contracts are implemented and verified. Models use package-relative imports. AWS discovery supports the documented regional service slices and account-wide IAM configuration through `collect`; Terraform state exports/plans and CloudFormation templates can be imported through Python services and explicit `ingest --format` selection. The five analyzers and snapshot comparison are implemented (phase 3); agent orchestration remains future work. The historical phase 1 strict-reference rules below remain accurate for schema `1`; their versioned extension was delivered in step 10 (schema `2`).
+The installable package, Docker development environment, detached snapshot validation, immutable persistence, evidence inspection, offline `ingest`/`evidence` CLI, and minimal `Finding`/`Answer` contracts are implemented and verified. Models use package-relative imports. AWS discovery supports the documented regional service slices and account-wide IAM configuration through `collect`; Terraform state exports/plans and CloudFormation templates can be imported through Python services and explicit `ingest --format` selection. The five analyzers and snapshot comparison are implemented (phase 3), and the assistant answers through the `ask` command with the fake, Anthropic, OpenAI-compatible, and Bedrock providers, with evaluation suites and commands (phase 4). The historical phase 1 strict-reference rules below remain accurate for schema `1`; their versioned extension was delivered in step 10 (schema `2`).
 
 ## 1. Models, snapshots, fixtures, and CLI foundation
 
@@ -3247,4 +3247,129 @@ Diagnostics name files and kinds, never values.
 - Which provider receives the first real integration? The plan assumes the API-key Anthropic adapter (step 40), then OpenAI-compatible (step 41), then Bedrock (step 42); API-key adapters need no AWS setup, and Bedrock remains for users who must stay inside their AWS account. The adapters may be built in any order after step 39.
 - What request, latency, token, and tool-call limits are acceptable by default (step 36)?
 - Should arbitrary narrative text be constrained to predefined answer fields (step 37)? The plan assumes yes: narrative is bounded, labelled as explanation, and never carries facts. Step 37's breakdown adopts this; reopen it there if a different policy is wanted.
-- Is the existing `mcp` dependency still wanted as a later tool interface over step 35's tools, or should it be removed?
+- Is the existing `mcp` dependency still wanted as a later tool interface over step 35's tools, or should it be removed? Settled: it stays, as the phase 5 MCP server.
+
+## 5. MCP server over the assistant tools
+
+**Phase 5 milestone:** An MCP client (for example Claude Code or Claude Desktop) starts `archdiscov mcp` over stdio for selected snapshots → calls the same bounded, read-only tools the `ask` command offers → submits an answer that is validated and rendered from tool-returned records exactly as `ask` validates and renders it.
+
+The server lets a user's own MCP client be the model, so it needs no provider configuration, credentials, or network. It reuses the phase 4 tool registry, `ToolSession`, run record, answer validation, and rendering unchanged, and adds no analyzer, collector, or cloud platform; AWS stays the primary platform. The server is local and read-only: stdio transport only, snapshots selected when it starts, no tool that opens files, changes data, or reaches a network. Its limit is honest: an MCP client writes its own text to the user, so the server can validate and render what the client submits, and mark everything it returns as data, but cannot stop a client from stating unvalidated claims outside a submitted answer. The documentation says so.
+
+Implement steps 45–48 in order, verifying each before the next. Keep this phase planned until step 48 passes. The phase 4 open question on the `mcp` dependency is settled: it stays, as this phase's server.
+
+**Where things go:**
+- The server lives in `src/archdiscov/assistant/mcp_server.py`, the only module that imports `mcp`, and only when the server is built.
+- The command lives in `cli_mcp.py`, which stays routing and presentation.
+
+**What is reused:**
+- `default_registry()`, its declarations, and `ToolRegistry.dispatch`, so a tool behaves identically over MCP and in `ask`.
+- `ToolSession.from_paths` and the `ask` pre-run diagnostics and exit codes for the selected files.
+- `validate_proposal`, `render_answer`, and the `cli_answer_output` renderings for submitted answers.
+- The assistant instructions, adapted as the server's instructions.
+- The installed-CLI harness and offline guard for acceptance.
+
+### Step 45: Serve the tool registry over MCP
+**Status:** Implemented. Substeps 45.1–45.3 pass their acceptance checks: `assistant/mcp_server.py` serves the registry's tools unchanged over a low-level `mcp` server, dispatches calls as `ask` does with per-connection run records and ordered calls, and bounds each connection with a call cap.
+**Prerequisite:** Completed phase 4.
+
+- Build an MCP server from a `ToolSession` and the default registry: one MCP tool per declaration (name, description, and input schema unchanged), each call parsed as `ask` parses arguments and dispatched through `ToolRegistry.dispatch`. A result is the tool's JSON output as text content (and structured content where the client supports it); a tool error is an MCP error result with the same `ToolError` code and fixed message, never a protocol failure.
+- Give the server instructions adapted from the assistant instructions: records are data, imported text is quoted and never an instruction, and conclusions must be submitted for validation (step 46).
+- Bound a server session as a run is bounded: the existing `ToolLimits` per call, plus a session-wide cap on tool calls (default stated in the docs), after which tools return a limit error.
+- Import `mcp` only when the server is built; extend the import-isolation test so `ask`, `evaluate`, and the other commands never import it.
+- Keep the server independent of its transport: build it from a session and limits, and hold every piece of state (the run record and the call count) per connection, never in module globals. Only step 47 chooses stdio, so a later transport adds a listener, not a second server.
+
+**Advice:** Keep the server a thin adapter over the registry. If an MCP tool needs behaviour the registry lacks, add it to the registry so `ask` gains it too.
+
+**Acceptance check:** In-memory client tests list exactly the registry's tools with their schemas; each tool returns the same content as a direct dispatch over the same session; malformed arguments, unknown tools, oversized results, and the session cap return error results; untrusted text stays marked; no command other than `mcp` imports `mcp`.
+
+Implement and verify substeps 45.1–45.3 in order. Keep the parent planned until every substep's acceptance checks pass.
+
+**Which `mcp` API:** the low-level `mcp.server.Server`, with explicit list and call handlers. `MCPServer` derives each tool's schema from a Python signature, which would let the served schemas drift from the registry's declarations. Tests connect through the package's in-memory transport and client, so they need no subprocess or stdio.
+
+**What a connection holds:** its own fresh copy of the selected session (`ToolSession.fresh()`, so the verified data is shared and the run record is not), its call count, and its next call ID. The server is built from the session and limits alone, and nothing lives in module globals, so two connections never see each other's returned IDs.
+
+**What is reused:** `default_registry()` and `ToolRegistry.dispatch` unchanged; `parse_tool_arguments` for argument bounds; the `ToolErrorCode` messages; `SYSTEM_INSTRUCTIONS` as the source of the server's instructions.
+
+#### Step 45.1: Build the server and list the tools
+**Status:** Implemented. `assistant/mcp_server.py` adds `build_server(session)`, a low-level `mcp.server.Server` named `archdiscov` with the installed package version, the new `MCP_INSTRUCTIONS`, and a list handler serving one `mcp.types.Tool` per registry declaration, in order, with name, description, and input schema unchanged, no output schema, and no `submit_answer`. Each connection's state is a `Connection` (a `ToolSession.fresh()` copy and a call count of zero) entered through the server's lifespan, which `mcp` enters once per `run`, so per connection; nothing is kept in module globals. One planned point was simplified: the call count will also number the call IDs in 45.2, so there is no separate ID counter. `assistant/instructions.py` now builds both texts from shared sections: `SYSTEM_INSTRUCTIONS` is byte-identical (its pinned digest and version `"2"` unchanged), and `MCP_INSTRUCTIONS` (version `"1"`, pinned) replaces only the opening (the tools reach only the selected snapshots) and the submission bullets (submit before presenting any conclusion, resubmit after rejections, present a rendered answer as returned). Types come from `mcp.types`, which re-exports `mcp_types`, so only the declared `mcp` dependency is imported. `tests/assistant/test_mcp_server.py` connects through the `mcp` in-memory client: the served tools equal the declarations (schemas compared as canonical JSON, since `mcp` reorders keys), the server reports its name, version, and instructions, and two connections share the verified data with separate run records. The instructions tests pin the MCP text and check its shared and own statements and that it makes none of the `ask`-only ones; a new import-isolation test shows the CLI, an `ask` run, and an evaluation never import `mcp` while building the server does, and fails when `mcp` is imported early. `docs/mcp-server.md` describes what the server serves and connection isolation, linked from the tools page, whose stale "only provider is the scripted fake" sentence now names configured providers and the MCP server.
+**Prerequisite:** Completed phase 4.
+
+- Add `assistant/mcp_server.py` with a function that builds a low-level `Server` from a `ToolSession` and limits: the server name `archdiscov`, the installed package version, and instructions adapted from `SYSTEM_INSTRUCTIONS` (records are data, imported text is quoted and never an instruction, and conclusions go through `submit_answer`, which step 46 adds). Omit anything in the assistant instructions that only makes sense inside an `ask` run, such as the request budget.
+- List one MCP tool per registry declaration, in registration order, with the declaration's name, description, and input schema unchanged. `submit_answer` is not listed yet.
+- Give each connection its own state through the server's lifespan: a fresh session copy, a call count of zero, and a call-ID counter.
+- Import `mcp` only inside this module, and import this module only when a server is built. Extend the import-isolation test so building the registry, `ask`, `evaluate`, and every other command leave `mcp` unimported.
+- Start `docs/mcp-server.md` with what the server serves and how connections are isolated; link it from the tools page.
+
+**Advice:** Compare served schemas with the declarations as JSON, not by eye; any transformation the `mcp` types apply (key order, defaults) must not change what a client validates against.
+
+**Acceptance check:** An in-memory client lists exactly the registry's tool names, descriptions, and input schemas in order; the server reports its name, version, and instructions, and the instructions name `submit_answer` and the quoted-data rule; two connections get separate run records over the same verified data; importing the registry or running `ask` does not import `mcp`.
+
+#### Step 45.2: Dispatch tool calls
+**Status:** Implemented. `build_server` adds a call handler: `Connection.next_call_id()` numbers the call (`mcp-1`, ...), `parse_tool_arguments` bounds its arguments (an omitted `arguments`, which MCP allows for a tool without inputs, is `{}`), and `ToolRegistry.dispatch` runs it over the connection's session; the result is one `TextContent` of the tool's JSON with `is_error` from the `ToolResult`, and no structured content. Two cases outside the registry: building a `ToolCall` validates the tool-name pattern, so a client name outside it returns `tool_unknown` rendered through the registry's own `render`; and any other exception in the handler returns `tool_internal_error` without its message. Dispatch runs synchronously in the handler, without an await, because `mcp` serves a connection's requests concurrently: a mutation that moved it to a worker thread interleaved concurrent calls and failed the ordering test. `tests/assistant/test_mcp_server.py` now runs every README case's transcript calls (from `prepare_evaluation`'s verified sessions) and every tool once through the in-memory client and compares each result with a direct dispatch over a fresh copy of the same session (ignoring an unsaved analysis's `created_at`, which differs per run), and the connection's run record with the direct one; shows an unknown and an impossible name, oversized and invalid arguments, unknown fields, and oversized outputs as error results with their codes, and an argument-less call as a call with none; keeps imported text's untrusted marking (the adversarial injected snapshot); records eight concurrent, slowed calls start-to-end in order; and returns `tool_internal_error` without the exception text. Mutating the omitted-arguments rule, the name handling, or the synchronous dispatch fails a test. `docs/mcp-server.md` gains "Calls" with the error-code table, and a drift test pins the table to `ToolErrorCode` and the 16 KiB bound.
+**Prerequisite:** Step 45.1.
+
+- Handle a call by bounding its arguments with `parse_tool_arguments` (the same object-only and size rules as `ask`), building a `ToolCall` with the connection's next call ID (`mcp-1`, `mcp-2`, ...; MCP gives no call ID), and dispatching it through `ToolRegistry.dispatch` over the connection's session.
+- Return the `ToolResult` content as one text content item, with `isError` set from `is_error`. A tool error stays a result with its `ToolError` code and fixed message, never a protocol error, so a client can recover. Do not add structured content or output schemas: the text is already the tool's JSON, and a second copy could drift.
+- Run one call at a time per connection, so the run record sees calls in order even when a client sends them concurrently. A failure outside a tool (in argument handling or rendering) becomes `tool_internal_error`, and no exception text or traceback reaches the client.
+
+**Advice:** The registry already turns unknown tools, malformed or invalid arguments, oversized outputs, and tool exceptions into `ToolError`s; the server only adds the transport. If a case seems to need new handling here, it belongs in the registry.
+
+**Acceptance check:** Each tool, called through the in-memory client with the arguments the README examples use, returns exactly the content of a direct dispatch over a fresh copy of the same session, and its returned IDs reach the connection's run record; an unknown tool, malformed and oversized arguments, invalid arguments, and an oversized output return error results with their codes; quoted imported text keeps its untrusted marking; concurrent calls on one connection are recorded in order; an unexpected exception returns `tool_internal_error` without its message.
+
+#### Step 45.3: Bound a server session
+**Status:** Implemented. `ServerLimits` in `assistant/mcp_server.py` holds `max_tool_calls` (strict, default 200, 1–2,000); `build_server(session, limits=None)` gives each `Connection` the limits, and a call past the cap returns the new `tool_session_limit_reached` (`ToolErrorCode.SESSION_LIMIT_REACHED`, with a fixed message, rendered through the registry's `render`) before its arguments are parsed, so nothing is dispatched or recorded; every call counts, errors included, and the count keeps numbering call IDs. The default was settled against the README examples: answering all nine in one connection takes 33 calls, submissions included, and a test requires the default to allow at least four times that. Per-call `ToolLimits` come from the session, as in `ask`. Tests reach the cap exactly (three dispatches, then two refused calls that dispatch and record nothing), give a second connection its full count, refuse out-of-range and non-integer limits, and truncate at the session's result limit exactly as a direct dispatch; mutating the cap comparison fails a test. The new code is documented on the tools page (MCP-only, since `ask` bounds calls with run limits), and `docs/mcp-server.md` gains "Limits", the served tool names, and the code; drift tests pin the served tool names to the registry, the per-call defaults to `ToolLimits`, and the cap's default and bounds to `ServerLimits`.
+**Prerequisite:** Step 45.2.
+
+- Add a session-wide cap on tool calls per connection, counting every call (errors included, and `submit_answer` once step 46 adds it). Propose a default of 200 calls, between 1 and 2,000, and settle it in this substep against the README examples' needs. Past the cap, every call returns an error result with a new `tool_session_limit_reached` code and fixed message, and dispatches nothing.
+- Keep the existing `ToolLimits` (result limit, depth, and output size) per call, configured as `ask` configures them.
+- Document the limits, the cap, the error codes, and connection isolation in `docs/mcp-server.md`, and add a drift test that pins its tool list, limits, and codes to the code.
+
+**Advice:** Choose the cap so a client answering several questions in one session does not hit it, while a runaway client loop does; it is a backstop, not a budget.
+
+**Acceptance check:** The cap is reached exactly after its count, then every call returns `tool_session_limit_reached` without dispatching or recording; another connection still has its full count; per-call limits truncate as in `ask`; the documented tool list, limits, and codes match the code.
+
+### Step 46: Validate and render answers submitted over MCP
+**Status:** Planned.
+**Prerequisite:** Step 45.
+
+- Offer the `submit_answer` tool with the same proposal schema as `ask`. Validate each submission with `validate_proposal` against the server session's run record (the IDs this session's tools returned). A rejected proposal returns its rejection codes, locations, and fixed messages, so the client can repair it; an accepted one returns the rendered answer, readable and as answer JSON, with the instruction to present it as the answer.
+- Each submission is validated independently: there is no single-repair budget, since the client, not the server, drives the conversation, but submissions count toward the session cap.
+- Keep the run record session-wide (every ID the session returned may be cited), and say so in the docs.
+
+**Advice:** Do not reimplement validation or rendering for MCP; the same proposal over the same session must give the same rejections or the same rendering as `ask`.
+
+**Acceptance check:** A fabricated, unreturned, or cross-snapshot citation, a status upgrade, and narrative that repeats imported text are rejected with their codes; a valid proposal renders identically to `answer_question` over the same session and proposal; imported text appears only as quoted data; the README example proposals from `tests/support/ask_examples.py` validate after their tool calls.
+
+### Step 47: Add the `archdiscov mcp` command
+**Status:** Planned.
+**Prerequisite:** Step 46.
+
+- Add `archdiscov mcp --snapshot PATH [--compare PATH] [--comparison-result PATH ...] [--max-tool-calls N]`, which loads and verifies the selected files with the `ask` diagnostics and exit codes (1, 2) before serving, then serves over stdio until the client disconnects (0) or it is interrupted (130).
+- Reserve standard output for the protocol: diagnostics before serving and any logging go to standard error, and nothing in a diagnostic or log holds snapshot content, a question, or a proposal.
+- Offer the five README example questions as MCP prompts, one per question, named after the analyzer each one leads to and taking no arguments: each prompt's text is the question exactly as the README states it, so a client can start a supported question in one step. The prompts add no instructions beyond the server's own.
+- Document client setup for Claude Code (`claude mcp add`) and Claude Desktop, with paths chosen at configuration time.
+
+**Advice:** Keep snapshot selection fixed at startup: a tool that opens arbitrary paths would turn a read-only analysis server into a filesystem reader.
+
+**Acceptance check:** CLI tests cover each pre-serve diagnostic and exit code, a clean disconnect, and an interrupt; a stdio client session through the command lists the tools and the five prompts, gets each prompt's question exactly as the README states it, and answers a README example; standard output carries only protocol messages.
+
+### Step 48: Close phase 5 with acceptance and documentation
+**Status:** Planned.
+**Prerequisite:** Step 47.
+
+- Add an installed acceptance test, outside the checkout with the offline guard allowing no connection at all, through both entry points: an MCP stdio client starts `archdiscov mcp` over the checked-in README fixtures, lists the tools and prompts, answers each README example question, started from its prompt, through its tool calls and `submit_answer`, inspects cited evidence through a tool, and is refused for a fabricated citation; a missing snapshot fails before serving.
+- Document the server in a new `docs/mcp-server.md`: what it serves (tools and the README question prompts), setup, limits, answer submission and validation, what it cannot enforce in client text, and exit codes. Link it from the README (capability table, command table, delivery table with a phase 5 row), the ask and tools pages, and extend the drift tests to its options, limits, tool list, and prompts (which must match the README questions).
+- Run focused and full offline tests, the acceptance suite, Ruff, whitespace checks, and the suite in Docker with networking disabled.
+
+**Advice:** Keep real MCP clients out of CI; the stdio client from the `mcp` package is the test client.
+
+**Completion criterion:** An MCP client can answer every README example question offline through the installed server; every validated answer cites tool-returned findings and evidence and states coverage limitations; fabricated or unreturned citations are always rejected; the server makes no network connection and reads no file beyond those selected at startup.
+
+### Phase 5 decisions and open questions
+
+**Advice:** The server is a transport for the phase 4 tools, not a second assistant: validation, rendering, and limits stay in one place.
+
+**Open questions (settle before the named step):**
+- Should the run record be session-wide or reset per question (step 46)? The plan assumes session-wide, since an MCP client has no question boundary the server can see.
+- Settled: the five README questions are offered as MCP prompts (step 47).
+- Is a streamable HTTP transport ever wanted? Deferred until a concrete need. Stdio covers local clients (Claude Code, Claude Desktop, IDEs), including a server run in Docker with `docker run -i`. HTTP is only needed for a shared or remote server, and then brings authentication (the MCP authorization flow), TLS, origin checks against DNS rebinding, per-client sessions and limits, and server-side snapshot selection, over data that describes an architecture's attack surface. Step 45 keeps the server transport-independent so the decision stays cheap; settle it in a later phase if a shared server is wanted.

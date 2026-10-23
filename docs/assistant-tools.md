@@ -3,9 +3,10 @@
 This page describes the bounded, typed tools under `src/archdiscov/assistant/tools/` that the
 assistant calls. The tools call the same query and analysis services as the
 CLI, over data the user selected, and return allowlisted views with explicit truncation.
-The `ask` command offers them to the model through the
-[tool-calling loop](assistant-orchestration.md), and the only provider is the scripted fake
-described in [assistant provider contracts](assistant-providers.md).
+The `ask` command offers them to a configured
+[provider](assistant-providers.md) through the
+[tool-calling loop](assistant-orchestration.md), and the [MCP server](mcp-server.md) serves
+them, unchanged, to an MCP client.
 
 ## Tool set
 
@@ -78,7 +79,9 @@ an output that still does not fit becomes `tool_output_too_large`.
 
 Tools never raise for model mistakes or failures. Errors are results with a code, a
 message fixed by that code, and for invalid arguments the declared field names that
-failed (`locations`), never the model's input.
+failed (`locations`), never the model's input. Only the
+[MCP server](mcp-server.md#limits) returns `tool_session_limit_reached`, when a connection
+has used its call cap; an `ask` run bounds its calls with its run limits instead.
 
 | Code | Message |
 |---|---|
@@ -89,6 +92,7 @@ failed (`locations`), never the model's input.
 | `tool_unavailable` | This tool needs data that was not selected for this session. |
 | `tool_output_too_large` | Tool output exceeded the size limit; narrow the request or lower its limit. |
 | `tool_internal_error` | The tool failed unexpectedly. |
+| `tool_session_limit_reached` | This session has made its maximum number of tool calls; start a new session. |
 
 ## Untrusted text
 
