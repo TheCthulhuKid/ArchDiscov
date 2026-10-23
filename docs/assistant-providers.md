@@ -307,8 +307,11 @@ tokens, so run it only on purpose:
 ```sh
 ARCHDISCOV_LIVE_ANTHROPIC_KEY_ENV=ANTHROPIC_API_KEY \
 ARCHDISCOV_LIVE_ANTHROPIC_MODEL=claude-sonnet-5-5 \
-.venv/bin/python -m pytest -m live tests/live
+.venv/bin/python -m pytest -m live tests/live/test_anthropic_live.py
 ```
+
+Both live tests share `tests/support/live.py`, which writes the capped configuration and
+checks the run.
 
 ### OpenAI-compatible adapter
 
@@ -317,9 +320,8 @@ ARCHDISCOV_LIVE_ANTHROPIC_MODEL=claude-sonnet-5-5 \
 serves OpenAI and compatible servers (gateways and local model servers) through either
 protocol, [Responses](#responses) or [Chat Completions](#chat-completions), each a
 request-body and response function behind one table keyed by protocol, so the orchestrator
-cannot tell them apart. Building it makes no request. Until its failure table lands
-(step 41.5), any API or connection failure is `provider_unavailable`, an unparseable body
-is `provider_malformed_output`, and nothing is retried.
+cannot tell them apart. Building it makes no request. Failures and retries are shared by
+both protocols, as described under [OpenAI-compatible failures](#openai-compatible-failures).
 
 ```toml
 kind = "openai_compatible"
@@ -442,6 +444,50 @@ verbatim, as the Anthropic adapter does with thinking blocks. Reasoning without 
 content cannot be replayed to a server that stores nothing, so such a response is rebuilt
 from its text and calls without it. A continuation from another provider kind is refused
 as `provider_invalid_request` before anything is sent.
+
+#### OpenAI-compatible failures
+
+Failures map as for the Anthropic adapter, by the SDK's exception class through the class
+hierarchy and never by message text, with a fixed message and no provider text. The SDK
+never raises its own finish-reason errors, because only `create` is called, never its
+parsing helpers.
+
+| `openai` exception | Status | Provider error |
+|---|---|---|
+| `BadRequestError` | 400 | `provider_invalid_request` |
+| `NotFoundError` | 404, such as an unknown model | `provider_invalid_request` |
+| `ConflictError` | 409 | `provider_invalid_request` |
+| `UnprocessableEntityError` | 422 | `provider_invalid_request` |
+| `AuthenticationError` | 401 | `provider_authentication` |
+| `PermissionDeniedError` | 403 | `provider_authentication` |
+| `RateLimitError` | 429 | `provider_rate_limit` |
+| `InternalServerError` | any 5xx | `provider_unavailable` |
+| `APIStatusError` | any other status, such as 413 or a redirect | `provider_invalid_request` |
+| `APITimeoutError` | none: the request timed out | `provider_timeout` |
+| `APIConnectionError` | none: the API could not be reached | `provider_transport` |
+| `APIResponseValidationError` | a response that does not fit the SDK | `provider_malformed_output` |
+| `JSONDecodeError` | a success body that is not JSON | `provider_malformed_output` |
+| `APIError` | any other SDK failure | `provider_unavailable` |
+
+Retries, waits, and `retry-after` use the same shared loop and constants as the
+[Anthropic adapter](#failures-and-retries): only transport and rate-limit errors are
+retried, up to `max_retries`, and a timeout never is.
+
+#### OpenAI-compatible live smoke tests
+
+`tests/live/test_openai_live.py` asks the same README question, with the same caps, once
+per protocol. It is marked `live` and skips unless variables name the key variable, the
+endpoint, and the model, and list the protocols to run; a protocol the list leaves out
+skips with its reason. `ARCHDISCOV_LIVE_OPENAI_ENCRYPTED_REASONING=1` declares
+`encrypted_reasoning` for the Responses run. Run it only on purpose:
+
+```sh
+ARCHDISCOV_LIVE_OPENAI_KEY_ENV=OPENAI_API_KEY \
+ARCHDISCOV_LIVE_OPENAI_ENDPOINT=https://api.openai.com/v1 \
+ARCHDISCOV_LIVE_OPENAI_MODEL=gpt-5 \
+ARCHDISCOV_LIVE_OPENAI_PROTOCOLS=responses,chat_completions \
+.venv/bin/python -m pytest -m live tests/live/test_openai_live.py
+```
 
 ### Credentials
 

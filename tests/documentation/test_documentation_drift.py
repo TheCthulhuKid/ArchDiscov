@@ -288,6 +288,14 @@ def test_documented_anthropic_failures_match_the_adapter():
     assert f"`MAX_RETRY_WAIT_SECONDS` ({adapters.MAX_RETRY_WAIT_SECONDS:g})" in text
 
 
+def test_documented_openai_failures_match_the_adapter():
+    rows = table_rows(PROVIDERS_DOC, "| `openai` exception | Status")
+    documented = {row[0].strip("`"): row[2].strip("`") for row in rows}
+    assert documented == {
+        cls.__name__: error.code.value for cls, error in openai_provider.SDK_ERRORS.items()
+    }
+
+
 def test_documented_request_limits_match_the_model():
     rows = table_rows(PROVIDERS_DOC, "| Request limit")
     assert [row[0].strip("`") for row in rows] == list(RequestLimits.model_fields)

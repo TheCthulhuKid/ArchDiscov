@@ -16,13 +16,17 @@ protocol's endpoint and pair of functions in `_MAPPINGS`. The response is untrus
 the fields the protocol defines are read, and anything that does not fit is malformed
 output. Responses requests are stateless, so reasoning a model needs back travels as a
 continuation of the whole ordered output, replayed verbatim; Chat Completions has no
-reasoning to replay, so it never sets a continuation and refuses one. Until the failure
-table arrives (step 41.5), every SDK failure but an unparseable body is
-`provider_unavailable`.
+reasoning to replay, so it never sets a continuation and refuses one.
+
+Failures map to typed provider errors through `SDK_ERRORS`, and the shared `Retries`
+retries only transport and rate-limit errors. The SDK's parsing helpers, which raise their
+own finish-reason errors, are never called; the raw response is mapped instead.
 """
 
+import asyncio
 import json
-from collections.abc import Callable, Mapping
+import time
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -76,12 +80,16 @@ from .conversation import (
 from .provider import (
     CompletionRequest,
     CompletionResponse,
+    ProviderAuthenticationError,
     ProviderCapabilities,
     ProviderCapability,
     ProviderError,
     ProviderInvalidRequestError,
     ProviderMalformedOutputError,
+    ProviderRateLimitError,
     ProviderRefusalError,
+    ProviderTimeoutError,
+    ProviderTransportError,
     ProviderUnavailableError,
     StopReason,
 )
@@ -104,8 +112,23 @@ class _Mapping:
     response: Callable[[Any], CompletionResponse]
 
 
-# Until step 41.5 maps each SDK failure, all but an unparseable body are `unavailable`.
+# The provider error for each SDK failure, found through the failure's class hierarchy, so a
+# subclass (such as `APITimeoutError` of `APIConnectionError`) maps before its base. The SDK
+# raises `InternalServerError` for every 5xx and a bare `APIStatusError` for any other
+# status, such as 413 or a redirect.
 SDK_ERRORS: Mapping[type[Exception], type[ProviderError]] = {
+    openai.BadRequestError: ProviderInvalidRequestError,
+    openai.NotFoundError: ProviderInvalidRequestError,
+    openai.ConflictError: ProviderInvalidRequestError,
+    openai.UnprocessableEntityError: ProviderInvalidRequestError,
+    openai.AuthenticationError: ProviderAuthenticationError,
+    openai.PermissionDeniedError: ProviderAuthenticationError,
+    openai.RateLimitError: ProviderRateLimitError,
+    openai.InternalServerError: ProviderUnavailableError,
+    openai.APIStatusError: ProviderInvalidRequestError,
+    openai.APITimeoutError: ProviderTimeoutError,
+    openai.APIConnectionError: ProviderTransportError,
+    openai.APIResponseValidationError: ProviderMalformedOutputError,
     json.JSONDecodeError: ProviderMalformedOutputError,
     openai.APIError: ProviderUnavailableError,
 }
@@ -115,7 +138,7 @@ class OpenAIProvider:
     """A `Provider` over an OpenAI-compatible API, built from one configuration and its key.
 
     `transport` and `async_transport` replace the network transports, so tests can mock
-    the API (see `guarded_http_clients`).
+    the API (see `guarded_http_clients`); `sleep` and `async_sleep` wait between retries.
     """
 
     def __init__(
@@ -125,6 +148,8 @@ class OpenAIProvider:
         *,
         transport: httpx2.BaseTransport | None = None,
         async_transport: httpx2.AsyncBaseTransport | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+        async_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         quiet_loggers(_SDK_LOGGERS)
         self.model = config.model
@@ -133,7 +158,7 @@ class OpenAIProvider:
         self._config = config
         self._mapping = _MAPPINGS[config.protocol]
         self._capabilities = ProviderCapabilities(capabilities=config.capabilities)
-        self._retries = Retries(SDK_ERRORS, config.max_retries)
+        self._retries = Retries(SDK_ERRORS, config.max_retries, sleep, async_sleep)
         timeout = httpx2.Timeout(
             config.request_timeout_seconds, connect=config.connect_timeout_seconds
         )

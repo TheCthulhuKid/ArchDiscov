@@ -57,7 +57,7 @@ from tests.assistant.test_continuations import THINKING
 from tests.assistant.test_orchestrator import SNAPSHOT
 from tests.assistant.test_provider_contract import INSPECT, SEARCH
 from tests.assistant.test_secret_leaks import SECRET, _renderings
-from tests.support.mock_api import MockApi
+from tests.support.mock_api import MockApi, Waits
 
 ENDPOINT = "https://gateway.example.com/anthropic"
 QUESTION = "Which databases are reachable?"
@@ -104,16 +104,6 @@ def _body(
 
 def _api(*bodies: dict) -> MockApi:
     return MockApi([httpx2.Response(200, json=body) for body in bodies])
-
-
-class Waits(list):
-    """The waits between retries, recorded instead of slept."""
-
-    def sleep(self, seconds: float) -> None:
-        self.append(seconds)
-
-    async def sleep_async(self, seconds: float) -> None:
-        self.append(seconds)
 
 
 def _provider(

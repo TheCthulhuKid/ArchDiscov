@@ -74,6 +74,16 @@ def unparseable_body(request: httpx2.Request) -> httpx2.Response:
     return httpx2.Response(200, content=b"{not json", headers={"content-type": "application/json"})
 
 
+class Waits(list):
+    """The waits between retries, recorded instead of slept."""
+
+    def sleep(self, seconds: float) -> None:
+        self.append(seconds)
+
+    async def sleep_async(self, seconds: float) -> None:
+        self.append(seconds)
+
+
 def no_wait(seconds: float) -> None:
     """Retries in the suites do not wait; the adapter tests check the waits."""
 

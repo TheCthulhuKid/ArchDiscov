@@ -16,6 +16,7 @@ import pytest
 from pydantic import SecretStr
 
 from archdiscov.assistant import openai_provider
+from archdiscov.assistant.adapters import MAX_RETRY_WAIT_SECONDS, RETRY_BACKOFF_SECONDS
 from archdiscov.assistant.config import (
     OpenAIProtocol,
     ProviderConfigError,
@@ -31,15 +32,20 @@ from archdiscov.assistant.conversation import (
     TokenUsage,
     ToolCall,
 )
-from archdiscov.assistant.openai_provider import OpenAIProvider
+from archdiscov.assistant.openai_provider import SDK_ERRORS, OpenAIProvider
 from archdiscov.assistant.provider import (
     CompletionRequest,
     CompletionResponse,
+    ProviderAuthenticationError,
     ProviderCapability,
+    ProviderError,
     ProviderErrorCode,
     ProviderInvalidRequestError,
     ProviderMalformedOutputError,
+    ProviderRateLimitError,
     ProviderRefusalError,
+    ProviderTimeoutError,
+    ProviderTransportError,
     ProviderTruncatedOutputError,
     ProviderUnavailableError,
     RequestLimits,
@@ -49,13 +55,14 @@ from archdiscov.assistant.provider import (
 )
 from archdiscov.assistant.providers import load_provider
 from archdiscov.services.ask import ask_question
+from tests.assistant.provider_harness import ChatCompletionsHarness, ResponsesHarness
 from tests.assistant.test_anthropic_provider import EXCHANGE
 from tests.assistant.test_config import OPENAI
 from tests.assistant.test_continuations import THINKING
 from tests.assistant.test_orchestrator import SNAPSHOT
 from tests.assistant.test_provider_contract import INSPECT, SEARCH
 from tests.assistant.test_secret_leaks import SECRET, _renderings
-from tests.support.mock_api import MockApi, unparseable_body
+from tests.support.mock_api import MockApi, Waits, unparseable_body
 
 ENDPOINT = "https://gateway.example.com/v1"
 QUESTION = "Which databases are reachable?"
@@ -100,12 +107,25 @@ def _rejected() -> httpx2.Response:
 
 
 def _provider(
-    api: MockApi, protocol: OpenAIProtocol = OpenAIProtocol.RESPONSES, **fields: Any
+    api: MockApi,
+    protocol: OpenAIProtocol = OpenAIProtocol.RESPONSES,
+    *,
+    waits: Waits | None = None,
+    **fields: Any,
 ) -> OpenAIProvider:
+    """The adapter over `api`, without retries unless `fields` asks for them."""
     config = parse_provider_config(
-        {**OPENAI, "endpoint": ENDPOINT, "protocol": protocol.value, **fields}
+        {**OPENAI, "endpoint": ENDPOINT, "protocol": protocol.value, "max_retries": 0, **fields}
     )
-    return OpenAIProvider(config, SecretStr(SECRET), transport=api, async_transport=api)
+    waits = Waits() if waits is None else waits
+    return OpenAIProvider(
+        config,
+        SecretStr(SECRET),
+        transport=api,
+        async_transport=api,
+        sleep=waits.sleep,
+        async_sleep=waits.sleep_async,
+    )
 
 
 def _create(provider: OpenAIProvider, mode: str = "sync") -> None:
@@ -651,20 +671,120 @@ def test_a_response_without_usage_reports_none() -> None:
     assert _send(_chat(_api(body))).usage == TokenUsage()
 
 
-# ---- until the failure table -----------------------------------------------------
+# ---- failures ----------------------------------------------------------------------
+
+
+def _error(status: int, headers: dict | None = None) -> httpx2.Response:
+    """An API error whose message holds the key, a tool result, and the question."""
+    message = f"{SECRET} tool result: db-a reachable; question: {QUESTION}"
+    body = {"error": {"message": message, "type": "server_error", "code": None}}
+    return httpx2.Response(status, json=body, headers=headers)
+
+
+_ANSWER = CompletionResponse(message=AssistantMessage(text="Done."), stop_reason=StopReason.END)
+# A success body in each protocol's shape.
+_BODIES = {
+    harness.protocol: harness.body(_ANSWER)
+    for harness in (ChatCompletionsHarness, ResponsesHarness)
+}
+
+
+@pytest.mark.parametrize("protocol", PROTOCOLS, ids=str)
+@pytest.mark.parametrize(
+    ("status", "error"),
+    [
+        (400, ProviderInvalidRequestError),
+        (401, ProviderAuthenticationError),
+        (403, ProviderAuthenticationError),
+        (404, ProviderInvalidRequestError),
+        (409, ProviderInvalidRequestError),
+        (413, ProviderInvalidRequestError),
+        (422, ProviderInvalidRequestError),
+        (429, ProviderRateLimitError),
+        (500, ProviderUnavailableError),
+        (502, ProviderUnavailableError),
+        (503, ProviderUnavailableError),
+        (504, ProviderUnavailableError),
+    ],
+)
+def test_statuses_map_to_fixed_safe_errors(caplog, protocol, status: int, error) -> None:
+    caplog.set_level(logging.DEBUG)
+    with pytest.raises(ProviderError) as raised:
+        _send(_provider(MockApi([_error(status)]), protocol))
+    assert type(raised.value) is error
+    assert raised.value.retryable is (error is ProviderRateLimitError)
+    rendered = "".join(_renderings(raised.value)) + caplog.text
+    for leaked in (SECRET, QUESTION, "db-a reachable"):
+        assert leaked not in rendered
 
 
 @pytest.mark.parametrize(
     ("served", "error"),
     [
-        (httpx2.Response(429, json={"error": {"message": QUESTION}}), ProviderUnavailableError),
+        (lambda request: httpx2.ReadTimeout("slow", request=request), ProviderTimeoutError),
+        (lambda request: httpx2.ConnectError("refused", request=request), ProviderTransportError),
         (unparseable_body, ProviderMalformedOutputError),
     ],
-    ids=["api-error", "unparseable-body"],
+    ids=["timeout", "connection", "unparseable"],
 )
-def test_failures_are_typed_and_not_retried_until_the_failure_table(served, error) -> None:
+@pytest.mark.parametrize("protocol", PROTOCOLS, ids=str)
+@pytest.mark.parametrize("mode", ["sync", "async"])
+def test_transport_failures_map_to_typed_errors(served, error, protocol, mode: str) -> None:
+    with pytest.raises(error):
+        _send(_provider(MockApi([served]), protocol), mode)
+
+
+def test_every_sdk_failure_class_has_a_provider_error() -> None:
+    sdk = {
+        cls
+        for cls in list(vars(openai).values())
+        if isinstance(cls, type) and issubclass(cls, openai.APIError)
+    }
+    for cls in sdk:
+        assert any(base in SDK_ERRORS for base in cls.__mro__), cls
+
+
+@pytest.mark.parametrize("protocol", PROTOCOLS, ids=str)
+@pytest.mark.parametrize("mode", ["sync", "async"])
+def test_rate_limits_are_retried_with_exponential_backoff(mode: str, protocol) -> None:
+    waits = Waits()
+    api = MockApi([_error(429), _error(429), httpx2.Response(200, json=_BODIES[protocol])])
+    _send(_provider(api, protocol, waits=waits, max_retries=2), mode)
+    assert len(api.requests) == 3
+    assert waits == [RETRY_BACKOFF_SECONDS, RETRY_BACKOFF_SECONDS * 2]
+
+
+@pytest.mark.parametrize("mode", ["sync", "async"])
+def test_retries_stop_at_the_configured_count(mode: str) -> None:
+    waits = Waits()
+    api = MockApi([lambda request: httpx2.ConnectError("refused", request=request)] * 3)
+    with pytest.raises(ProviderTransportError):
+        _send(_provider(api, CHAT, waits=waits, max_retries=2), mode)
+    assert len(api.requests) == 3 and len(waits) == 2
+
+
+@pytest.mark.parametrize(
+    "served",
+    [_error(503), _error(400), lambda request: httpx2.ReadTimeout("slow", request=request)],
+    ids=["unavailable", "invalid-request", "timeout"],
+)
+def test_other_failures_are_never_retried(served) -> None:
+    waits = Waits()
     api = MockApi([served, httpx2.Response(200, json=_body())])
-    with pytest.raises(error) as raised:
-        _send(_chat(api, max_retries=2))
-    assert len(api.requests) == 1
-    assert QUESTION not in "".join(_renderings(raised.value))
+    with pytest.raises(ProviderError):
+        _send(_provider(api, CHAT, waits=waits, max_retries=3))
+    assert len(api.requests) == 1 and waits == []
+
+
+@pytest.mark.parametrize(
+    ("retry_after", "timeout", "wait"),
+    [("2", 60, 2.0), ("20", 10, 10.0), ("120", 60, MAX_RETRY_WAIT_SECONDS)],
+    ids=["honoured", "request-timeout", "capped"],
+)
+def test_retry_after_is_honoured_within_bounds(retry_after: str, timeout: int, wait) -> None:
+    waits = Waits()
+    api = MockApi([_error(429, {"retry-after": retry_after}), httpx2.Response(200, json=_body())])
+    _send(
+        _provider(api, CHAT, waits=waits, max_retries=1), request=_request(timeout_seconds=timeout)
+    )
+    assert waits == [wait]

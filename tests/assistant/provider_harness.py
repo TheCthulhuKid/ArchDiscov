@@ -70,8 +70,6 @@ class ProviderHarness(Protocol):
     name: str
     # Tells harnesses of one provider kind apart in test IDs.
     label: str
-    # False until the adapter maps provider errors, retries, and timeouts (step 41.5).
-    maps_errors: bool
 
     def build(
         self,
@@ -87,7 +85,6 @@ class ProviderHarness(Protocol):
 
 class FakeHarness:
     name = label = "fake"
-    maps_errors = True
 
     def build(
         self,
@@ -111,7 +108,7 @@ class FakeHarness:
         return len(provider.requests)
 
 
-ANTHROPIC_KEY = SecretStr("sk-ant-api03-HARNESSkey0123456789abcdefXYZ")
+HARNESS_KEY = SecretStr("sk-proj-HARNESSkey0123456789abcdefXYZ")
 _API_STOP_REASONS = {
     StopReason.END: "end_turn",
     StopReason.TOOL_USE: "tool_use",
@@ -167,6 +164,16 @@ def messages_body(response: CompletionResponse) -> dict[str, Any]:
     ).model_dump(mode="json", exclude_unset=True, warnings=False)
 
 
+def _mocked(api: MockApi) -> dict[str, Any]:
+    """An adapter's options for a mocked API whose retries do not wait."""
+    return {
+        "transport": api,
+        "async_transport": api,
+        "sleep": no_wait,
+        "async_sleep": no_wait_async,
+    }
+
+
 class ScopedProvider:
     """A provider with scripted capabilities, for the capability cases of the suite."""
 
@@ -189,12 +196,12 @@ class MockedHarness:
     """An adapter over a mocked API that serves fake turns in its protocol's shape.
 
     A subclass names the provider kind, builds the protocol's response `body`, shows each
-    scripted provider error as the API would (`failures`), and builds its `adapter`.
+    scripted provider error as the API would (`failures`), gives its provider
+    `configuration`, and `construct`s its adapter from a configuration, key, and API.
     """
 
     name: ClassVar[str]
     failures: ClassVar[Mapping[ProviderErrorCode, Served]]
-    maps_errors: ClassVar[bool] = True
 
     def __init__(self) -> None:
         self._apis: dict[Provider, MockApi] = {}
@@ -207,7 +214,11 @@ class MockedHarness:
     def body(response: CompletionResponse) -> dict[str, Any]:
         raise NotImplementedError
 
-    def adapter(self, api: MockApi, max_retries: int) -> Provider:
+    def configuration(self, api_key_env: str) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def construct(self, config: Any, api_key: SecretStr, api: MockApi) -> Provider:
+        """The adapter over `api`, retrying without waiting."""
         raise NotImplementedError
 
     def build(
@@ -219,7 +230,10 @@ class MockedHarness:
         clock: FakeClock | None = None,
     ) -> Provider:
         api = self.api(turns, clock)
-        provider = self.adapter(api, max_retries)
+        config = parse_provider_config(
+            {**self.configuration("PROVIDER_API_KEY"), "max_retries": max_retries}
+        )
+        provider = self.construct(config, HARNESS_KEY, api)
         if capabilities is not None:
             provider = ScopedProvider(provider, capabilities)
         self._apis[provider] = api
@@ -276,26 +290,13 @@ class AnthropicHarness(MockedHarness):
     }
     body = staticmethod(messages_body)
 
-    def adapter(self, api: MockApi, max_retries: int) -> Provider:
-        config = parse_provider_config(
-            {
-                "kind": "anthropic",
-                "model": "claude-sonnet-5-5",
-                "api_key_env": "ANTHROPIC_API_KEY",
-                "max_retries": max_retries,
-            }
-        )
-        return AnthropicProvider(
-            config,
-            ANTHROPIC_KEY,
-            transport=api,
-            async_transport=api,
-            sleep=no_wait,
-            async_sleep=no_wait_async,
-        )
+    def configuration(self, api_key_env: str) -> dict[str, Any]:
+        return {"kind": "anthropic", "model": "claude-sonnet-5-5", "api_key_env": api_key_env}
+
+    def construct(self, config: Any, api_key: SecretStr, api: MockApi) -> Provider:
+        return AnthropicProvider(config, api_key, **_mocked(api))
 
 
-OPENAI_KEY = SecretStr("sk-proj-HARNESSkey0123456789abcdefXYZ")
 _FINISH_REASONS = {
     StopReason.END: "stop",
     StopReason.TOOL_USE: "tool_calls",
@@ -460,26 +461,24 @@ class OpenAIHarness(MockedHarness):
     """The OpenAI-compatible adapter over a mocked API of one protocol."""
 
     name = "openai_compatible"
-    maps_errors = False
     protocol: ClassVar[OpenAIProtocol]
 
     @property
     def label(self) -> str:
         return self.protocol.value
 
-    def adapter(self, api: MockApi, max_retries: int) -> Provider:
-        config = parse_provider_config(
-            {
-                "kind": "openai_compatible",
-                "model": "gpt-5",
-                "api_key_env": "OPENAI_API_KEY",
-                "endpoint": "https://api.openai.com/v1",
-                "protocol": self.protocol.value,
-                "capabilities": ["tool_calling", "parallel_tool_calls"],
-                "max_retries": max_retries,
-            }
-        )
-        return OpenAIProvider(config, OPENAI_KEY, transport=api, async_transport=api)
+    def configuration(self, api_key_env: str) -> dict[str, Any]:
+        return {
+            "kind": "openai_compatible",
+            "model": "gpt-5",
+            "api_key_env": api_key_env,
+            "endpoint": "https://api.openai.com/v1",
+            "protocol": self.protocol.value,
+            "capabilities": ["tool_calling", "parallel_tool_calls"],
+        }
+
+    def construct(self, config: Any, api_key: SecretStr, api: MockApi) -> Provider:
+        return OpenAIProvider(config, api_key, **_mocked(api))
 
 
 class ChatCompletionsHarness(OpenAIHarness):
@@ -494,10 +493,9 @@ class ResponsesHarness(OpenAIHarness):
     body = staticmethod(responses_body)
 
 
-HARNESSES: list[ProviderHarness] = [FakeHarness(), AnthropicHarness()]
-# The orchestration and answer-service suites run the OpenAI-compatible adapter from 41.5.
-CONTRACT_HARNESSES: list[ProviderHarness] = [
-    *HARNESSES,
+HARNESSES: list[ProviderHarness] = [
+    FakeHarness(),
+    AnthropicHarness(),
     ChatCompletionsHarness(),
     ResponsesHarness(),
 ]
