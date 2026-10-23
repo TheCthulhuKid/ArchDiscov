@@ -218,6 +218,10 @@ SAFE_VALIDATION_MESSAGES = MappingProxyType(
             "Evaluation constraint failed: a budget must match the limits and the suite."
         ),
         "evaluation_secret": "Evaluation constraint failed: a model name looks like a secret.",
+        "evaluation_comparison_suite": (
+            "Evaluation constraint failed: a comparison is of the same suite only when both "
+            "suite digests match."
+        ),
     }
 )
 

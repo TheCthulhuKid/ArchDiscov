@@ -2,9 +2,9 @@
 
 Evaluation runs the same questions across configured providers and scores each answer
 against deterministic fixtures: the findings the analyzers return, never the wording of an
-answer. This page describes the suite and report contracts and the scoring in
-`assistant/evaluation.py`, and running a suite with `services/evaluation.py`. Saving and
-comparing reports, and the commands, arrive in later steps of the plan (43.4–43.5).
+answer. This page describes the suite, report, and comparison contracts and the scoring in
+`assistant/evaluation.py`, and running a suite and saving, loading, and comparing reports
+with `services/evaluation.py`. The commands arrive in a later step of the plan (43.5).
 
 ## Suites
 
@@ -94,6 +94,7 @@ transcripts, snapshots, and saved results, plus:
 | `evaluation_providers_invalid` | there are no configurations, or more than 10 |
 | `evaluation_external_not_allowed` | a configuration of a kind other than `fake` without the opt-in |
 | `evaluation_transcript_missing` | a fake configuration, and a case without a `fake_transcript` |
+| `invalid_evaluation_report` | a report to save or load does not validate |
 
 The suite errors carry the suite's path, a refused external configuration its path, and a
 missing transcript the case's ID; none carries a value from the file.
@@ -182,6 +183,38 @@ requests, repairs, tool calls, tokens, and latency.
 A report holds codes, IDs, counts, and scores only: never a question's narrative, quoted
 data, tool output, provider text, configuration values, or credentials, and a model name
 that looks like a secret is invalid.
+
+## Saving and comparing reports
+
+`save_report(report, path)` revalidates the report and publishes it atomically at a new
+path. An invalid report is never written (`invalid_evaluation_report`), and an existing
+path is refused with `snapshot_conflict`, even for an identical report, leaving the file
+unchanged. `load_report(path)` reads a saved report and revalidates it as below: its schema
+version, every record ID against its content, and the totals. A file that cannot be read
+fails with the snapshot read error, malformed JSON with `invalid_json`, and an invalid
+report with `invalid_evaluation_report` and the path.
+
+`compare_reports(before, after)` changes neither report. It pairs provider runs by kind and
+model, in report order, and lists runs without a partner as added or removed. For each pair
+it lists the cases only one run recorded (a cancelled run records fewer) and compares each
+case both recorded:
+
+| Comparison field | Meaning |
+|---|---|
+| `case_id` | the case |
+| `outcome_before`, `outcome_after` | `answered`, `answered_after_repair`, or the failure reason |
+| `analysis_status_before`, `analysis_status_after` | the answer's analysis status, or null |
+| `passed_before`, `passed_after` | whether the case passed |
+| `checks` | each check whose result changed: `before` and `after` are true, false, or null where it was not checked |
+| `finding_ids_added`, `finding_ids_removed` | cited finding IDs, sorted |
+| `usage` | after minus before: provider requests, repairs, tool calls, each token count both report, and latency |
+
+A case has changed when anything but `usage` differs. Usage deltas are information, never a
+pass or fail, since requests, tokens, and latency vary across providers and runs: two fake
+runs of one suite differ only in latency. The comparison names both reports by creation time
+and suite, and `same_suite` is true only when the suite digests match; reports of different
+suites compare only on the cases they share. `save_report_comparison(comparison, path)`
+publishes a comparison under the same no-overwrite rule.
 
 ## Validation
 

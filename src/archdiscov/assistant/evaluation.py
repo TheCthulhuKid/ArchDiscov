@@ -367,6 +367,126 @@ class EvaluationReport(Contract):
         return self
 
 
+# ---- comparisons -------------------------------------------------------------------
+
+
+class CheckChange(Contract):
+    """A check whose result differs between two records; None where it was not checked."""
+
+    name: CheckName
+    before: bool | None
+    after: bool | None
+
+
+class TokenDelta(Contract):
+    """After minus before for each token count both records report, else None."""
+
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cache_read_input_tokens: int | None = None
+    cache_write_input_tokens: int | None = None
+
+    @classmethod
+    def between(cls, before: TokenUsage, after: TokenUsage) -> "TokenDelta":
+        values: dict[str, int | None] = {}
+        for name in TokenUsage.model_fields:
+            old, new = getattr(before, name), getattr(after, name)
+            values[name] = None if old is None or new is None else new - old
+        return cls(**values)
+
+
+class UsageDelta(Contract):
+    """After minus before; information only, since usage varies across providers and runs."""
+
+    provider_requests: int
+    repairs: int
+    tool_calls: int
+    tokens: TokenDelta
+    latency_seconds: float
+
+    @classmethod
+    def between(cls, before: CaseRecord, after: CaseRecord) -> "UsageDelta":
+        old, new = before.usage, after.usage
+        return cls(
+            provider_requests=new.provider_requests - old.provider_requests,
+            repairs=int(new.repair_requested) - int(old.repair_requested),
+            tool_calls=sum(new.tool_calls.values()) - sum(old.tool_calls.values()),
+            tokens=TokenDelta.between(old.tokens, new.tokens),
+            latency_seconds=after.latency_seconds - before.latency_seconds,
+        )
+
+
+class CaseComparison(Contract):
+    """One case recorded in both reports: what its answer showed before and after."""
+
+    case_id: Name
+    outcome_before: CaseOutcome
+    outcome_after: CaseOutcome
+    analysis_status_before: AnalysisStatus | None
+    analysis_status_after: AnalysisStatus | None
+    passed_before: bool
+    passed_after: bool
+    checks: tuple[CheckChange, ...] = Field(max_length=len(CheckName))
+    finding_ids_added: tuple[NonEmptyString, ...]
+    finding_ids_removed: tuple[NonEmptyString, ...]
+    usage: UsageDelta
+
+    @property
+    def changed(self) -> bool:
+        """Whether anything but usage changed."""
+        return bool(
+            self.outcome_before != self.outcome_after
+            or self.analysis_status_before != self.analysis_status_after
+            or self.passed_before != self.passed_after
+            or self.checks
+            or self.finding_ids_added
+            or self.finding_ids_removed
+        )
+
+
+class ComparedRun(Contract):
+    """A provider run, by its position in its report, kind, and model."""
+
+    position: NonNegativeInt
+    provider_kind: ProviderKindName
+    model: Annotated[str, Field(min_length=1, max_length=256)]
+
+
+class ProviderComparison(Contract):
+    """One provider's runs in both reports: cases only one recorded, and each shared case
+    in the later run's order."""
+
+    before: ComparedRun
+    after: ComparedRun
+    cases_added: tuple[Name, ...] = Field(max_length=MAX_CASES)
+    cases_removed: tuple[Name, ...] = Field(max_length=MAX_CASES)
+    cases: tuple[CaseComparison, ...] = Field(max_length=MAX_CASES)
+
+
+class ComparedReport(Contract):
+    created_at: AwareDatetime
+    suite: SuiteReference
+
+
+class ReportComparison(Contract):
+    """Two reports compared provider by provider; across suites (`same_suite` false), only
+    the cases both recorded are compared."""
+
+    schema_version: Literal["1"] = SCHEMA_VERSION
+    before: ComparedReport
+    after: ComparedReport
+    same_suite: bool
+    providers: tuple[ProviderComparison, ...] = Field(max_length=MAX_PROVIDERS)
+    providers_added: tuple[ComparedRun, ...] = Field(max_length=MAX_PROVIDERS)
+    providers_removed: tuple[ComparedRun, ...] = Field(max_length=MAX_PROVIDERS)
+
+    @model_validator(mode="after")
+    def require_consistent_suites(self) -> Self:
+        if self.same_suite != (self.before.suite.digest == self.after.suite.digest):
+            raise validation_error("evaluation_comparison_suite", "same suite means same digest")
+        return self
+
+
 # ---- parsing -----------------------------------------------------------------------
 
 _DIAGNOSTIC_FIELDS = frozenset(
