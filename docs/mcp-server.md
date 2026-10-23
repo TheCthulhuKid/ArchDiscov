@@ -5,8 +5,8 @@ Claude Code or Claude Desktop, so that the client's own model can answer questio
 selected snapshots with the same bounded, read-only tools the [`ask` command](ask-command.md)
 offers. It needs no provider configuration, credentials, or network. It is built in phase 5
 of the plan: this page describes what is implemented so far, the server in
-`src/archdiscov/assistant/mcp_server.py`, which lists and runs the tools within bounds.
-Submitting answers and the `archdiscov mcp` command follow in later steps.
+`src/archdiscov/assistant/mcp_server.py`, which lists and runs the tools within bounds and
+validates submitted answers. The `archdiscov mcp` command follows in a later step.
 
 ## What the server serves
 
@@ -22,7 +22,10 @@ verified snapshots. Clients see:
   its name, description, and input schema unchanged and no output schema: `search_resources`,
   `inspect_resource`, `get_neighbours`, `find_paths`, `inspect_coverage`, `get_evidence`,
   `list_analyzers`, `run_analyzer`, `list_saved_results`, `get_saved_analysis`, and
-  `get_saved_comparison`. `submit_answer` is not served yet.
+  `get_saved_comparison`;
+- then [`submit_answer`](#answers), with the same proposal schema as in `ask` and a
+  description for MCP: submit before presenting any conclusion, correct and resubmit a
+  rejected answer, and present an accepted one as returned.
 
 Only this module imports `mcp`, and nothing imports this module except to build a server:
 the other commands, `ask` runs, and evaluations never load the `mcp` package.
@@ -65,6 +68,26 @@ call returns `tool_session_limit_reached` and dispatches nothing, so nothing mor
 recorded; a new connection starts with its full count. The cap is a backstop against a
 runaway client, not a budget: answering every README example question in one connection
 takes a few dozen calls.
+
+## Answers
+
+A `submit_answer` call is never dispatched as a tool. It counts toward the call cap like
+any call, its arguments get the same bounds, and it is read and validated exactly as an
+`ask` run validates a [proposal](assistant-answers.md#validation), against the IDs this
+connection's tools returned:
+
+- An unreadable proposal (`proposal_malformed` or `proposal_invalid`) or a rejected one
+  (`answer_rejected`, with each rejection's code, location, and fixed message) is an error
+  result in the same form as `ask`'s repair prompt, ending with
+  `"next": "Correct the answer and submit it again."`.
+- An accepted proposal is rendered as in `ask`, with the outcome `answered`, and returned as
+  three text items: a line telling the client to present the answer as returned, the
+  readable answer exactly as `ask` prints it, and the answer JSON that `ask --json` reports
+  as its `result`.
+
+Each submission is validated on its own: there is no repair budget, so an accepted answer is
+`answered` however many rejected ones came before it. Validating and rendering never change
+the connection's run record.
 
 ## Connections
 

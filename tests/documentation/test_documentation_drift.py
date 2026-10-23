@@ -692,7 +692,7 @@ def test_documented_mcp_call_errors_match_the_tool_error_codes():
 
 def test_documented_mcp_tools_and_limits_match_the_code():
     text = " ".join(MCP_DOC.read_text(encoding="utf-8").split())
-    served = text[text.index("no output schema: ") : text.index("`submit_answer` is not served")]
+    served = text[text.index("no output schema: ") : text.index("- then [`submit_answer`]")]
     names = [item.declaration.name for item in default_registry().tools.values()]
     assert re.findall(r"`([a-z_]+)`", served) == names
     tools = tool_contracts.ToolLimits.model_fields

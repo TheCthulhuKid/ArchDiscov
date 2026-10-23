@@ -18,10 +18,18 @@ from mcp import Client
 from pydantic import ValidationError
 
 from archdiscov.assistant import mcp_server
+from archdiscov.assistant.answers import MCP_SUBMIT_DESCRIPTION, submit_answer_declaration
 from archdiscov.assistant.conversation import MAX_TOOL_ARGUMENT_BYTES, ToolCall
 from archdiscov.assistant.conversation import ParsedToolArguments as Parsed
 from archdiscov.assistant.instructions import MCP_INSTRUCTIONS
-from archdiscov.assistant.mcp_server import SERVER_NAME, Connection, ServerLimits, build_server
+from archdiscov.assistant.mcp_server import (
+    PRESENT_ANSWER,
+    SERVER_NAME,
+    SUBMIT_FOLLOW_UP,
+    Connection,
+    ServerLimits,
+    build_server,
+)
 from archdiscov.assistant.tools.catalog import ALL_TOOLS, default_registry
 from archdiscov.assistant.tools.contracts import IdKind, ToolLimits
 from archdiscov.assistant.tools.registry import ToolRegistry
@@ -56,10 +64,12 @@ def _connected(session: ToolSession) -> dict:
     return asyncio.run(connect())
 
 
-def test_the_server_lists_exactly_the_registry_tools() -> None:
+def test_the_server_lists_the_registry_tools_then_submit_answer() -> None:
     tools = _connected(ToolSession.from_paths(SNAPSHOT))["tools"]
-    declarations = default_registry().declarations()
+    submit = submit_answer_declaration(MCP_SUBMIT_DESCRIPTION)
+    declarations = (*default_registry().declarations(), submit)
     assert [tool.name for tool in tools] == [item.name for item in declarations]
+    assert tools[-1].name == "submit_answer"
     for tool, declaration in zip(tools, declarations, strict=True):
         assert tool.description == declaration.description
         # Compared as canonical JSON: key order does not change what a client validates.
@@ -67,7 +77,9 @@ def test_the_server_lists_exactly_the_registry_tools() -> None:
             dict(declaration.input_schema), sort_keys=True
         )
         assert tool.output_schema is None
-    assert "submit_answer" not in {tool.name for tool in tools}
+    # The proposal schema is `ask`'s; only the description differs.
+    assert submit.input_schema == submit_answer_declaration().input_schema
+    assert "exactly once" not in tools[-1].description
 
 
 def test_the_server_names_itself_and_gives_the_mcp_instructions() -> None:
@@ -320,3 +332,113 @@ def test_per_call_limits_truncate_as_in_ask() -> None:
     [expected], _ = _direct(session, calls)
     assert served == expected
     assert json.loads(served[1])["resources"]["truncation"]["reasons"] == ["result_limit"]
+
+
+# ---- submitting answers ------------------------------------------------------------
+
+OWNERSHIP_CASE = README_SUITE.parent / "ownership"
+
+
+def _replies(session: ToolSession, calls: list[Call]) -> list[tuple[bool, list[str]]]:
+    """Each call's error flag and every text item, through one connection, in order."""
+
+    async def run() -> list[tuple[bool, list[str]]]:
+        async with Client(build_server(session)) as client:
+            results = [await client.call_tool(name, arguments) for name, arguments in calls]
+        return [(result.is_error, [item.text for item in result.content]) for result in results]
+
+    return asyncio.run(run())
+
+
+def _example(directory: Path) -> tuple[ToolSession, list[Call], dict]:
+    """A README example's session, its tool calls, and the proposal it submits."""
+    transcript = directory / "transcript.json"
+    turns = json.loads(transcript.read_text(encoding="utf-8"))["turns"]
+    [proposal] = [
+        call["arguments"]["value"]
+        for turn in turns
+        for call in turn["response"]["message"]["tool_calls"]
+        if call["name"] == "submit_answer"
+    ]
+    session = ToolSession.from_paths(directory / "snapshot.json")
+    return session, _transcript_calls(transcript), proposal
+
+
+def _submission(texts: list[str]) -> dict:
+    [text] = texts
+    data = json.loads(text)
+    assert data["next"] == SUBMIT_FOLLOW_UP
+    return data
+
+
+def test_an_accepted_proposal_returns_the_readable_and_json_answer() -> None:
+    session, calls, proposal = _example(OWNERSHIP_CASE)
+    *_, (is_error, texts) = _replies(session, [*calls, ("submit_answer", proposal)])
+    assert not is_error
+    present, readable, data = texts
+    assert present == PRESENT_ANSWER
+    assert readable.splitlines()[0] == "Answer: answered, exit code 0"
+    answer = json.loads(data)
+    assert answer["answer"]["outcome"] == {
+        "status": "answered",
+        "failure": None,
+        "rejections": [],
+        "malformed": None,
+        "provider_error": None,
+        "limit": None,
+    }
+    assert answer["answer"]["status"] == "supported" and answer["answer"]["conclusions"]
+
+
+def test_a_proposal_citing_unreturned_ids_is_rejected() -> None:
+    session, _, proposal = _example(OWNERSHIP_CASE)
+    [(is_error, texts)] = _replies(session, [("submit_answer", proposal)])
+    assert is_error
+    data = _submission(texts)
+    assert data["error"] == "answer_rejected"
+    assert "answer_unknown_id" in {item["code"] for item in data["rejections"]}
+
+
+def test_unreadable_proposals_return_their_reasons() -> None:
+    session, _, proposal = _example(OWNERSHIP_CASE)
+    oversized = {**proposal, "summary": "x" * MAX_TOOL_ARGUMENT_BYTES}
+    invalid = {key: value for key, value in proposal.items() if key != "contexts"}
+    replies = _replies(session, [("submit_answer", oversized), ("submit_answer", invalid)])
+    assert [is_error for is_error, _ in replies] == [True, True]
+    assert [_submission(texts)["error"] for _, texts in replies] == [
+        "proposal_malformed",
+        "proposal_invalid",
+    ]
+
+
+def test_a_rejected_then_accepted_submission_is_answered() -> None:
+    session, calls, proposal = _example(OWNERSHIP_CASE)
+    fabricated = {
+        **proposal,
+        "conclusions": [
+            {"kind": "analyzer_finding", "citations": [{"finding_ids": ["finding-fabricated"]}]}
+        ],
+        "limitations": [],
+    }
+    *_, rejected, accepted = _replies(
+        session, [*calls, ("submit_answer", fabricated), ("submit_answer", proposal)]
+    )
+    assert rejected[0] and _submission(rejected[1])["error"] == "answer_rejected"
+    assert not accepted[0]
+    assert json.loads(accepted[1][2])["answer"]["outcome"]["status"] == "answered"
+
+
+def test_submissions_count_toward_the_cap(connections) -> None:
+    session, calls, proposal = _example(OWNERSHIP_CASE)
+    limits = ServerLimits(max_tool_calls=len(calls) + 1)
+    submissions: list[Call] = [("submit_answer", proposal)] * 2
+    results = _results(session, [*calls, *submissions], limits=limits)
+    assert results[len(calls)][0] is False
+    assert _code(results[-1]) == "tool_session_limit_reached"
+
+
+def test_submitting_does_not_change_the_run_record(connections) -> None:
+    session, calls, proposal = _example(OWNERSHIP_CASE)
+    _results(session, calls, [*calls, ("submit_answer", proposal), ("submit_answer", {})])
+    called, submitted = connections
+    assert called.record.returned() == submitted.record.returned()

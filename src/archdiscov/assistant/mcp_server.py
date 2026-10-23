@@ -1,18 +1,23 @@
 """An MCP server over the assistant tools, for an MCP client to be the model.
 
 The server lists the same tools `ask` offers, from the default registry, with their names,
-descriptions, and input schemas unchanged, and gives clients the MCP instructions. A call
-is bounded and dispatched as `ask` dispatches one, and its result is the tool's JSON as
-text, a tool error included, so a client can recover from it. Each call is bounded by the
-session's per-call `ToolLimits`, and each connection by a cap on its tool calls. Each
-connection works on its own fresh copy of the selected session: the verified snapshot data
-is shared, the run record of returned IDs is not, so one connection never sees another's
-returned IDs. The server keeps no state outside a connection, so it does not depend on the
-transport that serves it.
+descriptions, and input schemas unchanged, then `submit_answer`, and gives clients the MCP
+instructions. A call is bounded and dispatched as `ask` dispatches one, and its result is
+the tool's JSON as text, a tool error included, so a client can recover from it. A
+submission is read and validated as `ask` validates a proposal, against the connection's
+run record: a rejected one returns `ask`'s rejection listing, and an accepted one returns
+`ask`'s readable and JSON answer, `answered` however many rejections came before.
+
+Each call is bounded by the session's per-call `ToolLimits`, and each connection by a cap
+on its tool calls. Each connection works on its own fresh copy of the selected session:
+the verified snapshot data is shared, the run record of returned IDs is not, so one
+connection never sees another's returned IDs. The server keeps no state outside a
+connection, so it does not depend on the transport that serves it.
 
 This is the only module that imports `mcp`; import it only to build a server.
 """
 
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -22,14 +27,27 @@ from mcp import types
 from mcp.server import Server, ServerRequestContext
 from pydantic import Field, ValidationError
 
-from .conversation import Contract, ToolCall, ToolResult, parse_tool_arguments
+from .answer_output import answer_data, answer_text
+from .answer_rendering import render_answer
+from .answer_results import AnswerOutcome, AnswerStatus
+from .answer_validation import validate_proposal
+from .answers import MCP_SUBMIT_DESCRIPTION, SUBMIT_ANSWER, submit_answer_declaration
+from .conversation import Contract, ToolArguments, ToolCall, ToolResult, parse_tool_arguments
 from .instructions import MCP_INSTRUCTIONS
+from .repair import submission_text
+from .runs import MalformedOutput, read_proposal
 from .tools.catalog import default_registry
 from .tools.contracts import ToolErrorCode, render, tool_error
 from .tools.registry import ToolRegistry
 from .tools.session import ToolSession
 
 SERVER_NAME = "archdiscov"
+# What a client is told after a submission is not accepted, and before an accepted answer.
+SUBMIT_FOLLOW_UP = "Correct the answer and submit it again."
+PRESENT_ANSWER = (
+    "The answer was accepted. Present it to the user as it is returned below, without "
+    "adding conclusions to it."
+)
 
 
 class ServerLimits(Contract):
@@ -54,36 +72,66 @@ class Connection:
         return f"mcp-{self.calls}"
 
 
+@dataclass(frozen=True)
+class _Reply:
+    """What a call returns: its text items, and whether it failed."""
+
+    texts: tuple[str, ...]
+    is_error: bool = False
+
+    @classmethod
+    def of(cls, result: ToolResult) -> "_Reply":
+        return cls((result.content,), result.is_error)
+
+
 def _tools(registry: ToolRegistry) -> list[types.Tool]:
+    declarations = (*registry.declarations(), submit_answer_declaration(MCP_SUBMIT_DESCRIPTION))
     return [
         types.Tool(
             name=declaration.name,
             description=declaration.description,
             input_schema=dict(declaration.input_schema),
         )
-        for declaration in registry.declarations()
+        for declaration in declarations
     ]
 
 
-def _error(call_id: str, code: ToolErrorCode, connection: Connection) -> ToolResult:
+def _error(call_id: str, code: ToolErrorCode, connection: Connection) -> _Reply:
     result, _ = render(call_id, tool_error(code), connection.session.limits)
-    return result
+    return _Reply.of(result)
+
+
+def _submit(arguments: ToolArguments, connection: Connection) -> _Reply:
+    """Validate a proposal against the connection's run record; render it if accepted."""
+    outcome = read_proposal(arguments)
+    if isinstance(outcome, MalformedOutput):
+        return _Reply((submission_text(outcome, (), SUBMIT_FOLLOW_UP),), is_error=True)
+    if rejections := validate_proposal(outcome.proposal, connection.session):
+        return _Reply((submission_text(outcome, rejections, SUBMIT_FOLLOW_UP),), is_error=True)
+    rendered = render_answer(
+        outcome.proposal, connection.session, AnswerOutcome(status=AnswerStatus.ANSWERED)
+    )
+    data = json.dumps(answer_data(rendered), indent=2, ensure_ascii=False, allow_nan=False)
+    return _Reply((PRESENT_ANSWER, answer_text(rendered), data))
 
 
 def _dispatch(
     registry: ToolRegistry, connection: Connection, params: types.CallToolRequestParams
-) -> ToolResult:
+) -> _Reply:
     call_id = connection.next_call_id()
     if connection.calls > connection.limits.max_tool_calls:
         return _error(call_id, ToolErrorCode.SESSION_LIMIT_REACHED, connection)
     # MCP lets a call without inputs omit its arguments.
     arguments = parse_tool_arguments({} if params.arguments is None else params.arguments)
+    # `submit_answer` is never dispatched as a tool, here as in `ask`.
+    if params.name == SUBMIT_ANSWER:
+        return _submit(arguments, connection)
     try:
         call = ToolCall(id=call_id, name=params.name, arguments=arguments)
     except ValidationError:
         # Only the client's name can fail: one outside the tool-name pattern names no tool.
         return _error(call_id, ToolErrorCode.UNKNOWN_TOOL, connection)
-    return registry.dispatch(connection.session, call)
+    return _Reply.of(registry.dispatch(connection.session, call))
 
 
 def build_server(session: ToolSession, limits: ServerLimits | None = None) -> Server[Connection]:
@@ -109,12 +157,12 @@ def build_server(session: ToolSession, limits: ServerLimits | None = None) -> Se
         # Dispatch runs here, without an await, so calls on a connection never interleave
         # and the run record sees them in the order they arrived.
         try:
-            result = _dispatch(registry, state, params)
+            reply = _dispatch(registry, state, params)
         except Exception:
-            result = _error(f"mcp-{state.calls}", ToolErrorCode.INTERNAL_ERROR, state)
+            reply = _error(f"mcp-{state.calls}", ToolErrorCode.INTERNAL_ERROR, state)
         return types.CallToolResult(
-            content=[types.TextContent(type="text", text=result.content)],
-            is_error=result.is_error,
+            content=[types.TextContent(type="text", text=text) for text in reply.texts],
+            is_error=reply.is_error,
         )
 
     return Server(
