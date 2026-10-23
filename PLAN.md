@@ -3340,6 +3340,66 @@ Implement and verify substeps 45.1–45.3 in order. Keep the parent planned unti
 
 **Acceptance check:** A fabricated, unreturned, or cross-snapshot citation, a status upgrade, and narrative that repeats imported text are rejected with their codes; a valid proposal renders identically to `answer_question` over the same session and proposal; imported text appears only as quoted data; the README example proposals from `tests/support/ask_examples.py` validate after their tool calls.
 
+Implement and verify substeps 46.1–46.4 in order. Keep the parent planned until every substep's acceptance checks pass.
+
+**Why two refactors come first:** the pieces `submit_answer` needs over MCP exist, but not where the server can use them as they are.
+- Reading a proposal is private to the orchestrator (`_proposal_outcome`), and the rejection listing is built in `repair.py` together with `ask`-only wording ("It is the only tool offered now, and there is no further repair").
+- The readable and JSON answer renderings (`answer_text`, `answer_data`, `display_text`, `redacted_data`) live in `cli_answer_output.py`; the server is under `assistant/`, and importing a CLI module there would invert the layering.
+
+**What stays the same for `ask`:** both refactors move code without changing behaviour. Every `ask` transcript, repair prompt, rendering, and JSON envelope stays byte-identical, and the existing answer, repair, and CLI tests pass unchanged.
+
+**What an MCP submission is:** one `submit_answer` call, validated on its own against the connection's session-wide run record. There is no repair budget and no `answered_after_repair`: an accepted proposal is `answered`, however many rejected ones came before it. Validating and rendering never change the run record.
+
+#### Step 46.1: Share proposal reading and the rejection listing
+**Status:** Planned.
+**Prerequisite:** Step 45.
+
+- Extract the orchestrator's proposal reading into a public function in `assistant/answers.py`: from `ToolArguments` to an `AnswerProposal`, or the `MalformedOutputReason` (`proposal_malformed` or `proposal_invalid`) a repair reports. The orchestrator calls it unchanged.
+- Split the submission result in `repair.py` into a body (the unreadable reason and its fixed message, or `answer_rejected` with up to `MAX_LISTED_REJECTIONS` codes, locations, and fixed messages and the unlisted count) and the follow-up line. `ask` keeps `RESUBMIT` as its follow-up; the MCP server will pass its own (step 46.3). `PROPOSAL_MIXED` stays `ask`-only, since an MCP call is always one call.
+
+**Advice:** Keep the extracted functions free of transport and conversation types beyond what they read, so the MCP server needs no orchestrator import.
+
+**Acceptance check:** The orchestrator and repair tests pass unchanged, and the repair prompts for every rejection code and unreadable reason are byte-identical to before; new unit tests cover the shared reader (a valid, a malformed, and an invalid proposal) and the body with another follow-up line, including the listing bound.
+
+#### Step 46.2: Move the answer renderings below the CLI
+**Status:** Planned.
+**Prerequisite:** Step 46.1.
+
+- Move `answer_text`, `answer_data`, `display_text`, `redacted_data`, and `ANSWER_JSON_VERSION`, which do not depend on Typer, from `cli_answer_output.py` into a new `assistant/answer_output.py`. `cli_answer_output.py` keeps `print_answer` and imports the rest, and `cli_ask_output.py` and `cli_evaluation_output.py` import from the new module.
+- Update the docstrings and `docs/project-layout.md` if it names the module.
+
+**Advice:** This is a move, not a rewrite: diff the moved functions against the originals, and keep the documentation-drift tests that pin the answer JSON contract pointing at the moved code.
+
+**Acceptance check:** Every `ask` and `evaluate` rendering, readable and JSON, is byte-identical to before (the existing CLI and acceptance tests pass unchanged); `assistant/answer_output.py` imports nothing from the CLI or Typer, checked by a test.
+
+#### Step 46.3: Serve `submit_answer`
+**Status:** Planned.
+**Prerequisite:** Step 46.2.
+
+- List `submit_answer` after the registry's tools, with the proposal's input schema from `submit_answer_declaration()` unchanged and an MCP description (submit before presenting any conclusion; correct and resubmit after rejections; present an accepted answer as returned) instead of the `ask` one, which says to submit exactly once. Keep both descriptions in `answers.py`, side by side.
+- Handle a `submit_answer` call in the server, not the registry, since it is never dispatched as a tool:
+  - count it toward the connection's call cap first, like every call;
+  - bound its arguments as any call's and read them with the shared reader; an unreadable proposal is an error result with the shared body and an MCP follow-up line ("Correct the answer and submit it again.");
+  - validate it with `validate_proposal` over the connection's session; rejections are an error result with the shared body and the same follow-up;
+  - render an accepted proposal with `render_answer` and the outcome `answered`, and return a non-error result of two text items: the readable answer (`answer_text`) and the answer JSON (`answer_data`), preceded by one fixed line telling the client to present the answer as returned.
+- Update the server instructions only if the served description makes a statement in them redundant; any change to `MCP_INSTRUCTIONS` bumps `MCP_INSTRUCTIONS_VERSION`.
+
+**Advice:** The readable answer is `ask`'s, byte for byte, including its evidence-inspection hint; do not tailor it for MCP, so the two cannot drift.
+
+**Acceptance check:** In-memory client tests list `submit_answer` last with the proposal schema; a README example's proposal, submitted after its tool calls, returns the readable and JSON answer, and the same proposal submitted before them is rejected for unreturned IDs; malformed and invalid proposals return their reasons; a rejected and then an accepted submission give `answered`; submissions count toward the cap; the run record is unchanged by submitting.
+
+#### Step 46.4: Prove parity with `ask` and document answers
+**Status:** Planned.
+**Prerequisite:** Step 46.3.
+
+- Run the adversarial proposals through the server after their tool calls, from the checked-in adversarial suite where it has them: a fabricated finding ID (`answer_unknown_id`), unreturned evidence (`answer_id_not_returned`), a status upgrade (`answer_status_upgrade`), and narrative that repeats imported text (`answer_narrative_imported_text`); add a cross-snapshot citation (`answer_other_snapshot_id`) over a comparison session, reusing the answer suite's scenario.
+- Compare with `ask`: for every README example and the injected-text case, the accepted rendering equals `answer_question`'s over the same session and proposal with the fake provider, readable and JSON; for every rejected proposal, the rejection codes and locations equal `validate_proposal`'s.
+- Document answers in `docs/mcp-server.md`: the `submit_answer` contract, the result shapes, the session-wide run record, no repair budget and the `answered` outcome, and what the server cannot enforce (a client's own text outside a submitted answer). Extend the drift tests to the served description, the follow-up line, and the result shapes.
+
+**Advice:** Reuse the evaluation fixtures and the answer suites' scenarios rather than writing new proposals; a parity test is only as good as the variety of proposals it compares.
+
+**Acceptance check:** Every adversarial proposal is rejected with its code over MCP exactly as `validate_proposal` rejects it; every accepted rendering equals `ask`'s; imported text appears only as quoted data in an accepted answer; the documentation states the cannot-enforce limit, and its contracts match the code.
+
 ### Step 47: Add the `archdiscov mcp` command
 **Status:** Planned.
 **Prerequisite:** Step 46.
