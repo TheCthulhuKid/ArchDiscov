@@ -3413,6 +3413,69 @@ Implement and verify substeps 46.1–46.4 in order. Keep the parent planned unti
 
 **Acceptance check:** CLI tests cover each pre-serve diagnostic and exit code, a clean disconnect, and an interrupt; a stdio client session through the command lists the tools and the five prompts, gets each prompt's question exactly as the README states it, and answers a README example; standard output carries only protocol messages.
 
+Implement and verify substeps 47.1–47.4 in order. Keep the parent planned until every substep's acceptance checks pass.
+
+**Where things go:**
+- The README questions become a production constant in a new `assistant/questions.py`, which imports no `mcp`, so the prompts, the tests, and the README check share one list.
+- Serving over stdio lives in `services/mcp.py`, which loads the selection and imports `assistant/mcp_server.py` only once the files are verified.
+- The command lives in `cli_mcp.py`, which stays routing and presentation, and imports the service lazily so no other command loads `mcp`.
+
+**What is reused:**
+- `ToolSession.from_paths` for the selection, as `ask_question_async` calls it, and `safe_assistant_failures` for the pre-serve diagnostics and exit codes.
+- `mcp.server.stdio.stdio_server`, which already points file descriptor 1 at standard error while serving, so stray output from a handler or library cannot reach the protocol stream.
+- `ServerLimits` for `--max-tool-calls`, its bounds becoming the option's bounds.
+- The `mcp` package's stdio client (`StdioServerParameters`, `stdio_client`) as the test client for the real command.
+
+**What the tests cannot cover in process:** a stdio session needs the command's own standard input and output, so protocol tests run the command in a subprocess; diagnostics and exit codes before serving stay in-process tests with Typer's runner.
+
+#### Step 47.1: Offer the README questions as prompts
+**Status:** Planned.
+**Prerequisite:** Step 46.
+
+- Add `assistant/questions.py` with the five README example questions, each keyed by the analyzer kind it leads to (`internet_exposure`, `database_access`, `security_group_impact`, `cross_account_trust`, `ownership`), in the README's order. `tests/support/ask_examples.py` takes its question constants from it, and the existing check that reads the README's question list now compares it with the new constant.
+- List one MCP prompt per question, named by the analyzer kind, with a short fixed description and no arguments. Getting a prompt returns one user message whose text is the question exactly; the prompt adds no instructions of its own.
+- An unknown prompt name, or arguments for a prompt that takes none, is an MCP invalid-params error with a fixed message that does not echo the input.
+
+**Advice:** Keep the questions in one place: if the README's wording changes, the README check fails until the constant follows, and the prompts follow the constant.
+
+**Acceptance check:** In-memory client tests list exactly five prompts, in README order and named by analyzer kind, with no arguments; each prompt returns its README question as one user message and nothing else; an unknown name and unexpected arguments return the fixed error without the input; the README check now uses the production constant, and `assistant/questions.py` imports no `mcp`.
+
+#### Step 47.2: Serve the selection over stdio
+**Status:** Planned.
+**Prerequisite:** Step 47.1.
+
+- Add `services/mcp.py` with a function that takes the selected paths and `ServerLimits`, loads and verifies the selection with `ToolSession.from_paths` (raising the same errors as `ask` before anything is served), then builds the server and serves it with `stdio_server` until the client closes the connection.
+- Hold the `mcp` package's loggers at `WARNING`, as the Bedrock adapter holds `boto3`'s, so no log line carries a request, a tool result, or a proposal; any log goes to standard error.
+- Let an interrupt end serving: the function returns normally when the client disconnects, and lets `KeyboardInterrupt` reach the caller after `stdio_server` has restored the standard descriptors.
+
+**Advice:** Do not catch broad exceptions around serving: a failure inside a call is already a tool error (step 45.2), so anything that escapes is a bug and should stop the process with a diagnostic, not hang it.
+
+**Acceptance check:** Service tests show a missing snapshot, an invalid snapshot, and a saved comparison of unselected snapshots fail before any server is built (with `mcp` still unimported), and that serving over explicit in-memory streams answers a README example and returns when the client closes; the logger levels are set while serving.
+
+#### Step 47.3: Add the `archdiscov mcp` command
+**Status:** Planned.
+**Prerequisite:** Step 47.2.
+
+- Add `archdiscov mcp --snapshot PATH [--compare PATH] [--comparison-result PATH ...] [--max-tool-calls N]` in `cli_mcp.py`: the options mirror `ask`'s selection, and `--max-tool-calls` takes `ServerLimits`' default and bounds. There is no `--json`: standard output belongs to the protocol, so pre-serve diagnostics are always the readable ones, on standard error.
+- Exit codes: 1 and 2 for file and input errors before serving, as in `ask`; 0 when the client disconnects; 130 when interrupted. A usage error is Typer's 2.
+- Import the service only inside the command, and extend the import-isolation test so `archdiscov --help` and every other command still leave `mcp` unimported.
+
+**Advice:** Keep the command's help text about what the server reads and that it never writes or reaches a network, so a user configuring a client sees the boundary where they look first.
+
+**Acceptance check:** In-process CLI tests cover each pre-serve diagnostic and its exit code (a missing snapshot, an invalid snapshot, a saved comparison of unselected snapshots, an out-of-range `--max-tool-calls`), with nothing on standard output. Subprocess tests drive the real command with the `mcp` stdio client: it lists the tools and the five prompts, returns each prompt's question, answers a README example through its tool calls and `submit_answer`, and exits 0 when the client disconnects; an interrupt exits 130; a raw stdio session shows every standard-output line is a JSON-RPC message.
+
+#### Step 47.4: Document running the server and client setup
+**Status:** Planned.
+**Prerequisite:** Step 47.3.
+
+- Add a "Running the server" section to `docs/mcp-server.md`: the command and options, the exit codes, that snapshots are chosen when the server starts and cannot change during a session, and the prompts.
+- Document client setup with absolute paths chosen at configuration time: Claude Code (`claude mcp add archdiscov -- archdiscov mcp --snapshot PATH`) and Claude Desktop (an `mcpServers` entry with the command and its arguments). Check both against the clients' current documentation when writing them, since neither can be exercised offline.
+- Link the page from the ask page, and extend the drift tests: the documented options and exit codes match the command, the prompt list matches `assistant/questions.py`, and `mcp` joins the commands whose every option must be documented. The README tables follow in step 48.
+
+**Advice:** Show one complete working configuration per client rather than every option; link the full option list instead of repeating it.
+
+**Acceptance check:** The documented command, options, exit codes, and prompts match the code, checked by drift tests; every `archdiscov mcp` invocation in the docs uses only real options; the client examples name absolute snapshot paths and no credentials.
+
 ### Step 48: Close phase 5 with acceptance and documentation
 **Status:** Planned.
 **Prerequisite:** Step 47.
