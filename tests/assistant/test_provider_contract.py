@@ -32,7 +32,7 @@ from archdiscov.assistant.provider import (
     complete,
     complete_async,
 )
-from tests.assistant.provider_harness import ProviderHarness
+from tests.assistant.provider_harness import CONTRACT_HARNESSES, ProviderHarness
 
 SECRET = "sk-ant-api03-SECRETvalue0123456789abcdefXYZ"
 SEARCH = ToolDeclaration(
@@ -47,6 +47,18 @@ TEXT_ONLY = ProviderCapabilities()
 SCRIPTABLE_ERRORS = [
     code for code in ProviderErrorCode if code != ProviderErrorCode.UNSUPPORTED_CAPABILITY
 ]
+
+
+@pytest.fixture(params=CONTRACT_HARNESSES, ids=lambda harness: harness.name)
+def harness(request) -> ProviderHarness:
+    return request.param
+
+
+@pytest.fixture
+def mapped_errors(harness: ProviderHarness) -> None:
+    """Skip error and timeout cases for an adapter whose error mapping is still to come."""
+    if not harness.maps_errors:
+        pytest.skip(f"{harness.name} maps provider errors from step 41.5")
 
 
 @pytest.fixture(params=["sync", "async"])
@@ -166,6 +178,7 @@ def test_conversations_with_tool_exchanges_are_accepted(harness: ProviderHarness
 
 
 @pytest.mark.parametrize("code", SCRIPTABLE_ERRORS, ids=lambda code: code.value)
+@pytest.mark.usefixtures("mapped_errors")
 def test_errors_carry_stable_codes_and_safe_diagnostics(
     harness: ProviderHarness, send, code: ProviderErrorCode
 ) -> None:
@@ -186,6 +199,7 @@ def test_errors_carry_stable_codes_and_safe_diagnostics(
 
 
 @pytest.mark.parametrize("code", [ProviderErrorCode.TRANSPORT, ProviderErrorCode.RATE_LIMIT])
+@pytest.mark.usefixtures("mapped_errors")
 def test_retryable_errors_are_retried_up_to_the_configured_count(
     harness: ProviderHarness, send, code: ProviderErrorCode
 ) -> None:
@@ -209,6 +223,7 @@ def test_retryable_errors_are_retried_up_to_the_configured_count(
     ],
     ids=lambda code: code.value,
 )
+@pytest.mark.usefixtures("mapped_errors")
 def test_other_errors_are_never_retried(
     harness: ProviderHarness, send, code: ProviderErrorCode
 ) -> None:
@@ -268,6 +283,7 @@ def test_text_only_providers_still_answer_text_requests(harness: ProviderHarness
 # ---- limits ------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("mapped_errors")
 def test_requests_beyond_the_timeout_fail_as_timeouts_without_retry(
     harness: ProviderHarness, send
 ) -> None:

@@ -9,7 +9,13 @@ import typer.main
 from annotated_types import Ge, Gt, Le
 
 from archdiscov import cli_answer_output, cli_ask_output
-from archdiscov.assistant import adapters, answer_results, answer_validation, anthropic_provider
+from archdiscov.assistant import (
+    adapters,
+    answer_results,
+    answer_validation,
+    anthropic_provider,
+    openai_provider,
+)
 from archdiscov.assistant import answers as assistant_answers
 from archdiscov.assistant import config as assistant_config
 from archdiscov.assistant import conversation as assistant_conversation
@@ -23,6 +29,7 @@ from archdiscov.assistant.provider import (
     ProviderError,
     ProviderErrorCode,
     RequestLimits,
+    StopReason,
     UnsupportedCapabilityError,
 )
 from archdiscov.assistant.tools import contracts as tool_contracts
@@ -242,6 +249,16 @@ def test_documented_anthropic_stop_reasons_match_the_adapter():
     for row in rows[:-1]:
         reason = row[0].split(",")[0].strip("` ")
         assert f"`{anthropic_provider._STOP_REASONS[reason].value}`" in row[1], reason
+
+
+def test_documented_chat_completions_finish_reasons_match_the_adapter():
+    rows = table_rows(PROVIDERS_DOC, "| `finish_reason` | Maps to")
+    mapped = openai_provider._FINISH_REASONS
+    assert [row[0].strip("`") for row in rows[:-1]] == list(mapped)
+    for reason, target in ((row[0].strip("`"), row[1]) for row in rows[:-1]):
+        outcome = mapped[reason]
+        code = outcome.value if isinstance(outcome, StopReason) else outcome.code.value
+        assert target.startswith(f"`{code}`"), reason
 
 
 def test_documented_anthropic_failures_match_the_adapter():

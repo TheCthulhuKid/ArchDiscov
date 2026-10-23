@@ -5,8 +5,8 @@ conversation and tool-call contracts, provider errors and capabilities, the `Pro
 protocol, provider configuration, and the scripted fake provider used to test everything
 above it. The `ask` command builds its provider from a configuration file: the fake, the
 [Anthropic adapter](#anthropic-adapter), or the
-[OpenAI-compatible adapter](#openai-compatible-adapter), which does not answer yet;
-`bedrock` has no adapter yet. The
+[OpenAI-compatible adapter](#openai-compatible-adapter), which answers through Chat
+Completions and not yet through Responses; `bedrock` has no adapter yet. The
 [assistant tools](assistant-tools.md), [orchestration](assistant-orchestration.md), and
 [answers](assistant-answers.md) build on this layer. Only an adapter module imports a
 vendor SDK, and only when its kind is built.
@@ -314,8 +314,12 @@ ARCHDISCOV_LIVE_ANTHROPIC_MODEL=claude-sonnet-5-5 \
 `assistant/openai_provider.py` is the only module that imports the `openai` SDK, and
 `ADAPTERS` imports it only when an `openai_compatible` configuration is built. One adapter
 serves OpenAI and compatible servers (gateways and local model servers) through either
-protocol. Building it makes no request. Until the protocol mappings land (steps 41.3 and
-41.4), it sends nothing: each request fails with `provider_unavailable`.
+protocol. Building it makes no request. It answers through
+[Chat Completions](#chat-completions); until the Responses mapping lands (step 41.4), a
+`responses` configuration sends nothing and each request fails with `provider_unavailable`.
+Until its failure table lands (step 41.5), any API or connection failure is
+`provider_unavailable`, an unparseable body is `provider_malformed_output`, and nothing is
+retried.
 
 ```toml
 kind = "openai_compatible"
@@ -349,6 +353,44 @@ the Anthropic adapter:
   timeouts are `connect_timeout_seconds` and `request_timeout_seconds`.
 - The `openai` and `httpx2` loggers are held at `WARNING` whatever `OPENAI_LOG` or the root
   level says, because their debug records hold request bodies.
+
+#### Chat Completions
+
+With `protocol = "chat_completions"`, each request becomes one `chat.completions.create`
+call, holding only fields the protocol defines:
+
+- System and user messages become `system` and `user` messages, in order. An assistant
+  message becomes an `assistant` message with its text as `content` (left out when there is
+  none) and its calls as `function` tool calls whose arguments are compact JSON text; a call
+  with malformed arguments, which never ran, is replayed as `{}`. Each tool result becomes
+  its own `tool` message with its `tool_call_id`; the protocol has no error flag, so a
+  failed tool's content says so itself.
+- Tools become `function` declarations with `name`, `description`, and `parameters`, with
+  `tool_choice` `auto`. `parallel_tool_calls` is sent only when `parallel_tool_calls` is
+  declared, set to whether `max_tool_calls_per_turn` exceeds 1. `max_completion_tokens` is
+  `max_output_tokens`, and the request's timeout is passed with it.
+- No sampling parameters, `n`, or streaming are sent; the model's defaults apply.
+
+The response is untrusted. It must hold exactly one choice; several or none are
+`provider_malformed_output`. The message's `content` is the text, and its `function` tool
+calls become tool calls through the shared argument parsing, so invalid JSON and
+non-object arguments are malformed-arguments values; any other tool-call type, or a
+response that does not fit the contracts, is `provider_malformed_output`. A non-empty
+`refusal` field is the `refusal` stop with its text, whatever the finish reason. Usage maps
+`prompt_tokens` (which include cached tokens), `completion_tokens`, and
+`prompt_tokens_details` `cached_tokens` and `cache_write_tokens` as cache read and write.
+
+| `finish_reason` | Maps to |
+|---|---|
+| `stop` | `end` |
+| `tool_calls` | `tool_use` |
+| `length` | `length` for text alone; otherwise `provider_truncated_output` |
+| `content_filter` | `provider_refusal` |
+| any other, such as `function_call` | `provider_malformed_output` |
+
+Chat Completions returns no reasoning to replay, so it never sets a continuation, and a
+conversation holding one, from any provider kind, is refused as `provider_invalid_request`
+before anything is sent.
 
 ### Credentials
 

@@ -11,9 +11,10 @@ their debug records hold request bodies.
 `Retries` maps an SDK failure to a typed provider error through the failure's class
 hierarchy, never by message text, and retries only transport and rate-limit errors, up to
 `max_retries`, after a bounded exponential backoff or the server's `retry-after`, never
-longer than the request timeout. The response rules apply to any protocol: `require_known`
-refuses unknown block or item types, and `require_text_only` refuses a length or refusal
-stop that carries tool calls or no text.
+longer than the request timeout. The response rules apply to any protocol:
+`untrusted_response` turns a response that does not fit the contracts into malformed
+output, `require_known` refuses unknown block or item types, and `require_text_only`
+refuses a length or refusal stop that carries tool calls or no text.
 """
 
 import asyncio
@@ -26,9 +27,10 @@ from itertools import count
 from typing import Any
 
 import httpx2
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 
 from .provider import (
+    CompletionResponse,
     ProviderError,
     ProviderMalformedOutputError,
     ProviderRefusalError,
@@ -201,6 +203,14 @@ class Retries:
 
 
 # ---- responses ----------------------------------------------------------------------
+
+
+def untrusted_response[T](mapping: Callable[[T], CompletionResponse], raw: T) -> CompletionResponse:
+    """Map an untrusted response; anything that does not fit the contracts is malformed."""
+    try:
+        return mapping(raw)
+    except (ValidationError, AttributeError, TypeError) as error:
+        raise ProviderMalformedOutputError() from error
 
 
 def require_known(kinds: Iterable[Any], known: Collection[str]) -> None:

@@ -31,7 +31,7 @@ from anthropic.types import (
     ToolResultBlockParam,
     ToolUseBlockParam,
 )
-from pydantic import SecretStr, ValidationError
+from pydantic import SecretStr
 
 from .adapters import (
     HTTP_HEADERS,
@@ -41,6 +41,7 @@ from .adapters import (
     quiet_loggers,
     require_known,
     require_text_only,
+    untrusted_response,
 )
 from .config import AnthropicProviderConfig, ProviderKind
 from .conversation import (
@@ -172,14 +173,14 @@ class AnthropicProvider:
         message = self._retries.call(
             lambda: self._client.messages.create(**params), request.limits.timeout_seconds
         )
-        return _response(message)
+        return untrusted_response(_response, message)
 
     async def complete_async(self, request: CompletionRequest) -> CompletionResponse:
         params = self._params(request)
         message = await self._retries.call_async(
             lambda: self._async_client.messages.create(**params), request.limits.timeout_seconds
         )
-        return _response(message)
+        return untrusted_response(_response, message)
 
     def _params(self, request: CompletionRequest) -> dict[str, Any]:
         """The `messages.create` arguments for one request; no sampling or forced tool choice."""
@@ -275,14 +276,6 @@ def _message_params(messages: Iterable[Message]) -> list[MessageParam]:
 
 
 def _response(message: anthropic.types.Message) -> CompletionResponse:
-    """The shared contract for an untrusted response; anything that does not fit is malformed."""
-    try:
-        return _mapped(message)
-    except (ValidationError, AttributeError, TypeError) as error:
-        raise ProviderMalformedOutputError() from error
-
-
-def _mapped(message: anthropic.types.Message) -> CompletionResponse:
     stop = _STOP_REASONS.get(message.stop_reason)
     if stop is None:
         raise ProviderMalformedOutputError()
