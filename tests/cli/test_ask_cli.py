@@ -11,10 +11,10 @@ from click import unstyle
 from typer.testing import CliRunner
 
 from archdiscov import cli_ask
+from archdiscov.assistant.answer_output import ANSWER_JSON_VERSION
 from archdiscov.assistant.answer_results import RenderedAnswer
 from archdiscov.assistant.runs import RunTranscript
 from archdiscov.cli import app
-from archdiscov.cli_answer_output import ANSWER_JSON_VERSION
 from archdiscov.cli_ask_output import ASK_JSON_VERSION
 from archdiscov.services import AskCancelled, compare_snapshots, load_snapshot, save_comparison
 from archdiscov.services.ask import RunSummary

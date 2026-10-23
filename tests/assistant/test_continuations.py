@@ -5,6 +5,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
+from archdiscov.assistant.answer_output import answer_data, answer_text
 from archdiscov.assistant.conversation import (
     MAX_CONTINUATION_BYTES,
     AssistantMessage,
@@ -21,7 +22,6 @@ from archdiscov.assistant.runs import (
     RunLimitKind,
     RunLimits,
 )
-from archdiscov.cli_answer_output import answer_data, answer_text
 from tests.assistant.test_answer_service import SEARCH, _answer, _proposal, _submit
 from tests.assistant.test_orchestrator import _calls, _continued, _run, _text
 from tests.paths import TESTS_ROOT

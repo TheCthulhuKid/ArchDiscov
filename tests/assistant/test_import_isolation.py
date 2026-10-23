@@ -99,10 +99,10 @@ answered = answer_service.answer_question(
     model="fake",
 )
 assert answered.outcome.failure == "no_proposal_after_repair"
-from archdiscov import cli_answer_output
+from archdiscov.assistant import answer_output
 
-assert cli_answer_output.answer_text(answered.rendered).startswith("Answer: failed")
-assert cli_answer_output.answer_data(answered.rendered)["exit_code"] == 5
+assert answer_output.answer_text(answered.rendered).startswith("Answer: failed")
+assert answer_output.answer_data(answered.rendered)["exit_code"] == 5
 assert answer_results.final_outcome(
     run.outcome, (), repaired=True
 ).failure == answer_results.FailureReason.NO_PROPOSAL_AFTER_REPAIR
@@ -228,5 +228,19 @@ def test_only_the_mcp_server_imports_mcp() -> None:
         capture_output=True,
         text=True,
         cwd=PROJECT_ROOT,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_the_answer_output_imports_no_cli_or_typer() -> None:
+    script = (
+        "import sys\n"
+        "from archdiscov.assistant import answer_output\n"
+        "loaded = [name for name in sys.modules if name == 'typer'"
+        " or name.startswith(('typer.', 'archdiscov.cli'))]\n"
+        "assert not loaded, loaded\n"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, cwd=PROJECT_ROOT
     )
     assert completed.returncode == 0, completed.stderr

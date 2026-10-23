@@ -8,9 +8,10 @@ import pytest
 import typer.main
 from annotated_types import Ge, Gt, Le
 
-from archdiscov import cli_answer_output, cli_ask_output, cli_evaluation
+from archdiscov import cli_ask_output, cli_evaluation
 from archdiscov.assistant import (
     adapters,
+    answer_output,
     answer_results,
     answer_validation,
     anthropic_provider,
@@ -551,7 +552,7 @@ def test_documented_answer_outcomes_match_the_statuses_reasons_and_exit_codes():
 def test_documented_answer_json_matches_the_contract():
     top = table_rows(ANSWERS_DOC, "| Key | Holds")
     assert [row[0].strip("`") for row in top] == ["schema_version", "exit_code", "answer"]
-    assert f"`{cli_answer_output.ANSWER_JSON_VERSION}`" in top[0][1]
+    assert f"`{answer_output.ANSWER_JSON_VERSION}`" in top[0][1]
     answer = table_rows(ANSWERS_DOC, "| `answer` key | Holds")
     assert [row[0].strip("`") for row in answer] == list(answer_results.RenderedAnswer.model_fields)
 
