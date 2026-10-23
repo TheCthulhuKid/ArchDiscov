@@ -26,8 +26,10 @@ from archdiscov.assistant.answer_service import (
     AnswerResult,
     answer_question_async,
 )
+from archdiscov.assistant.config import ProviderConfig
 from archdiscov.assistant.conversation import MAX_TEXT_CHARS, Contract, TokenUsage, UserMessage
 from archdiscov.assistant.orchestrator import run_sync
+from archdiscov.assistant.provider import Provider
 from archdiscov.assistant.providers import load_provider
 from archdiscov.assistant.runs import RunLimits, RunTranscript
 from archdiscov.assistant.tools.session import ToolSession
@@ -103,6 +105,45 @@ def _write_transcript(answer: AnswerResult, path: Path | None) -> None:
         publish_text(render_json(answer.transcript), path, subject=_TRANSCRIPT)
 
 
+async def answer_selected(
+    question: str,
+    *,
+    config: ProviderConfig,
+    provider: Provider,
+    session: ToolSession,
+    clock: Callable[[], float] = time.monotonic,
+) -> AskResult:
+    """Answer over an open session with a built provider, within the configuration's limits.
+
+    Cancelling the task raises `AskCancelled`, whose `result` explains the cancelled run.
+    """
+    limits = RunLimits.from_config(config)
+
+    def result(answer: AnswerResult) -> AskResult:
+        summary = RunSummary(
+            snapshots=rendered_snapshots(session),
+            provider_kind=config.kind.value,
+            model=config.model,
+            limits=limits,
+            usage=ToolUsage.from_transcript(answer.transcript),
+        )
+        return AskResult(answer=answer, summary=summary)
+
+    try:
+        answer = await answer_question_async(
+            question,
+            provider=provider,
+            session=session,
+            provider_kind=config.kind.value,
+            model=config.model,
+            limits=limits,
+            clock=clock,
+        )
+    except AnswerCancelled as cancelled:
+        raise AskCancelled(result(cancelled.result)) from cancelled
+    return result(answer)
+
+
 async def ask_question_async(
     question: str,
     *,
@@ -129,39 +170,21 @@ async def ask_question_async(
         comparison_path=comparison_path,
         comparison_result_paths=comparison_result_paths,
     )
-    limits = RunLimits.from_config(config)
     if transcript_path is not None:
         require_new_path(transcript_path, subject=_TRANSCRIPT)
-
-    def result(answer: AnswerResult) -> AskResult:
-        summary = RunSummary(
-            snapshots=rendered_snapshots(session),
-            provider_kind=config.kind.value,
-            model=config.model,
-            limits=limits,
-            usage=ToolUsage.from_transcript(answer.transcript),
-        )
-        return AskResult(answer=answer, summary=summary)
-
     try:
-        answer = await answer_question_async(
-            question,
-            provider=provider,
-            session=session,
-            provider_kind=config.kind.value,
-            model=config.model,
-            limits=limits,
-            clock=clock,
+        result = await answer_selected(
+            question, config=config, provider=provider, session=session, clock=clock
         )
-    except AnswerCancelled as cancelled:
+    except AskCancelled as cancelled:
         try:
-            _write_transcript(cancelled.result, transcript_path)
+            _write_transcript(cancelled.result.answer, transcript_path)
         except SnapshotError:
             # A failed save must not turn the cancellation into another error.
             _logger.warning("Unable to save the transcript of a cancelled question.")
-        raise AskCancelled(result(cancelled.result)) from cancelled
-    _write_transcript(answer, transcript_path)
-    return result(answer)
+        raise
+    _write_transcript(result.answer, transcript_path)
+    return result
 
 
 def ask_question(

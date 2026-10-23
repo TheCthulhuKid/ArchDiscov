@@ -3104,7 +3104,25 @@ Implement and verify substeps 43.1–43.6 in order. Keep the parent planned unti
 **Acceptance check:** Contract tests round-trip suites and reports and refuse every invalid shape with safe diagnostics. Scoring tests cover each expectation and invariant passing and failing. A report never holds narrative, tool output, provider text, or credentials, and its record IDs ignore timing.
 
 #### Step 43.2: Run a suite across configured providers
-**Status:** Planned.
+**Status:** Implemented. `services/evaluation.py` splits the planned `evaluate_suite` into `prepare_evaluation(suite_path, config_paths, allow_external=, environ=)`, whose `PreparedEvaluation.budgets` state each provider's worst case (in place of a separate `evaluation_budget`, which would load the suite and configurations twice), `run_evaluation` (and `run_evaluation_async`), and `evaluate_suite`, which does both; all take a `clock` for latency and a `now` for the report's creation time. Preparation fails before any request, in order:
+- 1–10 configurations (`evaluation_providers_invalid`);
+- the suite, read by the new `load_suite` in `assistant/evaluation.py` (at most 1 MiB of strict JSON without duplicate keys or constants; `evaluation_suite_unreadable`, `evaluation_suite_too_large`, `invalid_evaluation_suite`, each with the path; `EvaluationValidationError` now carries a fixed message per `EvaluationErrorCode`, and a `path`);
+- each configuration: a kind other than `fake` is refused without the opt-in (`evaluation_external_not_allowed`, with the path) and is otherwise built as `ask` builds it (its build errors gain the path);
+- a fake configuration's per-case transcripts, which replace the configuration's own (`evaluation_transcript_missing`, with the case ID);
+- every case's snapshots and saved comparisons, verified once.
+
+`ask` gains `answer_selected`, which answers over an open session with a built provider; `ask_question_async` now uses it, so an evaluated run is an `ask` run. `ToolSession.fresh()` gives each run the verified data with an empty record. Each case runs once per provider in suite order and is scored; a failed run is its case's record and later cases go on. A cancellation raises `EvaluationCancelled` (an `asyncio.CancelledError`), carrying a valid report: the interrupted case is recorded as `cancelled`, and that provider's run and every later one are marked cancelled. `tests/support/evaluation_suites.py` writes a README suite (the examples' files beside it, paths relative, expectations from what each example cites) and a fake configuration; the 43.1 tests share its expectation helpers. `tests/services/test_evaluation.py`:
+- runs the fake suite twice to identical reports apart from timing, all passing, with a fixed creation time;
+- shows two fake providers score identically while the prepared sessions keep empty records;
+- continues past a failing case;
+- matches the budget to each configuration;
+- reaches the fake's record IDs through the Anthropic adapter over a mocked API serving every case's turns;
+- refuses an external configuration without the opt-in before reading any snapshot, and with it builds without a request before a missing snapshot fails;
+- names the file of a configuration without its key;
+- fails on a later case's missing snapshot, a missing or invalid fake transcript, zero or eleven configurations, and six unusable suite files;
+- reports a cancellation mid-suite.
+
+Mutating the fresh session, the opt-in, the cancelled scope, the transcript check, or the up-front loading fails a test. `docs/assistant-evaluation.md` gains "Running a suite" with the error codes, and its drift test pins the codes and bounds.
 **Prerequisite:** Step 43.1.
 
 - Add `evaluate_suite(suite_path, config_paths, *, allow_external=False, clock=...)` in `services/evaluation.py`. It does all the following before the first request, failing with the existing diagnostics:

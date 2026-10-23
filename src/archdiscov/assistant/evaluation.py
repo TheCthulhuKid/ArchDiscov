@@ -19,8 +19,8 @@ import json
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import asdict, dataclass
 from enum import StrEnum
-from pathlib import PurePosixPath
-from typing import Annotated, Any, Literal, Self
+from pathlib import Path, PurePosixPath
+from typing import Annotated, Any, ClassVar, Literal, Self
 
 from pydantic import (
     AfterValidator,
@@ -33,6 +33,7 @@ from pydantic import (
 )
 from pydantic_core import PydanticSerializationError
 
+from archdiscov.ingestion.strict_json import reject_constant, unique_object
 from archdiscov.models.canonical import sha256_json
 from archdiscov.models.enums import AnalysisStatus, AnalyzerKind
 from archdiscov.models.resource_base import NonEmptyString
@@ -60,6 +61,7 @@ MAX_PROVIDERS = 10
 MAX_RESULT_PATHS = 20
 MAX_EXPECTED_IDS = 100
 MAX_PATH_CHARS = 1_024
+MAX_SUITE_BYTES = 1024 * 1024
 # Imported text shorter than this is too common (a name such as "web") to show a leak.
 MIN_QUOTED_CHARS = 16
 RUN_ANALYZER = "run_analyzer"
@@ -389,33 +391,79 @@ _DIAGNOSTIC_FIELDS = frozenset(
 )
 
 
-class EvaluationValidationError(Exception):
-    """Safe diagnostics for a suite or report: codes and known field names, never input."""
+class EvaluationErrorCode(StrEnum):
+    SUITE_UNREADABLE = "evaluation_suite_unreadable"
+    SUITE_TOO_LARGE = "evaluation_suite_too_large"
+    INVALID_SUITE = "invalid_evaluation_suite"
+    INVALID_REPORT = "invalid_evaluation_report"
 
-    def __init__(self, code: str, subject: str, details: tuple[ValidationIssue, ...]) -> None:
-        super().__init__(f"{subject} validation failed.")
-        self.code = code
+
+class EvaluationValidationError(Exception):
+    """A suite or report that cannot be used: a fixed message for its code, and details of
+    known field names and fixed messages only, never the input."""
+
+    messages: ClassVar[Mapping[EvaluationErrorCode, str]] = {
+        EvaluationErrorCode.SUITE_UNREADABLE: "Evaluation suite file could not be read.",
+        EvaluationErrorCode.SUITE_TOO_LARGE: f"Evaluation suite exceeds {MAX_SUITE_BYTES} bytes.",
+        EvaluationErrorCode.INVALID_SUITE: "Evaluation suite validation failed.",
+        EvaluationErrorCode.INVALID_REPORT: "Evaluation report validation failed.",
+    }
+
+    def __init__(
+        self,
+        code: EvaluationErrorCode,
+        *,
+        path: Path | None = None,
+        details: tuple[ValidationIssue, ...] = (),
+    ) -> None:
+        self.code = EvaluationErrorCode(code)
+        super().__init__(self.messages[self.code])
+        self.path = path
         self.details = details
 
 
-def _parse[T: Contract](model: type[T], data: Any, code: str, subject: str) -> T:
+def _parse[T: Contract](model: type[T], data: Any, code: EvaluationErrorCode, subject: str) -> T:
     try:
         if isinstance(data, model):
             data = data.model_dump(mode="json", warnings="error")
         return model.model_validate(data)
     except ValidationError as exc:
-        issues = safe_validation_issues(exc, _DIAGNOSTIC_FIELDS, subject.lower())
-        raise EvaluationValidationError(code, subject, issues) from exc
+        issues = safe_validation_issues(exc, _DIAGNOSTIC_FIELDS, subject)
+        raise EvaluationValidationError(code, details=issues) from exc
     except (PydanticSerializationError, TypeError, ValueError, RecursionError) as exc:
-        raise EvaluationValidationError(code, subject, (serialization_issue(subject),)) from exc
+        details = (serialization_issue(subject),)
+        raise EvaluationValidationError(code, details=details) from exc
 
 
 def parse_suite(data: EvaluationSuite | Mapping[str, Any]) -> EvaluationSuite:
-    return _parse(EvaluationSuite, data, "invalid_evaluation_suite", "Evaluation suite")
+    return _parse(EvaluationSuite, data, EvaluationErrorCode.INVALID_SUITE, "evaluation suite")
 
 
 def parse_report(data: EvaluationReport | Mapping[str, Any]) -> EvaluationReport:
-    return _parse(EvaluationReport, data, "invalid_evaluation_report", "Evaluation report")
+    return _parse(EvaluationReport, data, EvaluationErrorCode.INVALID_REPORT, "evaluation report")
+
+
+def load_suite(path: Path) -> EvaluationSuite:
+    """Read a bounded, strict JSON suite file (no duplicate keys or constants) and validate it."""
+    try:
+        with path.open("rb") as file:
+            content = file.read(MAX_SUITE_BYTES + 1)
+    except OSError as exc:
+        raise EvaluationValidationError(EvaluationErrorCode.SUITE_UNREADABLE, path=path) from exc
+    if len(content) > MAX_SUITE_BYTES:
+        raise EvaluationValidationError(EvaluationErrorCode.SUITE_TOO_LARGE, path=path)
+    try:
+        data = json.loads(content, object_pairs_hook=unique_object, parse_constant=reject_constant)
+    except (ValueError, RecursionError) as exc:
+        details = (serialization_issue("evaluation suite"),)
+        raise EvaluationValidationError(
+            EvaluationErrorCode.INVALID_SUITE, path=path, details=details
+        ) from exc
+    try:
+        return parse_suite(data)
+    except EvaluationValidationError as error:
+        error.path = path
+        raise
 
 
 # ---- scoring -----------------------------------------------------------------------

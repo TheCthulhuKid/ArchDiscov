@@ -41,6 +41,7 @@ from tests.assistant.test_answer_service import _rejected, _submit
 from tests.assistant.test_orchestrator import SNAPSHOT, _calls, _fail
 from tests.services.test_ask import _fake
 from tests.support.ask_examples import EXAMPLES, SUMMARY, ExampleRun, write_example
+from tests.support.evaluation_suites import example_analyzers, example_expectations
 
 QUESTION = "Which resources are in the network?"
 SECRET_PATH = "SECRETvalue0123456789abcdef"
@@ -98,19 +99,9 @@ def _scripted(directory: Path, turns: list[dict], config: str = "") -> AskResult
     )
 
 
-def _analyzers(name: str) -> list[str]:
-    return [args["kind"] for tool, args in EXAMPLES[name].calls if tool == "run_analyzer"]
-
-
 def _passing(name: str, run: ExampleRun) -> EvaluationCase:
-    return _case(
-        {
-            "statuses": [EXAMPLES[name].status],
-            "finding_ids": list(run.finding_ids),
-            "analyzers": _analyzers(name),
-        },
-        case_id=name.replace("_", "-"),
-    )
+    expect = example_expectations(name, run)
+    return EvaluationCase.model_validate(_case_data(name.replace("_", "-"), expect=expect))
 
 
 def _checks(record: CaseRecord) -> dict[CheckName, bool]:
@@ -235,12 +226,12 @@ def test_the_readme_examples_pass_their_expectations(tmp_path: Path, name: str) 
     expected = {CheckName.OUTCOME, CheckName.STATUS, *SAFETY_CHECKS}
     if run.finding_ids:
         expected.add(CheckName.FINDING_IDS)
-    if _analyzers(name):
+    if example_analyzers(name):
         expected.add(CheckName.ANALYZERS)
     assert set(_checks(record)) == expected
     assert record.cited_finding_ids == tuple(sorted(run.finding_ids))
     assert record.analysis_status == EXAMPLES[name].status
-    assert record.analyzers_run == tuple(sorted(_analyzers(name)))
+    assert record.analyzers_run == tuple(sorted(example_analyzers(name)))
     assert record.citations_valid is True
     assert record.usage == result.summary.usage
     assert record.latency_seconds == result.answer.transcript.latency_seconds

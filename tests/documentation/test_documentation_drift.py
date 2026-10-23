@@ -44,6 +44,7 @@ from archdiscov.models.enums import AnalysisStatus, AnalyzerKind
 from archdiscov.models.query.parameters import QueryPathLimits
 from archdiscov.models.query.requests import QueryNeighboursRequest, QuerySearchRequest
 from archdiscov.services import DEFAULT_REGISTRY
+from archdiscov.services import evaluation as evaluation_service
 from archdiscov.services.ask import RunSummary
 from tests.cli.test_ask_cli import ENVELOPE, PRE_RUN_ERRORS
 from tests.documentation.markdown import DOC_FILES, code_blocks, table_rows
@@ -618,6 +619,11 @@ def test_documented_evaluation_contracts_match_the_models():
     for outcome in (evaluation.CaseOutcome.ANSWERED, evaluation.CaseOutcome.ANSWERED_AFTER_REPAIR):
         assert f"`{outcome.value}`" in text, outcome
     assert '"schema_version": "1"' in EVALUATION_DOC.read_text(encoding="utf-8")
+    codes = [*evaluation.EvaluationErrorCode, *evaluation_service.EvaluationSetupCode]
+    documented = [row[0].strip("`") for row in table_rows(EVALUATION_DOC, "| Code | When")]
+    assert set(documented) == {code.value for code in codes} - {"invalid_evaluation_report"}
+    assert evaluation.MAX_SUITE_BYTES == 1024 * 1024 and "at most 1 MiB" in text
+    assert f"1–{evaluation.MAX_PROVIDERS} provider configurations" in text
 
 
 # ---- ask command -------------------------------------------------------------------

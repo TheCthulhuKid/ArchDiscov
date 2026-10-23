@@ -3,8 +3,8 @@
 Evaluation runs the same questions across configured providers and scores each answer
 against deterministic fixtures: the findings the analyzers return, never the wording of an
 answer. This page describes the suite and report contracts and the scoring in
-`assistant/evaluation.py`. Running a suite, saving and comparing reports, and the commands
-arrive in later steps of the plan (43.2–43.5).
+`assistant/evaluation.py`, and running a suite with `services/evaluation.py`. Saving and
+comparing reports, and the commands, arrive in later steps of the plan (43.4–43.5).
 
 ## Suites
 
@@ -58,6 +58,45 @@ paths, `.` and `..` segments, empty segments, and backslashes are invalid. A sui
 An empty or missing expectation expects nothing. `statuses`, `finding_ids`, and
 `limitations` describe an answer, so `outcomes` must allow one, and `rejections` need
 `rejected_after_repair`. Lists hold no duplicates, and unknown fields are invalid.
+
+## Running a suite
+
+`prepare_evaluation(suite_path, config_paths, allow_external=False)` does everything that
+can fail before a request, in order, so an error costs nothing and reads no further file:
+
+1. It reads the suite: at most 1 MiB of strict JSON, without duplicate keys or `NaN`-like
+   constants, validated as above.
+2. It loads each of the 1–10 provider configurations. A kind other than `fake` is refused
+   unless external providers are allowed, and is built as `ask` builds it, which resolves
+   its credential and makes no request.
+3. For a fake configuration, it loads every case's `fake_transcript`, which replaces any
+   transcript the configuration names, so each case scripts its own run.
+4. It loads and verifies every case's snapshots and saved comparisons, as `ask` does.
+
+The prepared evaluation's `budgets` state each provider's worst case before anything runs.
+`run_evaluation(prepared)` then runs every case once per provider, in suite order, through
+the same answer path as `ask`, each run with a fresh record over the verified data, and
+scores it. Whatever happens during a run, such as a provider error, a limit, or a rejected
+answer, is that case's record, and the evaluation goes on. A cancellation, such as Ctrl-C,
+ends it: `EvaluationCancelled` carries the report so far, with the interrupted case recorded
+as `cancelled` and that provider's run, and every later one, marked cancelled.
+`evaluate_suite` prepares and runs in one call, and every function takes a `clock` for
+latency and a `now` for the report's creation time, so tests can fix both.
+
+Errors before the run are those `ask` raises for configurations, credentials, fake
+transcripts, snapshots, and saved results, plus:
+
+| Code | When |
+|---|---|
+| `evaluation_suite_unreadable` | the suite file cannot be read |
+| `evaluation_suite_too_large` | the suite file exceeds 1 MiB |
+| `invalid_evaluation_suite` | the suite is not strict JSON or does not validate |
+| `evaluation_providers_invalid` | there are no configurations, or more than 10 |
+| `evaluation_external_not_allowed` | a configuration of a kind other than `fake` without the opt-in |
+| `evaluation_transcript_missing` | a fake configuration, and a case without a `fake_transcript` |
+
+The suite errors carry the suite's path, a refused external configuration its path, and a
+missing transcript the case's ID; none carries a value from the file.
 
 ## Scoring
 
@@ -117,7 +156,8 @@ that looks like a secret is invalid.
 ## Validation
 
 `parse_suite` and `parse_report` validate data and fail with `EvaluationValidationError`,
-whose code is `invalid_evaluation_suite` or `invalid_evaluation_report`. Its details give
+whose code is `invalid_evaluation_suite` or `invalid_evaluation_report`; `load_suite` reads a
+suite file with the codes above. Its details give
 only known field names, list positions, and fixed messages, never the input. A report is
 also invalid when a record's ID does not match its content, its lists are not sorted and
 unique, its checks are out of order or lack a safety check, `passed` disagrees with its
