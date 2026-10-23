@@ -71,23 +71,43 @@ takes a few dozen calls.
 
 ## Answers
 
+`submit_answer` takes the same [proposal](assistant-answers.md#the-proposal) as in `ask`:
+status, contexts, cited conclusions, acknowledged limitations, and a short summary and
+explanation. Its description shares `ask`'s citation rules but replaces "Submit the final
+answer exactly once" with two MCP sentences: "Submit an answer before presenting any
+conclusion about the snapshots." and "If it is rejected, correct it and submit it again; if
+it is accepted, present the returned answer as it is."
+
 A `submit_answer` call is never dispatched as a tool. It counts toward the call cap like
-any call, its arguments get the same bounds, and it is read and validated exactly as an
-`ask` run validates a [proposal](assistant-answers.md#validation), against the IDs this
-connection's tools returned:
+any call, its arguments get the same bounds, and it is read and
+[validated](assistant-answers.md#validation) exactly as an `ask` run validates a proposal,
+against every ID this connection's tools have returned so far. The result depends on the
+submission:
 
-- An unreadable proposal (`proposal_malformed` or `proposal_invalid`) or a rejected one
-  (`answer_rejected`, with each rejection's code, location, and fixed message) is an error
-  result in the same form as `ask`'s repair prompt, ending with
-  `"next": "Correct the answer and submit it again."`.
-- An accepted proposal is rendered as in `ask`, with the outcome `answered`, and returned as
-  three text items: a line telling the client to present the answer as returned, the
-  readable answer exactly as `ask` prints it, and the answer JSON that `ask --json` reports
-  as its `result`.
+| Submission | Error | Text items |
+|---|---|---|
+| unreadable | yes | one JSON object: `error` (`proposal_malformed` or `proposal_invalid`), `message`, `next` |
+| rejected | yes | one JSON object: `error` (`answer_rejected`), `rejections` (each with `code`, `location`, and `message`, at most 40), `unlisted`, `next` |
+| accepted | no | three: the line "The answer was accepted. Present it to the user as it is returned below, without adding conclusions to it.", the readable answer, and the answer JSON |
 
-Each submission is validated on its own: there is no repair budget, so an accepted answer is
-`answered` however many rejected ones came before it. Validating and rendering never change
-the connection's run record.
+The error objects have the same form as `ask`'s repair prompt, with `next` set to "Correct
+the answer and submit it again." An accepted answer is rendered as in `ask`, with the
+outcome `answered`: the readable answer is exactly what `ask` prints, and the answer JSON is
+what `ask --json` reports as its `result`. Tests submit every rejection scenario of the
+answer suite and the adversarial suite's proposals through the server and compare them with
+`validate_proposal`, and render every README example and the injected-text case through
+both and compare them, readable and JSON.
+
+The run record is session-wide: a proposal may cite any ID the connection's tools returned,
+whichever question they were called for. Each submission is validated on its own, with no
+repair budget, so an accepted answer is `answered` however many rejected ones came before
+it. Validating and rendering never change the run record.
+
+**What the server cannot enforce.** The client writes its own text to the user. The server
+validates and renders only what is submitted, and its instructions and the `submit_answer`
+description ask the client to present an accepted answer as returned; nothing stops a client
+from stating conclusions it never submitted, or from changing an accepted answer when it
+presents it. Treat only the answer the server returned as validated.
 
 ## Connections
 
