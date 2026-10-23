@@ -3,11 +3,12 @@
 The server lists the same tools `ask` offers, from the default registry, with their names,
 descriptions, and input schemas unchanged, and gives clients the MCP instructions. A call
 is bounded and dispatched as `ask` dispatches one, and its result is the tool's JSON as
-text, a tool error included, so a client can recover from it. Each connection works on its
-own fresh copy of the selected session: the verified snapshot data is shared, the run
-record of returned IDs is not, so one connection never sees another's returned IDs. The
-server keeps no state outside a connection, so it does not depend on the transport that
-serves it.
+text, a tool error included, so a client can recover from it. Each call is bounded by the
+session's per-call `ToolLimits`, and each connection by a cap on its tool calls. Each
+connection works on its own fresh copy of the selected session: the verified snapshot data
+is shared, the run record of returned IDs is not, so one connection never sees another's
+returned IDs. The server keeps no state outside a connection, so it does not depend on the
+transport that serves it.
 
 This is the only module that imports `mcp`; import it only to build a server.
 """
@@ -19,9 +20,9 @@ from importlib.metadata import version
 
 from mcp import types
 from mcp.server import Server, ServerRequestContext
-from pydantic import ValidationError
+from pydantic import Field, ValidationError
 
-from .conversation import ToolCall, ToolResult, parse_tool_arguments
+from .conversation import Contract, ToolCall, ToolResult, parse_tool_arguments
 from .instructions import MCP_INSTRUCTIONS
 from .tools.catalog import default_registry
 from .tools.contracts import ToolErrorCode, render, tool_error
@@ -31,12 +32,21 @@ from .tools.session import ToolSession
 SERVER_NAME = "archdiscov"
 
 
+class ServerLimits(Contract):
+    """Bounds for one connection. The tool-call cap is a backstop against a runaway client,
+    not a budget: answering every README example in one connection takes a few dozen calls,
+    and a client that keeps a connection for several questions stays well below it."""
+
+    max_tool_calls: int = Field(default=200, ge=1, le=2_000, strict=True)
+
+
 @dataclass
 class Connection:
-    """What one client connection holds: its session copy and how many calls it made, which
-    also numbers its call IDs (MCP gives none)."""
+    """What one client connection holds: its session copy, its limits, and how many calls it
+    made, which also numbers its call IDs (MCP gives none)."""
 
     session: ToolSession
+    limits: ServerLimits
     calls: int = 0
 
     def next_call_id(self) -> str:
@@ -64,6 +74,8 @@ def _dispatch(
     registry: ToolRegistry, connection: Connection, params: types.CallToolRequestParams
 ) -> ToolResult:
     call_id = connection.next_call_id()
+    if connection.calls > connection.limits.max_tool_calls:
+        return _error(call_id, ToolErrorCode.SESSION_LIMIT_REACHED, connection)
     # MCP lets a call without inputs omit its arguments.
     arguments = parse_tool_arguments({} if params.arguments is None else params.arguments)
     try:
@@ -74,14 +86,16 @@ def _dispatch(
     return registry.dispatch(connection.session, call)
 
 
-def build_server(session: ToolSession) -> Server[Connection]:
-    """A server over `session`'s verified data; each connection gets a fresh run record."""
+def build_server(session: ToolSession, limits: ServerLimits | None = None) -> Server[Connection]:
+    """A server over `session`'s verified data; each connection gets a fresh run record and
+    the full `limits`."""
+    limits = limits or ServerLimits()
     registry = default_registry()
     tools = _tools(registry)
 
     @asynccontextmanager
     async def connection(_: Server[Connection]) -> AsyncIterator[Connection]:
-        yield Connection(session.fresh())
+        yield Connection(session.fresh(), limits)
 
     async def list_tools(
         _: ServerRequestContext[Connection], __: types.PaginatedRequestParams | None

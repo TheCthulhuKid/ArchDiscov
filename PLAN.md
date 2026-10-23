@@ -3269,7 +3269,7 @@ Implement steps 45–48 in order, verifying each before the next. Keep this phas
 - The installed-CLI harness and offline guard for acceptance.
 
 ### Step 45: Serve the tool registry over MCP
-**Status:** Planned.
+**Status:** Implemented. Substeps 45.1–45.3 pass their acceptance checks: `assistant/mcp_server.py` serves the registry's tools unchanged over a low-level `mcp` server, dispatches calls as `ask` does with per-connection run records and ordered calls, and bounds each connection with a call cap.
 **Prerequisite:** Completed phase 4.
 
 - Build an MCP server from a `ToolSession` and the default registry: one MCP tool per declaration (name, description, and input schema unchanged), each call parsed as `ask` parses arguments and dispatched through `ToolRegistry.dispatch`. A result is the tool's JSON output as text content (and structured content where the client supports it); a tool error is an MCP error result with the same `ToolError` code and fixed message, never a protocol failure.
@@ -3317,7 +3317,7 @@ Implement and verify substeps 45.1–45.3 in order. Keep the parent planned unti
 **Acceptance check:** Each tool, called through the in-memory client with the arguments the README examples use, returns exactly the content of a direct dispatch over a fresh copy of the same session, and its returned IDs reach the connection's run record; an unknown tool, malformed and oversized arguments, invalid arguments, and an oversized output return error results with their codes; quoted imported text keeps its untrusted marking; concurrent calls on one connection are recorded in order; an unexpected exception returns `tool_internal_error` without its message.
 
 #### Step 45.3: Bound a server session
-**Status:** Planned.
+**Status:** Implemented. `ServerLimits` in `assistant/mcp_server.py` holds `max_tool_calls` (strict, default 200, 1–2,000); `build_server(session, limits=None)` gives each `Connection` the limits, and a call past the cap returns the new `tool_session_limit_reached` (`ToolErrorCode.SESSION_LIMIT_REACHED`, with a fixed message, rendered through the registry's `render`) before its arguments are parsed, so nothing is dispatched or recorded; every call counts, errors included, and the count keeps numbering call IDs. The default was settled against the README examples: answering all nine in one connection takes 33 calls, submissions included, and a test requires the default to allow at least four times that. Per-call `ToolLimits` come from the session, as in `ask`. Tests reach the cap exactly (three dispatches, then two refused calls that dispatch and record nothing), give a second connection its full count, refuse out-of-range and non-integer limits, and truncate at the session's result limit exactly as a direct dispatch; mutating the cap comparison fails a test. The new code is documented on the tools page (MCP-only, since `ask` bounds calls with run limits), and `docs/mcp-server.md` gains "Limits", the served tool names, and the code; drift tests pin the served tool names to the registry, the per-call defaults to `ToolLimits`, and the cap's default and bounds to `ServerLimits`.
 **Prerequisite:** Step 45.2.
 
 - Add a session-wide cap on tool calls per connection, counting every call (errors included, and `submit_answer` once step 46 adds it). Propose a default of 200 calls, between 1 and 2,000, and settle it in this substep against the README examples' needs. Past the cap, every call returns an error result with a new `tool_session_limit_reached` code and fixed message, and dispatches nothing.

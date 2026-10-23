@@ -79,7 +79,9 @@ an output that still does not fit becomes `tool_output_too_large`.
 
 Tools never raise for model mistakes or failures. Errors are results with a code, a
 message fixed by that code, and for invalid arguments the declared field names that
-failed (`locations`), never the model's input.
+failed (`locations`), never the model's input. Only the
+[MCP server](mcp-server.md#limits) returns `tool_session_limit_reached`, when a connection
+has used its call cap; an `ask` run bounds its calls with its run limits instead.
 
 | Code | Message |
 |---|---|
@@ -90,6 +92,7 @@ failed (`locations`), never the model's input.
 | `tool_unavailable` | This tool needs data that was not selected for this session. |
 | `tool_output_too_large` | Tool output exceeded the size limit; narrow the request or lower its limit. |
 | `tool_internal_error` | The tool failed unexpectedly. |
+| `tool_session_limit_reached` | This session has made its maximum number of tool calls; start a new session. |
 
 ## Untrusted text
 

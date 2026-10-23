@@ -154,6 +154,8 @@ class ToolErrorCode(StrEnum):
     UNAVAILABLE = "tool_unavailable"
     OUTPUT_TOO_LARGE = "tool_output_too_large"
     INTERNAL_ERROR = "tool_internal_error"
+    # Only an MCP server session has a call cap; `ask` runs bound calls with run limits.
+    SESSION_LIMIT_REACHED = "tool_session_limit_reached"
 
 
 TOOL_ERROR_MESSAGES: Mapping[ToolErrorCode, str] = {
@@ -168,6 +170,9 @@ TOOL_ERROR_MESSAGES: Mapping[ToolErrorCode, str] = {
         "Tool output exceeded the size limit; narrow the request or lower its limit."
     ),
     ToolErrorCode.INTERNAL_ERROR: "The tool failed unexpectedly.",
+    ToolErrorCode.SESSION_LIMIT_REACHED: (
+        "This session has made its maximum number of tool calls; start a new session."
+    ),
 }
 
 ArgumentLocation = Annotated[str, Field(pattern=r"^[A-Za-z0-9_.]{1,200}$")]

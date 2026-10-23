@@ -15,12 +15,13 @@ from typing import Any
 
 import pytest
 from mcp import Client
+from pydantic import ValidationError
 
 from archdiscov.assistant import mcp_server
 from archdiscov.assistant.conversation import MAX_TOOL_ARGUMENT_BYTES, ToolCall
 from archdiscov.assistant.conversation import ParsedToolArguments as Parsed
 from archdiscov.assistant.instructions import MCP_INSTRUCTIONS
-from archdiscov.assistant.mcp_server import SERVER_NAME, Connection, build_server
+from archdiscov.assistant.mcp_server import SERVER_NAME, Connection, ServerLimits, build_server
 from archdiscov.assistant.tools.catalog import ALL_TOOLS, default_registry
 from archdiscov.assistant.tools.contracts import IdKind, ToolLimits
 from archdiscov.assistant.tools.registry import ToolRegistry
@@ -122,12 +123,18 @@ def _comparable(results: list[tuple[bool, str]]) -> list[tuple[bool, dict]]:
     return data
 
 
-def _results(session: ToolSession, calls: list[Call]) -> list[tuple[bool, str]]:
-    """Each call's error flag and text, through one client connection, in order."""
+def _results(
+    session: ToolSession, *connections: list[Call], limits: ServerLimits | None = None
+) -> list[tuple[bool, str]]:
+    """Each call's error flag and text, through one client connection per list of calls, the
+    connections one after another, over one server."""
+    server = build_server(session, limits)
 
     async def run() -> list[tuple[bool, str]]:
-        async with Client(build_server(session)) as client:
-            results = [await client.call_tool(name, arguments) for name, arguments in calls]
+        results = []
+        for calls in connections:
+            async with Client(server) as client:
+                results += [await client.call_tool(name, arguments) for name, arguments in calls]
         return [(result.is_error, result.content[0].text) for result in results]
 
     return asyncio.run(run())
@@ -259,3 +266,57 @@ def test_an_unexpected_failure_is_an_internal_error_without_its_message(monkeypa
     [result] = _results(ToolSession.from_paths(SNAPSHOT), [("search_resources", {})])
     assert _code(result) == "tool_internal_error"
     assert "DETAIL" not in result[1]
+
+
+# ---- bounding a session ------------------------------------------------------------
+
+
+def test_the_call_cap_is_reached_exactly_and_dispatches_nothing_past_it(
+    connections, monkeypatch
+) -> None:
+    dispatched: list[str] = []
+    dispatch = ToolRegistry.dispatch
+
+    def recording(registry, session, call):
+        dispatched.append(call.id)
+        return dispatch(registry, session, call)
+
+    monkeypatch.setattr(ToolRegistry, "dispatch", recording)
+    session = ToolSession.from_paths(SNAPSHOT)
+    calls: list[Call] = [("search_resources", {"limit": 1})] * 5
+    results = _results(session, calls, calls[:1], limits=ServerLimits(max_tool_calls=3))
+    first, second = connections
+    assert [is_error for is_error, _ in results[:3]] == [False] * 3
+    assert [_code(result) for result in results[3:5]] == ["tool_session_limit_reached"] * 2
+    # Past the cap nothing is dispatched or recorded; another connection has its full count.
+    assert dispatched == ["mcp-1", "mcp-2", "mcp-3", "mcp-1"]
+    expected, returned = _direct(session, calls[:3])
+    assert first.record.returned() == returned
+    assert results[5] == expected[0]
+    assert second.record.returned() == returned
+
+
+def test_the_default_cap_leaves_room_for_many_questions() -> None:
+    """A connection could answer every README example four times over, submissions
+    included (one `submit_answer` per question)."""
+    suite = json.loads(README_SUITE.read_text(encoding="utf-8"))
+    calls = sum(
+        len(json.loads((README_SUITE.parent / case["fake_transcript"]).read_text())["turns"])
+        for case in suite["cases"]
+    )
+    assert 4 * calls <= ServerLimits().max_tool_calls
+
+
+@pytest.mark.parametrize("value", [0, 2_001, "200", 1.5])
+def test_server_limits_are_bounded_and_strict(value) -> None:
+    with pytest.raises(ValidationError):
+        ServerLimits(max_tool_calls=value)
+
+
+def test_per_call_limits_truncate_as_in_ask() -> None:
+    session = ToolSession.from_paths(SNAPSHOT, limits=ToolLimits(result_limit=1))
+    calls: list[Call] = [("search_resources", {"limit": 25})]
+    [served] = _results(session, calls)
+    [expected], _ = _direct(session, calls)
+    assert served == expected
+    assert json.loads(served[1])["resources"]["truncation"]["reasons"] == ["result_limit"]

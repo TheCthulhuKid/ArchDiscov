@@ -16,6 +16,7 @@ from archdiscov.assistant import (
     anthropic_provider,
     bedrock_provider,
     evaluation,
+    mcp_server,
     openai_provider,
 )
 from archdiscov.assistant import answers as assistant_answers
@@ -686,6 +687,19 @@ def test_documented_mcp_call_errors_match_the_tool_error_codes():
     assert sorted(codes) == sorted(code.value for code in tool_contracts.ToolErrorCode)
     text = " ".join(MCP_DOC.read_text(encoding="utf-8").split())
     assert f"at most {assistant_conversation.MAX_TOOL_ARGUMENT_BYTES // 1024} KiB" in text
+
+
+def test_documented_mcp_tools_and_limits_match_the_code():
+    text = " ".join(MCP_DOC.read_text(encoding="utf-8").split())
+    served = text[text.index("no output schema: ") : text.index("`submit_answer` is not served")]
+    names = [item.declaration.name for item in default_registry().tools.values()]
+    assert re.findall(r"`([a-z_]+)`", served) == names
+    tools = tool_contracts.ToolLimits.model_fields
+    defaults = (tools[name].default for name in ("result_limit", "depth", "max_output_chars"))
+    assert "by default {:,} results, a depth of {:,}, and {:,} characters".format(*defaults) in text
+    cap = mcp_server.ServerLimits.model_fields["max_tool_calls"]
+    bounds = {type(item).__name__: item for item in cap.metadata}
+    assert f"{cap.default} by default, from {bounds['Ge'].ge} to {bounds['Le'].le:,}" in text
 
 
 # ---- ask command -------------------------------------------------------------------
