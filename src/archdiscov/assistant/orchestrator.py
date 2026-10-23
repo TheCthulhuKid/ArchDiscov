@@ -29,12 +29,11 @@ from collections.abc import Awaitable, Callable
 
 from pydantic import ValidationError
 
-from .answers import SUBMIT_ANSWER, AnswerProposal, submit_answer_declaration
+from .answers import SUBMIT_ANSWER, submit_answer_declaration
 from .conversation import (
     AssistantMessage,
     Contract,
     Conversation,
-    MalformedToolArguments,
     Message,
     TokenUsage,
     ToolResult,
@@ -56,7 +55,6 @@ from .runs import (
     LimitReached,
     MalformedOutput,
     MalformedOutputReason,
-    Proposed,
     RunLimitKind,
     RunLimits,
     RunOutcome,
@@ -64,6 +62,7 @@ from .runs import (
     TranscriptRepair,
     TranscriptTurn,
     provider_outcome,
+    read_proposal,
     total_usage,
     transcript_outcome,
     transcript_text,
@@ -256,14 +255,8 @@ class _Run:
         )
 
     def _proposal_outcome(self, message: AssistantMessage) -> RunOutcome:
-        """Parse the lone `submit_answer` call; it is never dispatched as a tool."""
-        arguments = message.tool_calls[0].arguments
-        if isinstance(arguments, MalformedToolArguments):
-            return MalformedOutput(reason=MalformedOutputReason.PROPOSAL_MALFORMED)
-        try:
-            return Proposed(proposal=AnswerProposal.model_validate(arguments.value))
-        except ValidationError:
-            return MalformedOutput(reason=MalformedOutputReason.PROPOSAL_INVALID)
+        """Read the lone `submit_answer` call; it is never dispatched as a tool."""
+        return read_proposal(message.tool_calls[0].arguments)
 
     def _run_tools(self, response: CompletionResponse) -> None:
         message = response.message

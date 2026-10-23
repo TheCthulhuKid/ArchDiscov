@@ -40,6 +40,7 @@ from archdiscov.assistant.runs import (
     TranscriptText,
     TranscriptTurn,
     provider_outcome,
+    read_proposal,
     total_usage,
     transcript_json,
     transcript_text,
@@ -484,3 +485,24 @@ def test_transcripts_record_proposals_redacted() -> None:
     assert raised.value.errors()[0]["type"] == "run_transcript_secret"
     plain = EXAMPLES["proposed"]
     assert transcript_outcome(plain) == plain
+
+
+def test_read_proposal_reads_a_valid_proposal_and_names_why_others_fail() -> None:
+    data = {
+        "status": "insufficient_evidence",
+        "contexts": [{"side": "primary", "source_kind": "aws"}],
+        "insufficient_reason": "no_applicable_findings",
+        "summary": "Nothing applicable.",
+    }
+    assert read_proposal(ParsedToolArguments(value=data)) == Proposed(
+        proposal=AnswerProposal.model_validate(data)
+    )
+    oversized = MalformedToolArguments(reason=MalformedArgumentsReason.TOO_LARGE)
+    assert read_proposal(oversized) == MalformedOutput(
+        reason=MalformedOutputReason.PROPOSAL_MALFORMED
+    )
+    # A proposal of the right shape whose status needs conclusions it does not have.
+    invalid = ParsedToolArguments(
+        value={**data, "status": "supported", "insufficient_reason": None}
+    )
+    assert read_proposal(invalid) == MalformedOutput(reason=MalformedOutputReason.PROPOSAL_INVALID)
