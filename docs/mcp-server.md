@@ -139,8 +139,12 @@ errors before anything is served and before `mcp` is imported. It then serves th
 over stdio until the client closes the connection, and returns. `mcp`'s `stdio_server`
 points the process's standard output at standard error while serving, so stray output
 cannot reach the protocol stream, and `mcp`'s loggers are held at `WARNING`, since their
-debug records hold the messages sent and received. An interrupt reaches the caller once the
-standard streams are restored. `serve_session` serves an already verified session over any
+debug records hold the messages sent and received. Standard input is read by the service's
+own daemon thread rather than by `stdio_server`'s reader, whose worker thread cannot be
+abandoned, so an interrupt while the server waits for the client's next line stops it at
+once instead of waiting for that line; it reaches the caller once the standard streams are
+restored. A client that closes its side ends the session, and requests still in flight are
+cancelled, so a client waits for its answers before disconnecting. `serve_session` serves an already verified session over any
 transport, which tests use with in-memory streams.
 
 ## Connections

@@ -8,6 +8,7 @@ the command's real stdio session is tested with the command.
 import asyncio
 import json
 import logging
+import os
 import subprocess
 import sys
 from contextlib import asynccontextmanager
@@ -140,3 +141,23 @@ def test_an_interrupt_reaches_the_caller(monkeypatch) -> None:
     monkeypatch.setattr(mcp_service, "serve_session", interrupted)
     with pytest.raises(KeyboardInterrupt):
         mcp_service.serve_selection(README / "ownership" / "snapshot.json")
+
+
+@pytest.mark.parametrize(
+    ("chunks", "expected"),
+    [
+        ([b'{"a":1}\n{"b":', b"2}\n"], ['{"a":1}\n', '{"b":2}\n']),
+        ([b"one\ntwo"], ["one\n", "two"]),
+        ([b"\xffbad\n"], ["�bad\n"]),
+        ([], []),
+    ],
+    ids=["split-across-reads", "no-final-newline", "invalid-utf-8", "empty"],
+)
+def test_input_lines_are_split_and_decoded_as_stdio_decodes_them(chunks, expected) -> None:
+    read, write = os.pipe()
+    for chunk in chunks:
+        os.write(write, chunk)
+    os.close(write)
+    assert list(mcp_service._lines(read)) == expected
+    with pytest.raises(OSError):
+        os.fstat(read)
