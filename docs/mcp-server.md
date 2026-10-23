@@ -4,10 +4,14 @@ The MCP server serves the [assistant tools](assistant-tools.md) to an MCP client
 Claude Code or Claude Desktop, so that the client's own model can answer questions about
 selected snapshots with the same bounded, read-only tools the [`ask` command](ask-command.md)
 offers. It needs no provider configuration, credentials, or network. It is built in phase 5
-of the plan: this page describes what is implemented so far, the server in
-`src/archdiscov/assistant/mcp_server.py`, which lists and runs the tools within bounds,
-validates submitted answers, and offers the README questions as prompts. The
-`archdiscov mcp` command follows in a later step.
+of the plan, and this page describes what is implemented so far:
+
+- the server in `src/archdiscov/assistant/mcp_server.py`, which lists and runs the tools
+  within bounds, validates submitted answers, and offers the README questions as prompts;
+- the service in `src/archdiscov/services/mcp.py`, which serves a verified selection over
+  stdio.
+
+The `archdiscov mcp` command follows in a later step.
 
 ## What the server serves
 
@@ -64,7 +68,8 @@ Each call has the session's per-call [tool limits](assistant-tools.md#limits-and
 `ask` run: by default 25 results, a depth of 3, and 32,768 characters of output, with
 explicit truncation.
 
-Each connection also has a cap on its tool calls, `max_tool_calls` in `ServerLimits`:
+Each connection also has a cap on its tool calls, `max_tool_calls` in `ServerLimits`
+(`assistant/mcp_limits.py`, which does not import `mcp`, so a command can read the bounds):
 200 by default, from 1 to 2,000. Every call counts, errors included. Past the cap, every
 call returns `tool_session_limit_reached` and dispatches nothing, so nothing more is
 recorded; a new connection starts with its full count. The cap is a backstop against a
@@ -124,6 +129,19 @@ step; the answer still goes through the tools and `submit_answer`.
 An unknown prompt name, or arguments for a prompt, is an MCP invalid-params error with the
 fixed message "No prompt with that name takes these arguments.", which never echoes the
 request.
+
+## Serving
+
+`serve_selection(snapshot_path, comparison_path=None, comparison_result_paths=(),
+limits=None)` loads and verifies the selected files as `ask` does, so a missing or invalid
+snapshot, or a saved comparison of snapshots that were not selected, fails with the same
+errors before anything is served and before `mcp` is imported. It then serves the selection
+over stdio until the client closes the connection, and returns. `mcp`'s `stdio_server`
+points the process's standard output at standard error while serving, so stray output
+cannot reach the protocol stream, and `mcp`'s loggers are held at `WARNING`, since their
+debug records hold the messages sent and received. An interrupt reaches the caller once the
+standard streams are restored. `serve_session` serves an already verified session over any
+transport, which tests use with in-memory streams.
 
 ## Connections
 

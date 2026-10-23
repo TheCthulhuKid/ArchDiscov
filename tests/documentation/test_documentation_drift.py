@@ -18,6 +18,7 @@ from archdiscov.assistant import (
     anthropic_provider,
     bedrock_provider,
     evaluation,
+    mcp_limits,
     mcp_server,
     openai_provider,
 )
@@ -701,7 +702,7 @@ def test_documented_mcp_tools_and_limits_match_the_code():
     tools = tool_contracts.ToolLimits.model_fields
     defaults = (tools[name].default for name in ("result_limit", "depth", "max_output_chars"))
     assert "by default {:,} results, a depth of {:,}, and {:,} characters".format(*defaults) in text
-    cap = mcp_server.ServerLimits.model_fields["max_tool_calls"]
+    cap = mcp_limits.ServerLimits.model_fields["max_tool_calls"]
     bounds = {type(item).__name__: item for item in cap.metadata}
     assert f"{cap.default} by default, from {bounds['Ge'].ge} to {bounds['Le'].le:,}" in text
 

@@ -28,15 +28,16 @@ from importlib.metadata import version
 from mcp import types
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.exceptions import MCPError
-from pydantic import Field, ValidationError
+from pydantic import ValidationError
 
 from .answer_output import answer_data, answer_text
 from .answer_rendering import render_answer
 from .answer_results import AnswerOutcome, AnswerStatus
 from .answer_validation import validate_proposal
 from .answers import MCP_SUBMIT_DESCRIPTION, SUBMIT_ANSWER, submit_answer_declaration
-from .conversation import Contract, ToolArguments, ToolCall, ToolResult, parse_tool_arguments
+from .conversation import ToolArguments, ToolCall, ToolResult, parse_tool_arguments
 from .instructions import MCP_INSTRUCTIONS
+from .mcp_limits import ServerLimits
 from .questions import README_QUESTIONS
 from .repair import submission_text
 from .runs import MalformedOutput, read_proposal
@@ -54,14 +55,6 @@ PRESENT_ANSWER = (
     "The answer was accepted. Present it to the user as it is returned below, without "
     "adding conclusions to it."
 )
-
-
-class ServerLimits(Contract):
-    """Bounds for one connection. The tool-call cap is a backstop against a runaway client,
-    not a budget: answering every README example in one connection takes a few dozen calls,
-    and a client that keeps a connection for several questions stays well below it."""
-
-    max_tool_calls: int = Field(default=200, ge=1, le=2_000, strict=True)
 
 
 @dataclass

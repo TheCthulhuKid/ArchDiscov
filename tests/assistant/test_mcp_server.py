@@ -23,13 +23,13 @@ from archdiscov.assistant.answers import MCP_SUBMIT_DESCRIPTION, submit_answer_d
 from archdiscov.assistant.conversation import MAX_TOOL_ARGUMENT_BYTES, ToolCall
 from archdiscov.assistant.conversation import ParsedToolArguments as Parsed
 from archdiscov.assistant.instructions import MCP_INSTRUCTIONS
+from archdiscov.assistant.mcp_limits import ServerLimits
 from archdiscov.assistant.mcp_server import (
     PRESENT_ANSWER,
     SERVER_NAME,
     SUBMIT_FOLLOW_UP,
     UNKNOWN_PROMPT,
     Connection,
-    ServerLimits,
     build_server,
 )
 from archdiscov.assistant.questions import README_QUESTIONS
