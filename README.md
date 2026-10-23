@@ -170,7 +170,7 @@ analyzers are implemented ([ownership](docs/ownership-analysis.md),
 [security-group impact](docs/security-group-impact.md),
 [cross-account trust](docs/cross-account-trust.md), [database access](docs/database-access.md),
 [internet exposure](docs/internet-exposure.md));
-snapshot [comparison](docs/comparison-results.md) is implemented; provider interfaces remain planned. See [recorded resource queries](docs/graph-queries.md).
+snapshot [comparison](docs/comparison-results.md) is implemented, as are the [assistant and its provider adapters](#assistant-behavior). See [recorded resource queries](docs/graph-queries.md).
 
 - Organize the application into ingestion adapters, normalized models, graph queries, deterministic analyzers, provider adapters, and CLI presentation.
 - Define Pydantic models for `AccountArchitecture`, `RegionArchitecture`, typed resources, `Dependency`, `Evidence`, `Coverage`, `Finding`, and `Answer`. Version serialized snapshots.
@@ -989,8 +989,8 @@ map, not globally unique identifiers.
 
 Finding IDs are scoped to the selected snapshot's analysis results; resource IDs use the
 existing stable identity contract. An answer references findings rather than embedding
-provider-authored factual prose. A future renderer will obtain conclusions from validated
-findings. These legacy contracts remain unchanged. Separate analysis contracts now
+provider-authored factual prose. These legacy contracts remain unchanged; the `ask`
+command renders conclusions from validated findings through its own answer contracts. Separate analysis contracts now
 describe analyzer kinds, typed parameters, paths and structured limitations, and the
 [`ask` command](docs/ask-command.md) uses its own answer contracts; there are no severity
 scores.
@@ -1029,9 +1029,9 @@ assert Answer.model_validate_json(answer.model_dump_json()) == answer
 
 These models validate **shape and status consistency only**: construction does not prove
 that IDs resolve, that a conclusion is true, that coverage is sufficient, or that citations
-were returned by tools. Analyzers must preserve relevant evidence/coverage limitations;
-later answer validation must check the selected snapshot, findings, resource/evidence
-references, and the tool-returned allowlist, and reject unsupported claims. Results remain
+were returned by tools. Analyzers preserve relevant evidence/coverage limitations, and
+[answer validation](docs/assistant-answers.md) checks the selected snapshot, findings,
+resource/evidence references, and the tool-returned allowlist, and rejects unsupported claims. Results remain
 mutable and are not persisted by the snapshot service. Free-form summaries and limitations
 must not contain secrets; these are not automatically sanitized or treated as instructions.
 
@@ -1048,20 +1048,20 @@ are implemented, as are [bounded graph queries and the `query` CLI](docs/graph-q
 The [ownership analyzer, atomic result persistence, and `analyze`/`findings` CLI](docs/ownership-analysis.md)
 the [security-group impact analyzer](docs/security-group-impact.md), the [cross-account trust analyzer](docs/cross-account-trust.md), and the [database-access analyzer](docs/database-access.md), and the [internet-exposure analyzer](docs/internet-exposure.md) are implemented, as is [snapshot comparison](docs/comparison-results.md). The assistant's [provider contracts and fake provider](docs/assistant-providers.md), [tools](docs/assistant-tools.md), [tool-calling loop](docs/assistant-orchestration.md), and [answer validation, repair, and rendering](docs/assistant-answers.md) are in place behind the `ask` command, with the Anthropic, OpenAI-compatible, and Bedrock adapters, and [evaluation](docs/assistant-evaluation.md) scores answers across providers. The [analyzer reference](docs/analyzers.md) and [result file contracts](docs/result-contracts.md) compare them.
 
-### Planned assistant behavior
+### Assistant behavior
 
-- Define a provider-neutral interface for messages, tool calls, results, and final answers.
-- Ship interchangeable Bedrock Converse and OpenAI-compatible adapters, plus a fake provider for tests. Configure provider, model, endpoint, credentials, timeouts, and request limits independently.
-- Support explicitly configured Responses or Chat Completions protocols for the compatible adapter; reject unsupported tool-calling capabilities clearly. Follow [official function-calling guidance](https://developers.openai.com/api/docs/guides/function-calling).
-- Give the assistant only typed, bounded tools for resource search, resource inspection, relationship traversal, deterministic findings, coverage inspection, and evidence retrieval. It receives no AWS credentials, shell access, arbitrary code execution, or mutation tools.
-- Have analyzers produce evidence-backed findings before the LLM explains them. Resource names, tags, and imported text are data rather than instructions.
-- Represent answers as findings, evidence references, limitations, and a status: `supported`, `partial`, or `insufficient_evidence`.
-- Validate that cited findings and evidence exist in the selected snapshot and were returned by tools. Render factual conclusions from validated findings; the LLM cannot introduce additional architecture conclusions.
-- Allow one repair attempt for invalid answers, then return a deterministic explanation of the failure.
-- Qualify answers when relevant coverage is incomplete. Refuse definitive conclusions when missing evidence prevents them. Display snapshot timestamps and avoid presenting planned architecture as deployed state.
-- Exclude sensitive configuration fields during ingestion and send providers only bounded tool results.
+The [`ask` command](docs/ask-command.md) answers one question from the selected snapshots
+with a configured provider:
 
-The first release should answer these example questions:
+- [Providers and configuration](docs/assistant-providers.md): a provider-neutral interface for messages, tool calls, and results, with the scripted fake, Anthropic, OpenAI-compatible (Responses or Chat Completions, with declared capabilities), and Bedrock Converse adapters. Each configuration file sets one provider's model, endpoint, timeouts, retries, and request, tool-call, and output limits; credentials come only from a named environment variable or AWS profile at run time and never appear in output.
+- [Tools and limits](docs/assistant-tools.md): typed, bounded, read-only tools for resource search and inspection, relationships, deterministic findings, coverage, evidence, and saved results, in a [bounded tool-calling loop](docs/assistant-orchestration.md). Resource names, tags, and imported text are quoted data, never instructions.
+- [Answers and failures](docs/assistant-answers.md): a status (`supported`, `partial`, or `insufficient_evidence`) and conclusions rendered from the findings, evidence, and resources the tools returned, qualified by coverage, with snapshot times and planned sources labelled. An invalid proposal gets one repair; otherwise the failure is explained, with a stable exit code.
+- [Evaluation](docs/assistant-evaluation.md): the `evaluate` and `evaluation` commands score README and adversarial suites across configured providers against deterministic findings and safety checks.
+
+`ask` keeps no conversation memory, makes no changes, and does not evaluate effective access
+or prove reachability; see [what is not supported](docs/ask-command.md#what-is-not-supported).
+
+The `ask` command answers these example questions:
 
 - What receives traffic from the public internet?
 - Which services can access this database?
@@ -1069,7 +1069,7 @@ The first release should answer these example questions:
 - Where are the cross-account trust relationships?
 - Which resources appear to have no clear owner?
 
-Every factual conclusion must cite discovered resources or configuration evidence and state relevant limitations.
+Every factual conclusion cites discovered resources or configuration evidence and states relevant limitations.
 
 ## Delivery and validation
 
@@ -1079,7 +1079,7 @@ Every factual conclusion must cite discovered resources or configuration evidenc
 | 2. AWS and infrastructure-as-code ingestion | Complete (steps 10–22): supported AWS inventory, offline IaC imports, explicit CLI formats, permissions and offline acceptance |
 | Pre-phase-3 cloud boundary bridge (22.1–22.4) | Implemented foundation: scopes/identities/resources, schema `3` and conversion, offline Azure workflows, and common access/compatibility documentation; not live Azure support |
 | 3. Graph queries, deterministic findings, and snapshot comparisons | Complete (steps 23–33): result contracts and integrity, graph indexes, queries and the `query` CLI, the five analyzers with immutable result persistence, snapshot comparison, and offline [host and container acceptance](#phase-3-offline-acceptance) |
-| 4. LLM-provider adapters, orchestration, validated answers, and evaluations | In progress; separate from cloud platforms: [provider contracts, configuration, and the fake provider](docs/assistant-providers.md) (step 34), [assistant tools](docs/assistant-tools.md) (step 35), the [tool-calling loop](docs/assistant-orchestration.md) (step 36), [answer validation](docs/assistant-answers.md) (step 37), [answer outcomes, repair, and renderings](docs/assistant-answers.md#outcomes-and-exit-codes) (step 38), the [`ask` command](docs/ask-command.md) (step 39), the [Anthropic adapter](docs/assistant-providers.md#anthropic-adapter) (step 40), the [OpenAI-compatible adapter](docs/assistant-providers.md#openai-compatible-adapter) (step 41), the [Bedrock adapter](docs/assistant-providers.md#bedrock-adapter) (step 42), and [evaluation fixtures and commands](docs/assistant-evaluation.md) (step 43) |
+| 4. LLM-provider adapters, orchestration, validated answers, and evaluations | Complete (steps 34–44); separate from cloud platforms: [provider contracts, configuration, and the fake provider](docs/assistant-providers.md) (step 34), [assistant tools](docs/assistant-tools.md) (step 35), the [tool-calling loop](docs/assistant-orchestration.md) (step 36), [answer validation](docs/assistant-answers.md) (step 37), [answer outcomes, repair, and renderings](docs/assistant-answers.md#outcomes-and-exit-codes) (step 38), the [`ask` command](docs/ask-command.md) (step 39), the [Anthropic adapter](docs/assistant-providers.md#anthropic-adapter) (step 40), the [OpenAI-compatible adapter](docs/assistant-providers.md#openai-compatible-adapter) (step 41), the [Bedrock adapter](docs/assistant-providers.md#bedrock-adapter) (step 42), [evaluation fixtures and commands](docs/assistant-evaluation.md) (step 43), and offline [host and container acceptance](#phase-4-offline-acceptance) (step 44) |
 
 The bridge prepares phase 3 to build common graph/query and ownership contracts.
 Security, network, and trust analyzers are initially planned for AWS; unsupported Azure
@@ -1125,7 +1125,7 @@ Choose another output path if it already exists. Saved files are written as the 
 non-root user. Installation, snapshot schema/source formats, fixture purposes, Python APIs,
 and supported command/error behavior are documented above. AWS, Terraform, and CloudFormation adapters
 and raw-source CLI ingestion use these contracts today. Queries, analyzers, and comparisons
-are described in the [analyzer reference](docs/analyzers.md); providers remain later work.
+are described in the [analyzer reference](docs/analyzers.md), and the assistant in [assistant behavior](#assistant-behavior).
 
 ### AWS collection acceptance
 
@@ -1141,8 +1141,9 @@ deterministic assembly, and cancellation. Run the collection journey with:
 ```
 
 GitHub Actions runs the full offline suite and quality checks, not live account scans or
-live provider calls; the [Anthropic smoke test](docs/assistant-providers.md#live-smoke-test)
-is deselected by default and runs only with `-m live` and its variables.
+live provider calls; the live provider tests and the
+[live evaluation](docs/assistant-evaluation.md#verification) are deselected by default and
+run only with `-m live` and their variables.
 Real-AWS checks require explicit runtime credentials and remain opt-in.
 
 ### Phase 2 offline acceptance
@@ -1184,7 +1185,7 @@ Completeness remains relative to selected supported inventory and operation cove
 not all AWS services or a transactionally consistent view. IaC exports/declarations
 are not deployed observations; complex mappings, unknown expressions and unfetched
 nested templates stay explicit limitations in the linked format guides. Graph
-queries, analyzers, and comparisons are phase 3 (see [analyzers](docs/analyzers.md)); providers remain phase 4.
+queries, analyzers, and comparisons are phase 3 (see [analyzers](docs/analyzers.md)); providers are phase 4.
 
 ### Phase 3 offline acceptance
 
@@ -1215,11 +1216,41 @@ disabled. Image builds need registry access; test execution does not. The offlin
 validate the generic mechanics (schemas, queries, comparison) and the explicit unsupported
 results of the AWS-only analyzers; they are not Azure discovery or analysis.
 
+### Phase 4 offline acceptance
+
+Phase 4 closes with offline checks that need no credentials or network, on the host with
+`.venv/bin/python` and in Docker with `/opt/venv/bin/python`:
+
+- `tests/acceptance/test_phase_four_acceptance.py`: one journey per entry point outside the
+  checkout: the checked-in fixtures are ingested, each README example question is asked with a
+  fake transcript and answered from the findings the tools returned, cited evidence is
+  inspected in the answered snapshot, answers short of `supported` state their limitations, a
+  fabricated or unreturned citation is rejected after the one repair (exit 5), a repaired
+  proposal answers, and imported instructions appear only as quoted data.
+- `tests/acceptance/test_installed_ask.py` and `tests/acceptance/test_installed_evaluation.py`:
+  refusals before a run, provider errors and limits, each provider adapter against a loopback
+  mock API, and the README and adversarial evaluation suites, described below.
+- `tests/documentation`: the documented tools, limits, provider options, answer and
+  evaluation contracts, commands, exit codes, links, and the scenario mapping below.
+
+```bash
+.venv/bin/python -m pytest tests/acceptance tests/documentation -n 8 --dist loadgroup -q
+docker compose build dev
+docker run --rm --network none \
+  --mount "type=bind,src=$PWD,dst=/workspace" \
+  archdiscov-dev /opt/venv/bin/python -m pytest -n 8 --dist loadgroup -q
+```
+
+The last verified run passed all 7,030 tests (52 skipped) on the host and in Docker with
+networking disabled. Real-provider checks stay opt-in: the live provider tests and the live
+evaluation run only with `-m live` and their variables, never in CI.
+
 ### Acceptance scenarios
 
-Normal tests require neither credentials nor network access. Each phase 3 scenario runs offline
+Normal tests require neither credentials nor network access. Each scenario runs offline
 through pytest and is covered by the tests below, which assert its qualified outcome (blockers,
-limitations, planned lifecycle, or an indeterminate difference), not only that a command ran:
+limitations, planned lifecycle, an indeterminate difference, or a rejected or qualified answer),
+not only that a command ran:
 
 | Scenario | Tests |
 | --- | --- |
@@ -1235,6 +1266,13 @@ limitations, planned lifecycle, or an indeterminate difference), not only that a
 | Terraform unknown values | `tests/ingestion/terraform/test_terraform_plan.py::test_missing_null_and_unknown_are_distinct`<br>`tests/acceptance/test_readme_scenarios.py::test_an_unknown_planned_value_is_indeterminate_not_a_change` |
 | CloudFormation unresolved references | `tests/ingestion/cloudformation/test_cloudformation_import.py::test_conditions_local_getatt_and_conditional_missing_target`<br>`tests/acceptance/test_readme_scenarios.py::test_cloudformation_unresolved_references_are_indeterminate_between_two_templates` |
 | Safe matching of observed and declared resources | `tests/comparison/test_matching.py::test_names_and_short_ids_never_match`<br>`tests/comparison/test_matching.py::test_logical_addresses_never_match_across_iac_contexts_or_observations`<br>`tests/acceptance/test_readme_scenarios.py::test_observed_and_declared_resources_are_matched_only_by_identity` |
+| README example questions answered from tool-returned findings and evidence | `tests/acceptance/test_phase_four_acceptance.py::test_every_readme_question_is_answered_from_tool_returned_findings`<br>`tests/acceptance/test_phase_four_acceptance.py::test_cited_evidence_is_inspected_in_the_answered_snapshot` |
+| Coverage limitations stated in answers | `tests/acceptance/test_phase_four_acceptance.py::test_answers_short_of_supported_state_their_limitations` |
+| Fabricated and unreturned citations rejected, and one repair | `tests/acceptance/test_phase_four_acceptance.py::test_fabricated_and_unreturned_citations_are_rejected_and_repairs_answer`<br>`tests/assistant/test_answer_suite.py::test_each_rejection_is_reached_in_isolation` |
+| Unsupported claims | `tests/services/test_evaluation_suites.py::test_the_adversarial_suite_expects_each_safe_outcome` |
+| Malicious imported text in names and tags | `tests/acceptance/test_phase_four_acceptance.py::test_imported_instructions_are_only_quoted_data`<br>`tests/services/test_evaluation_suites.py::test_injected_names_and_tags_are_only_quoted_data` |
+| Provider errors and tool-call limits | `tests/acceptance/test_installed_ask.py::test_provider_errors_and_limits_are_answer_outcomes`<br>`tests/services/test_evaluation_suites.py::test_the_adversarial_suite_expects_each_safe_outcome` |
+| Provider adapters answer as the fake provider does | `tests/acceptance/test_installed_ask.py::test_each_adapter_answers_through_a_loopback_api`<br>`tests/acceptance/test_installed_evaluation.py::test_the_adapter_reaches_the_fakes_records_through_a_loopback_api` |
 
 `tests/acceptance/test_installed_ask.py` runs the installed `ask` command outside the checkout
 through both entry points, with the offline guard and no credentials: it answers the five
@@ -1257,4 +1295,4 @@ opt-in.
 - Use Python 3.13, uv, boto3, Pydantic, Typer, PyYAML, and pytest.
 - Accounts are explicitly configured; regions are selected explicitly or discovered after identity verification. AWS Organizations discovery is deferred.
 - Terraform HCL parsing, additional AWS services, web UI, historical monitoring, and automatic remediation are deferred.
-- Saved paths are immutable through the persistence API; loaded models remain mutable. Collection creates a new snapshot, and future answers must identify the snapshot they analyze.
+- Saved paths are immutable through the persistence API; loaded models remain mutable. Collection creates a new snapshot, and answers identify the snapshots they analyze.

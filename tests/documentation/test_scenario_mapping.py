@@ -1,4 +1,4 @@
-"""The README maps each non-provider acceptance scenario to tests that still exist."""
+"""The README maps each acceptance scenario, provider ones included, to tests that exist."""
 
 import ast
 import re
@@ -22,6 +22,13 @@ SCENARIOS = [
     "Terraform unknown values",
     "CloudFormation unresolved references",
     "Safe matching of observed and declared resources",
+    "README example questions",
+    "Coverage limitations",
+    "Fabricated and unreturned citations",
+    "Unsupported claims",
+    "Malicious imported text",
+    "Provider errors and tool-call limits",
+    "Provider adapters",
 ]
 
 

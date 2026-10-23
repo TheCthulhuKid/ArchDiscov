@@ -1,0 +1,196 @@
+"""Phase 4 closes with one credential-free, network-free journey through the installed CLI.
+
+fixture -> ingest -> `ask` for each README example -> validated answer -> evidence
+inspection, plus the failure and repair paths, through each entry point outside the
+checkout, the two on separate workers. The fixtures are the checked-in evaluation suites'
+case files: the README cases answer each example question with a fake transcript, and the
+adversarial cases submit a fabricated or unreturned citation (always rejected, exit 5),
+repair a fabricated citation (answered after the repair), and answer over imported text
+that tries to instruct the model (shown only as quoted data). The child sees no
+credentials and no checkout: its whole `PYTHONPATH` is the offline guard, which fails and
+records any network use.
+"""
+
+import json
+import shutil
+from pathlib import Path
+
+import pytest
+
+from archdiscov.assistant.runs import RunTranscript
+from archdiscov.services import load_snapshot
+from tests.acceptance.test_installed_end_to_end import Workspace, digest
+from tests.assistant.test_answer_claims import INJECTION
+from tests.support.ask_examples import README_QUESTIONS
+from tests.support.evaluation_suites import ADVERSARIAL_SUITE, README_SUITE, SUITE
+from tests.support.installed_cli import ENTRY_POINTS
+
+SUITES = {"readme": README_SUITE, "adversarial": ADVERSARIAL_SUITE}
+# Adversarial cases the journey asks: (expected failure or status, exit code, rejection).
+PATHS = {
+    "fabricated_finding": ("rejected_after_repair", 5, "answer_unknown_id"),
+    "unreturned_evidence": ("rejected_after_repair", 5, "answer_id_not_returned"),
+    "repaired": ("answered_after_repair", 0, None),
+    "injected_text": ("answered", 0, None),
+}
+
+
+def _cases(ws: Workspace, suite: str) -> dict[str, dict]:
+    data = json.loads(ws.path("fixtures", suite, SUITE).read_text(encoding="utf-8"))
+    return {case["id"]: case for case in data["cases"]}
+
+
+def _ingest(ws: Workspace, suite: str, case: dict) -> list[str]:
+    """Ingest the case's snapshots and return the `ask` selection over the ingested files."""
+    fixtures = ws.path("fixtures", suite)
+    selection = []
+    for key, option in (("snapshot", "--snapshot"), ("comparison", "--compare")):
+        if key not in case:
+            continue
+        output = ws.path("snapshots", f"{suite}-{case['id']}-{key}.json")
+        saved = ws.json("ingest", fixtures / case[key], "-o", output)
+        assert digest(output) == digest(fixtures / case[key]), saved
+        selection += [option, str(output)]
+    for path in case.get("comparison_results", ()):
+        selection += ["--comparison-result", str(fixtures / path)]
+    config = fixtures / case["id"] / "provider.toml"
+    return [case["question"], *selection, "--config", str(config)]
+
+
+def _ask(ws: Workspace, suite: str, case: dict, expect: int = 0) -> dict:
+    arguments = _ingest(ws, suite, case)
+    transcript = ws.path("results", f"{suite}-{case['id']}-transcript.json")
+    data = ws.json("ask", *arguments, "--transcript", transcript, expect=expect)
+    readable = ws.run("ask", *arguments, expect=expect).stdout
+    RunTranscript.model_validate_json(transcript.read_bytes())
+    return {"data": data, "readable": readable, "snapshot": arguments[2]}
+
+
+def _findings(answer: dict) -> list[dict]:
+    return [finding for conclusion in answer["conclusions"] for finding in conclusion["findings"]]
+
+
+def _inspected(ws: Workspace, answer: dict, snapshot: str) -> dict:
+    """The first cited evidence record, inspected through the CLI in the answered snapshot,
+    and whether every cited evidence ID is recorded there (checked in process, since one
+    command per ID would dominate the journey)."""
+    evidence_ids = [item for finding in _findings(answer) for item in finding["evidence_ids"]]
+    recorded = load_snapshot(Path(snapshot)).evidence
+    inspected = (
+        ws.json("evidence", evidence_ids[0], "--snapshot", snapshot) if evidence_ids else None
+    )
+    return {
+        "first": evidence_ids[0] if evidence_ids else None,
+        "inspected": inspected,
+        "recorded": all(item in recorded for item in evidence_ids),
+    }
+
+
+def journey(entry_point: str, root: Path) -> dict:
+    ws = Workspace(entry_point, root)
+    for name, suite in SUITES.items():
+        shutil.copytree(suite.parent, ws.path("fixtures", name))
+    fixtures = {path: digest(path) for path in ws.path("fixtures").rglob("*") if path.is_file()}
+    summary: dict = {"examples": {}, "paths": {}}
+    for case_id, case in _cases(ws, "readme").items():
+        asked = _ask(ws, "readme", case)
+        answer = asked["data"]["result"]["answer"]
+        asked["evidence"] = _inspected(ws, answer, asked["snapshot"])
+        summary["examples"][case_id] = (case, asked)
+    adversarial = _cases(ws, "adversarial")
+    for case_id, (_, code, _) in PATHS.items():
+        summary["paths"][case_id] = _ask(ws, "adversarial", adversarial[case_id], code)
+    # Asking never changes a fixture, and nothing reaches the network.
+    assert {path: digest(path) for path in fixtures} == fixtures
+    assert ws.guard.attempts == []
+    return summary
+
+
+@pytest.fixture(
+    scope="module",
+    params=[
+        pytest.param(entry_point, marks=pytest.mark.xdist_group(f"phase-four-{entry_point}"))
+        for entry_point in ENTRY_POINTS
+    ],
+)
+def summary(request, tmp_path_factory) -> dict:
+    """One entry point's journey; each runs once, on its own xdist worker."""
+    return journey(request.param, tmp_path_factory.mktemp(f"phase-four-{request.param}"))
+
+
+def _cited(answer: dict, key: str) -> set[str]:
+    return {
+        item
+        for conclusion in answer["conclusions"]
+        for citation in conclusion["citations"]
+        for item in citation[key]
+    }
+
+
+def test_every_readme_question_is_answered_from_tool_returned_findings(summary):
+    examples = summary["examples"]
+    assert set(README_QUESTIONS) <= {case["question"] for case, _ in examples.values()}
+    for case_id, (case, asked) in examples.items():
+        answer = asked["data"]["result"]["answer"]
+        expect = case["expect"]
+        assert answer["outcome"]["status"] == "answered", case_id
+        assert answer["status"] in expect["statuses"], case_id
+        # The cited findings are exactly those the example's tools returned.
+        assert _cited(answer, "finding_ids") == set(expect.get("finding_ids", ())), case_id
+        assert answer["conclusions"], case_id
+        lines = asked["readable"].splitlines()
+        assert "Answer: answered, exit code 0" in lines
+        assert f"Status: {answer['status']}" in lines
+
+
+def test_cited_evidence_is_inspected_in_the_answered_snapshot(summary):
+    inspected = 0
+    for case_id, (_, asked) in summary["examples"].items():
+        evidence = asked["evidence"]
+        answer = asked["data"]["result"]["answer"]
+        # A finding that supports anything cites evidence; insufficient evidence may not.
+        for finding in _findings(answer):
+            if finding["status"] != "insufficient_evidence":
+                assert finding["evidence_ids"], case_id
+        assert evidence["recorded"], case_id
+        if evidence["first"] is not None:
+            assert evidence["inspected"]["evidence_id"] == evidence["first"], case_id
+            inspected += 1
+    assert inspected >= len(README_QUESTIONS)
+
+
+def test_answers_short_of_supported_state_their_limitations(summary):
+    limited = {}
+    for case_id, (_, asked) in summary["examples"].items():
+        answer = asked["data"]["result"]["answer"]
+        if answer["status"] != "supported":
+            assert answer["qualifications"], case_id
+            limited[case_id] = answer["qualifications"]
+    assert {"trust_limited_coverage", "internet_insufficient_evidence", "ownership_planned"} <= (
+        set(limited)
+    )
+
+
+def test_fabricated_and_unreturned_citations_are_rejected_and_repairs_answer(summary):
+    for case_id, asked in summary["paths"].items():
+        outcome_name, code, rejection = PATHS[case_id]
+        result = asked["data"]["result"]
+        outcome = result["answer"]["outcome"]
+        assert result["exit_code"] == code, case_id
+        assert (outcome["failure"] or outcome["status"]) == outcome_name, case_id
+        if rejection is not None:
+            assert rejection in {item["code"] for item in outcome["rejections"]}, case_id
+            assert result["answer"]["conclusions"] == []
+            assert f"Answer: failed ({outcome_name}), exit code {code}" in asked["readable"]
+    repaired = summary["paths"]["repaired"]["data"]
+    assert repaired["summary"]["usage"]["repair_requested"]
+
+
+def test_imported_instructions_are_only_quoted_data(summary):
+    asked = summary["paths"]["injected_text"]
+    answer = asked["data"]["result"]["answer"]
+    quoted = [item["untrusted_text"] for c in answer["conclusions"] for item in c["data"]]
+    statements = [item for c in answer["conclusions"] for item in c["statements"]]
+    assert INJECTION in quoted
+    assert not any(INJECTION in text for text in [*statements, *answer["qualifications"]])
+    assert INJECTION not in json.dumps(answer["narrative"])

@@ -372,8 +372,9 @@ def test_the_readme_links_the_provider_contracts_without_claiming_real_providers
     assert "does not answer" not in text
     # The phase row lists every adapter as a finished step.
     assert "#openai-compatible-adapter) (step 41)," in text
-    assert "#bedrock-adapter) (step 42), and" in text
-    assert "(docs/assistant-evaluation.md) (step 43) |" in text
+    assert "#bedrock-adapter) (step 42)," in text
+    assert "(docs/assistant-evaluation.md) (step 43), and offline" in text
+    assert "| Complete (steps 34–44); separate from cloud platforms:" in text
     assert "in progress) |" not in text
     provider_doc = PROVIDERS_DOC.read_text(encoding="utf-8")
     assert "[Bedrock adapter](#bedrock-adapter), which is built" in " ".join(provider_doc.split())
@@ -786,7 +787,7 @@ def test_documented_command_options_exist(document):
         )
 
 
-def test_every_analysis_query_comparison_and_ask_option_is_documented():
+def test_every_analysis_query_comparison_ask_and_evaluation_option_is_documented():
     names = command_options()
     documented = "\n".join(
         block for path in DOC_FILES for block in code_blocks(path) if "archdiscov" in block
@@ -801,6 +802,8 @@ def test_every_analysis_query_comparison_and_ask_option_is_documented():
         "query neighbours",
         "query paths",
         "ask",
+        "evaluate",
+        "evaluation",
     ):
         for option in names[command] - {"--json"}:
             assert option in documented, (command, option)
@@ -825,6 +828,13 @@ def test_implemented_commands_are_not_listed_as_planned():
         "Deterministic findings (planned)",
         "no analyzer or CLI uses them yet",
         "other analyzers and comparisons remain planned",
+        "### Planned assistant behavior",
+        "provider interfaces remain planned",
+        "providers remain later work",
+        "providers remain phase 4",
+        "A future renderer",
+        "later answer validation must",
+        "The first release should answer",
     ):
         assert stale not in text, stale
     for path in DOC_FILES:

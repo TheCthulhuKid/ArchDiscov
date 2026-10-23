@@ -260,5 +260,5 @@ Phase 3 builds [graph queries](graph-queries.md), the [analyzers](analyzers.md),
 [comparisons](comparison-results.md) on this boundary. The security, network, and trust
 analyzers target AWS semantics; unsupported Azure
 requests must produce actionable limitations rather than apply AWS rules. Phase 4's
-LLM providers (for example Bedrock or OpenAI-compatible adapters) are a separate concept
-from cloud platforms and remain planned. Schema `3` itself implements neither phase.
+[LLM providers](assistant-providers.md) (the Anthropic, OpenAI-compatible, and Bedrock
+adapters) are a separate concept from cloud platforms. Schema `3` itself implements neither phase.

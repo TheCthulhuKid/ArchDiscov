@@ -92,7 +92,7 @@ def _ask(name: str, tmp_path: Path, monkeypatch, provider: str, *flags: str):
 
 def _readme_questions() -> list[str]:
     lines = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8").splitlines()
-    start = lines.index("The first release should answer these example questions:") + 2
+    start = lines.index("The `ask` command answers these example questions:") + 2
     questions = []
     for line in lines[start:]:
         if not line.startswith("- "):
