@@ -9,12 +9,15 @@ redirects are not followed. `quiet_loggers` holds the SDK's loggers at `WARNING`
 their debug records hold request bodies.
 
 `Retries` maps an SDK failure to a typed provider error through the failure's class
-hierarchy, never by message text, and retries only transport and rate-limit errors, up to
-`max_retries`, after a bounded exponential backoff or the server's `retry-after`, never
-longer than the request timeout. The response rules apply to any protocol:
-`untrusted_response` turns a response that does not fit the contracts into malformed
-output, `require_known` refuses unknown block or item types, and `require_text_only`
-refuses a length or refusal stop that carries tool calls or no text.
+hierarchy, never by message text, and for an SDK that raises one class for every API error,
+such as botocore, through that class's `ByCode` table of error codes. It retries only
+transport and rate-limit errors, up to `max_retries`, after a bounded exponential backoff or
+the server's `retry-after`, never longer than the request timeout. The response rules apply
+to any protocol: `untrusted_response` turns a response that does not fit the contracts into
+malformed output, `require_known` refuses unknown block or item types, and
+`require_text_only` refuses a length or refusal stop that carries tool calls or no text.
+For requests, `role_turns` merges consecutive messages of one role, for APIs that require
+alternating roles.
 """
 
 import asyncio
@@ -127,22 +130,37 @@ def guarded_http_clients(
     return sync, asynchronous
 
 
-def quiet_loggers(names: Iterable[str]) -> None:
-    """Hold these loggers at `WARNING`, whatever the SDK's log variable or the root says."""
+def quiet_loggers(names: Iterable[str], level: int = logging.WARNING) -> None:
+    """Hold these loggers at `level`, whatever the SDK's log variable or the root says."""
     for name in names:
         logger = logging.getLogger(name)
-        if logger.getEffectiveLevel() < logging.WARNING:
-            logger.setLevel(logging.WARNING)
+        if logger.getEffectiveLevel() < level:
+            logger.setLevel(level)
 
 
 # ---- failures -----------------------------------------------------------------------
 
 
-def provider_error(
-    error: Exception, errors: Mapping[type[Exception], type[ProviderError]]
-) -> ProviderError:
+@dataclass(frozen=True)
+class ByCode:
+    """The provider errors for one SDK failure class that stands for many API errors, by the
+    code `code` reads from the failure; an unknown or missing code is `default`."""
+
+    code: Callable[[Exception], Any]
+    errors: Mapping[str, type[ProviderError]]
+    default: type[ProviderError]
+
+    def __call__(self, error: Exception) -> type[ProviderError]:
+        return self.errors.get(self.code(error), self.default)
+
+
+type SdkErrors = Mapping[type[Exception], type[ProviderError] | ByCode]
+
+
+def provider_error(error: Exception, errors: SdkErrors) -> ProviderError:
     """The typed, fixed-message error for an SDK failure, by the first mapped class."""
-    return next(errors[cls] for cls in type(error).__mro__ if cls in errors)()
+    mapped = next(errors[cls] for cls in type(error).__mro__ if cls in errors)
+    return (mapped(error) if isinstance(mapped, ByCode) else mapped)()
 
 
 def retry_wait(error: Exception, attempt: int, timeout_seconds: float) -> float:
@@ -155,13 +173,19 @@ def retry_wait(error: Exception, attempt: int, timeout_seconds: float) -> float:
 
 def _retry_after(error: Exception) -> float | None:
     """`retry-after` in seconds, when the response sent a usable one."""
-    response = getattr(error, "response", None)
-    value = None if response is None else response.headers.get("retry-after")
+    value = _response_headers(getattr(error, "response", None)).get("retry-after")
     try:
         seconds = float(value)
     except (TypeError, ValueError):
         return None
     return seconds if math.isfinite(seconds) and seconds >= 0 else None
+
+
+def _response_headers(response: Any) -> Mapping[str, str]:
+    """An HTTP response's headers, or the lower-cased ones in botocore's parsed dictionary."""
+    if isinstance(response, Mapping):
+        return response.get("ResponseMetadata", {}).get("HTTPHeaders", {})
+    return {} if response is None else response.headers
 
 
 @dataclass(frozen=True)
@@ -172,7 +196,7 @@ class Retries:
     `async_sleep` wait between attempts.
     """
 
-    errors: Mapping[type[Exception], type[ProviderError]]
+    errors: SdkErrors
     max_retries: int
     sleep: Callable[[float], None] = time.sleep
     async_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
@@ -202,6 +226,24 @@ class Retries:
         return retry_wait(error, attempt, timeout_seconds)
 
 
+# ---- requests -----------------------------------------------------------------------
+
+type RoleBlocks = Mapping[type, tuple[str, Callable[[Any], list[Any]]]]
+
+
+def role_turns(messages: Iterable[Any], roles: RoleBlocks) -> list[dict[str, Any]]:
+    """One API message per role turn, each message's blocks found by its type in `roles`:
+    consecutive messages of one role, such as tool results and a repair prompt, share one."""
+    turns: list[dict[str, Any]] = []
+    for message in messages:
+        role, blocks = roles[type(message)]
+        if turns and turns[-1]["role"] == role:
+            turns[-1]["content"] += blocks(message)
+        else:
+            turns.append({"role": role, "content": blocks(message)})
+    return turns
+
+
 # ---- responses ----------------------------------------------------------------------
 
 
@@ -209,7 +251,7 @@ def untrusted_response[T](mapping: Callable[[T], CompletionResponse], raw: T) ->
     """Map an untrusted response; anything that does not fit the contracts is malformed."""
     try:
         return mapping(raw)
-    except (ValidationError, AttributeError, TypeError) as error:
+    except (ValidationError, AttributeError, TypeError, LookupError) as error:
         raise ProviderMalformedOutputError() from error
 
 

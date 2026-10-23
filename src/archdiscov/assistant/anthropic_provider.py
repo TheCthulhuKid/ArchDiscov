@@ -18,13 +18,12 @@ retries only transport and rate-limit errors, overload included.
 import asyncio
 import json
 import time
-from collections.abc import Awaitable, Callable, Iterable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
 import anthropic
 import httpx2
 from anthropic.types import (
-    MessageParam,
     TextBlockParam,
     ToolChoiceAutoParam,
     ToolParam,
@@ -37,16 +36,17 @@ from .adapters import (
     HTTP_HEADERS,
     HeaderGuard,
     Retries,
+    RoleBlocks,
     guarded_http_clients,
     quiet_loggers,
     require_known,
     require_text_only,
+    role_turns,
     untrusted_response,
 )
 from .config import AnthropicProviderConfig, ProviderKind
 from .conversation import (
     AssistantMessage,
-    Message,
     ParsedToolArguments,
     ProviderContinuation,
     SystemMessage,
@@ -189,7 +189,9 @@ class AnthropicProvider:
         params: dict[str, Any] = {
             "model": self.model,
             "max_tokens": limits.max_output_tokens,
-            "messages": _message_params(m for m in messages if not isinstance(m, SystemMessage)),
+            "messages": role_turns(
+                (m for m in messages if not isinstance(m, SystemMessage)), _ROLES
+            ),
             # An explicit timeout also stops the SDK demanding streaming for a large max_tokens.
             "timeout": httpx2.Timeout(limits.timeout_seconds, connect=self._connect_timeout),
         }
@@ -252,24 +254,11 @@ def _assistant_blocks(message: AssistantMessage) -> list[Any]:
     return blocks
 
 
-_ROLES: Mapping[type, tuple[str, Callable[[Any], list[Any]]]] = {
+_ROLES: RoleBlocks = {
     UserMessage: ("user", _user_blocks),
     ToolResultMessage: ("user", _result_blocks),
     AssistantMessage: ("assistant", _assistant_blocks),
 }
-
-
-def _message_params(messages: Iterable[Message]) -> list[MessageParam]:
-    """One API message per role turn: consecutive user messages, such as tool results and a
-    repair prompt, share one."""
-    params: list[MessageParam] = []
-    for message in messages:
-        role, blocks = _ROLES[type(message)]
-        if params and params[-1]["role"] == role:
-            params[-1]["content"] += blocks(message)
-        else:
-            params.append({"role": role, "content": blocks(message)})
-    return params
 
 
 # ---- responses ------------------------------------------------------------------------

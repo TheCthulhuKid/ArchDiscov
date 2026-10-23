@@ -1,10 +1,9 @@
 """Building a provider from its configuration.
 
-`build_provider` looks the configured kind up in `ADAPTERS`, resolves the credential the
-configuration references, and passes it to that kind's adapter, so steps 40-42 add a
-provider by registering an adapter here, without changing callers. A kind without an
-adapter fails before any credential is read or any request is made. Credentials go only to
-the adapter: they are never returned, logged, or recorded. A vendor adapter's module is
+`build_provider` looks the configured kind up in `ADAPTERS`, which has an adapter for every
+kind, resolves the credential the configuration references, and passes it to that kind's
+adapter, so callers never change when a provider is added. Credentials go only to the
+adapter: they are never returned, logged, or recorded. A vendor adapter's module is
 imported only when that kind is built, so nothing else needs its SDK.
 """
 
@@ -15,6 +14,7 @@ from pydantic import SecretStr
 
 from .config import (
     AnthropicProviderConfig,
+    BedrockProviderConfig,
     FakeProviderConfig,
     OpenAICompatibleProviderConfig,
     ProviderConfig,
@@ -49,10 +49,17 @@ def _openai(config: OpenAICompatibleProviderConfig, api_key: SecretStr, _: Path)
     return OpenAIProvider(config, api_key)
 
 
+def _bedrock(config: BedrockProviderConfig, _: SecretStr | None, __: Path) -> Provider:
+    from .bedrock_provider import BedrockProvider
+
+    return BedrockProvider(config)
+
+
 ADAPTERS: Mapping[ProviderKind, Adapter] = {
     ProviderKind.FAKE: _fake,
     ProviderKind.ANTHROPIC: _anthropic,
     ProviderKind.OPENAI_COMPATIBLE: _openai,
+    ProviderKind.BEDROCK: _bedrock,
 }
 
 
@@ -63,10 +70,7 @@ def build_provider(
     environ: Mapping[str, str] | None = None,
 ) -> Provider:
     """The provider for a configuration; relative paths in it resolve against `config_dir`."""
-    adapter = ADAPTERS.get(config.kind)
-    if adapter is None:
-        raise ProviderConfigError(ProviderConfigErrorCode.ADAPTER_UNAVAILABLE, kind=config.kind)
-    return adapter(config, resolve_api_key(config, environ), config_dir)
+    return ADAPTERS[config.kind](config, resolve_api_key(config, environ), config_dir)
 
 
 def load_provider(

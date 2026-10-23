@@ -24,7 +24,7 @@ from archdiscov.services.snapshot_errors import SnapshotIOError
 from tests.assistant.test_answer_service import PLAIN_TEXT, SEARCH, _proposal, _rejected, _submit
 from tests.assistant.test_orchestrator import _calls, _fail, _text
 from tests.assistant.test_orchestrator_async import _HangingProvider
-from tests.assistant.test_providers import UNADAPTED_KIND, unadapted_config
+from tests.assistant.test_providers import MISSING_PROFILE, missing_profile_config
 from tests.assistant.test_secret_leaks import SECRET
 from tests.paths import FIXTURES_ROOT
 
@@ -226,12 +226,13 @@ def test_invalid_configuration_is_invalid_input(tmp_path: Path, capsys, config, 
     assert (code, error["code"]) == (2, expected)
 
 
-def test_a_kind_without_an_adapter_fails_before_any_snapshot_is_read(tmp_path, capsys) -> None:
+def test_an_unloadable_profile_fails_before_any_snapshot_is_read(tmp_path, capsys) -> None:
     code, error = _failure(
-        capsys, lambda: _ask(unadapted_config(tmp_path), snapshot_path=tmp_path / "missing.json")
+        capsys,
+        lambda: _ask(missing_profile_config(tmp_path), snapshot_path=tmp_path / "missing.json"),
     )
-    expected = (2, "provider_adapter_unavailable", UNADAPTED_KIND.value)
-    assert (code, error["code"], error["kind"]) == expected
+    expected = (2, "provider_profile_unavailable", MISSING_PROFILE, "bedrock")
+    assert (code, error["code"], error["profile"], error["kind"]) == expected
 
 
 def test_an_unusable_transcript_is_reported(tmp_path: Path, capsys) -> None:

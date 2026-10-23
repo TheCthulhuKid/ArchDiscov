@@ -144,30 +144,11 @@ class AnthropicProviderConfig(_EndpointConfig):
     endpoint: HttpUrl | None = None
 
 
-class OpenAICompatibleProviderConfig(_EndpointConfig):
-    """Base URL, key variable, protocol, and capabilities are explicit; nothing is guessed.
+class _DeclaredCapabilitiesConfig(_EndpointConfig):
+    """A provider that cannot be asked what its model supports, so `capabilities` declares
+    it: tool calling by default, and parallel calls only when declared."""
 
-    A compatible server cannot be asked what its model supports, so `capabilities` declares
-    it: tool calling by default, and parallel calls only when declared, because some servers
-    reject `parallel_tool_calls`. Likewise `encrypted_reasoning` asks a Responses server for
-    the encrypted reasoning a stateless reasoning model needs back, only when declared,
-    because servers without it may reject the request.
-    """
-
-    kind: Literal[ProviderKind.OPENAI_COMPATIBLE] = ProviderKind.OPENAI_COMPATIBLE
-    api_key_env: EnvVarName
-    endpoint: HttpUrl
-    protocol: OpenAIProtocol
     capabilities: frozenset[ProviderCapability] = frozenset({ProviderCapability.TOOL_CALLING})
-    encrypted_reasoning: bool = Field(default=False, strict=True)
-
-    @model_validator(mode="after")
-    def require_responses_for_encrypted_reasoning(self) -> Self:
-        if self.encrypted_reasoning and self.protocol is not OpenAIProtocol.RESPONSES:
-            raise validation_error(
-                "provider_config_reasoning_protocol", "encrypted reasoning needs responses"
-            )
-        return self
 
     @field_validator("capabilities")
     @classmethod
@@ -178,12 +159,41 @@ class OpenAICompatibleProviderConfig(_EndpointConfig):
         return capabilities
 
 
-class BedrockProviderConfig(_ProviderConfigBase):
-    """Uses its own AWS profile, separate from collection credentials."""
+class OpenAICompatibleProviderConfig(_DeclaredCapabilitiesConfig):
+    """Base URL, key variable, protocol, and capabilities are explicit; nothing is guessed.
+
+    Parallel calls are declared, never assumed, because some servers reject
+    `parallel_tool_calls`. Likewise `encrypted_reasoning` asks a Responses server for the
+    encrypted reasoning a stateless reasoning model needs back, only when declared, because
+    servers without it may reject the request.
+    """
+
+    kind: Literal[ProviderKind.OPENAI_COMPATIBLE] = ProviderKind.OPENAI_COMPATIBLE
+    api_key_env: EnvVarName
+    endpoint: HttpUrl
+    protocol: OpenAIProtocol
+    encrypted_reasoning: bool = Field(default=False, strict=True)
+
+    @model_validator(mode="after")
+    def require_responses_for_encrypted_reasoning(self) -> Self:
+        if self.encrypted_reasoning and self.protocol is not OpenAIProtocol.RESPONSES:
+            raise validation_error(
+                "provider_config_reasoning_protocol", "encrypted reasoning needs responses"
+            )
+        return self
+
+
+class BedrockProviderConfig(_DeclaredCapabilitiesConfig):
+    """Uses its own AWS profile and optional role, separate from collection credentials.
+
+    Bedrock models differ in tool support, so `capabilities` declares it. `endpoint`
+    replaces the regional endpoint, such as for a VPC interface endpoint.
+    """
 
     kind: Literal[ProviderKind.BEDROCK] = ProviderKind.BEDROCK
     profile: NonEmptyString
     region: AwsRegion
+    endpoint: HttpUrl | None = None
     role_arn: str | None = Field(default=None, pattern=r"^arn:aws[a-z-]*:iam::[0-9]{12}:role/\S+$")
     session_name: NonEmptyString = "archdiscov-assistant"
 
@@ -223,14 +233,14 @@ class ProviderConfigErrorCode(StrEnum):
     CREDENTIAL_MISSING = "provider_credential_missing"
     CREDENTIAL_EMPTY = "provider_credential_empty"
     TRANSCRIPT_MISSING = "provider_transcript_missing"
-    ADAPTER_UNAVAILABLE = "provider_adapter_unavailable"
+    PROFILE_UNAVAILABLE = "provider_profile_unavailable"
 
 
 class ProviderConfigError(Exception):
     """A configuration or credential failure with a fixed message.
 
-    Diagnostics name the file path, the referenced variable name, and the provider kind,
-    never file contents, field values, or resolved credentials.
+    Diagnostics name the file path, the referenced variable or AWS profile name, and the
+    provider kind, never file contents, field values, or resolved credentials.
     """
 
     messages: ClassVar[Mapping[ProviderConfigErrorCode, str]] = {
@@ -249,8 +259,8 @@ class ProviderConfigError(Exception):
         ProviderConfigErrorCode.TRANSCRIPT_MISSING: (
             "Fake provider configuration names no transcript file."
         ),
-        ProviderConfigErrorCode.ADAPTER_UNAVAILABLE: (
-            "No adapter is available for the configured provider kind yet."
+        ProviderConfigErrorCode.PROFILE_UNAVAILABLE: (
+            "Configured AWS profile could not be loaded."
         ),
     }
 
@@ -260,6 +270,7 @@ class ProviderConfigError(Exception):
         *,
         path: Path | None = None,
         variable: str | None = None,
+        profile: str | None = None,
         kind: ProviderKind | None = None,
         details: tuple[ValidationIssue, ...] = (),
     ) -> None:
@@ -268,6 +279,7 @@ class ProviderConfigError(Exception):
         super().__init__(self.message)
         self.path = path
         self.variable = variable
+        self.profile = profile
         self.kind = kind
         self.details = details
 

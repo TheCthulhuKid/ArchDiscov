@@ -5,8 +5,8 @@ This page describes the structured answer a model submits at the end of an
 [tools](assistant-tools.md) returned, how its conclusions are written from records, and how
 a failed run is explained, the answer service that repairs once and composes them, and the
 readable and JSON renderings. The [`ask` command](ask-command.md) presents them with the scripted fake or the
-Anthropic adapter, or the OpenAI-compatible adapter through Responses or Chat Completions,
-and Bedrock is a later step.
+Anthropic adapter, the OpenAI-compatible adapter through Responses or Chat Completions, or
+the Bedrock adapter through Converse.
 
 ## Boundary
 
@@ -271,7 +271,7 @@ on cancellation, where it is logged so the cancellation still propagates.
 
 Errors before the run starts keep the existing CLI codes: an unreadable configuration,
 transcript, snapshot, or saved comparison file is 1, and invalid configuration, transcripts,
-snapshots, or saved comparisons, including a provider kind without an adapter and a saved
+snapshots, or saved comparisons, including a Bedrock profile that cannot be loaded and a saved
 comparison of snapshots that were not selected (`result_snapshot_unselected`), are 2. A saved
 comparison's diagnostic names its own file. Once the run starts, everything is an
 answer outcome with the exit codes above, except a fake scripting error (`FakeScriptError`,

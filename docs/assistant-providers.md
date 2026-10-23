@@ -6,7 +6,8 @@ protocol, provider configuration, and the scripted fake provider used to test ev
 above it. The `ask` command builds its provider from a configuration file: the fake, the
 [Anthropic adapter](#anthropic-adapter), or the
 [OpenAI-compatible adapter](#openai-compatible-adapter), which answers through Responses
-or Chat Completions; `bedrock` has no adapter yet. The
+or Chat Completions, or the [Bedrock adapter](#bedrock-adapter), which is built from its
+own AWS profile and answers through Converse. The
 [assistant tools](assistant-tools.md), [orchestration](assistant-orchestration.md), and
 [answers](assistant-answers.md) build on this layer. Only an adapter module imports a
 vendor SDK, and only when its kind is built.
@@ -127,8 +128,7 @@ answer renderer in a later step.
 `assistant/config.py` loads a TOML file of at most 64 KiB (`MAX_CONFIG_BYTES`) with
 `load_provider_config(path)`, or validates data with `parse_provider_config`. The file
 is one table selected by `kind`. The `ask` command reads it with `--config`;
-the fake, `anthropic`, and `openai_compatible` have adapters, and `bedrock` defines the
-configuration its adapter will use.
+every kind has an adapter.
 
 ```toml
 kind = "anthropic"
@@ -153,10 +153,10 @@ request_timeout_seconds = 30
 | `max_tool_calls_per_turn` | all | 1 | 1–32, at most `max_tool_calls` |
 | `max_latency_seconds` | all | 300 | >0–3,600 |
 | `api_key_env` | `anthropic`, `openai_compatible` | required | environment variable name: `A`–`Z`, digits, `_` |
-| `endpoint` | `anthropic` | none | HTTPS URL |
+| `endpoint` | `anthropic`, `bedrock` | none | HTTPS URL |
 | `endpoint` | `openai_compatible` | required | HTTPS URL |
 | `protocol` | `openai_compatible` | required | `responses`, `chat_completions` |
-| `capabilities` | `openai_compatible` | `tool_calling` | a list of `tool_calling`, `parallel_tool_calls` (which requires `tool_calling`), `structured_output` |
+| `capabilities` | `openai_compatible`, `bedrock` | `tool_calling` | a list of `tool_calling`, `parallel_tool_calls` (which requires `tool_calling`), `structured_output` |
 | `encrypted_reasoning` | `openai_compatible` | `false` | `true` or `false`; `true` requires `protocol = "responses"` |
 | `profile` | `bedrock` | required | AWS profile name |
 | `region` | `bedrock` | required | a concrete AWS region, not `global` |
@@ -181,8 +181,11 @@ against the file's directory.
   fails with the fake's own error codes.
 - `anthropic` builds the [Anthropic adapter](#anthropic-adapter).
 - `openai_compatible` builds the [OpenAI-compatible adapter](#openai-compatible-adapter).
-- A kind without an adapter (`bedrock`) fails with `provider_adapter_unavailable`, before
-  its credential is read or any request is made.
+- `bedrock` builds the [Bedrock adapter](#bedrock-adapter); a profile that cannot be loaded
+  fails with `provider_profile_unavailable`, naming the profile.
+
+A test checks that `ADAPTERS` has an adapter for every kind, so no configuration that
+validates can name a kind nothing builds.
 
 Errors name the file and the kind, never the configuration's values or credentials.
 
@@ -503,10 +506,218 @@ ARCHDISCOV_LIVE_OPENAI_PROTOCOLS=responses,chat_completions \
 .venv/bin/python -m pytest -m live tests/live/test_openai_live.py
 ```
 
+### Bedrock adapter
+
+`assistant/bedrock_provider.py` is the only assistant module that imports `boto3` or
+`botocore`, and `ADAPTERS` imports it only when a `bedrock` configuration is built. Building
+it makes no request; each `complete` then makes one Converse request. Botocore is
+synchronous, so `complete_async` runs the request in a thread.
+
+```toml
+kind = "bedrock"
+model = "anthropic.claude-3-5-sonnet-20240620-v1:0"   # a model ID, inference profile ID, or ARN
+profile = "assistant"                         # its own profile, not collection's
+region = "eu-west-1"
+role_arn = "arn:aws:iam::123456789012:role/ArchdiscovAssistant"   # optional
+capabilities = ["tool_calling", "parallel_tool_calls"]
+```
+
+The adapter has its own AWS session, separate from the credentials collection uses: the
+configured `profile` and `region`, and, with `role_arn`, a role assumed as `session_name`.
+The session code is shared with collection (`ingestion/aws_sessions.py`), but no
+credential or setting is. A role is assumed on the first request, through refreshable
+credentials, so building makes no request and an STS failure is that request's failure.
+A profile that does not exist, or whose files cannot be read, fails before the run with
+`provider_profile_unavailable` (exit 2), naming the profile and never its contents.
+
+Only the configuration chooses the target, the credential, and the retries:
+
+- An explicit profile makes botocore skip `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
+  `AWS_SESSION_TOKEN`, and `AWS_PROFILE`; the region is always the configured one.
+- `AWS_ENDPOINT_URL`, `AWS_ENDPOINT_URL_BEDROCK_RUNTIME`, and a profile's `endpoint_url` are
+  ignored, as are FIPS and dual-stack settings. Requests go to the regional
+  `bedrock-runtime` endpoint, or to `endpoint` when set, such as a VPC interface endpoint;
+  plain HTTP is accepted only for loopback hosts.
+- Proxy variables are ignored, because the client is given an explicit empty proxy
+  setting.
+- Botocore's own retries are off whatever `AWS_MAX_ATTEMPTS`, `AWS_RETRY_MODE`, or the
+  profile say, and the timeouts are `connect_timeout_seconds` and
+  `request_timeout_seconds`.
+- The `boto3` and `botocore` loggers are held at `WARNING` whatever the root level says,
+  because their debug records hold request bodies, and `botocore.credentials` at `ERROR`
+  (see [Bedrock failures](#bedrock-failures)).
+
+`AWS_CONFIG_FILE` and `AWS_SHARED_CREDENTIALS_FILE` still choose where profiles are read
+from, as for any AWS tool.
+
+The identity the adapter signs with (the profile's, or the role's when `role_arn` is set)
+needs these IAM permissions, and nothing else:
+
+- `bedrock:InvokeModel` on the model: the foundation model's ARN for a model ID, or the
+  inference profile's ARN for an inference profile. A cross-Region inference profile also
+  needs `bedrock:InvokeModel` on the underlying foundation model in every Region the profile
+  routes to. Converse uses this permission; the model must also be enabled for the account.
+- `sts:AssumeRole` on `role_arn`, for the profile's identity, when a role is set; the role's
+  trust policy must allow that identity.
+
+For example, for an inference profile:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "bedrock:InvokeModel",
+      "Resource": [
+        "arn:aws:bedrock:eu-west-1:123456789012:inference-profile/eu.anthropic.claude-sonnet-5-5-v1:0",
+        "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-5-5-v1:0"
+      ]
+    }
+  ]
+}
+```
+
+An access-denied answer is `provider_authentication` (exit 6), with no ARN or message.
+
+Bedrock models differ in tool support and cannot be asked cheaply, so `capabilities`
+declares it, as for the OpenAI-compatible adapter: tool calling by default, parallel tool
+calls only when listed. Converse has no setting that stops a model from calling several
+tools in one turn, so a model that does so with `max_tool_calls_per_turn` at 1 ends the
+run as `limit_reached`; declare `parallel_tool_calls` and raise the limit for such models.
+
+#### Converse requests and responses
+
+Each request becomes one `converse` call holding only fields every tool-capable model
+accepts:
+
+- System messages become `system` text blocks. User, assistant, and tool-result messages
+  become `messages` in order; Converse requires alternating roles, so consecutive
+  user-role messages, such as tool results and a repair prompt, share one `user` message.
+- An assistant message that carries a continuation is replayed as its continuation's
+  content, unchanged and in order; otherwise it becomes a `text` block (when it has text)
+  followed by a `toolUse` block per call, with its `toolUseId` and JSON object `input`
+  (`{}` for malformed arguments, which never ran).
+- Each tool result becomes a `toolResult` block with one `text` content block, and a failed
+  tool's result has `status` `error`.
+- Tools become `toolSpec` entries with `name`, `description`, and `inputSchema.json`, and
+  `inferenceConfig.maxTokens` is `max_output_tokens`.
+- `toolChoice` is not sent, and a successful result has no `status`: both are the
+  defaults (`auto` and success), and some models reject the fields. Nothing goes in
+  `additionalModelRequestFields`, `guardrailConfig`, `performanceConfig`, or the sampling
+  fields, so the model's defaults apply.
+
+The response is untrusted: botocore parses it into plain dictionaries without checking
+it. Only `text`, `toolUse`, and `reasoningContent` blocks are mapped. Any other block is
+`provider_malformed_output`, as is a response that does not fit the contracts. That
+includes images, documents, citations, guard content, a tool result, a server tool's
+`toolUse` (one with a `type`), and reasoning of a kind botocore does not know, which it
+parses without its content and so could not go back. Text blocks are joined, and
+`toolUse` blocks become tool calls through the shared argument parsing. Usage maps
+`inputTokens`, `outputTokens`, `cacheReadInputTokens`, and `cacheWriteInputTokens`.
+
+| `stopReason` | Maps to |
+|---|---|
+| `end_turn`, `stop_sequence` | `end` |
+| `tool_use` | `tool_use` |
+| `max_tokens`, `model_context_window_exceeded` | `length` for text alone; otherwise `provider_truncated_output` |
+| `guardrail_intervened`, `content_filtered` | `refusal` for text alone; otherwise `provider_refusal` |
+| any other, such as `malformed_model_output` or `malformed_tool_use` | `provider_malformed_output` |
+
+Models that reason, such as Anthropic's on Bedrock, need their reasoning back with tool
+use. A response holding `reasoningContent` blocks therefore keeps its whole content, in
+order, as a `bedrock` continuation, and the next request replays that content verbatim.
+Redacted reasoning is kept as the base64 text the API sent, so it goes back byte for byte.
+A continuation from another provider kind is refused as `provider_invalid_request` before
+anything is sent.
+
+Botocore fixes the read timeout when it makes a client, but each request carries its own
+`timeout_seconds`, which the run's deadline can cut short. A request whose timeout differs
+from `request_timeout_seconds` is therefore sent by a client made for that timeout, from the
+same session, so a role is still assumed once. The configured timeout's client is kept, and
+only the latest other one.
+
+#### Bedrock failures
+
+Botocore raises one `ClientError` for every API error, so an API error maps by its error
+code, never by message text; any other code, or none, is `provider_unavailable`. Every
+error the Converse operation model declares has a row, which a test checks.
+
+| API error code | Provider error |
+|---|---|
+| `ThrottlingException` | `provider_rate_limit` |
+| `ServiceQuotaExceededException` | `provider_rate_limit` |
+| `AccessDeniedException` | `provider_authentication` |
+| `UnrecognizedClientException` | `provider_authentication` |
+| `ExpiredTokenException` | `provider_authentication` |
+| `InvalidSignatureException` | `provider_authentication` |
+| `IncompleteSignature` | `provider_authentication` |
+| `MissingAuthenticationTokenException` | `provider_authentication` |
+| `InvalidClientTokenId` | `provider_authentication` |
+| `RequestExpired` | `provider_authentication` |
+| `ValidationException` | `provider_invalid_request`, including a model without tool support |
+| `ResourceNotFoundException` | `provider_invalid_request` |
+| `ModelTimeoutException` | `provider_timeout` |
+| `ModelNotReadyException` | `provider_unavailable` |
+| `ModelErrorException` | `provider_unavailable` |
+| `InternalServerException` | `provider_unavailable` |
+| `ServiceUnavailableException` | `provider_unavailable` |
+
+Botocore's own failures map by class, through the class hierarchy, so a subclass maps
+before its base:
+
+| botocore exception | Cause | Provider error |
+|---|---|---|
+| `ClientError` | an API error | by its code, above |
+| `ReadTimeoutError` | the response did not arrive within the request's timeout | `provider_timeout` |
+| `ConnectTimeoutError` | no connection within `connect_timeout_seconds` | `provider_timeout` |
+| `HTTPClientError` | the connection failed during the request | `provider_transport` |
+| `ConnectionError` | the endpoint, a proxy, or TLS could not be reached | `provider_transport` |
+| `NoCredentialsError` | the profile has no credentials | `provider_authentication` |
+| `PartialCredentialsError` | the profile's credentials are incomplete | `provider_authentication` |
+| `CredentialRetrievalError` | the role could not be assumed | `provider_authentication` |
+| `TokenRetrievalError` | a login token could not be refreshed | `provider_authentication` |
+| `SSOError` | the profile's SSO session is missing or expired | `provider_authentication` |
+| `ParamValidationError` | the request does not fit the service model | `provider_invalid_request` |
+| `ResponseParserError` | a response botocore cannot parse | `provider_malformed_output` |
+| `BotoCoreError` | any other botocore failure | `provider_unavailable` |
+| `AttributeError` | a response field of the wrong type, as botocore parses it | `provider_malformed_output` |
+| `TypeError` | likewise | `provider_malformed_output` |
+| `ValueError` | likewise, such as a non-numeric token count | `provider_malformed_output` |
+
+A role is assumed on the first request, so a role assumption that STS rejects, or that
+answers without usable credentials, is that request's `CredentialRetrievalError`, and so
+`provider_authentication`; an STS timeout or connection failure maps as for Converse.
+Botocore warns of a failed role assumption with a traceback that holds STS's message,
+naming the role, so the `botocore.credentials` logger is held at `ERROR`. Botocore parses a
+success body that is not JSON as an empty response, which the mapping refuses as
+`provider_malformed_output`. As for the other adapters, an error has its fixed message and
+chains the botocore exception, copying none of its message, request ID, or ARN.
+
+Retries, waits, and `retry-after` use the same shared loop and constants as the
+[Anthropic adapter](#failures-and-retries): only transport and rate-limit errors,
+throttling included, are retried, up to `max_retries`, and a timeout never is. Botocore's
+own retries stay off.
+
+#### Bedrock live smoke test
+
+`tests/live/test_bedrock_live.py` asks the same README question, with the same caps. It is
+marked `live` and skips unless variables name the AWS profile, region, and a model that
+supports tool use; another optionally names a role to assume. The profile's secret key and
+session token must not reach the result or the transcript. Run it only on purpose:
+
+```sh
+ARCHDISCOV_LIVE_BEDROCK_PROFILE=assistant \
+ARCHDISCOV_LIVE_BEDROCK_REGION=eu-west-1 \
+ARCHDISCOV_LIVE_BEDROCK_MODEL=eu.anthropic.claude-sonnet-5-5-v1:0 \
+.venv/bin/python -m pytest -m live tests/live/test_bedrock_live.py
+```
+
 ### Credentials
 
 - Credentials are references only: `api_key_env` names an environment variable, and
-  Bedrock uses its own AWS `profile`, separate from collection credentials.
+  Bedrock uses its own AWS `profile` (and optional role), separate from collection
+  credentials.
 - API keys are never accepted as CLI arguments, which leak into shell history and
   process listings, or as configuration values.
 - Before field validation, the whole file is scanned: credential-like field names
@@ -520,9 +731,10 @@ ARCHDISCOV_LIVE_OPENAI_PROTOCOLS=responses,chat_completions \
 
 `ProviderConfigError` carries a code (`provider_config_unreadable`,
 `provider_config_too_large`, `provider_config_malformed`, `provider_config_invalid`,
-`provider_credential_missing`, or `provider_credential_empty`), a fixed message, the
-file path, the referenced variable name, and code-only issue details, never file
-contents or field values.
+`provider_credential_missing`, `provider_credential_empty`,
+`provider_transcript_missing`, or `provider_profile_unavailable`), a fixed message, the
+file path, the referenced variable or AWS profile name, and code-only issue details,
+never file contents or field values.
 
 ## Fake provider
 
@@ -580,9 +792,13 @@ Example transcripts are in `tests/fixtures/assistant/`. The shared contract suit
 `tests/assistant/provider_harness.py` through the same mapping, error, capability,
 retry, and timeout cases. The orchestration and answer-service suites and the README example
 questions run through every harness too, and check that each adapter reaches the same run
-and answer as the fake from the same turns; the Anthropic harness serves them from a mocked
-Messages API. An adapter's harness subclasses `MockedHarness`, giving its protocol's response
-body and how its API shows each scripted error; the mocked transport, scripted failures, and
-the loopback server for installed-command tests are in `tests/support/mock_api.py`. Two orchestration cases are the fake's alone: a response arriving after the
-provider's own timeout, which an HTTP client cannot receive, and another provider's
-continuation, since an adapter marks its own.
+and answer as the fake from the same turns; each adapter's harness serves them from its own
+mocked API. An adapter's harness subclasses `MockedHarness`, giving its protocol's response
+body and how its API shows each scripted error; the Bedrock harness also says how its API
+serves a body and is made, since botocore is mocked through its `before-send` event (with
+`BotocoreApi`) rather than an HTTP transport, and reads a dummy AWS profile from
+`tests/fixtures/assistant/aws/`. The mocked transports, scripted failures, and the loopback
+server for installed-command tests are in `tests/support/mock_api.py`. Two orchestration
+cases are the fake's alone: a response arriving after the provider's own timeout, which an
+HTTP client cannot receive, and another provider's continuation, since an adapter marks its
+own.

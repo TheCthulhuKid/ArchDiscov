@@ -14,6 +14,7 @@ from archdiscov.assistant import (
     answer_results,
     answer_validation,
     anthropic_provider,
+    bedrock_provider,
     openai_provider,
 )
 from archdiscov.assistant import answers as assistant_answers
@@ -244,13 +245,21 @@ def test_documented_provider_configuration_matches_the_models():
     assert set(CONFIG_MODELS) == {kind.value for kind in assistant_config.ProviderKind}
 
 
-def test_documented_anthropic_stop_reasons_match_the_adapter():
-    rows = table_rows(PROVIDERS_DOC, "| `stop_reason` | Maps to")
+@pytest.mark.parametrize(
+    ("header", "stops"),
+    [
+        ("| `stop_reason` | Maps to", anthropic_provider._STOP_REASONS),
+        ("| `stopReason` | Maps to", bedrock_provider._STOP_REASONS),
+    ],
+    ids=["anthropic", "bedrock"],
+)
+def test_documented_stop_reasons_match_the_adapter(header: str, stops) -> None:
+    rows = table_rows(PROVIDERS_DOC, header)
     documented = {reason.strip("` ") for row in rows[:-1] for reason in row[0].split(",")}
-    assert documented == set(anthropic_provider._STOP_REASONS)
+    assert documented == set(stops)
     for row in rows[:-1]:
         reason = row[0].split(",")[0].strip("` ")
-        assert f"`{anthropic_provider._STOP_REASONS[reason].value}`" in row[1], reason
+        assert f"`{stops[reason].value}`" in row[1], reason
 
 
 def test_documented_chat_completions_finish_reasons_match_the_adapter():
@@ -294,6 +303,23 @@ def test_documented_openai_failures_match_the_adapter():
     assert documented == {
         cls.__name__: error.code.value for cls, error in openai_provider.SDK_ERRORS.items()
     }
+
+
+def test_documented_bedrock_failures_match_the_adapter():
+    rows = table_rows(PROVIDERS_DOC, "| API error code | Provider error")
+    documented = {row[0].strip("`"): row[1].split(",")[0].strip("`") for row in rows}
+    assert documented == {
+        code: error.code.value for code, error in bedrock_provider.API_ERRORS.items()
+    }
+    rows = table_rows(PROVIDERS_DOC, "| botocore exception | Cause")
+    assert [row[0].strip("`") for row in rows] == [
+        cls.__name__ for cls in bedrock_provider.SDK_ERRORS
+    ]
+    for row, mapped in zip(rows, bedrock_provider.SDK_ERRORS.values(), strict=True):
+        if isinstance(mapped, adapters.ByCode):
+            assert mapped.errors is bedrock_provider.API_ERRORS and row[2] == "by its code, above"
+        else:
+            assert row[2] == f"`{mapped.code.value}`", row[0]
 
 
 def test_documented_request_limits_match_the_model():
@@ -342,10 +368,12 @@ def test_the_readme_links_the_provider_contracts_without_claiming_real_providers
     assert "Bedrock adapter is implemented" not in text
     # Every adapter that exists answers; none is described as built but silent.
     assert "does not answer" not in text
-    # The phase row lists the adapter as a finished step.
-    assert "#openai-compatible-adapter) (step 41) |" in text
+    # The phase row lists every adapter as a finished step.
+    assert "#openai-compatible-adapter) (step 41)," in text
+    assert "#bedrock-adapter) (step 42) |" in text
+    assert "in progress) |" not in text
     provider_doc = PROVIDERS_DOC.read_text(encoding="utf-8")
-    assert "`bedrock` has no adapter yet" in " ".join(provider_doc.split())
+    assert "[Bedrock adapter](#bedrock-adapter), which is built" in " ".join(provider_doc.split())
 
 
 # ---- assistant tools ---------------------------------------------------------------
@@ -559,7 +587,9 @@ def test_the_readme_links_answers_without_claiming_rendering():
     assert "docs/assistant-answers.md" in text
     for claim in ("answers are rendered", "repair is implemented"):
         assert claim not in text
-    assert "Bedrock is a later step" in " ".join(ANSWERS_DOC.read_text(encoding="utf-8").split())
+    assert "the Bedrock adapter through Converse" in " ".join(
+        ANSWERS_DOC.read_text(encoding="utf-8").split()
+    )
 
 
 # ---- ask command -------------------------------------------------------------------

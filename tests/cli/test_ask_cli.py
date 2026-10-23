@@ -20,7 +20,7 @@ from archdiscov.services import AskCancelled, compare_snapshots, load_snapshot, 
 from archdiscov.services.ask import RunSummary
 from tests.assistant.test_answer_service import PLAIN_TEXT, SEARCH, _proposal, _rejected, _submit
 from tests.assistant.test_orchestrator import _calls, _fail, _text
-from tests.assistant.test_providers import unadapted_config
+from tests.assistant.test_providers import missing_profile_config
 from tests.assistant.test_secret_leaks import SECRET
 from tests.services.test_ask import (
     COMPARISON,
@@ -170,8 +170,8 @@ def _invalid_config(tmp_path: Path) -> tuple[Path, list, dict]:
     return path, [], {}
 
 
-def _no_adapter(tmp_path: Path) -> tuple[Path, list, dict]:
-    return unadapted_config(tmp_path), [], {}
+def _missing_profile(tmp_path: Path) -> tuple[Path, list, dict]:
+    return missing_profile_config(tmp_path), [], {}
 
 
 def _blank_question(tmp_path: Path) -> tuple[Path, list, dict]:
@@ -216,7 +216,7 @@ def _existing_transcript(tmp_path: Path) -> tuple[Path, list, dict]:
 PRE_RUN_ERRORS = [
     (_missing_config, 1, "provider_config_unreadable"),
     (_invalid_config, 2, "provider_transcript_missing"),
-    (_no_adapter, 2, "provider_adapter_unavailable"),
+    (_missing_profile, 2, "provider_profile_unavailable"),
     (_blank_question, 2, "invalid_question"),
     (_unknown_snapshot, 1, "snapshot_io_error"),
     (_invalid_comparison, 2, "invalid_snapshot"),

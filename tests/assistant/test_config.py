@@ -107,11 +107,17 @@ model = "anthropic.claude-3-5-sonnet-20240620-v1:0"
 profile = "assistant"
 region = "eu-west-1"
 role_arn = "arn:aws:iam::123456789012:role/ArchdiscovAssistant"
+endpoint = "https://vpce-0a1b2c.bedrock-runtime.eu-west-1.vpce.amazonaws.com"
+capabilities = ["tool_calling", "parallel_tool_calls"]
 """,
         )
     )
     assert isinstance(bedrock, BedrockProviderConfig)
     assert bedrock.region is AwsRegion.EU_WEST_1
+    assert bedrock.capabilities == set(ProviderCapability) - {ProviderCapability.STRUCTURED_OUTPUT}
+    assert parse_provider_config(BEDROCK).endpoint is None
+    # Bedrock models differ in tool support; only tool calling is assumed unless declared.
+    assert parse_provider_config(BEDROCK).capabilities == {ProviderCapability.TOOL_CALLING}
 
 
 def test_defaults_are_explicit() -> None:
@@ -199,6 +205,11 @@ def test_real_model_names_are_not_mistaken_for_secrets(model: str) -> None:
         ),
         ({**OPENAI, "encrypted_reasoning": "true"}, "bool_type"),
         ({**BEDROCK, "region": "global"}, "provider_config_region_invalid"),
+        (
+            {**BEDROCK, "capabilities": ["parallel_tool_calls"]},
+            "provider_parallel_calls_without_tools",
+        ),
+        ({**BEDROCK, "endpoint": "http://bedrock.example.com"}, "provider_config_endpoint_invalid"),
         ({**BEDROCK, "region": "mars-1"}, "enum"),
         ({**BEDROCK, "role_arn": "role/x"}, "string_pattern_mismatch"),
         ({k: v for k, v in BEDROCK.items() if k != "profile"}, "missing"),

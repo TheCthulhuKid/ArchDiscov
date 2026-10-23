@@ -1,20 +1,23 @@
 """The installed `ask` command, outside the checkout, with the fake provider and no network.
 
 Both entry points answer the five README example questions in both output forms, and refuse
-a missing configuration, an unknown snapshot, a real provider kind without an adapter, an
+a missing configuration, an unknown snapshot, a Bedrock profile that cannot be loaded, an
 Anthropic or OpenAI-compatible configuration without its key, and an existing transcript
 path before the run, and report a scripted provider error and a run limit as answer
-outcomes, each with its documented exit code. The Anthropic adapter and the
-OpenAI-compatible adapter through each protocol also answer a README question through a
-mock API on one loopback port, the only connection the run may make. The child sees no credentials
-and no checkout: its whole `PYTHONPATH` is the offline guard, which fails and records any
-other network use.
+outcomes, each with its documented exit code. The Anthropic adapter, the OpenAI-compatible
+adapter through each protocol, and the Bedrock adapter also answer a README question through
+a mock API on one loopback port, the only connection the run may make. The child sees no
+credentials and no checkout, except a dummy key or AWS profile forwarded to an adapter's run
+alone: its whole `PYTHONPATH` is the offline guard, which fails and records any other
+network use.
 """
 
 import hashlib
 import json
+import re
 from collections.abc import Callable
 from pathlib import Path
+from urllib.parse import quote, unquote
 
 import pytest
 
@@ -23,14 +26,16 @@ from archdiscov.assistant.runs import RunTranscript
 from archdiscov.models.enums import AnalyzerKind
 from tests.acceptance.test_installed_end_to_end import Workspace
 from tests.assistant.provider_harness import (
+    HARNESS_PROFILE,
     AnthropicHarness,
+    BedrockHarness,
     ChatCompletionsHarness,
     MockedHarness,
     ResponsesHarness,
 )
 from tests.assistant.test_answer_service import SEARCH
 from tests.assistant.test_orchestrator import _calls, _fail
-from tests.assistant.test_providers import UNADAPTED_KIND, unadapted_config
+from tests.assistant.test_providers import MISSING_PROFILE, missing_profile_config
 from tests.services.test_ask import _fake
 from tests.support.ask_examples import (
     EXAMPLES,
@@ -50,15 +55,26 @@ README_EXAMPLES = [kind.value for kind in AnalyzerKind]
 SNAPSHOT = "internet_exposure"
 # The example each adapter answers through a mock API.
 ADAPTED = "ownership"
-ADAPTERS = [AnthropicHarness(), ChatCompletionsHarness(), ResponsesHarness()]
-# Each adapter's API root under the mock server, and the path its requests go to.
-ROUTES = {
-    "anthropic": ("", "/v1/messages"),
-    "chat_completions": ("/v1", "/v1/chat/completions"),
-    "responses": ("/v1", "/v1/responses"),
-}
+ADAPTERS = [AnthropicHarness(), ChatCompletionsHarness(), ResponsesHarness(), BedrockHarness()]
 KEY_VARIABLE = "ASK_INSTALLED_PROVIDER_KEY"
 DUMMY_KEY = "sk-proj-INSTALLEDdummy0123456789abcdefXYZ"
+BEARER = re.escape(f"Bearer {DUMMY_KEY}")
+# The harness profile's key, which signs each Converse request with SigV4.
+AWS_KEY = "AKIAHARNESSKEY000000"
+AWS_SECRET = "harnessSecretKey000000000000000000000000"
+SIGV4 = (
+    rf"AWS4-HMAC-SHA256 Credential={AWS_KEY}/\d{{8}}/eu-west-1/bedrock/aws4_request, "
+    r"SignedHeaders=[a-z0-9;-]+, Signature=[0-9a-f]{64}"
+)
+CONVERSE = f"/model/{quote(BedrockHarness().configuration('')['model'], safe='')}/converse"
+# Each adapter's API root under the mock server, the path its requests go to, and the
+# `Authorization` header they carry.
+ROUTES = {
+    "anthropic": ("", "/v1/messages", BEARER),
+    "chat_completions": ("/v1", "/v1/chat/completions", BEARER),
+    "responses": ("/v1", "/v1/responses", BEARER),
+    "bedrock": ("", CONVERSE, SIGV4),
+}
 
 
 def _digest(path: Path) -> str:
@@ -75,11 +91,11 @@ def _unknown_snapshot(ws: Workspace, snapshot: Path) -> tuple[list, int, str]:
     return ["--snapshot", ws.path("missing.json"), "--config", config], 1, "snapshot_io_error"
 
 
-def _no_adapter(ws: Workspace, snapshot: Path) -> tuple[list, int, str]:
-    directory = ws.path("cases", "no-adapter")
+def _missing_profile(ws: Workspace, snapshot: Path) -> tuple[list, int, str]:
+    directory = ws.path("cases", "missing-profile")
     directory.mkdir(parents=True)
-    config = unadapted_config(directory)
-    return ["--snapshot", snapshot, "--config", config], 2, "provider_adapter_unavailable"
+    config = missing_profile_config(directory)
+    return ["--snapshot", snapshot, "--config", config], 2, "provider_profile_unavailable"
 
 
 def _existing_transcript(ws: Workspace, snapshot: Path) -> tuple[list, int, str]:
@@ -112,7 +128,7 @@ def _missing_key(harness: MockedHarness) -> Callable[[Workspace, Path], tuple[li
 REFUSALS = [
     _missing_config,
     _unknown_snapshot,
-    _no_adapter,
+    _missing_profile,
     _missing_key(AnthropicHarness()),
     _missing_key(ResponsesHarness()),
     _existing_transcript,
@@ -171,6 +187,27 @@ def _failed_runs(ws: Workspace) -> dict:
     return failed
 
 
+def _credentials(directory: Path, harness: MockedHarness) -> dict[str, str]:
+    """The variables that give only this adapter's run its credential: the dummy key, or for
+    Bedrock the harness's AWS profile, copied into the workspace."""
+    if harness.name != "bedrock":
+        return {KEY_VARIABLE: DUMMY_KEY}
+    files = {}
+    for variable, source in (
+        ("AWS_CONFIG_FILE", HARNESS_PROFILE.config_file),
+        ("AWS_SHARED_CREDENTIALS_FILE", HARNESS_PROFILE.credentials_file),
+    ):
+        copy = directory / f"aws-{source.name}"
+        copy.write_bytes(source.read_bytes())
+        files[variable] = str(copy)
+    return files
+
+
+def _model(path: str, body: dict) -> str:
+    """The model a request names: in its body, or, for Converse, in its path."""
+    return body["model"] if "model" in body else unquote(path.split("/")[2])
+
+
 def _through_the_adapters(ws: Workspace) -> dict[str, tuple[dict, str, list]]:
     """The adapted example answered in JSON and readably through each adapter's mock API."""
     directory = ws.path("examples", ADAPTED)
@@ -180,9 +217,9 @@ def _through_the_adapters(ws: Workspace) -> dict[str, tuple[dict, str, list]]:
     for harness in ADAPTERS:
         bodies = [harness.body(turn.response) for turn in FakeTranscript(turns=turns).turns]
         with mock_api_server(bodies * 2) as api:
-            root, _ = ROUTES[harness.label]
+            root, _, _ = ROUTES[harness.label]
             config = _adapter_config(directory, harness, f"http://127.0.0.1:{api.port}{root}")
-            env = ws.guard.allowing(api.port, **{KEY_VARIABLE: DUMMY_KEY})
+            env = ws.guard.allowing(api.port, **_credentials(directory, harness))
             command = ["ask", *map(str, arguments), "--config", str(config)]
             data = json.loads(
                 run_installed(ws.entry_point, ws.root, *command, "--json", env=env).stdout
@@ -241,9 +278,9 @@ def test_the_readme_questions_are_answered_offline(summaries, entry_point):
 def test_errors_before_the_run_fail_safely(summaries, entry_point):
     refused = summaries[entry_point]["refusals"]
     assert list(refused) == [case.__name__.strip("_") for case in REFUSALS]
-    # The real kind is refused before its credential variable is looked up.
-    assert refused["no_adapter"]["kind"] == UNADAPTED_KIND.value
-    assert "variable" not in refused["no_adapter"]
+    # A Bedrock profile is named, never its contents, and fails before any request.
+    assert refused["missing_profile"]["profile"] == MISSING_PROFILE
+    assert refused["missing_profile"]["kind"] == "bedrock"
     assert refused["missing_config"]["path"].endswith("missing.toml")
     # A missing key names its variable, never a value, and stops the run before any request.
     for kind in ("anthropic", "openai_compatible"):
@@ -275,10 +312,11 @@ def test_each_adapter_answers_through_a_loopback_api(summaries, entry_point, har
     assert data["result"]["answer"]["status"] == EXAMPLES[ADAPTED].status
     assert f"Provider: {harness.name}, model {model}" in readable.splitlines()
     assert f"Status: {EXAMPLES[ADAPTED].status}" in readable.splitlines()
-    _, path = ROUTES[harness.label]
+    _, path, authorization = ROUTES[harness.label]
     assert requests and all(sent == path for sent, _, _ in requests)
-    for _, headers, body in requests:
+    for sent, headers, body in requests:
         lowered = {name.lower(): value for name, value in headers.items()}
-        assert lowered["authorization"] == f"Bearer {DUMMY_KEY}"
-        assert body["model"] == model
-    assert DUMMY_KEY not in json.dumps(data) + readable
+        assert re.fullmatch(authorization, lowered["authorization"])
+        assert _model(sent, body) == model
+    for secret in (DUMMY_KEY, AWS_SECRET):
+        assert secret not in json.dumps(data) + readable
