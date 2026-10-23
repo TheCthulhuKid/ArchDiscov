@@ -14,7 +14,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from mcp import Client
+from mcp import Client, types
+from mcp.shared.exceptions import MCPError
 from pydantic import ValidationError
 
 from archdiscov.assistant import mcp_server
@@ -22,14 +23,16 @@ from archdiscov.assistant.answers import MCP_SUBMIT_DESCRIPTION, submit_answer_d
 from archdiscov.assistant.conversation import MAX_TOOL_ARGUMENT_BYTES, ToolCall
 from archdiscov.assistant.conversation import ParsedToolArguments as Parsed
 from archdiscov.assistant.instructions import MCP_INSTRUCTIONS
+from archdiscov.assistant.mcp_limits import ServerLimits
 from archdiscov.assistant.mcp_server import (
     PRESENT_ANSWER,
     SERVER_NAME,
     SUBMIT_FOLLOW_UP,
+    UNKNOWN_PROMPT,
     Connection,
-    ServerLimits,
     build_server,
 )
+from archdiscov.assistant.questions import README_QUESTIONS
 from archdiscov.assistant.tools.catalog import ALL_TOOLS, default_registry
 from archdiscov.assistant.tools.contracts import IdKind, ToolLimits
 from archdiscov.assistant.tools.registry import ToolRegistry
@@ -442,3 +445,51 @@ def test_submitting_does_not_change_the_run_record(connections) -> None:
     _results(session, calls, [*calls, ("submit_answer", proposal), ("submit_answer", {})])
     called, submitted = connections
     assert called.record.returned() == submitted.record.returned()
+
+
+# ---- prompts -----------------------------------------------------------------------
+
+
+def _prompted(requests: list[tuple[str, dict | None]]) -> dict:
+    """The listed prompts, and each request's result or error."""
+
+    async def run() -> dict:
+        async with Client(build_server(ToolSession.from_paths(SNAPSHOT))) as client:
+            listed = (await client.list_prompts()).prompts
+            results = []
+            for name, arguments in requests:
+                try:
+                    results.append(await client.get_prompt(name, arguments))
+                except MCPError as error:
+                    results.append(error)
+        return {"listed": listed, "results": results}
+
+    return asyncio.run(run())
+
+
+def test_the_readme_questions_are_listed_as_prompts_without_arguments() -> None:
+    listed = _prompted([])["listed"]
+    assert [prompt.name for prompt in listed] == [kind.value for kind in README_QUESTIONS]
+    for prompt in listed:
+        assert not prompt.arguments
+        assert prompt.description == (
+            f"The README example question the {prompt.name} analyzer answers."
+        )
+
+
+def test_each_prompt_returns_only_its_question() -> None:
+    results = _prompted([(kind.value, None) for kind in README_QUESTIONS])["results"]
+    for result, question in zip(results, README_QUESTIONS.values(), strict=True):
+        [message] = result.messages
+        assert message.role == "user"
+        assert message.content == types.TextContent(type="text", text=question)
+        assert result.description is None
+
+
+def test_an_unknown_prompt_or_arguments_are_a_fixed_error() -> None:
+    echoed = "ECHOED-input-0123"
+    results = _prompted([(echoed, None), ("ownership", {"resource": echoed})])["results"]
+    for error in results:
+        assert isinstance(error, MCPError)
+        assert (error.code, error.message) == (types.INVALID_PARAMS, UNKNOWN_PROMPT)
+        assert echoed not in str(error.error)

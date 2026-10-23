@@ -178,8 +178,8 @@ def test_assistant_modules_work_with_vendor_sdks_blocked() -> None:
     assert completed.stdout.strip() == ""
 
 
-# Every command module, an `ask` run, and an evaluation leave `mcp` unimported; only building
-# the MCP server imports it.
+# Every command module, the `mcp` command's help and service module, an `ask` run, and an
+# evaluation leave `mcp` unimported; only building the MCP server imports it.
 MCP_SCRIPT = f"""
 import sys
 from pathlib import Path
@@ -191,8 +191,16 @@ from archdiscov.assistant.tools.catalog import default_registry
 from archdiscov.services.evaluation import evaluate_suite
 from tests.support.evaluation_suites import README_SUITE, write_fake_config
 
+from archdiscov.assistant import questions
+
+assert len(questions.README_QUESTIONS) == 5
 default_registry()
 assert CliRunner().invoke(app, ["--help"]).exit_code == 0
+# The `mcp` command and its service load `mcp` only when serving.
+assert CliRunner().invoke(app, ["mcp", "--help"]).exit_code == 0
+from archdiscov.services import mcp as mcp_service
+
+assert mcp_service.serve_selection
 example = README_SUITE.parent / "ownership"
 asked = CliRunner().invoke(
     app,

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from archdiscov.assistant.conversation import ParsedToolArguments, ToolCall
+from archdiscov.assistant.questions import README_QUESTIONS as QUESTIONS
 from archdiscov.assistant.tools.catalog import default_registry
 from archdiscov.assistant.tools.session import ToolSession
 from archdiscov.models.enums import AnalyzerKind
@@ -25,12 +26,12 @@ from tests.assistant.test_answer_suite import _tool
 from tests.paths import FIXTURES_ROOT
 from tests.support.audit_scenarios import SCENARIOS, with_coverage
 
-INTERNET = "What receives traffic from the public internet?"
-DATABASE = "Which services can access this database?"
-SECURITY_GROUP = "What would be affected if this security group changed?"
-TRUST = "Where are the cross-account trust relationships?"
-OWNERSHIP = "Which resources appear to have no clear owner?"
-README_QUESTIONS = (INTERNET, DATABASE, SECURITY_GROUP, TRUST, OWNERSHIP)
+INTERNET = QUESTIONS[AnalyzerKind.INTERNET_EXPOSURE]
+DATABASE = QUESTIONS[AnalyzerKind.DATABASE_ACCESS]
+SECURITY_GROUP = QUESTIONS[AnalyzerKind.SECURITY_GROUP_IMPACT]
+TRUST = QUESTIONS[AnalyzerKind.CROSS_ACCOUNT_TRUST]
+OWNERSHIP = QUESTIONS[AnalyzerKind.OWNERSHIP]
+README_QUESTIONS = tuple(QUESTIONS.values())
 CHANGED = "What changed in ownership between the two snapshots?"
 
 SUMMARY = "The conclusions above are rendered from the cited records."

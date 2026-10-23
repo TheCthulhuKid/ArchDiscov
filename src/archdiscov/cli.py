@@ -17,6 +17,7 @@ from archdiscov.cli_diagnostics import json_output as _json_output
 from archdiscov.cli_evaluation import evaluate, evaluation
 from archdiscov.cli_evidence import print_evidence
 from archdiscov.cli_ingestion import ingestion_data, print_ingestion
+from archdiscov.cli_mcp import mcp
 from archdiscov.cli_query import query_app
 from archdiscov.ingestion.adapter import IngestionError
 from archdiscov.ingestion.requests import RegionScope
@@ -43,6 +44,7 @@ app.command()(comparison)
 app.command()(ask)
 app.command()(evaluate)
 app.command()(evaluation)
+app.command()(mcp)
 
 
 @app.callback(invoke_without_command=True)

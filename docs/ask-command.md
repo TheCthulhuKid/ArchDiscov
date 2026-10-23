@@ -7,6 +7,8 @@ then submits a structured proposal; the answer shown is
 [validated and rendered from records](assistant-answers.md), and a failed run is explained
 instead. Each run is one question: there is no chat or conversation memory. To run many
 questions across providers and score the answers, see [evaluation](assistant-evaluation.md).
+To let an MCP client such as Claude Code answer with the same tools and validation, see the
+[MCP server](mcp-server.md).
 
 The scripted fake replays a transcript and needs no credentials or network. An
 `anthropic` configuration answers through the
