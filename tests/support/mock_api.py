@@ -1,7 +1,8 @@
 """Mocked provider APIs for adapter tests: an HTTP transport and a loopback server.
 
-`MockApi` replaces an adapter's transport in process; `mock_api_server` serves response
-bodies on a loopback port for an installed command in a child process. Both keep what they
+`MockApi` replaces an adapter's transport in process, `BotocoreApi` answers a botocore
+client through its `before-send` event, and `mock_api_server` serves response bodies on a
+loopback port for an installed command in a child process. Both keep what they
 received, so a test can check the requests, and neither reaches the network.
 """
 
@@ -90,6 +91,60 @@ def no_wait(seconds: float) -> None:
 
 async def no_wait_async(seconds: float) -> None:
     """Retries in the suites do not wait; the adapter tests check the waits."""
+
+
+class _RawBody:
+    """The raw body botocore streams from an HTTP response."""
+
+    def __init__(self, content: bytes) -> None:
+        self._content = content
+
+    def stream(self, **kwargs: Any) -> Iterator[bytes]:
+        yield self._content
+
+
+def aws_response(status: int, body: Any, headers: dict[str, str] | None = None) -> Served:
+    """A botocore HTTP response; a `bytes` body is sent as is, anything else as JSON."""
+    content = body if isinstance(body, bytes) else json.dumps(body).encode()
+
+    def respond(request: Any) -> Any:
+        from botocore.awsrequest import AWSResponse
+        from botocore.compat import HTTPHeaders
+
+        sent = HTTPHeaders()
+        for name, value in (headers or {}).items():
+            sent[name] = value
+        return AWSResponse(request.url, status, sent, _RawBody(content))
+
+    return respond
+
+
+class BotocoreApi:
+    """A mocked AWS API for botocore clients: answers each request with the next response.
+
+    `session_factory` makes `boto3` sessions whose clients send through it, through
+    botocore's `before-send` event; the requests are kept, signed as sent.
+    """
+
+    def __init__(self, responses: Sequence[Served]) -> None:
+        self.requests: list[Any] = []
+        self._responses = list(responses)
+
+    def session_factory(self, **kwargs: Any) -> Any:
+        import boto3
+
+        session = boto3.Session(**kwargs)
+        session.events.register("before-send", self._send)
+        return session
+
+    def _send(self, request: Any, **kwargs: Any) -> Any:
+        self.requests.append(request)
+        response = self._responses.pop(0)
+        if callable(response):
+            response = response(request)
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 class _ApiHandler(BaseHTTPRequestHandler):

@@ -141,6 +141,7 @@ vendor_configs = {{
         "endpoint": "https://api.example.com/v1",
         "protocol": "responses",
     }},
+    "boto3": {{"kind": "bedrock", "model": "m", "profile": "assistant", "region": "eu-west-1"}},
 }}
 for sdk, data in vendor_configs.items():
     vendor = config.parse_provider_config(data)

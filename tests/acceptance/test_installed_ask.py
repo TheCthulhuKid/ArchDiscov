@@ -1,14 +1,14 @@
 """The installed `ask` command, outside the checkout, with the fake provider and no network.
 
 Both entry points answer the five README example questions in both output forms, and refuse
-a missing configuration, an unknown snapshot, a real provider kind without an adapter, an
+a missing configuration, an unknown snapshot, a Bedrock profile that cannot be loaded, an
 Anthropic or OpenAI-compatible configuration without its key, and an existing transcript
 path before the run, and report a scripted provider error and a run limit as answer
 outcomes, each with its documented exit code. The Anthropic adapter and the
 OpenAI-compatible adapter through each protocol also answer a README question through a
-mock API on one loopback port, the only connection the run may make. The child sees no credentials
-and no checkout: its whole `PYTHONPATH` is the offline guard, which fails and records any
-other network use.
+mock API on one loopback port, the only connection the run may make. The child sees no
+credentials and no checkout: its whole `PYTHONPATH` is the offline guard, which fails and
+records any other network use.
 """
 
 import hashlib
@@ -30,7 +30,7 @@ from tests.assistant.provider_harness import (
 )
 from tests.assistant.test_answer_service import SEARCH
 from tests.assistant.test_orchestrator import _calls, _fail
-from tests.assistant.test_providers import UNADAPTED_KIND, unadapted_config
+from tests.assistant.test_providers import MISSING_PROFILE, missing_profile_config
 from tests.services.test_ask import _fake
 from tests.support.ask_examples import (
     EXAMPLES,
@@ -75,11 +75,11 @@ def _unknown_snapshot(ws: Workspace, snapshot: Path) -> tuple[list, int, str]:
     return ["--snapshot", ws.path("missing.json"), "--config", config], 1, "snapshot_io_error"
 
 
-def _no_adapter(ws: Workspace, snapshot: Path) -> tuple[list, int, str]:
-    directory = ws.path("cases", "no-adapter")
+def _missing_profile(ws: Workspace, snapshot: Path) -> tuple[list, int, str]:
+    directory = ws.path("cases", "missing-profile")
     directory.mkdir(parents=True)
-    config = unadapted_config(directory)
-    return ["--snapshot", snapshot, "--config", config], 2, "provider_adapter_unavailable"
+    config = missing_profile_config(directory)
+    return ["--snapshot", snapshot, "--config", config], 2, "provider_profile_unavailable"
 
 
 def _existing_transcript(ws: Workspace, snapshot: Path) -> tuple[list, int, str]:
@@ -112,7 +112,7 @@ def _missing_key(harness: MockedHarness) -> Callable[[Workspace, Path], tuple[li
 REFUSALS = [
     _missing_config,
     _unknown_snapshot,
-    _no_adapter,
+    _missing_profile,
     _missing_key(AnthropicHarness()),
     _missing_key(ResponsesHarness()),
     _existing_transcript,
@@ -241,9 +241,9 @@ def test_the_readme_questions_are_answered_offline(summaries, entry_point):
 def test_errors_before_the_run_fail_safely(summaries, entry_point):
     refused = summaries[entry_point]["refusals"]
     assert list(refused) == [case.__name__.strip("_") for case in REFUSALS]
-    # The real kind is refused before its credential variable is looked up.
-    assert refused["no_adapter"]["kind"] == UNADAPTED_KIND.value
-    assert "variable" not in refused["no_adapter"]
+    # A Bedrock profile is named, never its contents, and fails before any request.
+    assert refused["missing_profile"]["profile"] == MISSING_PROFILE
+    assert refused["missing_profile"]["kind"] == "bedrock"
     assert refused["missing_config"]["path"].endswith("missing.toml")
     # A missing key names its variable, never a value, and stops the run before any request.
     for kind in ("anthropic", "openai_compatible"):

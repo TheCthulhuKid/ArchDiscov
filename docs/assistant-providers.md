@@ -6,7 +6,8 @@ protocol, provider configuration, and the scripted fake provider used to test ev
 above it. The `ask` command builds its provider from a configuration file: the fake, the
 [Anthropic adapter](#anthropic-adapter), or the
 [OpenAI-compatible adapter](#openai-compatible-adapter), which answers through Responses
-or Chat Completions; `bedrock` has no adapter yet. The
+or Chat Completions, or the [Bedrock adapter](#bedrock-adapter), which is built from its
+own AWS profile but does not answer yet. The
 [assistant tools](assistant-tools.md), [orchestration](assistant-orchestration.md), and
 [answers](assistant-answers.md) build on this layer. Only an adapter module imports a
 vendor SDK, and only when its kind is built.
@@ -127,8 +128,7 @@ answer renderer in a later step.
 `assistant/config.py` loads a TOML file of at most 64 KiB (`MAX_CONFIG_BYTES`) with
 `load_provider_config(path)`, or validates data with `parse_provider_config`. The file
 is one table selected by `kind`. The `ask` command reads it with `--config`;
-the fake, `anthropic`, and `openai_compatible` have adapters, and `bedrock` defines the
-configuration its adapter will use.
+every kind has an adapter.
 
 ```toml
 kind = "anthropic"
@@ -153,10 +153,10 @@ request_timeout_seconds = 30
 | `max_tool_calls_per_turn` | all | 1 | 1–32, at most `max_tool_calls` |
 | `max_latency_seconds` | all | 300 | >0–3,600 |
 | `api_key_env` | `anthropic`, `openai_compatible` | required | environment variable name: `A`–`Z`, digits, `_` |
-| `endpoint` | `anthropic` | none | HTTPS URL |
+| `endpoint` | `anthropic`, `bedrock` | none | HTTPS URL |
 | `endpoint` | `openai_compatible` | required | HTTPS URL |
 | `protocol` | `openai_compatible` | required | `responses`, `chat_completions` |
-| `capabilities` | `openai_compatible` | `tool_calling` | a list of `tool_calling`, `parallel_tool_calls` (which requires `tool_calling`), `structured_output` |
+| `capabilities` | `openai_compatible`, `bedrock` | `tool_calling` | a list of `tool_calling`, `parallel_tool_calls` (which requires `tool_calling`), `structured_output` |
 | `encrypted_reasoning` | `openai_compatible` | `false` | `true` or `false`; `true` requires `protocol = "responses"` |
 | `profile` | `bedrock` | required | AWS profile name |
 | `region` | `bedrock` | required | a concrete AWS region, not `global` |
@@ -181,8 +181,11 @@ against the file's directory.
   fails with the fake's own error codes.
 - `anthropic` builds the [Anthropic adapter](#anthropic-adapter).
 - `openai_compatible` builds the [OpenAI-compatible adapter](#openai-compatible-adapter).
-- A kind without an adapter (`bedrock`) fails with `provider_adapter_unavailable`, before
-  its credential is read or any request is made.
+- `bedrock` builds the [Bedrock adapter](#bedrock-adapter); a profile that cannot be loaded
+  fails with `provider_profile_unavailable`, naming the profile.
+
+A test checks that `ADAPTERS` has an adapter for every kind, so no configuration that
+validates can name a kind nothing builds.
 
 Errors name the file and the kind, never the configuration's values or credentials.
 
@@ -503,10 +506,60 @@ ARCHDISCOV_LIVE_OPENAI_PROTOCOLS=responses,chat_completions \
 .venv/bin/python -m pytest -m live tests/live/test_openai_live.py
 ```
 
+### Bedrock adapter
+
+`assistant/bedrock_provider.py` is the only assistant module that imports `boto3` or
+`botocore`, and `ADAPTERS` imports it only when a `bedrock` configuration is built. Building
+it makes no request. Until the Converse mapping lands (step 42.2), it sends nothing: each
+request fails with `provider_unavailable`.
+
+```toml
+kind = "bedrock"
+model = "anthropic.claude-3-5-sonnet-20240620-v1:0"   # a model ID, inference profile ID, or ARN
+profile = "assistant"                         # its own profile, not collection's
+region = "eu-west-1"
+role_arn = "arn:aws:iam::123456789012:role/ArchdiscovAssistant"   # optional
+capabilities = ["tool_calling", "parallel_tool_calls"]
+```
+
+The adapter has its own AWS session, separate from the credentials collection uses: the
+configured `profile` and `region`, and, with `role_arn`, a role assumed as `session_name`.
+The session code is shared with collection (`ingestion/aws_sessions.py`), but no
+credential or setting is. A role is assumed on the first request, through refreshable
+credentials, so building makes no request and an STS failure is that request's failure.
+A profile that does not exist, or whose files cannot be read, fails before the run with
+`provider_profile_unavailable` (exit 2), naming the profile and never its contents.
+
+Only the configuration chooses the target, the credential, and the retries:
+
+- An explicit profile makes botocore skip `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
+  `AWS_SESSION_TOKEN`, and `AWS_PROFILE`; the region is always the configured one.
+- `AWS_ENDPOINT_URL`, `AWS_ENDPOINT_URL_BEDROCK_RUNTIME`, and a profile's `endpoint_url` are
+  ignored, as are FIPS and dual-stack settings. Requests go to the regional
+  `bedrock-runtime` endpoint, or to `endpoint` when set, such as a VPC interface endpoint;
+  plain HTTP is accepted only for loopback hosts.
+- Proxy variables are ignored, because the client is given an explicit empty proxy
+  setting.
+- Botocore's own retries are off whatever `AWS_MAX_ATTEMPTS`, `AWS_RETRY_MODE`, or the
+  profile say, and the timeouts are `connect_timeout_seconds` and
+  `request_timeout_seconds`.
+- The `boto3` and `botocore` loggers are held at `WARNING` whatever the root level says,
+  because their debug records hold request bodies.
+
+`AWS_CONFIG_FILE` and `AWS_SHARED_CREDENTIALS_FILE` still choose where profiles are read
+from, as for any AWS tool.
+
+Bedrock models differ in tool support and cannot be asked cheaply, so `capabilities`
+declares it, as for the OpenAI-compatible adapter: tool calling by default, parallel tool
+calls only when listed. Converse has no setting that stops a model from calling several
+tools in one turn, so a model that does so with `max_tool_calls_per_turn` at 1 ends the
+run as `limit_reached`; declare `parallel_tool_calls` and raise the limit for such models.
+
 ### Credentials
 
 - Credentials are references only: `api_key_env` names an environment variable, and
-  Bedrock uses its own AWS `profile`, separate from collection credentials.
+  Bedrock uses its own AWS `profile` (and optional role), separate from collection
+  credentials.
 - API keys are never accepted as CLI arguments, which leak into shell history and
   process listings, or as configuration values.
 - Before field validation, the whole file is scanned: credential-like field names
@@ -520,9 +573,10 @@ ARCHDISCOV_LIVE_OPENAI_PROTOCOLS=responses,chat_completions \
 
 `ProviderConfigError` carries a code (`provider_config_unreadable`,
 `provider_config_too_large`, `provider_config_malformed`, `provider_config_invalid`,
-`provider_credential_missing`, or `provider_credential_empty`), a fixed message, the
-file path, the referenced variable name, and code-only issue details, never file
-contents or field values.
+`provider_credential_missing`, `provider_credential_empty`,
+`provider_transcript_missing`, or `provider_profile_unavailable`), a fixed message, the
+file path, the referenced variable or AWS profile name, and code-only issue details,
+never file contents or field values.
 
 ## Fake provider
 

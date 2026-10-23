@@ -1,4 +1,4 @@
-"""Building providers from configuration, and refusing kinds that have no adapter yet."""
+"""Building providers from configuration: every kind has an adapter."""
 
 import json
 import shutil
@@ -27,14 +27,13 @@ EXAMPLES = {
     ProviderKind.OPENAI_COMPATIBLE: OPENAI,
     ProviderKind.BEDROCK: BEDROCK,
 }
-# Shrinks as adapters are registered, so callers never name a kind that has gained one.
-UNADAPTED = {kind: data for kind, data in EXAMPLES.items() if kind not in ADAPTERS}
-UNADAPTED_KIND = next(iter(UNADAPTED), None)
+# No AWS configuration is readable in tests, so this profile never exists.
+MISSING_PROFILE = "archdiscov-missing-profile"
 
 
-def unadapted_config(directory: Path) -> Path:
-    """A configuration file for `UNADAPTED_KIND`."""
-    lines = (f'{key} = "{value}"' for key, value in UNADAPTED[UNADAPTED_KIND].items())
+def missing_profile_config(directory: Path) -> Path:
+    """A Bedrock configuration file naming a profile that cannot be loaded."""
+    lines = (f'{key} = "{value}"' for key, value in {**BEDROCK, "profile": MISSING_PROFILE}.items())
     return _config(directory, "\n".join(lines) + "\n")
 
 
@@ -44,9 +43,9 @@ def _config(directory: Path, body: str) -> Path:
     return path
 
 
-def test_every_real_kind_has_an_example_and_the_fake_an_adapter() -> None:
+def test_every_kind_has_an_adapter_and_every_real_kind_an_example() -> None:
+    assert set(ADAPTERS) == set(ProviderKind)
     assert set(EXAMPLES) == set(ProviderKind) - {ProviderKind.FAKE}
-    assert ProviderKind.FAKE in ADAPTERS
 
 
 @pytest.mark.parametrize("absolute", [False, True], ids=["relative", "absolute"])
@@ -106,15 +105,14 @@ def test_an_unusable_transcript_is_refused(tmp_path: Path, content, code) -> Non
     assert raised.value.path == tmp_path / "run.json"
 
 
-@pytest.mark.parametrize("kind", sorted(UNADAPTED), ids=str)
-def test_kinds_without_an_adapter_fail_before_reading_credentials(kind: ProviderKind) -> None:
-    config = parse_provider_config(UNADAPTED[kind])
-    # With no credential set, resolving it first would fail differently.
+def test_a_bedrock_profile_that_cannot_be_loaded_fails_before_the_run(tmp_path: Path) -> None:
+    path = missing_profile_config(tmp_path)
     with pytest.raises(ProviderConfigError) as raised:
-        build_provider(config, config_dir=Path("."), environ={})
+        load_provider(path)
     error = raised.value
-    assert error.code == ProviderConfigErrorCode.ADAPTER_UNAVAILABLE and error.kind == kind
-    assert str(error) == "No adapter is available for the configured provider kind yet."
+    assert error.code == ProviderConfigErrorCode.PROFILE_UNAVAILABLE
+    assert (error.profile, error.kind, error.path) == (MISSING_PROFILE, ProviderKind.BEDROCK, path)
+    assert str(error) == "Configured AWS profile could not be loaded."
 
 
 def test_no_secret_appears_in_errors_or_providers(tmp_path: Path) -> None:

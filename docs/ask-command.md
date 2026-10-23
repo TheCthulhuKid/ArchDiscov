@@ -18,8 +18,11 @@ answers through either `protocol`; an API or connection error ends the run as
 `provider_error` (6) with the
 [provider error](assistant-providers.md#openai-compatible-failures) it maps to, after any
 retries. Either protocol ends with `provider_unsupported_capability` before any request when the
-configuration does not declare tool calling. A `bedrock` configuration is accepted
-but fails before the run with `provider_adapter_unavailable`.
+configuration does not declare tool calling. A `bedrock` configuration builds the
+[Bedrock adapter](assistant-providers.md#bedrock-adapter) from its own AWS profile, which
+does not answer until its Converse mapping lands: its run ends as `provider_error` (6)
+with `provider_unavailable` before anything is sent. A profile that cannot be loaded fails
+before the run with `provider_profile_unavailable`.
 
 ## Usage
 
@@ -95,8 +98,8 @@ max_tool_calls_per_turn = 4
 A real kind names its credential by environment variable (`api_key_env`) or AWS profile,
 never by value, and the key is never accepted as an option. A missing or empty key fails
 with `provider_credential_missing` or `provider_credential_empty` before any snapshot is
-loaded. A kind without an adapter fails with `provider_adapter_unavailable` before its
-credential is read.
+loaded. A Bedrock profile that cannot be loaded fails with `provider_profile_unavailable`,
+naming the profile, before any snapshot is loaded.
 
 ## Readable output
 
@@ -166,7 +169,7 @@ diagnostic (2) and writes no transcript.
 |---|---|
 | 0 | the question was answered, first time or after the one repair (`answered`, `answered_after_repair`) |
 | 1 | a file could not be read before the run: `provider_config_unreadable`, `fake_transcript_unreadable`, or `snapshot_io_error` for a snapshot, a saved comparison, or the transcript's missing parent directory |
-| 2 | invalid input before the run: `invalid_question`, `provider_config_too_large`, `provider_config_malformed`, `provider_config_invalid`, `provider_credential_missing`, `provider_credential_empty`, `provider_transcript_missing`, `provider_adapter_unavailable`, `fake_transcript_too_large`, `fake_transcript_invalid`, `invalid_snapshot`, `invalid_comparison_result`, `result_snapshot_unselected`, a fake scripting error, or a usage error |
+| 2 | invalid input before the run: `invalid_question`, `provider_config_too_large`, `provider_config_malformed`, `provider_config_invalid`, `provider_credential_missing`, `provider_credential_empty`, `provider_transcript_missing`, `provider_profile_unavailable`, `fake_transcript_too_large`, `fake_transcript_invalid`, `invalid_snapshot`, `invalid_comparison_result`, `result_snapshot_unselected`, a fake scripting error, or a usage error |
 | 3 | the `--transcript` path exists (`snapshot_conflict`) |
 | 5 | no valid answer: `rejected_after_repair`, `no_proposal_after_repair`, or `malformed_output` |
 | 6 | the run stopped: `provider_error` or `limit_reached`; a script may retry |
@@ -186,9 +189,9 @@ how to try the command by hand with a written fake transcript or the example hel
 `tests/acceptance/test_installed_ask.py` runs the installed command outside the checkout,
 through the `archdiscov` script and `python -m archdiscov`, with an offline guard that fails
 any network use and an environment without credentials. It answers the five README example
-questions in both output forms, refuses a missing configuration, an unknown snapshot, a real
-provider kind without an adapter, an Anthropic or OpenAI-compatible configuration without
-its key, and an existing transcript path, and reports a scripted provider error and a run
+questions in both output forms, refuses a missing configuration, an unknown snapshot, a
+Bedrock profile that cannot be loaded, an Anthropic or OpenAI-compatible configuration
+without its key, and an existing transcript path, and reports a scripted provider error and a run
 limit, each with the exit code above. It also answers a README question through the
 Anthropic adapter and through the OpenAI-compatible adapter with each protocol, each against
 a mock API on one loopback port, the only connection the guard allows, with the same answer

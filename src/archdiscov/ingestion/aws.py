@@ -22,6 +22,7 @@ from ..models.enums import AwsRegion, AwsService, CoverageStatus
 from .adapter import AdapterContext, IngestionError
 from .async_collection import AccountCollection, AsyncCollectionCoordinator
 from .async_runtime import run_sync
+from .aws_sessions import assume_role_parameters, profile_session, role_credentials
 from .collection_jobs import CollectedJob, CollectionJob, collect_job, collection_jobs
 from .execution_common import COLLECTION_ERRORS, MalformedResponse
 from .execution_common import client_config as client_config
@@ -71,22 +72,15 @@ def _session_factory(context: AdapterContext) -> Callable[..., Any]:
 def create_session(account: AwsAccountConfig, context: AdapterContext) -> Any:
     """Create a profile session, then an assumed-role session when configured."""
     factory = _session_factory(context)
+    region = account.bootstrap_region.value if account.bootstrap_region else None
     try:
-        base = factory(
-            profile_name=account.profile,
-            **({"region_name": account.bootstrap_region.value} if account.bootstrap_region else {}),
-        )
+        base = profile_session(factory, account.profile, region)
     except COLLECTION_ERRORS as error:
         raise IngestionError("identity_failed", "could not create the AWS session") from error
     if account.role_arn is None:
         return base
     require_allowed(AwsService.STS, "AssumeRole")
-    params: dict[str, Any] = {
-        "RoleArn": account.role_arn,
-        "RoleSessionName": account.session_name,
-    }
-    if account.external_id is not None:
-        params["ExternalId"] = account.external_id
+    params = assume_role_parameters(account.role_arn, account.session_name, account.external_id)
     try:
         auth_region = authentication_region(base, account)
         sts = base.client(
@@ -96,11 +90,8 @@ def create_session(account: AwsAccountConfig, context: AdapterContext) -> Any:
         )
         with context.sdk_calls.permit(account.expected_account_id, account.max_in_flight_calls):
             response = sts.assume_role(**params)
-        credentials = response.get("Credentials") if isinstance(response, dict) else None
-        if not isinstance(credentials, dict) or any(
-            not isinstance(credentials.get(key), str) or not credentials[key].strip()
-            for key in ("AccessKeyId", "SecretAccessKey", "SessionToken")
-        ):
+        credentials = role_credentials(response)
+        if credentials is None:
             raise MalformedResponse("invalid assume-role credentials")
         return factory(
             aws_access_key_id=credentials["AccessKeyId"],

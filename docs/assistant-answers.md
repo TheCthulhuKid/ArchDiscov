@@ -271,7 +271,7 @@ on cancellation, where it is logged so the cancellation still propagates.
 
 Errors before the run starts keep the existing CLI codes: an unreadable configuration,
 transcript, snapshot, or saved comparison file is 1, and invalid configuration, transcripts,
-snapshots, or saved comparisons, including a provider kind without an adapter and a saved
+snapshots, or saved comparisons, including a Bedrock profile that cannot be loaded and a saved
 comparison of snapshots that were not selected (`result_snapshot_unselected`), are 2. A saved
 comparison's diagnostic names its own file. Once the run starts, everything is an
 answer outcome with the exit codes above, except a fake scripting error (`FakeScriptError`,

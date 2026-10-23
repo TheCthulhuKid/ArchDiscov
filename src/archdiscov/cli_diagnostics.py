@@ -116,7 +116,7 @@ def assistant_exit_code(error: ProviderConfigError | FakeScriptError) -> int:
 def fail_assistant_error(error: ProviderConfigError | FakeScriptError, as_json: bool) -> NoReturn:
     """Print a safe provider-configuration or fake-script diagnostic and exit."""
     diagnostic = _diagnostic(error.code.value, str(error), error.path, error.details or None)
-    for name in ("variable", "kind"):
+    for name in ("variable", "profile", "kind"):
         if (value := getattr(error, name, None)) is not None:
             diagnostic[name] = str(value)
     print_error(diagnostic, as_json=as_json)
