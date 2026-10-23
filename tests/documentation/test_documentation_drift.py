@@ -8,7 +8,7 @@ import pytest
 import typer.main
 from annotated_types import Ge, Gt, Le
 
-from archdiscov import cli_answer_output, cli_ask_output
+from archdiscov import cli_answer_output, cli_ask_output, cli_evaluation
 from archdiscov.assistant import (
     adapters,
     answer_results,
@@ -626,6 +626,30 @@ def test_documented_evaluation_contracts_match_the_models():
     assert set(documented) == {code.value for code in codes}
     assert evaluation.MAX_SUITE_BYTES == 1024 * 1024 and "at most 1 MiB" in text
     assert f"1–{evaluation.MAX_PROVIDERS} provider configurations" in text
+
+
+def test_documented_evaluation_commands_match_the_code():
+    rows = {int(row[0]): row[1] for row in table_rows(EVALUATION_DOC, "| Exit code | When")}
+    cancelled = answer_results.FAILURE_EXIT_CODES[answer_results.FailureReason.CANCELLED]
+    assert set(rows) == {0, 1, 2, 3, cli_evaluation.CASES_FAILED_EXIT_CODE, cancelled}
+    errors = [
+        *(evaluation.EvaluationValidationError(code) for code in evaluation.EvaluationErrorCode),
+        *(
+            evaluation_service.EvaluationSetupError(code)
+            for code in evaluation_service.EvaluationSetupCode
+        ),
+    ]
+    for error in errors:
+        code = 1 if error.code == evaluation.EvaluationErrorCode.SUITE_UNREADABLE else 2
+        assert f"`{error.code.value}`" in rows[code], error.code
+    text = EVALUATION_DOC.read_text(encoding="utf-8")
+    commands = {command.name: command for command in typer.main.get_command(app).commands.values()}
+    for name in ("evaluate", "evaluation"):
+        usage = next(line for line in text.splitlines() if line.startswith(f"archdiscov {name} "))
+        for param in commands[name].params:
+            option = next((opt for opt in param.opts if opt.startswith("--")), None)
+            if option not in {None, "--help"}:
+                assert option in usage, (name, option)
 
 
 def test_documented_adversarial_cases_match_the_suite():

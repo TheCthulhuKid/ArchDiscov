@@ -4,7 +4,8 @@ Evaluation runs the same questions across configured providers and scores each a
 against deterministic fixtures: the findings the analyzers return, never the wording of an
 answer. This page describes the suite, report, and comparison contracts and the scoring in
 `assistant/evaluation.py`, and running a suite and saving, loading, and comparing reports
-with `services/evaluation.py`. The commands arrive in a later step of the plan (43.5).
+with `services/evaluation.py`, and the `evaluate` and `evaluation` commands in
+`cli_evaluation.py`.
 
 ## Suites
 
@@ -215,6 +216,50 @@ runs of one suite differ only in latency. The comparison names both reports by c
 and suite, and `same_suite` is true only when the suite digests match; reports of different
 suites compare only on the cases they share. `save_report_comparison(comparison, path)`
 publishes a comparison under the same no-overwrite rule.
+
+## Commands
+
+```sh
+archdiscov evaluate SUITE --config PATH [--config PATH ...] --output PATH [--allow-external] [--json]
+archdiscov evaluation REPORT [--compare REPORT] [--output PATH] [--json]
+```
+
+`evaluate` refuses an existing `--output` path, then prepares the evaluation as above, so
+every pre-run error comes before any request. It then states each provider's budget on
+standard error: a line per configuration (`Budget: fake, model fake: 9 runs, at most 81
+provider requests and 331776 output tokens`), or with `--json` one JSON object with a
+`budgets` list. The statement always precedes the first request, so an opted-in external
+run never starts unannounced. A configuration of a kind other than `fake` runs only with
+`--allow-external`; without it, the command fails with `evaluation_external_not_allowed`
+before any request. After the run, the report is saved to `--output` and summarised: the
+suite, the creation time, and for each provider its passes and failures, budget, usage,
+and each failing case with its outcome and failed checks. With `--json` the output is one
+object with `schema_version`, `suite_path`, `config_paths`, `output_path`, `budgets`, and
+`report`. A cancelled evaluation still saves the report so far.
+
+`evaluation REPORT` loads and shows a saved report (with `--json`: `schema_version`,
+`report_path`, and `report`). With `--compare LATER`, it shows what changed from `REPORT`
+to `LATER`: whether the suites match, for each paired provider the cases added and removed
+and each changed case's outcome, status, pass, checks, and finding IDs, and the usage
+change as information; and providers added or removed. `--output` saves that comparison
+as a new file and needs `--compare`. With `--json` the output is `schema_version`,
+`report_path`, `compare_path`, `output_path` (or null), and `comparison`. Neither report is
+changed.
+
+Both renderings hold codes, IDs, counts, and scores only, never a narrative, tool output,
+or provider text, and diagnostics name files, kinds, and case IDs, never values.
+
+| Exit code | When |
+|---|---|
+| 0 | `evaluate`: every case passed; `evaluation`: the report or comparison was shown |
+| 1 | a file could not be read: `evaluation_suite_unreadable`, `provider_config_unreadable`, `fake_transcript_unreadable`, or `snapshot_io_error` for a snapshot, saved comparison, report, or an output path's missing directory |
+| 2 | invalid input: `invalid_evaluation_suite`, `evaluation_suite_too_large`, `evaluation_providers_invalid`, `evaluation_external_not_allowed`, `evaluation_transcript_missing`, `invalid_evaluation_report`, `invalid_json`, the [`ask` input errors](ask-command.md#exit-codes), a fake scripting error, or a usage error |
+| 3 | the `--output` path exists (`snapshot_conflict`) |
+| 7 | `evaluate`: a case failed its expectations; the report is still written |
+| 130 | `evaluate` was cancelled, for example with Ctrl-C; the report so far is written |
+
+Codes 5 and 6 describe one `ask` run's outcome, so they are not reused: an evaluation records
+each run's outcome in its case and fails the case, not the command.
 
 ## Validation
 

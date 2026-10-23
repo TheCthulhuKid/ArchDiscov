@@ -73,8 +73,8 @@ from archdiscov.models.validation_errors import serialization_issue
 from .ask import AskCancelled, answer_selected
 from .publication import SERIALIZATION_ERRORS, publish_text, read_json, render_json
 
-_REPORT = "evaluation report"
-_COMPARISON = "evaluation report comparison"
+REPORT_SUBJECT = "evaluation report"
+COMPARISON_SUBJECT = "evaluation report comparison"
 
 
 class EvaluationSetupCode(StrEnum):
@@ -325,10 +325,11 @@ def save_report(report: EvaluationReport, path: Path) -> Path:
         error.path = path
         raise
     except SERIALIZATION_ERRORS as error:
+        details = (serialization_issue(REPORT_SUBJECT),)
         raise EvaluationValidationError(
-            EvaluationErrorCode.INVALID_REPORT, path=path, details=(serialization_issue(_REPORT),)
+            EvaluationErrorCode.INVALID_REPORT, path=path, details=details
         ) from error
-    return publish_text(text, path, subject=_REPORT)
+    return publish_text(text, path, subject=REPORT_SUBJECT)
 
 
 def load_report(path: Path) -> EvaluationReport:
@@ -336,7 +337,7 @@ def load_report(path: Path) -> EvaluationReport:
 
     Raises the snapshot read and JSON errors, and `EvaluationValidationError` with the path.
     """
-    data = read_json(path, subject=_REPORT)
+    data = read_json(path, subject=REPORT_SUBJECT)
     try:
         return parse_report(data)
     except EvaluationValidationError as error:
@@ -346,7 +347,7 @@ def load_report(path: Path) -> EvaluationReport:
 
 def save_report_comparison(comparison: ReportComparison, path: Path) -> Path:
     """Publish a comparison at a new path; an existing path is refused."""
-    return publish_text(render_json(comparison), path, subject=_COMPARISON)
+    return publish_text(render_json(comparison), path, subject=COMPARISON_SUBJECT)
 
 
 def _compared_run(position: int, run: ProviderRun) -> ComparedRun:
