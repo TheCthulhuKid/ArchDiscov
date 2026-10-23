@@ -42,6 +42,7 @@ from archdiscov.assistant.questions import README_QUESTIONS
 from archdiscov.assistant.repair import submission_text
 from archdiscov.assistant.tools import contracts as tool_contracts
 from archdiscov.assistant.tools.catalog import default_registry
+from archdiscov.assistant.tools.session import ToolSessionError
 from archdiscov.cli import app
 from archdiscov.cli_diagnostics import assistant_exit_code
 from archdiscov.models.analysis.parameters import AnalyzerParameters
@@ -52,6 +53,7 @@ from archdiscov.models.query.requests import QueryNeighboursRequest, QuerySearch
 from archdiscov.services import DEFAULT_REGISTRY
 from archdiscov.services import evaluation as evaluation_service
 from archdiscov.services.ask import RunSummary
+from archdiscov.services.snapshot_errors import SnapshotIOError
 from tests.cli.test_ask_cli import ENVELOPE, PRE_RUN_ERRORS
 from tests.documentation.markdown import DOC_FILES, code_blocks, table_rows
 from tests.paths import FIXTURES_ROOT, PROJECT_ROOT
@@ -707,6 +709,44 @@ def test_documented_mcp_tools_and_limits_match_the_code():
     assert f"{cap.default} by default, from {bounds['Ge'].ge} to {bounds['Le'].le:,}" in text
 
 
+def test_documented_mcp_options_and_exit_codes_match_the_command():
+    [command] = [
+        command for name, command in typer.main.get_command(app).commands.items() if name == "mcp"
+    ]
+    options = {
+        next(opt for opt in param.opts if opt.startswith("--")): param
+        for param in command.params
+        if param.name != "help"
+    }
+    rows = table_rows(MCP_DOC, "| Option | Meaning")
+    assert [row[0].strip("`") for row in rows] == list(options)
+    assert rows[0][1].startswith("required") and options["--snapshot"].required
+    assert all(not param.required for name, param in options.items() if name != "--snapshot")
+    assert "--json" not in options
+    codes = {int(row[0]): row[1] for row in table_rows(MCP_DOC, "| Exit code | When")}
+    cancelled = answer_results.FAILURE_EXIT_CODES[answer_results.FailureReason.CANCELLED]
+    assert set(codes) == {0, 1, 2, cancelled}
+    assert f"`{SnapshotIOError('x', path=Path('x')).code}`" in codes[1]
+    for code in (ToolSessionError.code, "invalid_snapshot", "invalid_comparison_result"):
+        assert f"`{code}`" in codes[2], code
+
+
+def test_documented_mcp_client_examples_use_absolute_paths_and_no_credentials():
+    blocks = code_blocks(MCP_DOC)
+    [claude_code] = [block for block in blocks if block.startswith("claude mcp add")]
+    command = claude_code.split(" -- ", 1)[1].split()
+    assert command[:3] == ["archdiscov", "mcp", "--snapshot"] and command[3].startswith("/")
+    [desktop] = [json.loads(block) for block in blocks if '"mcpServers"' in block]
+    [(name, server)] = desktop["mcpServers"].items()
+    assert name == "archdiscov" and set(server) == {"command", "args"}
+    assert server["command"].startswith("/") and server["command"].endswith("/archdiscov")
+    arguments = server["args"]
+    assert arguments[:2] == ["mcp", "--snapshot"] and arguments[2].startswith("/")
+    names = command_options()["mcp"]
+    for options in (command[1:], arguments):
+        assert {item for item in options if item.startswith("--")} <= names
+
+
 def test_documented_mcp_prompts_match_the_questions():
     text = " ".join(MCP_DOC.read_text(encoding="utf-8").split())
     named = text[text.index("Each prompt is named by") : text.index("in the README's order")]
@@ -877,7 +917,7 @@ def test_documented_command_options_exist(document):
         )
 
 
-def test_every_analysis_query_comparison_ask_and_evaluation_option_is_documented():
+def test_every_analysis_query_comparison_ask_evaluation_and_mcp_option_is_documented():
     names = command_options()
     documented = "\n".join(
         block for path in DOC_FILES for block in code_blocks(path) if "archdiscov" in block
@@ -894,6 +934,7 @@ def test_every_analysis_query_comparison_ask_and_evaluation_option_is_documented
         "ask",
         "evaluate",
         "evaluation",
+        "mcp",
     ):
         for option in names[command] - {"--json"}:
             assert option in documented, (command, option)

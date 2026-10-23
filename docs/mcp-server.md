@@ -9,9 +9,76 @@ of the plan, and this page describes what is implemented so far:
 - the server in `src/archdiscov/assistant/mcp_server.py`, which lists and runs the tools
   within bounds, validates submitted answers, and offers the README questions as prompts;
 - the service in `src/archdiscov/services/mcp.py`, which serves a verified selection over
-  stdio.
+  stdio;
+- the `archdiscov mcp` command in `src/archdiscov/cli_mcp.py`, which an MCP client starts.
 
-The `archdiscov mcp` command follows in a later step.
+## Running the server
+
+```sh
+archdiscov mcp --snapshot PATH [--compare PATH] [--comparison-result PATH ...] [--max-tool-calls N]
+```
+
+| Option | Meaning |
+|---|---|
+| `--snapshot` | required: the snapshot JSON to serve |
+| `--compare` | a second snapshot, for comparison questions, as in `ask` |
+| `--comparison-result` | a saved comparison of the selected snapshots for the client to read; repeatable |
+| `--max-tool-calls` | the [call cap](#limits) for one client connection, submissions included |
+
+The command verifies the selected files as [`ask`](ask-command.md) does, then serves them
+over stdio to the client that started it. The snapshots are chosen when the server starts
+and cannot change during a session: no tool opens another path, writes a file, or reaches a
+network. Standard output carries only protocol messages, so there is no `--json`;
+diagnostics before serving are readable, on standard error. The client also sees the
+README questions as [prompts](#prompts).
+
+| Exit code | When |
+|---|---|
+| 0 | the client disconnected |
+| 1 | a selected file could not be read (`snapshot_io_error`) |
+| 2 | invalid input before serving: `invalid_snapshot`, `invalid_comparison_result`, `result_snapshot_unselected`, or a usage error such as a `--max-tool-calls` outside its range |
+| 130 | the server was interrupted, for example with Ctrl-C |
+
+## Client setup
+
+Clients start the server themselves, so give them absolute paths, chosen when you configure
+the client. Replace the paths below with your own; the server needs no credentials.
+
+**Claude Code.** Add the server with `claude mcp add`; everything after `--` is the command
+Claude Code runs:
+
+```sh
+claude mcp add --transport stdio archdiscov -- archdiscov mcp --snapshot /absolute/path/snapshot.json
+```
+
+The server is then available in the current project (`--scope user` makes it available in
+every project). `claude mcp list` shows it, and `/mcp` inside Claude Code shows its status.
+The prompts appear as commands, such as `/archdiscov:ownership`. If `archdiscov` is not on
+the `PATH` Claude Code starts with, use the executable's absolute path, for example
+`/absolute/path/.venv/bin/archdiscov`.
+
+**Claude Desktop.** Add an entry under `mcpServers` in `claude_desktop_config.json`
+(Settings, Developer, Edit Config; on macOS it is in
+`~/Library/Application Support/Claude/`, on Windows in `%APPDATA%\Claude\`), then quit and
+restart Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "archdiscov": {
+      "command": "/absolute/path/.venv/bin/archdiscov",
+      "args": ["mcp", "--snapshot", "/absolute/path/snapshot.json"]
+    }
+  }
+}
+```
+
+Claude Desktop does not start the server from a shell, so `command` is the executable's
+absolute path. Its log of the server's standard error is `mcp-server-archdiscov.log`, in
+`~/Library/Logs/Claude` on macOS or `%APPDATA%\Claude\logs` on Windows. Both setups were
+checked against the clients' documentation (`https://code.claude.com/docs/en/mcp` and
+`https://modelcontextprotocol.io/docs/develop/connect-local-servers`); they cannot be
+exercised offline.
 
 ## What the server serves
 
