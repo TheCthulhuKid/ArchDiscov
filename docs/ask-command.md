@@ -183,6 +183,26 @@ diagnostics before the run, on standard error, or as JSON on standard output wit
 Diagnostics name the failing file and the provider kind, never configuration values,
 credentials, or the question.
 
+## What is not supported
+
+`ask` explains recorded configuration; it does not act on it or go beyond it:
+
+- **Conversation memory.** Each run is one question with no chat history; a follow-up is
+  a new run that starts from the selected files again.
+- **Remediation.** The tools are read-only: the model cannot change cloud resources,
+  snapshots, or saved results, and receives no cloud credentials, shell, or code execution.
+- **Effective access.** Findings describe recorded policies, trust statements, and network
+  rules. They do not evaluate effective IAM permissions, organization policies, or
+  authentication, so an answer never claims that a principal can, or cannot, act.
+- **Reachability proof.** Network findings say what recorded configuration allows, denies,
+  or leaves unknown. They are not a live connectivity test, and an answer never claims that
+  traffic does, or does not, arrive.
+- **Facts from the model.** Conclusions are rendered only from findings, evidence, and
+  resources the tools returned; the model's own text is shown as a labelled, unverified
+  explanation, and a proposal that cites anything else is rejected.
+- **Live data.** Answers cover only the selected snapshots, at their collection times; a
+  planned or declared snapshot is never presented as deployed state.
+
 ## Verification
 
 [Testing the CLI locally](local-cli-testing.md#ask-a-question-with-the-fake-provider) shows

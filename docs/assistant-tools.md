@@ -105,8 +105,8 @@ spaces. Sensitive values are redacted as they are in snapshots.
 
 ## Run record
 
-Each session has a `RunRecord` of every ID a delivered output returned, for answer
-validation in a later step. It collects the values of the `finding_id`, `finding_ids`,
+Each session has a `RunRecord` of every ID a delivered output returned, for
+[answer validation](assistant-answers.md#validation). It collects the values of the `finding_id`, `finding_ids`,
 `evidence_id`, `evidence_ids`, `resource_id`, and `resource_ids` fields (one ID, a list, or
 a bounded list), each scoped to the nearest enclosing `snapshot_id`, so comparison IDs are
 attributed to their own side. Errors and replaced oversized outputs record nothing, and an

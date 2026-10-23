@@ -121,8 +121,8 @@ exception for local debugging only.
 
 The retry boundary is fixed: a provider retries only retryable errors (transport and
 rate limit), up to its configured `max_retries`, inside one `complete` call. Nothing
-retries a rejected answer; an invalid answer gets at most one repair request from the
-answer renderer in a later step.
+retries a rejected answer; an invalid answer gets at most one
+[repair request](assistant-answers.md#outcomes-and-exit-codes) from the answer service.
 
 ## Configuration
 
