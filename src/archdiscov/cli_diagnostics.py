@@ -11,6 +11,7 @@ import typer
 from pydantic import BaseModel
 
 from .assistant.config import ProviderConfigError, ProviderConfigErrorCode
+from .assistant.evaluation import EvaluationErrorCode, EvaluationValidationError
 from .assistant.fake import FakeScriptError, FakeScriptErrorCode
 from .assistant.tools.session import ToolSessionError
 from .services import (
@@ -24,6 +25,7 @@ from .services import (
     SnapshotJSONError,
     SnapshotValidationError,
 )
+from .services.evaluation import EvaluationSetupError
 
 
 def json_output(data: dict) -> None:
@@ -136,3 +138,31 @@ def safe_assistant_failures(snapshot_path: Path, as_json: bool) -> Iterator[None
                 _diagnostic(error.code, str(error), getattr(error, "path", None)), as_json=as_json
             )
             raise typer.Exit(2) from None
+
+
+def fail_evaluation_error(
+    error: EvaluationValidationError | EvaluationSetupError, as_json: bool
+) -> NoReturn:
+    """Print a safe suite, report, or evaluation-setup diagnostic and exit.
+
+    An unreadable suite is an I/O error (1); everything else is invalid input (2).
+    """
+    details = getattr(error, "details", None) or None
+    diagnostic = _diagnostic(error.code.value, str(error), error.path, details)
+    if (case_id := getattr(error, "case_id", None)) is not None:
+        diagnostic["case_id"] = case_id
+    print_error(diagnostic, as_json=as_json)
+    raise typer.Exit(1 if error.code == EvaluationErrorCode.SUITE_UNREADABLE else 2)
+
+
+@contextmanager
+def safe_evaluation_failures(path: Path, as_json: bool) -> Iterator[None]:
+    """`safe_assistant_failures`, plus suite, report, and evaluation-setup failures.
+
+    A snapshot failure without a path of its own names `path`.
+    """
+    with safe_assistant_failures(path, as_json):
+        try:
+            yield
+        except (EvaluationValidationError, EvaluationSetupError) as error:
+            fail_evaluation_error(error, as_json)

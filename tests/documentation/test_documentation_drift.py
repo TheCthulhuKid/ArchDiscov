@@ -8,13 +8,14 @@ import pytest
 import typer.main
 from annotated_types import Ge, Gt, Le
 
-from archdiscov import cli_answer_output, cli_ask_output
+from archdiscov import cli_answer_output, cli_ask_output, cli_evaluation
 from archdiscov.assistant import (
     adapters,
     answer_results,
     answer_validation,
     anthropic_provider,
     bedrock_provider,
+    evaluation,
     openai_provider,
 )
 from archdiscov.assistant import answers as assistant_answers
@@ -43,10 +44,11 @@ from archdiscov.models.enums import AnalysisStatus, AnalyzerKind
 from archdiscov.models.query.parameters import QueryPathLimits
 from archdiscov.models.query.requests import QueryNeighboursRequest, QuerySearchRequest
 from archdiscov.services import DEFAULT_REGISTRY
+from archdiscov.services import evaluation as evaluation_service
 from archdiscov.services.ask import RunSummary
 from tests.cli.test_ask_cli import ENVELOPE, PRE_RUN_ERRORS
 from tests.documentation.markdown import DOC_FILES, code_blocks, table_rows
-from tests.paths import PROJECT_ROOT
+from tests.paths import FIXTURES_ROOT, PROJECT_ROOT
 
 DOCS = PROJECT_ROOT / "docs"
 README = PROJECT_ROOT / "README.md"
@@ -370,7 +372,8 @@ def test_the_readme_links_the_provider_contracts_without_claiming_real_providers
     assert "does not answer" not in text
     # The phase row lists every adapter as a finished step.
     assert "#openai-compatible-adapter) (step 41)," in text
-    assert "#bedrock-adapter) (step 42) |" in text
+    assert "#bedrock-adapter) (step 42), and" in text
+    assert "(docs/assistant-evaluation.md) (step 43) |" in text
     assert "in progress) |" not in text
     provider_doc = PROVIDERS_DOC.read_text(encoding="utf-8")
     assert "[Bedrock adapter](#bedrock-adapter), which is built" in " ".join(provider_doc.split())
@@ -590,6 +593,82 @@ def test_the_readme_links_answers_without_claiming_rendering():
     assert "the Bedrock adapter through Converse" in " ".join(
         ANSWERS_DOC.read_text(encoding="utf-8").split()
     )
+
+
+# ---- evaluation --------------------------------------------------------------------
+
+EVALUATION_DOC = DOCS / "assistant-evaluation.md"
+ADVERSARIAL_SUITE = FIXTURES_ROOT / "evaluation" / "adversarial" / "suite.json"
+
+
+def _first_cells(header: str) -> list[str]:
+    return [
+        name.strip("`") for row in table_rows(EVALUATION_DOC, header) for name in row[0].split(", ")
+    ]
+
+
+def test_documented_evaluation_contracts_match_the_models():
+    assert _first_cells("| Case field") == list(evaluation.EvaluationCase.model_fields)
+    assert _first_cells("| Expectation") == list(evaluation.Expectations.model_fields)
+    assert _first_cells("| Record field") == list(evaluation.CaseRecord.model_fields)
+    assert _first_cells("| Comparison field") == list(evaluation.CaseComparison.model_fields)
+    assert _first_cells("| Check") == [check.value for check in evaluation.SAFETY_CHECKS]
+    text = " ".join(EVALUATION_DOC.read_text(encoding="utf-8").split())
+    assert f"at least {evaluation.MIN_QUOTED_CHARS} characters" in text
+    assert f"holds 1–{evaluation.MAX_CASES} cases" in text
+    for code in evaluation._CITATION_REJECTIONS:
+        assert f"`{code.value}`" in text, code
+    # Failure reasons are documented through the link to the answer outcomes.
+    for outcome in (evaluation.CaseOutcome.ANSWERED, evaluation.CaseOutcome.ANSWERED_AFTER_REPAIR):
+        assert f"`{outcome.value}`" in text, outcome
+    assert '"schema_version": "1"' in EVALUATION_DOC.read_text(encoding="utf-8")
+    codes = [*evaluation.EvaluationErrorCode, *evaluation_service.EvaluationSetupCode]
+    documented = [row[0].strip("`") for row in table_rows(EVALUATION_DOC, "| Code | When")]
+    assert set(documented) == {code.value for code in codes}
+    assert evaluation.MAX_SUITE_BYTES == 1024 * 1024 and "at most 1 MiB" in text
+    assert f"1–{evaluation.MAX_PROVIDERS} provider configurations" in text
+
+
+def test_documented_evaluation_commands_match_the_code():
+    rows = {int(row[0]): row[1] for row in table_rows(EVALUATION_DOC, "| Exit code | When")}
+    cancelled = answer_results.FAILURE_EXIT_CODES[answer_results.FailureReason.CANCELLED]
+    assert set(rows) == {0, 1, 2, 3, cli_evaluation.CASES_FAILED_EXIT_CODE, cancelled}
+    errors = [
+        *(evaluation.EvaluationValidationError(code) for code in evaluation.EvaluationErrorCode),
+        *(
+            evaluation_service.EvaluationSetupError(code)
+            for code in evaluation_service.EvaluationSetupCode
+        ),
+    ]
+    for error in errors:
+        code = 1 if error.code == evaluation.EvaluationErrorCode.SUITE_UNREADABLE else 2
+        assert f"`{error.code.value}`" in rows[code], error.code
+    text = EVALUATION_DOC.read_text(encoding="utf-8")
+    commands = {command.name: command for command in typer.main.get_command(app).commands.values()}
+    for name in ("evaluate", "evaluation"):
+        usage = next(line for line in text.splitlines() if line.startswith(f"archdiscov {name} "))
+        for param in commands[name].params:
+            option = next((opt for opt in param.opts if opt.startswith("--")), None)
+            if option not in {None, "--help"}:
+                assert option in usage, (name, option)
+
+
+def test_the_readme_and_assistant_pages_link_evaluation():
+    text = README.read_text(encoding="utf-8")
+    assert "| `evaluate`, `evaluation` |" in text and "docs/assistant-evaluation.md" in text
+    acceptance = "tests/acceptance/test_installed_evaluation.py"
+    assert acceptance in text and (PROJECT_ROOT / acceptance).is_file()
+    for page in ("ask-command", "assistant-answers", "assistant-providers", "result-contracts"):
+        assert "(assistant-evaluation.md" in (DOCS / f"{page}.md").read_text(encoding="utf-8")
+
+
+def test_documented_adversarial_cases_match_the_suite():
+    suite = evaluation.load_suite(ADVERSARIAL_SUITE)
+    rows = table_rows(EVALUATION_DOC, "| Adversarial case")
+    assert [row[0].strip("`") for row in rows] == [case.id for case in suite.cases]
+    for row, case in zip(rows, suite.cases, strict=True):
+        expected = [*case.expect.outcomes, *case.expect.rejections]
+        assert re.findall(r"`([a-z_]+)`", row[2]) == [value.value for value in expected], case.id
 
 
 # ---- ask command -------------------------------------------------------------------

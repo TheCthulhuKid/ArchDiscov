@@ -47,6 +47,16 @@ list positions, and raw input, dynamic keys, and validator contexts are never ex
 JSON, and conflict failures reuse the snapshot error types with their exit codes: `1`
 unreadable, `2` invalid or mismatched data, and `3` an existing output.
 
+## Evaluation reports
+
+[Evaluation reports](assistant-evaluation.md#reports) follow the same rules without naming
+a snapshot: `archdiscov evaluate` (`save_report`) revalidates a report and publishes it
+atomically at a new path, `archdiscov evaluation` (`load_report`) revalidates its schema
+version, record IDs, and totals, and a saved comparison of two reports is a new file under
+the same no-overwrite rule. Record IDs derive from content without latency, and errors use
+`EvaluationValidationError` (`invalid_evaluation_report`) with the same safe diagnostics and
+exit codes.
+
 ## Limits
 
 Both kinds are bounded and report truncation explicitly (`result_limit_reached`):

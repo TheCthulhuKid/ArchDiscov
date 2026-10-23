@@ -1,0 +1,142 @@
+{
+  "turns": [
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "c0",
+              "name": "search_resources",
+              "arguments": {
+                "kind": "parsed",
+                "value": {
+                  "limit": 5
+                }
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use"
+      }
+    },
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "c1",
+              "name": "list_analyzers",
+              "arguments": {
+                "kind": "parsed",
+                "value": {}
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use"
+      }
+    },
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "c2",
+              "name": "run_analyzer",
+              "arguments": {
+                "kind": "parsed",
+                "value": {
+                  "kind": "security_group_impact",
+                  "resource_id": "123456789012/eu-west-1/ec2/physical/sg-app",
+                  "max_depth": 3
+                }
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use"
+      }
+    },
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "answer",
+              "name": "submit_answer",
+              "arguments": {
+                "kind": "parsed",
+                "value": {
+                  "status": "partial",
+                  "contexts": [
+                    {
+                      "side": "primary",
+                      "source_kind": "mock"
+                    }
+                  ],
+                  "conclusions": [
+                    {
+                      "kind": "analyzer_finding",
+                      "citations": [
+                        {
+                          "finding_ids": [
+                            "0f0da02faee20f6bd3c4ebdd4ad3611c678fc310be3b1dc709111f6bae1b76c7",
+                            "1844d4eeca40bd750963a5f4f0295d8c52f9189d60a17d55f780d63b06d13c8d",
+                            "391e3c7195dcacf8b019b0ffa3bb73e4fccdf80c9615138833bb8089ed5e8856",
+                            "3c2ba15cada25c51d69d24c8ed2d637299daf3a93483529fd624aebe4c1d2cc9",
+                            "61e6bc2402cd2e843df9b16c8538e43d358a2fb85fc79d38d2893ae249112b87",
+                            "6660a490d3e366b2acda45893d6b4ac5873aa4c59438676a1477f52bbdf9cea0",
+                            "667f6e2d3f25741e59f09d1207b12952ca1ad534bc22f5f48a076f13f7015052",
+                            "a9da5ea9dee41bbce9e9da5d6dd08e17b31a1f16fce14355befa51d72ff70981",
+                            "ab6705e3bd23169b1e3800d03109e9b429873433132d2c7bbb0c86081be0810c",
+                            "abb49c9f0f216cf3e6e582bc075c6c6092600dd7e486635253e68a8735427e32",
+                            "b4210059ae3f29a981a90f1f5d9cc61212ae8ea9c05cee8edf7fad14494cd211",
+                            "bd11be170363d9e2d12ffbb601bfaad0340070c460b3fc72125b51b26ebff1f8",
+                            "c0ee061839ef7a452056f44d32d19a35b9cefbfa843c19e4489f1be3f9c8e75c",
+                            "ca922b096a1b52d5e724128f495f2c1afb589e667cd9ceddc5e5c27cfddff31f",
+                            "d17b7a90b672f7c44617c7aabc1890cbda37c7d9188c9c6809876012606c4b60",
+                            "d2235db2de887bf2444280cce07664392f883fe997b5176b9d2e023dfd8df7d2",
+                            "e6c5b8433c5fdbb0b84dc36e41f08fb1acdeab99972337b4e7f45e5dcd67db38",
+                            "f17d6ad2c217c90a107a630589b9140077cac7996faa281181728fa1f9d47ad9"
+                          ]
+                        }
+                      ]
+                    }
+                  ],
+                  "limitations": [
+                    {
+                      "finding_id": "6660a490d3e366b2acda45893d6b4ac5873aa4c59438676a1477f52bbdf9cea0",
+                      "limitation": "unresolved_target"
+                    },
+                    {
+                      "finding_id": "c0ee061839ef7a452056f44d32d19a35b9cefbfa843c19e4489f1be3f9c8e75c",
+                      "limitation": "rule_direction_unrecorded"
+                    },
+                    {
+                      "finding_id": "d2235db2de887bf2444280cce07664392f883fe997b5176b9d2e023dfd8df7d2",
+                      "limitation": "external_target"
+                    },
+                    {
+                      "finding_id": "e6c5b8433c5fdbb0b84dc36e41f08fb1acdeab99972337b4e7f45e5dcd67db38",
+                      "limitation": "external_target"
+                    }
+                  ],
+                  "summary": "The conclusions above are rendered from the cited records."
+                }
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use"
+      }
+    }
+  ]
+}

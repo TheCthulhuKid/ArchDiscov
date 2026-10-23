@@ -29,9 +29,9 @@ class Scenario:
     parameters: dict
 
 
-def _ownership():
+def ownership(tags: dict | None = None):
     """A resource without an owner tag, with the one recorded EC2 operation covering it."""
-    snapshot = tagged("analysis/ownership-snapshot.json", tags={"Name": "app"})[0]
+    snapshot = tagged("analysis/ownership-snapshot.json", tags=tags or {"Name": "app"})[0]
     data = snapshot.model_dump(mode="json")
     resource = next(iter(snapshot.regions.values())).resources[0].identity
     data["coverage"]["operations"] = [
@@ -64,7 +64,7 @@ def _trust():
 
 
 SCENARIOS = {
-    AnalyzerKind.OWNERSHIP: Scenario(AnalyzerKind.OWNERSHIP, _ownership, {}),
+    AnalyzerKind.OWNERSHIP: Scenario(AnalyzerKind.OWNERSHIP, ownership, {}),
     AnalyzerKind.SECURITY_GROUP_IMPACT: Scenario(
         AnalyzerKind.SECURITY_GROUP_IMPACT,
         lambda: validate_snapshot(variant()),

@@ -18,7 +18,7 @@ ASK_JSON_VERSION = "1"
 # The selected paths as given, keyed as in the JSON envelope; lists hold repeatable options.
 type AskPaths = dict[str, str | list[str] | None]
 
-_TOKEN_LABELS = {
+TOKEN_LABELS = {
     "input_tokens": "input",
     "output_tokens": "output",
     "cache_read_input_tokens": "cache read",
@@ -57,7 +57,7 @@ def _summary(result: AskResult, paths: AskPaths) -> Iterator[str]:
     yield f"Provider requests: {usage.provider_requests}{repair}"
     calls = ", ".join(f"{name} {count}" for name, count in usage.tool_calls.items())
     yield f"Tool calls: {calls or 'none'}"
-    yield f"Tokens: {_tokens(usage.tokens)}"
+    yield f"Tokens: {token_text(usage.tokens)}"
     if paths["transcript_path"] is not None:
         yield f"Transcript: {paths['transcript_path']}"
 
@@ -72,9 +72,9 @@ def _limits(limits: RunLimits) -> str:
     )
 
 
-def _tokens(tokens: TokenUsage) -> str:
+def token_text(tokens: TokenUsage) -> str:
     counts = (
-        f"{count} {_TOKEN_LABELS[name]}"
+        f"{count} {TOKEN_LABELS[name]}"
         for name, count in tokens.model_dump().items()
         if count is not None
     )

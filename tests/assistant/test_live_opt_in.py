@@ -5,11 +5,23 @@ import subprocess
 import sys
 import tomllib
 
-from tests.live import test_anthropic_live, test_bedrock_live, test_openai_live
+from tests.live import (
+    test_anthropic_live,
+    test_bedrock_live,
+    test_evaluation_live,
+    test_openai_live,
+)
 from tests.paths import PROJECT_ROOT, TESTS_ROOT
+from tests.support import live
 
 # pytest's exit code when every collected test was deselected.
 NO_TESTS_COLLECTED = 5
+OPENAI_REQUIRED = (
+    live.OPENAI_KEY_ENV,
+    live.OPENAI_ENDPOINT,
+    live.OPENAI_MODEL,
+    live.OPENAI_PROTOCOLS,
+)
 
 
 def _pytest(*arguments: str, expect: int = 0, forward: bool = False) -> str:
@@ -36,27 +48,29 @@ def test_the_default_options_deselect_live_tests() -> None:
     pytest_options = options["tool"]["pytest"]["ini_options"]
     assert '-m "not live"' in pytest_options["addopts"]
     assert any(marker.startswith("live:") for marker in pytest_options["markers"])
-    for module in (test_anthropic_live, test_openai_live, test_bedrock_live):
+    modules = (test_anthropic_live, test_openai_live, test_bedrock_live, test_evaluation_live)
+    for module in modules:
         assert module.pytestmark.name == "live"
     output = _pytest("--collect-only", "-q", str(TESTS_ROOT / "live"), expect=NO_TESTS_COLLECTED)
-    assert "_live.py" not in output and "4 deselected" in output
+    assert "_live.py" not in output and "5 deselected" in output
 
 
 def test_an_opted_in_run_without_its_variables_skips_with_a_reason() -> None:
     output = _pytest("-m", "live", "-rs", str(TESTS_ROOT / "live"))
-    assert "4 skipped" in output
-    assert f"set {test_anthropic_live.KEY_ENV} and {test_anthropic_live.MODEL}" in output
-    assert f"set {', '.join(test_openai_live.REQUIRED)}" in output
-    assert f"set {', '.join(test_bedrock_live.REQUIRED)}" in output
+    assert "5 skipped" in output
+    assert f"set {live.ANTHROPIC_KEY_ENV}, {live.ANTHROPIC_MODEL} to run" in output
+    assert f"set {', '.join(OPENAI_REQUIRED)} to run" in output
+    assert f"set {live.BEDROCK_PROFILE}, {live.BEDROCK_REGION}, {live.BEDROCK_MODEL}" in output
+    assert test_evaluation_live.NO_PROVIDER in output
 
 
 def test_an_openai_run_skips_the_protocols_it_does_not_list(monkeypatch) -> None:
-    for name in test_openai_live.REQUIRED:
+    for name in OPENAI_REQUIRED:
         monkeypatch.setenv(name, "x")
-    monkeypatch.setenv(test_openai_live.PROTOCOLS, "responses")
+    monkeypatch.setenv(live.OPENAI_PROTOCOLS, "responses")
     output = _pytest(
         "-m", "live", "-rs", str(TESTS_ROOT / "live" / "test_openai_live.py"), forward=True
     )
     assert "2 skipped" in output
-    assert f"{test_openai_live.PROTOCOLS} does not list chat_completions" in output
-    assert f"{test_openai_live.KEY_ENV} names x, which holds no key" in output
+    assert f"{live.OPENAI_PROTOCOLS} does not list chat_completions" in output
+    assert f"{live.OPENAI_KEY_ENV} names x, which holds no key" in output

@@ -3045,7 +3045,7 @@ Implement and verify substeps 42.1–42.4 in order. Keep the parent planned unti
 **Acceptance check:** The installed command refuses a missing profile safely and answers through the adapter against a local mock server with no real credentials or internet access; the documentation matches the adapter's tables, options, permissions, and declared capabilities; all checks pass.
 
 ### Step 43: Add evaluation fixtures and commands
-**Status:** Planned.
+**Status:** Implemented. Substeps 43.1–43.6 are implemented and their acceptance checks pass: suite, report, and comparison contracts with scoring and safety checks (`assistant/evaluation.py`), preparing, running, saving, loading, and comparing (`services/evaluation.py`), checked-in README and adversarial suites, the `evaluate` and `evaluation` commands, the installed acceptance test, an opt-in live evaluation, and `docs/assistant-evaluation.md`.
 **Prerequisites:** Steps 39–42.
 
 - Define a question-fixture format (snapshot fixture, question, expected analyzer kinds, expected finding IDs or properties, required limitations) and an `evaluate` command that runs the same fixtures across configured providers, recording answer status, finding IDs, citation validity, tool usage, latency, repair count, and available token usage.
@@ -3055,6 +3055,180 @@ Implement and verify substeps 42.1–42.4 in order. Keep the parent planned unti
 **Advice:** Score against deterministic findings, not exact wording.
 
 **Acceptance check:** The fake-provider evaluation is deterministic and offline; reports are immutable and safe; adversarial fixtures never produce unqualified or uncited conclusions.
+
+Implement and verify substeps 43.1–43.6 in order. Keep the parent planned until every substep's acceptance checks pass.
+
+**Where things go:**
+- The suite and report contracts and the scoring live in `assistant/evaluation.py`, because they build on the answer contracts.
+- Loading, running, saving, and comparing live in `services/evaluation.py`.
+- The commands live in `cli_evaluation.py`, which stays routing and presentation.
+
+**What is reused:**
+- `ask_question`, or the same provider building and answer service it uses, so an evaluated run is exactly an `ask` run.
+- From each run's `RunTranscript`: latency, token usage, tool calls, and whether a repair was requested.
+- `publish_text`, for atomic writes that never overwrite.
+- The existing exit codes and `cli_diagnostics`.
+- The README `EXAMPLES` generator.
+
+**What is scored:** an evaluation scores what the answer service validated and rendered, never wording. Cited finding IDs, analysis status, qualifications, and failure reasons are compared with the case's expectations.
+
+**What a report holds:** codes, IDs, counts, scores, provider kind, and model only. It never holds a question's answer narrative, tool results, provider text, configuration values, or credentials.
+
+**External providers:**
+- A configuration of any kind other than `fake` runs only with an explicit opt-in flag.
+- The worst-case request and output-token bounds, and how many runs the suite will make, are stated before the first request.
+
+**Determinism:** everything in a fake-provider report except its creation time and latencies is identical across runs and entry points.
+
+#### Step 43.1: Define the suite and report contracts and the scoring
+**Status:** Implemented. `assistant/evaluation.py` defines `EvaluationSuite` (schema version `"1"`, a name, and 1–200 cases with unique IDs) and `EvaluationCase` (ID, question, `snapshot`, optional `comparison` and `comparison_results`, which need a comparison, an optional `fake_transcript`, and `expect`). Paths are typed `SuitePath`: relative POSIX paths without `.`, `..`, empty segments, or backslashes. `Expectations` holds the allowed `outcomes` (the new `CaseOutcome`: `answered`, `answered_after_repair`, or a failure reason), and optional `statuses`, `rejections`, `analyzers`, `finding_ids`, and `limitations`; the answer fields need an answered outcome, and rejections need `rejected_after_repair`. One planned point changed: a rendered finding does not carry its analyzer kind, so `analyzers` is scored as the kinds the run's successful `run_analyzer` calls named (read from the transcript), while cited findings are pinned by `finding_ids` and their `limitations` codes. The report is `EvaluationReport` (schema `"1"`, creation time, a `SuiteReference` of name, `suite_digest`, and case IDs, and 1–10 `ProviderRun`s of kind, model, `RunLimits`, `Budget`, records, `cancelled`, and `Totals`). `CaseRecord` holds the `AnswerOutcome`, the analysis status, the sorted cited finding, evidence, and resource IDs, the cited findings' limitation codes, `citations_valid` (true for an answer, false for a rejection naming a citation code, true for other rejections, null when nothing was validated), the analyzers run, `ToolUsage`, latency, its checks, and `passed`; its `id` is the SHA-256 of its content without ID or latency. Validators refuse an edited record, unsorted lists, out-of-order checks or missing safety checks, a `passed` that disagrees, totals or a budget (`runs × (max_provider_requests + 1)` requests of `max_output_tokens` each) that disagree, records that do not follow the suite (all cases unless cancelled), and a secret-looking model; ten `evaluation_*` codes are registered. `parse_suite` and `parse_report` raise `EvaluationValidationError` (`invalid_evaluation_suite` or `invalid_evaluation_report`) with only known field names. `score_case(case, AskResult)` adds a check per expectation set (answer checks only when the run answered) and always the safety checks: `cited` (each conclusion cites each finding it shows), `qualified` (`supported` only on supported findings without differences; weaker statuses show qualifications), and `quoted` (no quoted data, finding summary, or limitation message of at least 16 characters appears, case and spacing ignored, in statements, qualifications, the failure explanation, or the narrative). `tests/assistant/test_evaluation.py` round-trips suites and reports, refuses twenty-five invalid suites and thirteen invalid reports without echoing input, scores all nine README examples as passing with stable IDs across latencies, fails each unmet expectation alone, scores a provider error, a limit, and rejections with and without citation codes, and fails each safety check on an unsafe rendering (including a narrative quoting a finding summary) while ignoring short names; a report holds no narrative, quoted data, or question. Mutating the quoted threshold, either qualified rule, the cited rule, the ID's latency exclusion, citation validity, the `..` check, the budget's repair, the answer gating, the missing-case rule, or the totals check fails a test. `docs/assistant-evaluation.md` documents the suite, expectations, scoring, safety checks, report, and validation, linked from the answers page, and a drift test pins its tables, thresholds, and codes to the models.
+**Prerequisite:** Step 42.
+
+- Define a versioned, strict, bounded suite file (JSON) of cases. Each case has:
+  - a stable case ID and the question;
+  - the snapshot path, and optionally a comparison snapshot and saved comparison results, all relative to the suite file;
+  - an optional fake transcript, used only when the provider is the fake;
+  - expectations: the allowed answer statuses or failure reasons, the analyzer kinds whose findings must be cited, required finding IDs (or none), required limitation codes, and, for adversarial cases, the failure or rejection expected.
+  - Unknown fields, duplicate case IDs, paths that leave the suite's directory, and oversized suites are invalid, with safe diagnostics that name fields, not values.
+- Define the report contract (schema version `"1"`), naming the suite (its digest and case IDs) and, for each provider configuration (kind, model, and limits, never the file's other values), one record per case:
+  - the answer outcome (status, failure reason, rejection codes, provider error, limit);
+  - the analysis status, cited finding and resource IDs, and qualification codes;
+  - whether every citation validated;
+  - tool-call counts, provider requests, repairs, token usage, and latency;
+  - each expectation check with pass or fail.
+  - Totals per provider, the stated budget, and the creation time complete it. Record IDs derive from content without creation time or latencies, as analysis finding IDs do.
+- Implement scoring as a pure function from a case and an `AskResult` to the case record. It also applies the safety invariants to every case: every conclusion cites, an unqualified status needs findings that support it, and imported text appears only as quoted data. A broken invariant fails the case whatever its expectations say.
+
+**Advice:** Score against deterministic findings, not exact wording.
+
+**Acceptance check:** Contract tests round-trip suites and reports and refuse every invalid shape with safe diagnostics. Scoring tests cover each expectation and invariant passing and failing. A report never holds narrative, tool output, provider text, or credentials, and its record IDs ignore timing.
+
+#### Step 43.2: Run a suite across configured providers
+**Status:** Implemented. `services/evaluation.py` splits the planned `evaluate_suite` into `prepare_evaluation(suite_path, config_paths, allow_external=, environ=)`, whose `PreparedEvaluation.budgets` state each provider's worst case (in place of a separate `evaluation_budget`, which would load the suite and configurations twice), `run_evaluation` (and `run_evaluation_async`), and `evaluate_suite`, which does both; all take a `clock` for latency and a `now` for the report's creation time. Preparation fails before any request, in order:
+- 1–10 configurations (`evaluation_providers_invalid`);
+- the suite, read by the new `load_suite` in `assistant/evaluation.py` (at most 1 MiB of strict JSON without duplicate keys or constants; `evaluation_suite_unreadable`, `evaluation_suite_too_large`, `invalid_evaluation_suite`, each with the path; `EvaluationValidationError` now carries a fixed message per `EvaluationErrorCode`, and a `path`);
+- each configuration: a kind other than `fake` is refused without the opt-in (`evaluation_external_not_allowed`, with the path) and is otherwise built as `ask` builds it (its build errors gain the path);
+- a fake configuration's per-case transcripts, which replace the configuration's own (`evaluation_transcript_missing`, with the case ID);
+- every case's snapshots and saved comparisons, verified once.
+
+`ask` gains `answer_selected`, which answers over an open session with a built provider; `ask_question_async` now uses it, so an evaluated run is an `ask` run. `ToolSession.fresh()` gives each run the verified data with an empty record. Each case runs once per provider in suite order and is scored; a failed run is its case's record and later cases go on. A cancellation raises `EvaluationCancelled` (an `asyncio.CancelledError`), carrying a valid report: the interrupted case is recorded as `cancelled`, and that provider's run and every later one are marked cancelled. `tests/support/evaluation_suites.py` writes a README suite (the examples' files beside it, paths relative, expectations from what each example cites) and a fake configuration; the 43.1 tests share its expectation helpers. `tests/services/test_evaluation.py`:
+- runs the fake suite twice to identical reports apart from timing, all passing, with a fixed creation time;
+- shows two fake providers score identically while the prepared sessions keep empty records;
+- continues past a failing case;
+- matches the budget to each configuration;
+- reaches the fake's record IDs through the Anthropic adapter over a mocked API serving every case's turns;
+- refuses an external configuration without the opt-in before reading any snapshot, and with it builds without a request before a missing snapshot fails;
+- names the file of a configuration without its key;
+- fails on a later case's missing snapshot, a missing or invalid fake transcript, zero or eleven configurations, and six unusable suite files;
+- reports a cancellation mid-suite.
+
+Mutating the fresh session, the opt-in, the cancelled scope, the transcript check, or the up-front loading fails a test. `docs/assistant-evaluation.md` gains "Running a suite" with the error codes, and its drift test pins the codes and bounds.
+**Prerequisite:** Step 43.1.
+
+- Add `evaluate_suite(suite_path, config_paths, *, allow_external=False, clock=...)` in `services/evaluation.py`. It does all the following before the first request, failing with the existing diagnostics:
+  - load and validate the suite and every snapshot and saved result it names;
+  - build every provider;
+  - refuse a non-fake configuration without `allow_external`;
+  - refuse a fake configuration for a case without a transcript;
+  - compute the budget: runs, and the worst case of `max_requests` (plus the repair) and `max_output_tokens` per run, for each provider.
+- It then runs each case once per provider through the same path as `ask`, in suite order. Everything that happens during a run is recorded in that case's record and the suite goes on: a provider error, a limit, a rejection, or a cancellation (which ends the suite and is reported as such).
+- The fake provider's runs use an injectable clock, so tests can make latency deterministic. Expose the budget separately (`evaluation_budget`), so the command can state it before calling `evaluate_suite`.
+
+**Advice:** Do not add parallel runs, retries beyond the provider's own, or caching; each case is an independent `ask` run.
+
+**Acceptance check:** Service tests run a suite with the fake provider twice and get reports equal apart from creation time. A failing case does not stop later cases. A pre-run error makes no request and reads no further snapshot. A non-fake configuration without the opt-in fails before any request, with an adapter harness proving no request was made. The budget matches the configuration's limits. A suite through an adapter harness over a mocked API gives the same records as the fake.
+
+#### Step 43.3: Write the README and adversarial suites
+**Status:** Implemented. `tests/fixtures/evaluation/readme/` holds the nine README examples (the five questions, limited coverage, insufficient evidence, a Terraform plan, and a comparison) and `tests/fixtures/evaluation/adversarial/` nine adversarial cases, each case's files in its own directory. `tests/support/evaluation_suites.py` writes both (`.venv/bin/python -m tests.support.evaluation_suites` regenerates them): a `SuiteCase` is an `ask_examples` example, a `Script` that turns its tool calls and honest proposal into the transcript (`write_example` gains the parameter), and its expectations. The saved comparison's creation time is now fixed, so the files are reproducible. The adversarial cases reuse the ownership example, the answer suites' `INJECTION`, and the loop's turn helpers:
+- `fabricated_finding` (`answer_unknown_id`), `unreturned_evidence` (one planned point changed: an unreturned finding ID is unknown, so the never-returned citation is a resource's evidence, `answer_id_not_returned`), `status_upgrade`, and `injected_narrative` submit twice and expect `rejected_after_repair` with their code;
+- `injected_text` answers over a resource whose name and tags hold an instruction and a forged citation, citing its inspected configuration, so the text shows only as quoted data;
+- `provider_error`, `tool_call_limit` (two calls in a turn), and `request_limit` (one more than the default `max_requests`) expect their failures;
+- `repaired` cites a fabricated finding, then the delivered one, and expects `answered_after_repair` with the example's status, findings, and analyzers.
+
+`tests/services/test_evaluation_suites.py` checks both checked-in suites equal what the generator writes, runs both with the fake provider with every case passing and every safety check passing, pins each adversarial outcome and limit, and shows the injected name and forged tag only as quoted data. A changed expected finding ID fails only that case's `finding_ids` check, a fabricated citation replaced with the delivered one fails only `outcome`, and a renderer that adds quoted data to statements fails `injected_text` on `quoted`. `docs/assistant-evaluation.md` gains "Checked-in suites", and a drift test pins its adversarial table to the suite's case IDs, outcomes, and rejection codes.
+**Prerequisite:** Step 43.2.
+
+- Add a README suite under `tests/fixtures/evaluation/readme/` covering the five README questions and the example variants (limited coverage, insufficient evidence, a Terraform plan, a comparison). Its snapshots, saved comparison, and fake transcripts are generated from `tests/support/ask_examples.py`, and a test fails when the checked-in files differ from what the generator writes, so the fixtures cannot drift.
+- Add an adversarial suite under `tests/fixtures/evaluation/adversarial/`, each case with its expected safe outcome:
+  - a proposal citing finding IDs the tools never returned (`rejected_after_repair`);
+  - an unsupported claim, a status stronger than the findings allow;
+  - malicious imported text in resource names and tags that tries to instruct the model or forge a citation, rendered only as quoted data;
+  - a scripted provider error (`provider_error`);
+  - a run that exceeds the tool-call and request limits (`limit_reached`);
+  - a repair that succeeds.
+- Reuse the injection and fabricated-claim scenarios from the answer suites where they fit, rather than writing new ones.
+
+**Advice:** An adversarial case passes only when the answer is safe; a lucky answer to the adversarial question is still a failure if a conclusion is uncited or unqualified.
+
+**Acceptance check:** Both suites run offline with the fake provider and every case passes. Mutating a fixture (an expected finding ID, a fabricated citation that validates, injected text rendered as a statement) fails a test. No adversarial case ever produces an unqualified or uncited conclusion.
+
+#### Step 43.4: Save, load, and compare reports
+**Status:** Implemented. `services/evaluation.py` adds `save_report` (revalidates with `parse_report`, renders, and publishes with `publish_text`; an invalid or unserializable report raises `invalid_evaluation_report` with the path and writes nothing, and an existing path raises `snapshot_conflict` even for an identical report), `load_report` (`read_json`, so the existing read and `invalid_json` errors, then `parse_report` with the path), `compare_reports`, and `save_report_comparison` (the same no-overwrite rule). The comparison contract lives in `assistant/evaluation.py`: `ReportComparison` (schema `"1"`, both reports' creation time and `SuiteReference`, `same_suite`, which must match the digests, with the new `evaluation_comparison_suite` code, and the paired, added, and removed provider runs as `ComparedRun`s of position, kind, and model). Provider runs pair by kind and model in report order. Each `ProviderComparison` lists the cases only one run recorded and a `CaseComparison` per shared case in the later run's order: outcome, analysis status, and `passed` before and after, the `CheckChange`s (before and after true, false, or null where not checked), finding IDs added and removed, and a `UsageDelta` (requests, repairs, tool calls, a `TokenDelta` set only where both reports count, and latency). One planned point was settled: `changed` covers everything but usage, so deltas stay information. `tests/services/test_evaluation_reports.py` round-trips a saved report, refuses an existing path (including an identical report) leaving it unchanged, never writes an invalid report, refuses an edited record, a wrong total, and an unknown schema version without echoing them, reports missing and malformed files, finds no change but timing between two fake runs, shows exactly the changed outcome, status, checks, finding ID, and repair of the fabricated-citation mutation, compares different suites and a cancelled run on their shared cases, pairs duplicate and renamed providers, and leaves compared files unchanged while refusing to overwrite with a saved comparison. `docs/assistant-evaluation.md` gains "Saving and comparing reports", the error table lists `invalid_evaluation_report`, and the drift test pins the comparison fields.
+**Prerequisite:** Step 43.3.
+
+- Save a report with `publish_text`, so an existing path is never overwritten (exit 3, `snapshot_conflict`), even by an identical report. A report whose records do not validate is never written.
+- `load_report(path)` checks the schema version, every record ID against its content, and the totals. Errors are safe diagnostics with their own `invalid_evaluation_report` code and the existing read, JSON, and conflict exit codes.
+- `compare_reports(before, after)` lists, per provider and case:
+  - cases added or removed;
+  - checks that changed between pass and fail;
+  - answer status and failure reason changes;
+  - cited finding IDs added or removed;
+  - provider requests, repairs, token usage, and latency deltas.
+  - Two reports of different suites (by digest) compare only on the cases they share, and say so. Comparing never modifies either file; a saved comparison is a new file with the same no-overwrite rule.
+
+**Advice:** Treat latency and token deltas as information, never as a pass or fail, since they vary across providers and runs.
+
+**Acceptance check:** Saving refuses an existing path and leaves it unchanged. Loading refuses an edited record, a wrong total, and an unknown schema version with safe diagnostics. Comparing two fake runs reports no change apart from timing. A changed fixture shows exactly its changed checks and IDs.
+
+#### Step 43.5: Add the `evaluate` and `evaluation` commands
+**Status:** Implemented. `cli_evaluation.py` adds both commands, with presentation in `cli_evaluation_output.py` and the new `safe_evaluation_failures` and `fail_evaluation_error` in `cli_diagnostics` (an unreadable suite is 1, other suite, report, and setup errors 2, with the path and any case ID). `evaluate` refuses an existing `--output` with `require_new_path`, prepares, states each provider's budget on standard error (a readable line each, or one JSON object with `budgets` under `--json`) before the first request, runs, saves the report (also when cancelled), and prints per-provider totals, usage, and failing cases with their failed checks; its JSON is `schema_version`, `suite_path`, `config_paths`, `output_path`, `budgets`, and `report`. The new exit code is 7 (`CASES_FAILED_EXIT_CODE`), unused elsewhere: a case failed its expectations and the report is written; 130 for a cancellation takes precedence. `evaluation REPORT` shows a report; `--compare LATER` shows the comparison (paired providers, cases added and removed, each changed case's outcome, status, pass, checks, and finding IDs, and the usage change as information), and `--output` saves it and needs `--compare` (a usage error otherwise). The token labels and formatting in `cli_ask_output` became public for reuse, and the report subjects are shared from the service. `tests/cli/test_evaluation_cli.py` covers exit codes 0, 1, 2, 3, 7, and 130, both renderings of both commands, the budget stated before the first Anthropic-adapter request over a mocked API, the refusal without `--allow-external` before any request, existing output and comparison paths left unchanged, comparing and saving a comparison without changing either report, and safe diagnostics that never echo tampered values or the key. `docs/assistant-evaluation.md` gains "Commands" with the exit codes, and a drift test pins the codes, the error codes, and each command's options. The README tables are left for step 43.6, as planned.
+**Prerequisite:** Step 43.4.
+
+- Add `archdiscov evaluate SUITE --config PATH [--config PATH ...] --output PATH [--allow-external] [--json]`. It states the budget on standard error (or in the JSON) before the first request, runs the suite, writes the report, and prints per-provider totals and failing cases.
+- Add `archdiscov evaluation REPORT [--compare REPORT] [--output PATH] [--json]`, which shows a saved report or the comparison of two, optionally saving the comparison.
+- Exit codes:
+  - pre-run diagnostics keep the `ask` codes (1, 2, and 3);
+  - a cancellation is 130;
+  - 0 when every case passes;
+  - when any case fails its expectations, the report is still written and the command exits with one new documented code. Choose it against the existing table, and do not reuse 5 or 6, which mean one run's outcome.
+- Both commands are presentation over `services/evaluation.py`, with readable and JSON renderings that never print a narrative, tool output, or provider text.
+
+**Advice:** Keep the budget statement before the first request, even with `--json`, so an opted-in external run never starts unannounced.
+
+**Acceptance check:** In-process CLI tests cover:
+- every exit code;
+- the budget printed before any request;
+- the refusal without `--allow-external`;
+- an existing output path;
+- both renderings;
+- comparing and saving a comparison;
+- a suite through an adapter harness.
+
+Diagnostics name files and kinds, never values.
+
+#### Step 43.6: Verify the installed commands and document evaluation
+**Status:** Implemented. `tests/acceptance/test_installed_evaluation.py` runs both entry points outside the checkout with the offline guard and no credentials: they evaluate the README and adversarial suites (copied out of the checkout) with the fake provider in both output forms, every case passing with its safety checks and the budget stated on standard error, and the reports equal each other apart from timing; the README suite is evaluated through the Anthropic adapter against the loopback mock server with `--allow-external`, the guard allowing only its port, to the fake's record IDs; an existing output path and an Anthropic configuration without the opt-in are refused before any request, leaving every file unchanged; and two reports are compared, readably and in JSON, with the comparison saved. The live tests' configuration moved into builders in `tests/support/live.py` (`anthropic_provider`, `openai_provider`, `bedrock_provider`, and `configured_providers`), which the three live tests now use; their skip messages now read "set … to run the live … tests". The new `tests/live/test_evaluation_live.py` evaluates the README suite through every configured provider with the same caps and checks only the safety checks and that no secret reaches the report; it skips when no provider is configured, and the opt-in test counts it. `docs/assistant-evaluation.md` already held the suite, scoring, report, running, comparing, and command sections from 43.1–43.5 and gains "Verification"; the ask, answers, and providers pages and `docs/result-contracts.md` (a new "Evaluation reports" section) link it. The README capability row, command table (now "Query, analysis, comparison, ask, and evaluation commands"), phase 4 row (step 43), a stale "real providers are not" claim, and the planned-scenarios paragraph are updated, and drift tests pin the README row, the links, and the phase row, alongside the existing pins of suite fields, report fields, comparison fields, error codes, options, and exit codes. Focused and full offline tests, the acceptance suite, Ruff lint and format, and whitespace checks pass; the opted-in live run without variables skips all five tests with their reasons.
+**Prerequisite:** Step 43.5.
+
+- Add an installed acceptance test, run outside the checkout with the offline guard and no credentials, through both entry points:
+  - the README and adversarial suites are evaluated with the fake provider, both reports pass, and they equal each other apart from timing;
+  - the README suite is also evaluated through one adapter (Anthropic) against the loopback mock server with `--allow-external`, with the guard allowing only that port;
+  - an existing output path and a non-fake configuration without the opt-in are refused;
+  - two reports are compared.
+- Add an opt-in live evaluation under the `live` marker, reusing the live tests' variables and caps, that evaluates the README suite through each configured provider and checks only the safety invariants, not the expectations.
+- Document evaluation in a new `docs/assistant-evaluation.md`:
+  - the suite format and expectations;
+  - scoring and invariants;
+  - the report contract;
+  - running, budgets and the opt-in;
+  - comparing;
+  - the commands and their exit codes.
+- Link the new page from the ask, answers, and providers pages and from `docs/result-contracts.md`. Update the README capability table, command table, and phase 4 row, and extend the drift tests to the suite fields, report fields, and exit codes.
+- Run focused and full offline tests, the acceptance suite, Ruff lint and format, and whitespace checks. Mark each substep and the parent implemented only after their acceptance checks pass.
+
+**Advice:** Keep the external evaluation a smoke test; scoring real models against the expectations is for the user to run on purpose, not for CI.
+
+**Acceptance check:** The installed commands evaluate both suites offline and deterministically, through the fake and an adapter, refuse unsafe or unannounced runs before any request, and never overwrite a report. The documentation matches the contracts, options, and exit codes, and all checks pass.
 
 ### Step 44: Close phase 4 with acceptance and documentation
 **Status:** Planned.

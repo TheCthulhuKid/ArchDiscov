@@ -1,0 +1,32 @@
+{
+  "turns": [
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "s",
+              "name": "search_resources",
+              "arguments": {
+                "kind": "parsed",
+                "value": {
+                  "limit": 5
+                }
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use",
+        "usage": {
+          "output_tokens": 5
+        }
+      }
+    },
+    {
+      "kind": "fail",
+      "error": "provider_unavailable"
+    }
+  ]
+}

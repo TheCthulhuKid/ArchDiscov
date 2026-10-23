@@ -1,0 +1,847 @@
+{
+  "account_id": "123456789012",
+  "name": null,
+  "metadata": {},
+  "regions": {
+    "eu-west-1": {
+      "metadata": {},
+      "resources": [
+        {
+          "id": "123456789012/eu-west-1/ec2/physical/vpc-main",
+          "identity": {
+            "account_id": "123456789012",
+            "region": "eu-west-1",
+            "service": "ec2",
+            "physical_id": "vpc-main",
+            "logical_address": null
+          },
+          "name": null,
+          "resource_type": "AWS::EC2::VPC",
+          "attributes": {},
+          "evidence_ids": [
+            "ev-vpc"
+          ],
+          "fact_evidence": {},
+          "children": [
+            {
+              "id": "123456789012/eu-west-1/ec2/physical/subnet-app",
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "subnet-app",
+                "logical_address": null
+              },
+              "name": null,
+              "resource_type": "AWS::EC2::Subnet",
+              "attributes": {},
+              "evidence_ids": [
+                "ev-subnet"
+              ],
+              "fact_evidence": {},
+              "children": [
+                {
+                  "id": "123456789012/eu-west-1/ec2/physical/i-app",
+                  "identity": {
+                    "account_id": "123456789012",
+                    "region": "eu-west-1",
+                    "service": "ec2",
+                    "physical_id": "i-app",
+                    "logical_address": null
+                  },
+                  "name": null,
+                  "resource_type": "AWS::EC2::Instance",
+                  "attributes": {},
+                  "evidence_ids": [
+                    "ev-instance"
+                  ],
+                  "fact_evidence": {},
+                  "children": [],
+                  "instance_type": null
+                },
+                {
+                  "id": "123456789012/eu-west-1/ec2/physical/i-contained",
+                  "identity": {
+                    "account_id": "123456789012",
+                    "region": "eu-west-1",
+                    "service": "ec2",
+                    "physical_id": "i-contained",
+                    "logical_address": null
+                  },
+                  "name": null,
+                  "resource_type": "AWS::EC2::Instance",
+                  "attributes": {},
+                  "evidence_ids": [],
+                  "fact_evidence": {},
+                  "children": [],
+                  "instance_type": null
+                },
+                {
+                  "id": "123456789012/eu-west-1/ec2/physical/eni-app",
+                  "identity": {
+                    "account_id": "123456789012",
+                    "region": "eu-west-1",
+                    "service": "ec2",
+                    "physical_id": "eni-app",
+                    "logical_address": null
+                  },
+                  "name": null,
+                  "resource_type": "AWS::EC2::NetworkInterface",
+                  "attributes": {},
+                  "evidence_ids": [
+                    "ev-eni"
+                  ],
+                  "fact_evidence": {},
+                  "children": [],
+                  "private_ip_addresses": [],
+                  "public_ip": null,
+                  "mac_address": null
+                }
+              ],
+              "availability_zone": null,
+              "cidr_blocks": null
+            },
+            {
+              "id": "123456789012/eu-west-1/ec2/physical/sg-app",
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "sg-app",
+                "logical_address": null
+              },
+              "name": null,
+              "resource_type": "AWS::EC2::SecurityGroup",
+              "attributes": {},
+              "evidence_ids": [
+                "ev-sg-app"
+              ],
+              "fact_evidence": {},
+              "children": [],
+              "ingress_rules": [],
+              "egress_rules": []
+            },
+            {
+              "id": "123456789012/eu-west-1/ec2/physical/sg-db",
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "sg-db",
+                "logical_address": null
+              },
+              "name": null,
+              "resource_type": "AWS::EC2::SecurityGroup",
+              "attributes": {},
+              "evidence_ids": [
+                "ev-sg-db"
+              ],
+              "fact_evidence": {},
+              "children": [],
+              "ingress_rules": [],
+              "egress_rules": []
+            },
+            {
+              "id": "123456789012/eu-west-1/ec2/physical/sg-cache",
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "sg-cache",
+                "logical_address": null
+              },
+              "name": null,
+              "resource_type": "AWS::EC2::SecurityGroup",
+              "attributes": {},
+              "evidence_ids": [
+                "ev-sg-cache"
+              ],
+              "fact_evidence": {},
+              "children": [],
+              "ingress_rules": [],
+              "egress_rules": []
+            },
+            {
+              "id": "123456789012/eu-west-1/ec2/physical/sg-lonely",
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "sg-lonely",
+                "logical_address": null
+              },
+              "name": null,
+              "resource_type": "AWS::EC2::SecurityGroup",
+              "attributes": {},
+              "evidence_ids": [],
+              "fact_evidence": {},
+              "children": [],
+              "ingress_rules": [],
+              "egress_rules": []
+            }
+          ],
+          "cidr_blocks": [
+            "10.0.0.0/16"
+          ]
+        },
+        {
+          "id": "123456789012/eu-west-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aeu-west-1%3A123456789012%3Aloadbalancer%2Fapp%2Fweb%2F50dc6c495c0c9188",
+          "identity": {
+            "account_id": "123456789012",
+            "region": "eu-west-1",
+            "service": "elasticloadbalancing",
+            "physical_id": "arn:aws:elasticloadbalancing:eu-west-1:123456789012:loadbalancer/app/web/50dc6c495c0c9188",
+            "logical_address": null
+          },
+          "name": null,
+          "resource_type": "AWS::ElasticLoadBalancingV2::LoadBalancer",
+          "attributes": {},
+          "evidence_ids": [
+            "ev-lb"
+          ],
+          "fact_evidence": {},
+          "children": [],
+          "arn": "arn:aws:elasticloadbalancing:eu-west-1:123456789012:loadbalancer/app/web/50dc6c495c0c9188",
+          "lb_type": null,
+          "scheme": null,
+          "dns_name": null,
+          "ip_address_type": null,
+          "vpc_id": null,
+          "subnet_ids": null,
+          "security_group_ids": null
+        },
+        {
+          "id": "123456789012/eu-west-1/ecs/physical/arn%3Aaws%3Aecs%3Aeu-west-1%3A123456789012%3Aservice%2Fcluster%2Fweb",
+          "identity": {
+            "account_id": "123456789012",
+            "region": "eu-west-1",
+            "service": "ecs",
+            "physical_id": "arn:aws:ecs:eu-west-1:123456789012:service/cluster/web",
+            "logical_address": null
+          },
+          "name": null,
+          "resource_type": "AWS::ECS::Service",
+          "attributes": {},
+          "evidence_ids": [
+            "ev-ecs"
+          ],
+          "fact_evidence": {},
+          "children": [],
+          "arn": "arn:aws:ecs:eu-west-1:123456789012:service/cluster/web",
+          "cluster_arn": null,
+          "task_definition_arn": null,
+          "status": null,
+          "desired_count": null,
+          "running_count": null,
+          "pending_count": null,
+          "launch_type": null,
+          "scheduling_strategy": null,
+          "platform_version": null,
+          "subnet_ids": null,
+          "security_group_ids": null,
+          "assign_public_ip": null
+        },
+        {
+          "id": "123456789012/eu-west-1/lambda/physical/arn%3Aaws%3Alambda%3Aeu-west-1%3A123456789012%3Afunction%3Ahandler",
+          "identity": {
+            "account_id": "123456789012",
+            "region": "eu-west-1",
+            "service": "lambda",
+            "physical_id": "arn:aws:lambda:eu-west-1:123456789012:function:handler",
+            "logical_address": null
+          },
+          "name": null,
+          "resource_type": "AWS::Lambda::Function",
+          "attributes": {},
+          "evidence_ids": [
+            "ev-lambda"
+          ],
+          "fact_evidence": {},
+          "children": [],
+          "arn": "arn:aws:lambda:eu-west-1:123456789012:function:handler",
+          "role_arn": null,
+          "vpc_id": null,
+          "subnet_ids": null,
+          "security_group_ids": null,
+          "runtime": null,
+          "package_type": null,
+          "state": null,
+          "last_update_status": null,
+          "memory_size": null,
+          "timeout": null,
+          "architectures": null,
+          "configuration": null
+        },
+        {
+          "id": "123456789012/eu-west-1/rds/physical/arn%3Aaws%3Ards%3Aeu-west-1%3A123456789012%3Adb%3Aorders",
+          "identity": {
+            "account_id": "123456789012",
+            "region": "eu-west-1",
+            "service": "rds",
+            "physical_id": "arn:aws:rds:eu-west-1:123456789012:db:orders",
+            "logical_address": null
+          },
+          "name": null,
+          "resource_type": "AWS::RDS::DBInstance",
+          "attributes": {},
+          "evidence_ids": [
+            "ev-rds"
+          ],
+          "fact_evidence": {},
+          "children": [],
+          "arn": "arn:aws:rds:eu-west-1:123456789012:db:orders",
+          "status": null,
+          "vpc_id": null,
+          "subnet_ids": null,
+          "security_group_ids": null,
+          "associated_role_arns": null,
+          "identifier": null,
+          "engine": null,
+          "engine_version": null,
+          "endpoint_address": null,
+          "endpoint_port": null,
+          "db_subnet_group_name": null,
+          "storage_encrypted": null,
+          "publicly_accessible": null,
+          "allocated_storage": null,
+          "storage_type": null,
+          "iops": null,
+          "storage_throughput": null,
+          "backup_retention_period": null,
+          "deletion_protection": null,
+          "multi_az": null,
+          "instance_class": null,
+          "availability_zone": null,
+          "cluster_identifier": null
+        }
+      ]
+    }
+  },
+  "global_resources": [],
+  "schema_version": "2",
+  "snapshot_id": "00000000-0000-4000-8000-0000000000a1",
+  "collection_started_at": "2026-10-13T08:00:00Z",
+  "collection_completed_at": "2026-10-13T08:01:00Z",
+  "source": {
+    "exported_at": null,
+    "kind": "mock",
+    "label": "security-group-data"
+  },
+  "coverage": {
+    "regions": [
+      "eu-west-1"
+    ],
+    "account_wide": false,
+    "operations": [
+      {
+        "account_id": "123456789012",
+        "region": "eu-west-1",
+        "service": "ec2",
+        "operation": "DescribeEc2",
+        "status": "success",
+        "started_at": "2026-10-13T08:00:00Z",
+        "completed_at": "2026-10-13T08:00:10Z",
+        "result_count": 1,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      },
+      {
+        "account_id": "123456789012",
+        "region": "eu-west-1",
+        "service": "elasticloadbalancing",
+        "operation": "DescribeElasticloadbalancing",
+        "status": "success",
+        "started_at": "2026-10-13T08:00:00Z",
+        "completed_at": "2026-10-13T08:00:10Z",
+        "result_count": 1,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      },
+      {
+        "account_id": "123456789012",
+        "region": "eu-west-1",
+        "service": "ecs",
+        "operation": "DescribeEcs",
+        "status": "success",
+        "started_at": "2026-10-13T08:00:00Z",
+        "completed_at": "2026-10-13T08:00:10Z",
+        "result_count": 1,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      },
+      {
+        "account_id": "123456789012",
+        "region": "eu-west-1",
+        "service": "lambda",
+        "operation": "DescribeLambda",
+        "status": "success",
+        "started_at": "2026-10-13T08:00:00Z",
+        "completed_at": "2026-10-13T08:00:10Z",
+        "result_count": 1,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      },
+      {
+        "account_id": "123456789012",
+        "region": "eu-west-1",
+        "service": "rds",
+        "operation": "DescribeRds",
+        "status": "success",
+        "started_at": "2026-10-13T08:00:00Z",
+        "completed_at": "2026-10-13T08:00:10Z",
+        "result_count": 1,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      }
+    ]
+  },
+  "dependencies_by_region": {
+    "eu-west-1": [
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/i-app",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/sg-app"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_membership"
+        },
+        "evidence_ids": [
+          "ev-instance"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/eni-app",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/sg-app"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_membership"
+        },
+        "evidence_ids": [
+          "ev-eni"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aeu-west-1%3A123456789012%3Aloadbalancer%2Fapp%2Fweb%2F50dc6c495c0c9188",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/sg-app"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_membership"
+        },
+        "evidence_ids": [
+          "ev-lb"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ecs/physical/arn%3Aaws%3Aecs%3Aeu-west-1%3A123456789012%3Aservice%2Fcluster%2Fweb",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/sg-app"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_membership"
+        },
+        "evidence_ids": [
+          "ev-ecs"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/lambda/physical/arn%3Aaws%3Alambda%3Aeu-west-1%3A123456789012%3Afunction%3Ahandler",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/sg-app"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_membership"
+        },
+        "evidence_ids": [
+          "ev-lambda"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/rds/physical/arn%3Aaws%3Ards%3Aeu-west-1%3A123456789012%3Adb%3Aorders",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/sg-app"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_membership"
+        },
+        "evidence_ids": [
+          "ev-rds"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/lambda/physical/arn%3Aaws%3Alambda%3Aeu-west-1%3A123456789012%3Afunction%3Ahandler",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/sg-db"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_membership"
+        },
+        "evidence_ids": [
+          "ev-lambda"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/sg-app",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/sg-db"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_reference",
+          "direction": "egress",
+          "protocol": "tcp",
+          "from_port": 5432
+        },
+        "evidence_ids": [
+          "ev-sg-app"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/sg-cache",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/sg-app"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_reference",
+          "direction": "ingress",
+          "protocol": "tcp",
+          "from_port": 80
+        },
+        "evidence_ids": [
+          "ev-sg-cache"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/sg-app",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/sg-app"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_reference",
+          "direction": "ingress",
+          "protocol": "-1"
+        },
+        "evidence_ids": [
+          "ev-sg-app"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/sg-app",
+        "target": {
+          "kind": "external",
+          "identifier": "sg-partner",
+          "account_id": "210987654321",
+          "region": null,
+          "service": "ec2",
+          "aws_resource_type": "AWS::EC2::SecurityGroup"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_reference",
+          "direction": "ingress",
+          "protocol": "tcp",
+          "from_port": 443
+        },
+        "evidence_ids": [
+          "ev-sg-app"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/sg-app",
+        "target": {
+          "kind": "unresolved",
+          "reason": "Group not collected",
+          "source_path": "Rules[9]"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_reference",
+          "direction": "egress"
+        },
+        "evidence_ids": [
+          "ev-sg-app"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/sg-app",
+        "target": {
+          "kind": "external",
+          "identifier": "pl-123",
+          "account_id": null,
+          "region": "eu-west-1",
+          "service": "ec2",
+          "aws_resource_type": null
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_reference",
+          "direction": "egress",
+          "target_kind": "prefix_list"
+        },
+        "evidence_ids": [
+          "ev-sg-app"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/i-app",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-app"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "subnet_membership"
+        },
+        "evidence_ids": [
+          "ev-instance"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/i-app",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-app"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "subnet_membership",
+          "note": "secondary"
+        },
+        "evidence_ids": [
+          "ev-instance"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/subnet-app",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/vpc-main"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "subnet_membership"
+        },
+        "evidence_ids": [
+          "ev-subnet"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/vpc-main",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-app"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "subnet_membership",
+          "note": "cycle"
+        },
+        "evidence_ids": [
+          "ev-vpc"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/i-app",
+        "target": {
+          "kind": "external",
+          "identifier": "arn:aws:iam::210987654321:role/shared",
+          "account_id": "210987654321",
+          "region": null,
+          "service": "iam",
+          "aws_resource_type": "AWS::IAM::Role"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "instance_profile"
+        },
+        "evidence_ids": [
+          "ev-instance"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/sg-db",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/sg-app"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_reference"
+        },
+        "evidence_ids": [
+          "ev-sg-db"
+        ]
+      }
+    ]
+  },
+  "evidence": {
+    "ev-instance": {
+      "snapshot_id": "00000000-0000-4000-8000-0000000000a1",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/i-app",
+      "source": "mock",
+      "locator": "security-group-data",
+      "configuration_path": "instance.SecurityGroups",
+      "value": {
+        "name": "instance"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "ev-eni": {
+      "snapshot_id": "00000000-0000-4000-8000-0000000000a1",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/eni-app",
+      "source": "mock",
+      "locator": "security-group-data",
+      "configuration_path": "eni.SecurityGroups",
+      "value": {
+        "name": "eni"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "ev-lb": {
+      "snapshot_id": "00000000-0000-4000-8000-0000000000a1",
+      "resource_id": "123456789012/eu-west-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aeu-west-1%3A123456789012%3Aloadbalancer%2Fapp%2Fweb%2F50dc6c495c0c9188",
+      "source": "mock",
+      "locator": "security-group-data",
+      "configuration_path": "lb.SecurityGroups",
+      "value": {
+        "name": "lb"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "ev-ecs": {
+      "snapshot_id": "00000000-0000-4000-8000-0000000000a1",
+      "resource_id": "123456789012/eu-west-1/ecs/physical/arn%3Aaws%3Aecs%3Aeu-west-1%3A123456789012%3Aservice%2Fcluster%2Fweb",
+      "source": "mock",
+      "locator": "security-group-data",
+      "configuration_path": "ecs.SecurityGroups",
+      "value": {
+        "name": "ecs"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "ev-lambda": {
+      "snapshot_id": "00000000-0000-4000-8000-0000000000a1",
+      "resource_id": "123456789012/eu-west-1/lambda/physical/arn%3Aaws%3Alambda%3Aeu-west-1%3A123456789012%3Afunction%3Ahandler",
+      "source": "mock",
+      "locator": "security-group-data",
+      "configuration_path": "lambda.SecurityGroups",
+      "value": {
+        "name": "lambda"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "ev-rds": {
+      "snapshot_id": "00000000-0000-4000-8000-0000000000a1",
+      "resource_id": "123456789012/eu-west-1/rds/physical/arn%3Aaws%3Ards%3Aeu-west-1%3A123456789012%3Adb%3Aorders",
+      "source": "mock",
+      "locator": "security-group-data",
+      "configuration_path": "rds.SecurityGroups",
+      "value": {
+        "name": "rds"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "ev-sg-app": {
+      "snapshot_id": "00000000-0000-4000-8000-0000000000a1",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/sg-app",
+      "source": "mock",
+      "locator": "security-group-data",
+      "configuration_path": "sg-app.SecurityGroups",
+      "value": {
+        "name": "sg-app"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "ev-sg-db": {
+      "snapshot_id": "00000000-0000-4000-8000-0000000000a1",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/sg-db",
+      "source": "mock",
+      "locator": "security-group-data",
+      "configuration_path": "sg-db.SecurityGroups",
+      "value": {
+        "name": "sg-db"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "ev-sg-cache": {
+      "snapshot_id": "00000000-0000-4000-8000-0000000000a1",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/sg-cache",
+      "source": "mock",
+      "locator": "security-group-data",
+      "configuration_path": "sg-cache.SecurityGroups",
+      "value": {
+        "name": "sg-cache"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "ev-subnet": {
+      "snapshot_id": "00000000-0000-4000-8000-0000000000a1",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-app",
+      "source": "mock",
+      "locator": "security-group-data",
+      "configuration_path": "subnet.SecurityGroups",
+      "value": {
+        "name": "subnet"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "ev-vpc": {
+      "snapshot_id": "00000000-0000-4000-8000-0000000000a1",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/vpc-main",
+      "source": "mock",
+      "locator": "security-group-data",
+      "configuration_path": "vpc.SecurityGroups",
+      "value": {
+        "name": "vpc"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    }
+  }
+}

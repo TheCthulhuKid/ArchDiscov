@@ -1,0 +1,650 @@
+{
+  "account_id": "123456789012",
+  "name": null,
+  "metadata": {},
+  "regions": {
+    "us-east-1": {
+      "metadata": {},
+      "resources": [
+        {
+          "id": "123456789012/us-east-1/sqs/physical/arn%3Aaws%3Asqs%3Aus-east-1%3A123456789012%3Awork",
+          "identity": {
+            "account_id": "123456789012",
+            "region": "us-east-1",
+            "service": "sqs",
+            "physical_id": "arn:aws:sqs:us-east-1:123456789012:work",
+            "logical_address": null
+          },
+          "name": null,
+          "resource_type": "AWS::SQS::Queue",
+          "attributes": {},
+          "evidence_ids": [
+            "sqs/us-east-1/GetQueueAttributes/arn:aws:sqs:us-east-1:123456789012:work"
+          ],
+          "fact_evidence": {
+            "/policy": [
+              "sqs/us-east-1/GetQueueAttributes/arn:aws:sqs:us-east-1:123456789012:work#Policy"
+            ]
+          },
+          "children": [],
+          "arn": "arn:aws:sqs:us-east-1:123456789012:work",
+          "queue_url": "https://sqs.us-east-1.amazonaws.com/123456789012/work",
+          "policy": {
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Action": "sts:AssumeRole",
+                "Principal": {
+                  "Service": "sns.amazonaws.com"
+                },
+                "Condition": {
+                  "StringEquals": {
+                    "sts:ExternalId": "[REDACTED]"
+                  }
+                }
+              }
+            ]
+          },
+          "retention_seconds": null,
+          "visibility_timeout_seconds": null,
+          "delay_seconds": null,
+          "fifo_queue": null,
+          "content_based_deduplication": null,
+          "kms_master_key_id": null,
+          "kms_data_key_reuse_period_seconds": null,
+          "sqs_managed_sse_enabled": null,
+          "dead_letter_target_arn": null,
+          "max_receive_count": null,
+          "redrive_allow_policy": null
+        }
+      ]
+    }
+  },
+  "global_resources": [
+    {
+      "id": "123456789012/global/iam/physical/AROAweb",
+      "identity": {
+        "account_id": "123456789012",
+        "region": "global",
+        "service": "iam",
+        "physical_id": "AROAweb",
+        "logical_address": null
+      },
+      "name": null,
+      "resource_type": "AWS::IAM::Role",
+      "attributes": {},
+      "evidence_ids": [
+        "iam/global/GetRole/AROAweb"
+      ],
+      "fact_evidence": {
+        "/trust_document": [
+          "iam/global/GetRole/AROAweb#Trust"
+        ]
+      },
+      "children": [],
+      "arn": "arn:aws:iam::123456789012:role/web",
+      "trust_document": {
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": "sts:AssumeRole",
+            "Principal": {
+              "AWS": "210987654321"
+            },
+            "Condition": {
+              "StringEquals": {
+                "sts:ExternalId": "[REDACTED]"
+              }
+            }
+          },
+          {
+            "Effect": "Allow",
+            "Action": "sts:AssumeRole",
+            "Principal": {
+              "AWS": "arn:aws:iam::123456789012:role/api"
+            }
+          },
+          {
+            "Effect": "Deny",
+            "Action": "sts:AssumeRole",
+            "Principal": {
+              "AWS": "*"
+            }
+          }
+        ]
+      },
+      "inline_policies": [],
+      "boundary_arn": null
+    },
+    {
+      "id": "123456789012/global/iam/physical/AROAapi",
+      "identity": {
+        "account_id": "123456789012",
+        "region": "global",
+        "service": "iam",
+        "physical_id": "AROAapi",
+        "logical_address": null
+      },
+      "name": null,
+      "resource_type": "AWS::IAM::Role",
+      "attributes": {},
+      "evidence_ids": [
+        "iam/global/GetRole/AROAapi"
+      ],
+      "fact_evidence": {
+        "/trust_document": [
+          "iam/global/GetRole/AROAapi#Trust"
+        ]
+      },
+      "children": [],
+      "arn": "arn:aws:iam::123456789012:role/api",
+      "trust_document": {
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": "sts:AssumeRole",
+            "Principal": {
+              "Service": "ec2.amazonaws.com"
+            }
+          }
+        ]
+      },
+      "inline_policies": [],
+      "boundary_arn": null
+    }
+  ],
+  "schema_version": "2",
+  "snapshot_id": "00000000-0000-0000-0000-00000000011b",
+  "collection_started_at": "2025-01-01T00:00:00Z",
+  "collection_completed_at": "2025-01-01T00:00:00Z",
+  "source": {
+    "exported_at": null,
+    "kind": "aws",
+    "profile": "test",
+    "role_arn": null
+  },
+  "coverage": {
+    "regions": [
+      "us-east-1"
+    ],
+    "account_wide": true,
+    "operations": [
+      {
+        "account_id": "123456789012",
+        "region": "global",
+        "service": "iam",
+        "operation": "GetRole",
+        "status": "failed",
+        "started_at": "2025-01-01T00:00:00Z",
+        "completed_at": "2025-01-01T00:00:00Z",
+        "result_count": null,
+        "failures": [
+          {
+            "code": "AccessDenied",
+            "message": "Denied"
+          }
+        ],
+        "unresolved_values": [],
+        "reason": null
+      },
+      {
+        "account_id": "123456789012",
+        "region": "us-east-1",
+        "service": "sqs",
+        "operation": "GetQueueAttributes",
+        "status": "failed",
+        "started_at": "2025-01-01T00:00:00Z",
+        "completed_at": "2025-01-01T00:00:00Z",
+        "result_count": null,
+        "failures": [
+          {
+            "code": "AccessDenied",
+            "message": "Denied"
+          }
+        ],
+        "unresolved_values": [],
+        "reason": null
+      }
+    ]
+  },
+  "dependencies_by_region": {
+    "global": [
+      {
+        "source_id": "123456789012/global/iam/physical/AROAweb",
+        "target": {
+          "kind": "external",
+          "identifier": "210987654321",
+          "account_id": "210987654321",
+          "region": null,
+          "service": "iam",
+          "aws_resource_type": null
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "trust_principal",
+          "principal_kind": "aws",
+          "not_principal": false
+        },
+        "evidence_ids": [
+          "iam/global/GetRole/AROAweb#Request[{\"RoleName\":\"web\"}].Role.Trust.Statement[0].Principal.AWS",
+          "iam/global/GetRole/AROAweb#Request[{\"RoleName\":\"web\"}].Role.Trust.Statement[0]"
+        ]
+      },
+      {
+        "source_id": "123456789012/global/iam/physical/AROAweb",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/global/iam/physical/AROAapi"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "trust_principal",
+          "principal_kind": "aws",
+          "not_principal": false
+        },
+        "evidence_ids": [
+          "iam/global/GetRole/AROAweb#Request[{\"RoleName\":\"web\"}].Role.Trust.Statement[1].Principal.AWS",
+          "iam/global/GetRole/AROAweb#Request[{\"RoleName\":\"web\"}].Role.Trust.Statement[1]"
+        ]
+      },
+      {
+        "source_id": "123456789012/global/iam/physical/AROAweb",
+        "target": {
+          "kind": "unresolved",
+          "reason": "Principal form is wildcard, negative, unsupported, or ambiguous",
+          "source_path": "Request[{\"RoleName\":\"web\"}].Role.Trust.Statement[2].Principal.AWS"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "trust_principal",
+          "principal_kind": "aws",
+          "not_principal": false
+        },
+        "evidence_ids": [
+          "iam/global/GetRole/AROAweb#Request[{\"RoleName\":\"web\"}].Role.Trust.Statement[2].Principal.AWS",
+          "iam/global/GetRole/AROAweb#Request[{\"RoleName\":\"web\"}].Role.Trust.Statement[2]"
+        ]
+      },
+      {
+        "source_id": "123456789012/global/iam/physical/AROAapi",
+        "target": {
+          "kind": "external",
+          "identifier": "ec2.amazonaws.com",
+          "account_id": null,
+          "region": null,
+          "service": "iam",
+          "aws_resource_type": null
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "trust_principal",
+          "principal_kind": "service",
+          "not_principal": false
+        },
+        "evidence_ids": [
+          "iam/global/GetRole/AROAapi#Request[{\"RoleName\":\"api\"}].Role.Trust.Statement[0].Principal.Service",
+          "iam/global/GetRole/AROAapi#Request[{\"RoleName\":\"api\"}].Role.Trust.Statement[0]"
+        ]
+      }
+    ],
+    "us-east-1": [
+      {
+        "source_id": "123456789012/us-east-1/sqs/physical/arn%3Aaws%3Asqs%3Aus-east-1%3A123456789012%3Awork",
+        "target": {
+          "kind": "external",
+          "identifier": "sns.amazonaws.com",
+          "account_id": null,
+          "region": null,
+          "service": "iam",
+          "aws_resource_type": null
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "resource_policy_principal",
+          "principal_kind": "service",
+          "not_principal": false
+        },
+        "evidence_ids": [
+          "sqs/us-east-1/GetQueueAttributes/arn:aws:sqs:us-east-1:123456789012:work#Request[0].Attributes.Policy.Statement[0].Principal.Service",
+          "sqs/us-east-1/GetQueueAttributes/arn:aws:sqs:us-east-1:123456789012:work#Request[0].Attributes.Policy.Statement[0]"
+        ]
+      }
+    ]
+  },
+  "evidence": {
+    "iam/global/GetRole/AROAweb": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000011b",
+      "resource_id": "123456789012/global/iam/physical/AROAweb",
+      "source": "aws",
+      "locator": "iam:GetRole",
+      "configuration_path": "Request[{\"RoleName\":\"web\"}].Role",
+      "value": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": "sts:AssumeRole",
+              "Principal": {
+                "AWS": "210987654321"
+              },
+              "Condition": {
+                "StringEquals": {
+                  "sts:ExternalId": "partner"
+                }
+              }
+            },
+            {
+              "Effect": "Allow",
+              "Action": "sts:AssumeRole",
+              "Principal": {
+                "AWS": "arn:aws:iam::123456789012:role/api"
+              }
+            },
+            {
+              "Effect": "Deny",
+              "Action": "sts:AssumeRole",
+              "Principal": {
+                "AWS": "*"
+              }
+            }
+          ]
+        }
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "iam/global/GetRole/AROAweb#Trust": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000011b",
+      "resource_id": "123456789012/global/iam/physical/AROAweb",
+      "source": "aws",
+      "locator": "iam:GetRole",
+      "configuration_path": "Request[{\"RoleName\":\"web\"}].Role.Trust",
+      "value": {
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": "sts:AssumeRole",
+            "Principal": {
+              "AWS": "210987654321"
+            },
+            "Condition": {
+              "StringEquals": {
+                "sts:ExternalId": "partner"
+              }
+            }
+          },
+          {
+            "Effect": "Allow",
+            "Action": "sts:AssumeRole",
+            "Principal": {
+              "AWS": "arn:aws:iam::123456789012:role/api"
+            }
+          },
+          {
+            "Effect": "Deny",
+            "Action": "sts:AssumeRole",
+            "Principal": {
+              "AWS": "*"
+            }
+          }
+        ]
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "iam/global/GetRole/AROAapi": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000011b",
+      "resource_id": "123456789012/global/iam/physical/AROAapi",
+      "source": "aws",
+      "locator": "iam:GetRole",
+      "configuration_path": "Request[{\"RoleName\":\"api\"}].Role",
+      "value": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": "sts:AssumeRole",
+              "Principal": {
+                "Service": "ec2.amazonaws.com"
+              }
+            }
+          ]
+        }
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "iam/global/GetRole/AROAapi#Trust": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000011b",
+      "resource_id": "123456789012/global/iam/physical/AROAapi",
+      "source": "aws",
+      "locator": "iam:GetRole",
+      "configuration_path": "Request[{\"RoleName\":\"api\"}].Role.Trust",
+      "value": {
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": "sts:AssumeRole",
+            "Principal": {
+              "Service": "ec2.amazonaws.com"
+            }
+          }
+        ]
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "sqs/us-east-1/GetQueueAttributes/arn:aws:sqs:us-east-1:123456789012:work": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000011b",
+      "resource_id": "123456789012/us-east-1/sqs/physical/arn%3Aaws%3Asqs%3Aus-east-1%3A123456789012%3Awork",
+      "source": "aws",
+      "locator": "sqs:GetQueueAttributes",
+      "configuration_path": "Request[0].Attributes",
+      "value": {
+        "Policy": {
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": "sts:AssumeRole",
+              "Principal": {
+                "Service": "sns.amazonaws.com"
+              },
+              "Condition": {
+                "StringEquals": {
+                  "sts:ExternalId": "partner"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "sqs/us-east-1/GetQueueAttributes/arn:aws:sqs:us-east-1:123456789012:work#Policy": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000011b",
+      "resource_id": "123456789012/us-east-1/sqs/physical/arn%3Aaws%3Asqs%3Aus-east-1%3A123456789012%3Awork",
+      "source": "aws",
+      "locator": "sqs:GetQueueAttributes",
+      "configuration_path": "Request[0].Attributes.Policy",
+      "value": {
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": "sts:AssumeRole",
+            "Principal": {
+              "Service": "sns.amazonaws.com"
+            },
+            "Condition": {
+              "StringEquals": {
+                "sts:ExternalId": "partner"
+              }
+            }
+          }
+        ]
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "iam/global/GetRole/AROAweb#Request[{\"RoleName\":\"web\"}].Role.Trust.Statement[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000011b",
+      "resource_id": "123456789012/global/iam/physical/AROAweb",
+      "source": "aws",
+      "locator": "iam:GetRole",
+      "configuration_path": "Request[{\"RoleName\":\"web\"}].Role.Trust.Statement[0]",
+      "value": {
+        "Effect": "Allow",
+        "Action": "sts:AssumeRole",
+        "Principal": {
+          "AWS": "210987654321"
+        },
+        "Condition": {
+          "StringEquals": {
+            "sts:ExternalId": "[REDACTED]"
+          }
+        }
+      },
+      "value_status": "redacted",
+      "redacted_paths": [
+        "/Condition/StringEquals/sts:ExternalId"
+      ],
+      "limitation": null
+    },
+    "iam/global/GetRole/AROAweb#Request[{\"RoleName\":\"web\"}].Role.Trust.Statement[0].Principal.AWS": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000011b",
+      "resource_id": "123456789012/global/iam/physical/AROAweb",
+      "source": "aws",
+      "locator": "iam:GetRole",
+      "configuration_path": "Request[{\"RoleName\":\"web\"}].Role.Trust.Statement[0].Principal.AWS",
+      "value": "210987654321",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "iam/global/GetRole/AROAweb#Request[{\"RoleName\":\"web\"}].Role.Trust.Statement[1]": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000011b",
+      "resource_id": "123456789012/global/iam/physical/AROAweb",
+      "source": "aws",
+      "locator": "iam:GetRole",
+      "configuration_path": "Request[{\"RoleName\":\"web\"}].Role.Trust.Statement[1]",
+      "value": {
+        "Effect": "Allow",
+        "Action": "sts:AssumeRole",
+        "Principal": {
+          "AWS": "arn:aws:iam::123456789012:role/api"
+        }
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "iam/global/GetRole/AROAweb#Request[{\"RoleName\":\"web\"}].Role.Trust.Statement[1].Principal.AWS": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000011b",
+      "resource_id": "123456789012/global/iam/physical/AROAweb",
+      "source": "aws",
+      "locator": "iam:GetRole",
+      "configuration_path": "Request[{\"RoleName\":\"web\"}].Role.Trust.Statement[1].Principal.AWS",
+      "value": "arn:aws:iam::123456789012:role/api",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "iam/global/GetRole/AROAweb#Request[{\"RoleName\":\"web\"}].Role.Trust.Statement[2]": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000011b",
+      "resource_id": "123456789012/global/iam/physical/AROAweb",
+      "source": "aws",
+      "locator": "iam:GetRole",
+      "configuration_path": "Request[{\"RoleName\":\"web\"}].Role.Trust.Statement[2]",
+      "value": {
+        "Effect": "Deny",
+        "Action": "sts:AssumeRole",
+        "Principal": {
+          "AWS": "*"
+        }
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "iam/global/GetRole/AROAweb#Request[{\"RoleName\":\"web\"}].Role.Trust.Statement[2].Principal.AWS": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000011b",
+      "resource_id": "123456789012/global/iam/physical/AROAweb",
+      "source": "aws",
+      "locator": "iam:GetRole",
+      "configuration_path": "Request[{\"RoleName\":\"web\"}].Role.Trust.Statement[2].Principal.AWS",
+      "value": "*",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "iam/global/GetRole/AROAapi#Request[{\"RoleName\":\"api\"}].Role.Trust.Statement[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000011b",
+      "resource_id": "123456789012/global/iam/physical/AROAapi",
+      "source": "aws",
+      "locator": "iam:GetRole",
+      "configuration_path": "Request[{\"RoleName\":\"api\"}].Role.Trust.Statement[0]",
+      "value": {
+        "Effect": "Allow",
+        "Action": "sts:AssumeRole",
+        "Principal": {
+          "Service": "ec2.amazonaws.com"
+        }
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "iam/global/GetRole/AROAapi#Request[{\"RoleName\":\"api\"}].Role.Trust.Statement[0].Principal.Service": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000011b",
+      "resource_id": "123456789012/global/iam/physical/AROAapi",
+      "source": "aws",
+      "locator": "iam:GetRole",
+      "configuration_path": "Request[{\"RoleName\":\"api\"}].Role.Trust.Statement[0].Principal.Service",
+      "value": "ec2.amazonaws.com",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "sqs/us-east-1/GetQueueAttributes/arn:aws:sqs:us-east-1:123456789012:work#Request[0].Attributes.Policy.Statement[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000011b",
+      "resource_id": "123456789012/us-east-1/sqs/physical/arn%3Aaws%3Asqs%3Aus-east-1%3A123456789012%3Awork",
+      "source": "aws",
+      "locator": "sqs:GetQueueAttributes",
+      "configuration_path": "Request[0].Attributes.Policy.Statement[0]",
+      "value": {
+        "Effect": "Allow",
+        "Action": "sts:AssumeRole",
+        "Principal": {
+          "Service": "sns.amazonaws.com"
+        },
+        "Condition": {
+          "StringEquals": {
+            "sts:ExternalId": "[REDACTED]"
+          }
+        }
+      },
+      "value_status": "redacted",
+      "redacted_paths": [
+        "/Condition/StringEquals/sts:ExternalId"
+      ],
+      "limitation": null
+    },
+    "sqs/us-east-1/GetQueueAttributes/arn:aws:sqs:us-east-1:123456789012:work#Request[0].Attributes.Policy.Statement[0].Principal.Service": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000011b",
+      "resource_id": "123456789012/us-east-1/sqs/physical/arn%3Aaws%3Asqs%3Aus-east-1%3A123456789012%3Awork",
+      "source": "aws",
+      "locator": "sqs:GetQueueAttributes",
+      "configuration_path": "Request[0].Attributes.Policy.Statement[0].Principal.Service",
+      "value": "sns.amazonaws.com",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    }
+  }
+}

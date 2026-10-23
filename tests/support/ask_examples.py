@@ -10,6 +10,7 @@ example's expected status is a real check.
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -33,9 +34,13 @@ README_QUESTIONS = (INTERNET, DATABASE, SECURITY_GROUP, TRUST, OWNERSHIP)
 CHANGED = "What changed in ownership between the two snapshots?"
 
 SUMMARY = "The conclusions above are rendered from the cited records."
+# The saved comparison's creation time, fixed so the written files are reproducible.
+COMPARED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 _REGISTRY = default_registry()
 
 type Call = tuple[str, dict[str, Any]]
+# The turns of a transcript, from the example's tool-call turns and its honest proposal.
+type Script = Callable[[list[dict], dict], list[dict]]
 
 
 @dataclass(frozen=True)
@@ -124,8 +129,20 @@ def write_provider_config(path: Path, fields: dict[str, Any]) -> Path:
     return path
 
 
-def write_example(example: Example, directory: Path) -> ExampleRun:
-    """Write the example's snapshots, saved comparison, transcript, and configuration."""
+def submit(proposal: dict, call_id: str = "answer") -> dict:
+    return _tool("submit_answer", proposal, call_id)
+
+
+def answered(calls: list[dict], proposal: dict) -> list[dict]:
+    """The tool calls, then the honest proposal."""
+    return [*calls, submit(proposal)]
+
+
+def write_example(example: Example, directory: Path, script: Script = answered) -> ExampleRun:
+    """Write the example's snapshots, saved comparison, transcript, and configuration.
+
+    `script` turns the tool calls and the honest proposal into the transcript's turns.
+    """
     snapshot_path = directory / "snapshot.json"
     snapshot = example.snapshot()
     save_snapshot(snapshot, snapshot_path)
@@ -137,7 +154,7 @@ def write_example(example: Example, directory: Path) -> ExampleRun:
         save_snapshot(comparison, comparison_path)
         result_paths = [directory / "comparison-result.json"]
         save_comparison(
-            compare_snapshots(snapshot, comparison),
+            compare_snapshots(snapshot, comparison, now=COMPARED_AT),
             result_paths[0],
             left=snapshot,
             right=comparison,
@@ -149,9 +166,10 @@ def write_example(example: Example, directory: Path) -> ExampleRun:
     )
     outputs = [_dry_run(session, name, call) for name, call in example.calls]
     proposal = _proposal(example, session, outputs)
-    turns = [_tool(name, call, f"c{number}") for number, (name, call) in enumerate(example.calls)]
-    turns.append(_tool("submit_answer", proposal, "answer"))
-    (directory / "transcript.json").write_text(json.dumps({"turns": turns}), encoding="utf-8")
+    calls = [_tool(name, call, f"c{number}") for number, (name, call) in enumerate(example.calls)]
+    transcript = {"turns": script(calls, proposal)}
+    text = json.dumps(transcript, indent=2) + "\n"
+    (directory / "transcript.json").write_text(text, encoding="utf-8")
     config_path = write_provider_config(
         directory / "provider.toml", {"kind": "fake", "transcript": "transcript.json"}
     )

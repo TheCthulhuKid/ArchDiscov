@@ -6,6 +6,7 @@ input, and each saved result is verified against the snapshot it names before an
 read it. Tool inputs cannot name paths or snapshots.
 """
 
+import copy
 from collections.abc import Sequence
 from pathlib import Path
 from uuid import UUID
@@ -61,12 +62,22 @@ class ToolSession:
         )
         self._comparisons = tuple(self._verified_comparison(result) for result in comparisons)
         self._limits = ToolLimits() if limits is None else limits
-        self._record = RunRecord()
+        self._record = self._new_record()
+
+    def _new_record(self) -> RunRecord:
+        record = RunRecord()
         for index in (self._index, self._comparison_index):
             if index is not None:
-                self._record.record_snapshot(
+                record.record_snapshot(
                     index.snapshot_id, index.source_kind, index.collection_window
                 )
+        return record
+
+    def fresh(self) -> "ToolSession":
+        """The same selected and verified data with an empty record, for another run."""
+        session = copy.copy(self)
+        session._record = self._new_record()
+        return session
 
     @classmethod
     def from_paths(

@@ -1,0 +1,218 @@
+{
+  "schema_version": "1",
+  "name": "readme",
+  "cases": [
+    {
+      "id": "internet_exposure",
+      "question": "What receives traffic from the public internet?",
+      "snapshot": "internet_exposure/snapshot.json",
+      "fake_transcript": "internet_exposure/transcript.json",
+      "expect": {
+        "outcomes": [
+          "answered"
+        ],
+        "statuses": [
+          "supported"
+        ],
+        "finding_ids": [
+          "4c2336892b88e93f6be98b7cc450be5360e341d598c7915110f5c9b5956df882",
+          "df3b83331486b264b9a1135b9b733d73fa4fef6aeb72f628a24a3cdad7047884"
+        ],
+        "analyzers": [
+          "internet_exposure"
+        ]
+      }
+    },
+    {
+      "id": "database_access",
+      "question": "Which services can access this database?",
+      "snapshot": "database_access/snapshot.json",
+      "fake_transcript": "database_access/transcript.json",
+      "expect": {
+        "outcomes": [
+          "answered"
+        ],
+        "statuses": [
+          "partial"
+        ],
+        "finding_ids": [
+          "19f6a3d5c040310f563637669c4366a347d92efe37d49e566cb6462d2694207d",
+          "1b2b36800daa15d3b2a8f7c904d27f9bc399447880f6b601bd32b8c14ff502ed",
+          "2cba78301deecbcee15dbc7ad39457993437656f8c2736094fab39597f827632",
+          "40d2359c46d3116a7ab98d9426c376c63be851271505885e382e5f6cd50b0204",
+          "48197d8fe66bfb4dcfd2af19f7bcdac4a0d28528ac4ba80b3fe4fd8517ce142e",
+          "5355c79d929d04ce2239232513a066365338b9bb075d73b95c7def6262796e7c"
+        ],
+        "analyzers": [
+          "database_access"
+        ]
+      }
+    },
+    {
+      "id": "security_group_impact",
+      "question": "What would be affected if this security group changed?",
+      "snapshot": "security_group_impact/snapshot.json",
+      "fake_transcript": "security_group_impact/transcript.json",
+      "expect": {
+        "outcomes": [
+          "answered"
+        ],
+        "statuses": [
+          "partial"
+        ],
+        "finding_ids": [
+          "0f0da02faee20f6bd3c4ebdd4ad3611c678fc310be3b1dc709111f6bae1b76c7",
+          "1844d4eeca40bd750963a5f4f0295d8c52f9189d60a17d55f780d63b06d13c8d",
+          "391e3c7195dcacf8b019b0ffa3bb73e4fccdf80c9615138833bb8089ed5e8856",
+          "3c2ba15cada25c51d69d24c8ed2d637299daf3a93483529fd624aebe4c1d2cc9",
+          "61e6bc2402cd2e843df9b16c8538e43d358a2fb85fc79d38d2893ae249112b87",
+          "6660a490d3e366b2acda45893d6b4ac5873aa4c59438676a1477f52bbdf9cea0",
+          "667f6e2d3f25741e59f09d1207b12952ca1ad534bc22f5f48a076f13f7015052",
+          "a9da5ea9dee41bbce9e9da5d6dd08e17b31a1f16fce14355befa51d72ff70981",
+          "ab6705e3bd23169b1e3800d03109e9b429873433132d2c7bbb0c86081be0810c",
+          "abb49c9f0f216cf3e6e582bc075c6c6092600dd7e486635253e68a8735427e32",
+          "b4210059ae3f29a981a90f1f5d9cc61212ae8ea9c05cee8edf7fad14494cd211",
+          "bd11be170363d9e2d12ffbb601bfaad0340070c460b3fc72125b51b26ebff1f8",
+          "c0ee061839ef7a452056f44d32d19a35b9cefbfa843c19e4489f1be3f9c8e75c",
+          "ca922b096a1b52d5e724128f495f2c1afb589e667cd9ceddc5e5c27cfddff31f",
+          "d17b7a90b672f7c44617c7aabc1890cbda37c7d9188c9c6809876012606c4b60",
+          "d2235db2de887bf2444280cce07664392f883fe997b5176b9d2e023dfd8df7d2",
+          "e6c5b8433c5fdbb0b84dc36e41f08fb1acdeab99972337b4e7f45e5dcd67db38",
+          "f17d6ad2c217c90a107a630589b9140077cac7996faa281181728fa1f9d47ad9"
+        ],
+        "analyzers": [
+          "security_group_impact"
+        ]
+      }
+    },
+    {
+      "id": "cross_account_trust",
+      "question": "Where are the cross-account trust relationships?",
+      "snapshot": "cross_account_trust/snapshot.json",
+      "fake_transcript": "cross_account_trust/transcript.json",
+      "expect": {
+        "outcomes": [
+          "answered"
+        ],
+        "statuses": [
+          "supported"
+        ],
+        "finding_ids": [
+          "273f2c0d1529ca2d7809c8a9db6a9465722f524f6b2b24242a2a669467a11a7b",
+          "4852f85a4d5c5bfd7b153a764514a3ec87214072bc0b193a5872a09cbef8cafa",
+          "5bdde39634abe42d01b7ac761c199d5a05435bf5f472b6aab5029fe8bf14898c",
+          "63218c1e95465b9e21c5562b38b8a15c4c33dee4761b25cc9b678d28d29efb7f",
+          "7269b838966d44762b4b54d82f2fef6df41d0f34416bc287d6860abfa8985e27"
+        ],
+        "analyzers": [
+          "cross_account_trust"
+        ]
+      }
+    },
+    {
+      "id": "ownership",
+      "question": "Which resources appear to have no clear owner?",
+      "snapshot": "ownership/snapshot.json",
+      "fake_transcript": "ownership/transcript.json",
+      "expect": {
+        "outcomes": [
+          "answered"
+        ],
+        "statuses": [
+          "supported"
+        ],
+        "finding_ids": [
+          "12d1701f7095830496983615ee9ee03cc0ab1532644e7e4710301e2a97065b25"
+        ],
+        "analyzers": [
+          "ownership"
+        ]
+      }
+    },
+    {
+      "id": "trust_limited_coverage",
+      "question": "Where are the cross-account trust relationships?",
+      "snapshot": "trust_limited_coverage/snapshot.json",
+      "fake_transcript": "trust_limited_coverage/transcript.json",
+      "expect": {
+        "outcomes": [
+          "answered"
+        ],
+        "statuses": [
+          "partial"
+        ],
+        "finding_ids": [
+          "3bf5984ba03cf52ccfa21f60cc2e72a069a65c05174bbf430d56bf6e058ba33f",
+          "980aaf8adb5454f36cf0fa0164b461e7de853c6cec12f34d41b5ee37a9146a11",
+          "adc12715c0b651fec41c187ecebf15d852af80fb9454d05a08a1994def5b60bc",
+          "b13255b05e32b1d245558429de1649323f3d862465a06df9e6580e192a30c11d",
+          "c74537ca93771723582bd9119e1860407247425d30a3160738e20412945330a8",
+          "fecbfd06e3a58ffc458e654f2385dc63b8160b44edc89dc1efc960524fa66a14"
+        ],
+        "analyzers": [
+          "cross_account_trust"
+        ]
+      }
+    },
+    {
+      "id": "internet_insufficient_evidence",
+      "question": "What receives traffic from the public internet?",
+      "snapshot": "internet_insufficient_evidence/snapshot.json",
+      "fake_transcript": "internet_insufficient_evidence/transcript.json",
+      "expect": {
+        "outcomes": [
+          "answered"
+        ],
+        "statuses": [
+          "insufficient_evidence"
+        ],
+        "finding_ids": [
+          "153baa93edc64c1ae9d9752172442a718e6dbe4bd61bfbe675df5b53f313edf8",
+          "cff7e49a9f50805081086929c591d2d479fd9ddbd39669de557c36c058c41df4",
+          "e7f25887884124274f2d8a371d1bade0f9bb89701ca55d833f8b68c90b5c9a0f"
+        ],
+        "analyzers": [
+          "internet_exposure"
+        ]
+      }
+    },
+    {
+      "id": "ownership_planned",
+      "question": "Which resources appear to have no clear owner?",
+      "snapshot": "ownership_planned/snapshot.json",
+      "fake_transcript": "ownership_planned/transcript.json",
+      "expect": {
+        "outcomes": [
+          "answered"
+        ],
+        "statuses": [
+          "insufficient_evidence"
+        ],
+        "finding_ids": [
+          "04cdb30c871f9575e4f87deaa72ef03cbcbf1d0c3a89253b0f100c85b7f0f8eb"
+        ],
+        "analyzers": [
+          "ownership"
+        ]
+      }
+    },
+    {
+      "id": "ownership_compared",
+      "question": "What changed in ownership between the two snapshots?",
+      "snapshot": "ownership_compared/snapshot.json",
+      "comparison": "ownership_compared/comparison.json",
+      "comparison_results": [
+        "ownership_compared/comparison-result.json"
+      ],
+      "fake_transcript": "ownership_compared/transcript.json",
+      "expect": {
+        "outcomes": [
+          "answered"
+        ],
+        "statuses": [
+          "partial"
+        ]
+      }
+    }
+  ]
+}
