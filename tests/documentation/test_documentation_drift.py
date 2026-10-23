@@ -672,6 +672,22 @@ def test_documented_adversarial_cases_match_the_suite():
         assert re.findall(r"`([a-z_]+)`", row[2]) == [value.value for value in expected], case.id
 
 
+# ---- MCP server --------------------------------------------------------------------
+
+MCP_DOC = DOCS / "mcp-server.md"
+
+
+def test_documented_mcp_call_errors_match_the_tool_error_codes():
+    codes = [
+        code.strip("`")
+        for row in table_rows(MCP_DOC, "| Code | When")
+        for code in row[0].split(", ")
+    ]
+    assert sorted(codes) == sorted(code.value for code in tool_contracts.ToolErrorCode)
+    text = " ".join(MCP_DOC.read_text(encoding="utf-8").split())
+    assert f"at most {assistant_conversation.MAX_TOOL_ARGUMENT_BYTES // 1024} KiB" in text
+
+
 # ---- ask command -------------------------------------------------------------------
 
 ASK_DOC = DOCS / "ask-command.md"

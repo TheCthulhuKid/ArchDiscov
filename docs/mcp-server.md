@@ -5,8 +5,8 @@ Claude Code or Claude Desktop, so that the client's own model can answer questio
 selected snapshots with the same bounded, read-only tools the [`ask` command](ask-command.md)
 offers. It needs no provider configuration, credentials, or network. It is built in phase 5
 of the plan: this page describes what is implemented so far, the server in
-`src/archdiscov/assistant/mcp_server.py`. Calling tools, submitting answers, limits, and the
-`archdiscov mcp` command follow in later steps.
+`src/archdiscov/assistant/mcp_server.py`, which lists and runs the tools. Submitting
+answers, a session-wide call limit, and the `archdiscov mcp` command follow in later steps.
 
 ## What the server serves
 
@@ -24,6 +24,31 @@ verified snapshots. Clients see:
 
 Only this module imports `mcp`, and nothing imports this module except to build a server:
 the other commands, `ask` runs, and evaluations never load the `mcp` package.
+
+## Calls
+
+A call runs exactly as a tool call in an `ask` run:
+
+- Its arguments get the same bounds: a JSON object of at most 16 KiB. A call that omits its
+  arguments, as MCP allows for a tool without inputs, is a call with none.
+- It is dispatched through the same registry over the connection's session, and the IDs its
+  output returns are recorded for that connection. MCP gives calls no ID, so the server
+  numbers them per connection (`mcp-1`, `mcp-2`, ...).
+- Its result is the tool's JSON output as one text item, with no structured copy or output
+  schema. A [tool error](assistant-tools.md) is a result marked as an error, carrying its
+  code and fixed message, never a protocol error, so the client can correct the call:
+
+| Code | When |
+|---|---|
+| `tool_unknown` | no tool has that name, including a name no tool name could take |
+| `tool_malformed_arguments` | the arguments exceed 16 KiB |
+| `tool_invalid_arguments` | the arguments do not match the tool's input schema |
+| `tool_not_found`, `tool_unavailable` | as the tool reports them |
+| `tool_output_too_large` | the output exceeds the session's output limit |
+| `tool_internal_error` | anything else failed; no exception text or traceback reaches the client |
+
+Calls on one connection run one at a time, in the order they arrive, even when a client
+sends several at once, so the run record sees them in order.
 
 ## Connections
 
