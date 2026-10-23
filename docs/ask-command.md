@@ -5,7 +5,8 @@ configured provider. The model reads the snapshots only through the bounded
 [assistant tools](assistant-tools.md) in a [tool-calling loop](assistant-orchestration.md),
 then submits a structured proposal; the answer shown is
 [validated and rendered from records](assistant-answers.md), and a failed run is explained
-instead. Each run is one question: there is no chat or conversation memory.
+instead. Each run is one question: there is no chat or conversation memory. To run many
+questions across providers and score the answers, see [evaluation](assistant-evaluation.md).
 
 The scripted fake replays a transcript and needs no credentials or network. An
 `anthropic` configuration answers through the

@@ -372,7 +372,8 @@ def test_the_readme_links_the_provider_contracts_without_claiming_real_providers
     assert "does not answer" not in text
     # The phase row lists every adapter as a finished step.
     assert "#openai-compatible-adapter) (step 41)," in text
-    assert "#bedrock-adapter) (step 42) |" in text
+    assert "#bedrock-adapter) (step 42), and" in text
+    assert "(docs/assistant-evaluation.md) (step 43) |" in text
     assert "in progress) |" not in text
     provider_doc = PROVIDERS_DOC.read_text(encoding="utf-8")
     assert "[Bedrock adapter](#bedrock-adapter), which is built" in " ".join(provider_doc.split())
@@ -650,6 +651,15 @@ def test_documented_evaluation_commands_match_the_code():
             option = next((opt for opt in param.opts if opt.startswith("--")), None)
             if option not in {None, "--help"}:
                 assert option in usage, (name, option)
+
+
+def test_the_readme_and_assistant_pages_link_evaluation():
+    text = README.read_text(encoding="utf-8")
+    assert "| `evaluate`, `evaluation` |" in text and "docs/assistant-evaluation.md" in text
+    acceptance = "tests/acceptance/test_installed_evaluation.py"
+    assert acceptance in text and (PROJECT_ROOT / acceptance).is_file()
+    for page in ("ask-command", "assistant-answers", "assistant-providers", "result-contracts"):
+        assert "(assistant-evaluation.md" in (DOCS / f"{page}.md").read_text(encoding="utf-8")
 
 
 def test_documented_adversarial_cases_match_the_suite():

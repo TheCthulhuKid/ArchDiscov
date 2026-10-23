@@ -36,7 +36,7 @@ evidence inspection; it does not provide live Azure collection or analysis.
 | Graph resource ownership, lookup, containment, dependencies, and evidence/coverage | [Implemented and verified together across schemas 1–3](docs/graph-index.md#composed-graph-boundary), including external/unresolved terminals and complete-context coverage |
 | Resource search, inspection, neighbours, and paths | [Implemented Python services and `archdiscov query` CLI](docs/graph-queries.md) with exact filters, bounds, detached data, citations, and coverage/provenance limitations |
 | Snapshot comparison | [Implemented](docs/comparison-results.md): `compare` and `comparison` CLI, identity matching without guessing, field-level differences with citations on both sides, lifecycle, source-kind, and coverage qualification, atomic no-overwrite results verified against both snapshots; recorded differences, not drift detection or proof of change |
-| LLM assistant/providers | [Provider-neutral contracts, configuration, and a scripted fake provider](docs/assistant-providers.md), [bounded typed assistant tools](docs/assistant-tools.md), the [tool-calling loop](docs/assistant-orchestration.md), and [structured answers with validation, one repair, conclusions rendered from records, failure explanations, and readable and JSON renderings](docs/assistant-answers.md) behind the [`ask` command](docs/ask-command.md), which answers one question with a configured provider, verified offline through the installed CLI with the five example questions; the fake provider, the [Anthropic adapter](docs/assistant-providers.md#anthropic-adapter), and the [OpenAI-compatible adapter](docs/assistant-providers.md#openai-compatible-adapter) (OpenAI or a compatible server, through the configured Responses or Chat Completions protocol with declared capabilities), and the [Bedrock adapter](docs/assistant-providers.md#bedrock-adapter) (Converse, from its own AWS profile and optional role, with declared capabilities) answer, each adapter also verified through the installed CLI against a loopback mock API |
+| LLM assistant/providers | [Provider-neutral contracts, configuration, and a scripted fake provider](docs/assistant-providers.md), [bounded typed assistant tools](docs/assistant-tools.md), the [tool-calling loop](docs/assistant-orchestration.md), and [structured answers with validation, one repair, conclusions rendered from records, failure explanations, and readable and JSON renderings](docs/assistant-answers.md) behind the [`ask` command](docs/ask-command.md), which answers one question with a configured provider, verified offline through the installed CLI with the five example questions; the fake provider, the [Anthropic adapter](docs/assistant-providers.md#anthropic-adapter), and the [OpenAI-compatible adapter](docs/assistant-providers.md#openai-compatible-adapter) (OpenAI or a compatible server, through the configured Responses or Chat Completions protocol with declared capabilities), and the [Bedrock adapter](docs/assistant-providers.md#bedrock-adapter) (Converse, from its own AWS profile and optional role, with declared capabilities) answer, each adapter also verified through the installed CLI against a loopback mock API; [evaluation](docs/assistant-evaluation.md) runs checked-in README and adversarial suites across configured providers with the `evaluate` command, scoring each answer against deterministic findings and safety checks into an immutable report that `evaluation` shows and compares, external providers only on an explicit opt-in after a stated budget |
 
 ## Installation and development
 
@@ -667,7 +667,7 @@ It returns a detached `EvidenceInspection` after revalidation and raises
 JSON data is available through `result.model_dump(mode="json")`; the CLI only supplies
 file selection and presentation around this service and the persistence APIs.
 
-#### Query, analysis, comparison, and ask commands
+#### Query, analysis, comparison, ask, and evaluation commands
 
 These commands read saved snapshots offline and call public application services:
 
@@ -677,6 +677,7 @@ These commands read saved snapshots offline and call public application services
 | `analyze`, `findings` | Run one of the five analyzers and save an immutable result, then show it after verifying it against its snapshot ([analyzer reference](docs/analyzers.md)). |
 | `compare`, `comparison` | Compare two selected snapshots and save an immutable result, then show it after verifying it against both ([comparison results](docs/comparison-results.md)). |
 | `ask` | Answer one question from the selected snapshots with a configured provider, as a validated answer cited from tool results or an explained failure, with an optional transcript ([the ask command](docs/ask-command.md)). |
+| `evaluate`, `evaluation` | Run a suite of questions with each configured provider after stating the budget, and save an immutable scored report; then show a report or compare two ([evaluation](docs/assistant-evaluation.md)). |
 
 Saved results follow the [result file contracts](docs/result-contracts.md). The
 natural-language `ask` command answers with the scripted fake provider, the Anthropic
@@ -1045,7 +1046,7 @@ See [analysis result contracts](docs/analysis-results.md) for the API, ID rules,
 fixtures, and integrity boundary. [Graph resource lookup, containment, dependencies, and evidence/coverage](docs/graph-index.md)
 are implemented, as are [bounded graph queries and the `query` CLI](docs/graph-queries.md).
 The [ownership analyzer, atomic result persistence, and `analyze`/`findings` CLI](docs/ownership-analysis.md)
-the [security-group impact analyzer](docs/security-group-impact.md), the [cross-account trust analyzer](docs/cross-account-trust.md), and the [database-access analyzer](docs/database-access.md), and the [internet-exposure analyzer](docs/internet-exposure.md) are implemented, as is [snapshot comparison](docs/comparison-results.md). The assistant's [provider contracts and fake provider](docs/assistant-providers.md), [tools](docs/assistant-tools.md), [tool-calling loop](docs/assistant-orchestration.md), and [answer validation, repair, and rendering](docs/assistant-answers.md) are in place behind the `ask` command; real providers are not. The [analyzer reference](docs/analyzers.md) and [result file contracts](docs/result-contracts.md) compare them.
+the [security-group impact analyzer](docs/security-group-impact.md), the [cross-account trust analyzer](docs/cross-account-trust.md), and the [database-access analyzer](docs/database-access.md), and the [internet-exposure analyzer](docs/internet-exposure.md) are implemented, as is [snapshot comparison](docs/comparison-results.md). The assistant's [provider contracts and fake provider](docs/assistant-providers.md), [tools](docs/assistant-tools.md), [tool-calling loop](docs/assistant-orchestration.md), and [answer validation, repair, and rendering](docs/assistant-answers.md) are in place behind the `ask` command, with the Anthropic, OpenAI-compatible, and Bedrock adapters, and [evaluation](docs/assistant-evaluation.md) scores answers across providers. The [analyzer reference](docs/analyzers.md) and [result file contracts](docs/result-contracts.md) compare them.
 
 ### Planned assistant behavior
 
@@ -1078,7 +1079,7 @@ Every factual conclusion must cite discovered resources or configuration evidenc
 | 2. AWS and infrastructure-as-code ingestion | Complete (steps 10–22): supported AWS inventory, offline IaC imports, explicit CLI formats, permissions and offline acceptance |
 | Pre-phase-3 cloud boundary bridge (22.1–22.4) | Implemented foundation: scopes/identities/resources, schema `3` and conversion, offline Azure workflows, and common access/compatibility documentation; not live Azure support |
 | 3. Graph queries, deterministic findings, and snapshot comparisons | Complete (steps 23–33): result contracts and integrity, graph indexes, queries and the `query` CLI, the five analyzers with immutable result persistence, snapshot comparison, and offline [host and container acceptance](#phase-3-offline-acceptance) |
-| 4. LLM-provider adapters, orchestration, validated answers, and evaluations | In progress; separate from cloud platforms: [provider contracts, configuration, and the fake provider](docs/assistant-providers.md) (step 34), [assistant tools](docs/assistant-tools.md) (step 35), the [tool-calling loop](docs/assistant-orchestration.md) (step 36), [answer validation](docs/assistant-answers.md) (step 37), [answer outcomes, repair, and renderings](docs/assistant-answers.md#outcomes-and-exit-codes) (step 38), the [`ask` command](docs/ask-command.md) (step 39), the [Anthropic adapter](docs/assistant-providers.md#anthropic-adapter) (step 40), the [OpenAI-compatible adapter](docs/assistant-providers.md#openai-compatible-adapter) (step 41), and the [Bedrock adapter](docs/assistant-providers.md#bedrock-adapter) (step 42) |
+| 4. LLM-provider adapters, orchestration, validated answers, and evaluations | In progress; separate from cloud platforms: [provider contracts, configuration, and the fake provider](docs/assistant-providers.md) (step 34), [assistant tools](docs/assistant-tools.md) (step 35), the [tool-calling loop](docs/assistant-orchestration.md) (step 36), [answer validation](docs/assistant-answers.md) (step 37), [answer outcomes, repair, and renderings](docs/assistant-answers.md#outcomes-and-exit-codes) (step 38), the [`ask` command](docs/ask-command.md) (step 39), the [Anthropic adapter](docs/assistant-providers.md#anthropic-adapter) (step 40), the [OpenAI-compatible adapter](docs/assistant-providers.md#openai-compatible-adapter) (step 41), the [Bedrock adapter](docs/assistant-providers.md#bedrock-adapter) (step 42), and [evaluation fixtures and commands](docs/assistant-evaluation.md) (step 43) |
 
 The bridge prepares phase 3 to build common graph/query and ownership contracts.
 Security, network, and trust analyzers are initially planned for AWS; unsupported Azure
@@ -1241,12 +1242,15 @@ example questions above with fake-provider transcripts, answers one through each
 adapter against a loopback mock API, and checks that a missing configuration, an unknown
 snapshot, a Bedrock profile that cannot be loaded, a missing key, a provider error, a run
 limit, and an existing transcript path fail safely with their
-[documented exit codes](docs/ask-command.md#exit-codes). Other phase 4 scenarios remain
-planned and use fake-provider transcripts: fabricated citations,
-unsupported claims, malicious imported text, provider errors, and tool-call limits. Run the
-same question fixtures across configured providers and record answer status, finding IDs,
-citation validity, tool usage, latency, and available token usage. External-provider and
-real-AWS tests remain opt-in.
+[documented exit codes](docs/ask-command.md#exit-codes).
+`tests/acceptance/test_installed_evaluation.py` evaluates the checked-in README suite and an
+adversarial suite (fabricated citations, unsupported claims, malicious imported text,
+provider errors, tool-call and request limits, and a repair) the same way: every case
+passes with the fake provider, the README suite reaches the same records through the
+Anthropic adapter against a loopback mock API, an existing report path and an external
+provider without `--allow-external` are refused, and two reports are compared
+([evaluation](docs/assistant-evaluation.md)). External-provider and real-AWS tests remain
+opt-in.
 
 ## Assumptions and defaults
 

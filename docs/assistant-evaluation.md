@@ -271,3 +271,31 @@ also invalid when a record's ID does not match its content, its lists are not so
 unique, its checks are out of order or lack a safety check, `passed` disagrees with its
 checks, totals or the budget disagree with the records and limits, or the records do not
 follow the suite's cases (all of them, unless the run was cancelled).
+
+## Verification
+
+`tests/acceptance/test_installed_evaluation.py` runs the installed commands outside the
+checkout, through the `archdiscov` script and `python -m archdiscov`, with an offline guard
+that fails any network use and an environment without credentials. Both entry points
+evaluate the README and adversarial suites, copied out of the checkout, with the fake
+provider in both output forms: every case passes, and the reports equal each other apart
+from timing. The README suite is also evaluated through the Anthropic adapter against a
+mock API on one loopback port, the only connection the guard allows, opted in with
+`--allow-external`, and reaches the fake's record IDs. An existing output path and an
+Anthropic configuration without `--allow-external` are refused before any request, leaving
+every file unchanged, and two reports are compared and the comparison saved. In-process
+tests in `tests/cli/test_evaluation_cli.py`, `tests/services/test_evaluation*.py`, and
+`tests/assistant/test_evaluation.py` cover every exit code, option, contract, and check.
+
+`tests/live/test_evaluation_live.py` is an opt-in smoke test under the `live` marker, which
+the default options deselect. It reuses the
+[live provider tests'](assistant-providers.md) variables and caps, evaluates the README
+suite through every provider whose variables are set (up to 45 requests each), and checks
+only the safety checks and that no key or profile secret reaches the report, never the
+expectations: scoring real models against them is for running on purpose.
+
+```sh
+ARCHDISCOV_LIVE_ANTHROPIC_KEY_ENV=ANTHROPIC_API_KEY \
+ARCHDISCOV_LIVE_ANTHROPIC_MODEL=claude-sonnet-5-5 \
+.venv/bin/python -m pytest -m live tests/live/test_evaluation_live.py
+```

@@ -14,37 +14,16 @@ Run it only on purpose:
     .venv/bin/python -m pytest -m live tests/live/test_bedrock_live.py
 """
 
-import os
 from pathlib import Path
 
-import boto3
 import pytest
 
-from tests.support.live import ask_one_question, write_config
+from tests.support.live import ask_one_question, bedrock_provider, write_config
 
 pytestmark = pytest.mark.live
 
-PROFILE = "ARCHDISCOV_LIVE_BEDROCK_PROFILE"
-REGION = "ARCHDISCOV_LIVE_BEDROCK_REGION"
-MODEL = "ARCHDISCOV_LIVE_BEDROCK_MODEL"
-ROLE_ARN = "ARCHDISCOV_LIVE_BEDROCK_ROLE_ARN"
-REQUIRED = (PROFILE, REGION, MODEL)
-
 
 def test_one_tool_using_question_is_answered_or_explained(tmp_path: Path) -> None:
-    if not all(os.environ.get(name) for name in REQUIRED):
-        pytest.skip(f"set {', '.join(REQUIRED)} to run the live Bedrock test")
-    fields = {
-        "kind": "bedrock",
-        "model": os.environ[MODEL],
-        "profile": os.environ[PROFILE],
-        "region": os.environ[REGION],
-    }
-    if os.environ.get(ROLE_ARN):
-        fields["role_arn"] = os.environ[ROLE_ARN]
-    credentials = boto3.Session(profile_name=os.environ[PROFILE]).get_credentials()
-    if credentials is None:
-        pytest.skip(f"{PROFILE} names a profile without credentials")
-    secrets = [credentials.secret_key, credentials.token]
-    config = write_config(tmp_path / "provider.toml", fields)
-    ask_one_question(tmp_path, config, "bedrock", *(secret for secret in secrets if secret))
+    provider = bedrock_provider()
+    config = write_config(tmp_path / "provider.toml", provider.fields)
+    ask_one_question(tmp_path, config, provider.kind, *provider.secrets)

@@ -9,8 +9,9 @@ above it. The `ask` command builds its provider from a configuration file: the f
 or Chat Completions, or the [Bedrock adapter](#bedrock-adapter), which is built from its
 own AWS profile and answers through Converse. The
 [assistant tools](assistant-tools.md), [orchestration](assistant-orchestration.md), and
-[answers](assistant-answers.md) build on this layer. Only an adapter module imports a
-vendor SDK, and only when its kind is built.
+[answers](assistant-answers.md) build on this layer, and
+[evaluation](assistant-evaluation.md) runs the same questions across several configurations.
+Only an adapter module imports a vendor SDK, and only when its kind is built.
 
 ## Conversation contracts
 

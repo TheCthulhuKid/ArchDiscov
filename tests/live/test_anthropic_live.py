@@ -12,25 +12,16 @@ failure. Run it only on purpose:
     .venv/bin/python -m pytest -m live tests/live/test_anthropic_live.py
 """
 
-import os
 from pathlib import Path
 
 import pytest
 
-from tests.support.live import ask_one_question, key_variable, write_config
+from tests.support.live import anthropic_provider, ask_one_question, write_config
 
 pytestmark = pytest.mark.live
 
-KEY_ENV = "ARCHDISCOV_LIVE_ANTHROPIC_KEY_ENV"
-MODEL = "ARCHDISCOV_LIVE_ANTHROPIC_MODEL"
-
 
 def test_one_tool_using_question_is_answered_or_explained(tmp_path: Path) -> None:
-    if not os.environ.get(KEY_ENV) or not os.environ.get(MODEL):
-        pytest.skip(f"set {KEY_ENV} and {MODEL} to run the live Anthropic test")
-    variable = key_variable(KEY_ENV)
-    config = write_config(
-        tmp_path / "provider.toml",
-        {"kind": "anthropic", "model": os.environ[MODEL], "api_key_env": variable},
-    )
-    ask_one_question(tmp_path, config, "anthropic", os.environ[variable])
+    provider = anthropic_provider()
+    config = write_config(tmp_path / "provider.toml", provider.fields)
+    ask_one_question(tmp_path, config, provider.kind, *provider.secrets)
