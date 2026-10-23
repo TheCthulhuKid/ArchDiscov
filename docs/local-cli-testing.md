@@ -268,6 +268,7 @@ For a narrower loop while changing the CLI, run its tests or one acceptance jour
 The installed-CLI acceptance tests run the command outside the checkout through both the
 `archdiscov` script and `python -m archdiscov`, with a guard that fails and records any
 network use. The live smoke tests against the real
-[Anthropic](assistant-providers.md#live-smoke-test) and
-[OpenAI-compatible](assistant-providers.md#openai-compatible-live-smoke-tests) APIs are
-deselected by default and run only with `-m live` and their variables.
+[Anthropic](assistant-providers.md#live-smoke-test),
+[OpenAI-compatible](assistant-providers.md#openai-compatible-live-smoke-tests), and
+[Bedrock](assistant-providers.md#bedrock-live-smoke-test) APIs are deselected by default
+and run only with `-m live` and their variables.

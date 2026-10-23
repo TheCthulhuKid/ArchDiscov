@@ -22,6 +22,7 @@ from archdiscov.assistant.config import (
 from archdiscov.assistant.conversation import Conversation
 from archdiscov.assistant.provider import (
     CompletionRequest,
+    ProviderAuthenticationError,
     ProviderCapability,
     ProviderErrorCode,
     ProviderUnavailableError,
@@ -198,7 +199,7 @@ def test_only_the_configuration_chooses_the_target_credential_and_retries(
     assert not any(value in body for value in HOSTILE_ENVIRONMENT.values() if len(value) > 4)
 
 
-def test_the_role_is_assumed_once_and_an_invalid_answer_is_a_credential_error(
+def test_the_role_is_assumed_once_and_an_invalid_answer_is_an_authentication_error(
     tmp_path: Path, monkeypatch
 ) -> None:
     _aws_files(tmp_path, monkeypatch)
@@ -211,10 +212,40 @@ def test_the_role_is_assumed_once_and_an_invalid_answer_is_a_credential_error(
     assert [_credential(request) for request in api.requests] == [ACCESS_KEY, ROLE_KEY, ROLE_KEY]
 
     api = BotocoreApi([_assumed(token=None)])
-    with pytest.raises(ProviderUnavailableError) as raised:
+    with pytest.raises(ProviderAuthenticationError) as raised:
         complete(_provider(api, role_arn=ROLE), _request())
     assert isinstance(raised.value.__cause__, CredentialRetrievalError)
     assert len(api.requests) == 1
+
+
+def test_a_role_sts_rejects_is_an_authentication_error_without_its_message(
+    tmp_path: Path, monkeypatch, caplog, capsys
+) -> None:
+    _aws_files(tmp_path, monkeypatch)
+    message = f"User is not authorized to perform sts:AssumeRole on resource: {ROLE}"
+    body = (
+        '<ErrorResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/"><Error>'
+        f"<Type>Sender</Type><Code>AccessDenied</Code><Message>{message}</Message>"
+        "</Error><RequestId>sts-request-id</RequestId></ErrorResponse>"
+    )
+    api = BotocoreApi([AwsResponse(403, body.encode())])
+    with pytest.raises(ProviderAuthenticationError) as raised:
+        complete(_provider(api, role_arn=ROLE), _request())
+    assert len(api.requests) == 1
+    output = capsys.readouterr()
+    for rendering in (*_renderings(raised.value), caplog.text, output.out, output.err):
+        assert ROLE not in rendering and "sts-request-id" not in rendering
+
+
+def test_a_profile_without_credentials_fails_as_an_authentication_error(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _aws_files(tmp_path, monkeypatch)
+    (tmp_path / "aws-credentials").write_text("", encoding="utf-8")
+    api = BotocoreApi([])
+    with pytest.raises(ProviderAuthenticationError):
+        complete(_provider(api), _request())
+    assert api.requests == []
 
 
 def test_a_configured_endpoint_is_used_and_proxy_variables_are_not(

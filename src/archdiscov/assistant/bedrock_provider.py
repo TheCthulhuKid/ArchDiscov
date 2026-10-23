@@ -8,7 +8,8 @@ the rest of the environment cannot change its target or retries either:
 `endpoint_url`, an empty proxy setting ignores proxy variables, FIPS and dual-stack
 endpoints are off, and an explicit retry setting overrides `AWS_MAX_ATTEMPTS`,
 `AWS_RETRY_MODE`, and the profile's own. The `boto3` and `botocore` loggers stay at
-`WARNING`, because their debug records hold request bodies.
+`WARNING`, because their debug records hold request bodies, and `botocore.credentials` at
+`ERROR`, because its warning of a failed role assumption holds STS's message.
 
 Building the adapter makes no request: a role is assumed on the first request, through
 refreshable credentials, so an STS failure surfaces as that request's failure. A profile
@@ -23,27 +24,32 @@ untrusted: only text, tool-use, and reasoning blocks are mapped, and anything el
 malformed output. Reasoning blocks must go back unchanged and in their original order, so a
 response holding them becomes a continuation of its whole content in its JSON form,
 replayed verbatim. Botocore is synchronous, so `complete_async` runs it in a thread.
+Botocore fixes the read timeout per client, so a request whose timeout differs from the
+configured one is sent by a client made for that timeout.
 
-Until step 42.3 maps failures by error code, `SDK_ERRORS` makes every botocore failure
-`provider_unavailable`, and a response botocore cannot parse `provider_malformed_output`,
-without retrying.
+Failures map to typed provider errors through `SDK_ERRORS`: botocore raises one
+`ClientError` for every API error, which maps by its error code through `API_ERRORS`, and
+its own exceptions map by class. An `AssumeRole` that STS rejects is a credential failure.
+The shared `Retries` retries only transport and rate-limit errors, throttling included.
 """
 
 import asyncio
 import base64
-from collections.abc import Callable, Mapping
+import logging
+import time
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime
 from typing import Any
 
 import boto3
 import botocore.session
+from botocore import exceptions as boto
 from botocore.config import Config
 from botocore.credentials import (
     CredentialProvider,
     CredentialResolver,
     DeferredRefreshableCredentials,
 )
-from botocore.exceptions import BotoCoreError, ClientError, CredentialRetrievalError
 from botocore.parsers import ResponseParserError
 
 from archdiscov.ingestion.aws_sessions import (
@@ -53,6 +59,7 @@ from archdiscov.ingestion.aws_sessions import (
 )
 
 from .adapters import (
+    ByCode,
     Retries,
     RoleBlocks,
     quiet_loggers,
@@ -83,16 +90,22 @@ from .conversation import (
 from .provider import (
     CompletionRequest,
     CompletionResponse,
+    ProviderAuthenticationError,
     ProviderCapabilities,
     ProviderError,
     ProviderInvalidRequestError,
     ProviderMalformedOutputError,
+    ProviderRateLimitError,
+    ProviderTimeoutError,
+    ProviderTransportError,
     ProviderUnavailableError,
     StopReason,
 )
 
 _SERVICE = "bedrock-runtime"
 _SDK_LOGGERS = ("boto3", "botocore")
+# It warns of a failed role assumption with a traceback holding STS's message.
+_CREDENTIAL_LOGGER = "botocore.credentials"
 _CREDENTIAL_METHOD = "assume-role"
 
 _KIND = ProviderKind.BEDROCK.value
@@ -114,10 +127,52 @@ _STOP_REASONS: Mapping[str, StopReason] = {
     "guardrail_intervened": StopReason.REFUSAL,
     "content_filtered": StopReason.REFUSAL,
 }
-SDK_ERRORS: Mapping[type[Exception], type[ProviderError]] = {
+# The provider error for each API error code; any other code is `provider_unavailable`.
+API_ERRORS: Mapping[str, type[ProviderError]] = {
+    "ThrottlingException": ProviderRateLimitError,
+    "ServiceQuotaExceededException": ProviderRateLimitError,
+    "AccessDeniedException": ProviderAuthenticationError,
+    "UnrecognizedClientException": ProviderAuthenticationError,
+    "ExpiredTokenException": ProviderAuthenticationError,
+    "InvalidSignatureException": ProviderAuthenticationError,
+    "IncompleteSignature": ProviderAuthenticationError,
+    "MissingAuthenticationTokenException": ProviderAuthenticationError,
+    "InvalidClientTokenId": ProviderAuthenticationError,
+    "RequestExpired": ProviderAuthenticationError,
+    "ValidationException": ProviderInvalidRequestError,
+    "ResourceNotFoundException": ProviderInvalidRequestError,
+    "ModelTimeoutException": ProviderTimeoutError,
+    "ModelNotReadyException": ProviderUnavailableError,
+    "ModelErrorException": ProviderUnavailableError,
+    "InternalServerException": ProviderUnavailableError,
+    "ServiceUnavailableException": ProviderUnavailableError,
+}
+
+
+def _error_code(error: Exception) -> Any:
+    return error.response.get("Error", {}).get("Code")
+
+
+# The provider error for each botocore failure, found through the failure's class hierarchy,
+# so a subclass (such as `ReadTimeoutError` of `HTTPClientError`) maps before its base.
+SDK_ERRORS: Mapping[type[Exception], type[ProviderError] | ByCode] = {
+    boto.ClientError: ByCode(_error_code, API_ERRORS, ProviderUnavailableError),
+    boto.ReadTimeoutError: ProviderTimeoutError,
+    boto.ConnectTimeoutError: ProviderTimeoutError,
+    boto.HTTPClientError: ProviderTransportError,
+    boto.ConnectionError: ProviderTransportError,
+    boto.NoCredentialsError: ProviderAuthenticationError,
+    boto.PartialCredentialsError: ProviderAuthenticationError,
+    boto.CredentialRetrievalError: ProviderAuthenticationError,
+    boto.TokenRetrievalError: ProviderAuthenticationError,
+    boto.SSOError: ProviderAuthenticationError,
+    boto.ParamValidationError: ProviderInvalidRequestError,
     ResponseParserError: ProviderMalformedOutputError,
-    ClientError: ProviderUnavailableError,
-    BotoCoreError: ProviderUnavailableError,
+    boto.BotoCoreError: ProviderUnavailableError,
+    # Botocore's parser raises these for a response body whose fields have the wrong types.
+    AttributeError: ProviderMalformedOutputError,
+    TypeError: ProviderMalformedOutputError,
+    ValueError: ProviderMalformedOutputError,
 }
 
 
@@ -138,7 +193,8 @@ class BedrockProvider:
     """A `Provider` over the Bedrock Converse API, built from one configuration.
 
     `session_factory` makes the profile session (and, with a role, the role session) in
-    place of `boto3.Session`, so tests can register botocore event hooks on them.
+    place of `boto3.Session`, so tests can register botocore event hooks on them; `sleep`
+    and `async_sleep` wait between retries.
     """
 
     def __init__(
@@ -146,15 +202,19 @@ class BedrockProvider:
         config: BedrockProviderConfig,
         *,
         session_factory: Callable[..., Any] = boto3.Session,
+        sleep: Callable[[float], None] = time.sleep,
+        async_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         quiet_loggers(_SDK_LOGGERS)
+        quiet_loggers((_CREDENTIAL_LOGGER,), logging.ERROR)
         self.model = config.model
         self.region = config.region.value
         self.profile = config.profile
         self.endpoint = None if config.endpoint is None else str(config.endpoint)
         self._capabilities = ProviderCapabilities(capabilities=config.capabilities)
-        self._retries = Retries(SDK_ERRORS, config.max_retries)
-        client_config = Config(
+        self._retries = Retries(SDK_ERRORS, config.max_retries, sleep, async_sleep)
+        self._timeout = config.request_timeout_seconds
+        self._client_config = Config(
             connect_timeout=config.connect_timeout_seconds,
             read_timeout=config.request_timeout_seconds,
             retries={"total_max_attempts": 1, "mode": "standard"},
@@ -166,14 +226,10 @@ class BedrockProvider:
         try:
             session = profile_session(session_factory, config.profile, self.region)
             if config.role_arn is not None:
-                session = _role_session(session, session_factory, config, client_config)
-            self._client = session.client(
-                _SERVICE,
-                region_name=self.region,
-                endpoint_url=self.endpoint,
-                config=client_config,
-            )
-        except BotoCoreError as error:
+                session = _role_session(session, session_factory, config, self._client_config)
+            self._session = session
+            self._clients = {self._timeout: self._new_client(self._timeout)}
+        except boto.BotoCoreError as error:
             raise ProviderConfigError(
                 ProviderConfigErrorCode.PROFILE_UNAVAILABLE,
                 profile=config.profile,
@@ -192,18 +248,35 @@ class BedrockProvider:
 
     def complete(self, request: CompletionRequest) -> CompletionResponse:
         params = self._params(request)
-        output = self._retries.call(
-            lambda: self._client.converse(**params), request.limits.timeout_seconds
-        )
+        timeout = request.limits.timeout_seconds
+        output = self._retries.call(lambda: self._client(timeout).converse(**params), timeout)
         return untrusted_response(_response, output)
 
     async def complete_async(self, request: CompletionRequest) -> CompletionResponse:
         params = self._params(request)
+        timeout = request.limits.timeout_seconds
         output = await self._retries.call_async(
-            lambda: asyncio.to_thread(self._client.converse, **params),
-            request.limits.timeout_seconds,
+            lambda: asyncio.to_thread(self._client(timeout).converse, **params), timeout
         )
         return untrusted_response(_response, output)
+
+    def _client(self, timeout: float) -> Any:
+        """A client whose read timeout is `timeout`. The configured timeout's client is kept,
+        and one other, since a timeout cut short by the run's deadline differs every time."""
+        if timeout not in self._clients:
+            self._clients = {
+                self._timeout: self._clients[self._timeout],
+                timeout: self._new_client(timeout),
+            }
+        return self._clients[timeout]
+
+    def _new_client(self, timeout: float) -> Any:
+        return self._session.client(
+            _SERVICE,
+            region_name=self.region,
+            endpoint_url=self.endpoint,
+            config=self._client_config.merge(Config(read_timeout=timeout)),
+        )
 
     def _params(self, request: CompletionRequest) -> dict[str, Any]:
         """The `converse` arguments for one request; no sampling or model-specific fields."""
@@ -234,12 +307,13 @@ def _role_session(
     params = assume_role_parameters(config.role_arn, config.session_name)
 
     def assume() -> dict[str, str]:
-        credentials = role_credentials(sts.assume_role(**params))
+        try:
+            credentials = role_credentials(sts.assume_role(**params))
+        except boto.ClientError as error:
+            raise _credential_error("assume-role rejected") from error
         expiry = None if credentials is None else credentials.get("Expiration")
         if not isinstance(expiry, datetime):
-            raise CredentialRetrievalError(
-                provider=_CREDENTIAL_METHOD, error_msg="invalid assume-role credentials"
-            )
+            raise _credential_error("invalid assume-role credentials")
         return {
             "access_key": credentials["AccessKeyId"],
             "secret_key": credentials["SecretAccessKey"],
@@ -251,6 +325,10 @@ def _role_session(
     deferred = DeferredRefreshableCredentials(refresh_using=assume, method=_CREDENTIAL_METHOD)
     role.register_component("credential_provider", CredentialResolver([_AssumedRole(deferred)]))
     return session_factory(botocore_session=role, region_name=config.region.value)
+
+
+def _credential_error(reason: str) -> boto.CredentialRetrievalError:
+    return boto.CredentialRetrievalError(provider=_CREDENTIAL_METHOD, error_msg=reason)
 
 
 # ---- requests -------------------------------------------------------------------------

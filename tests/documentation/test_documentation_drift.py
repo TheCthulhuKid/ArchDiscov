@@ -305,6 +305,23 @@ def test_documented_openai_failures_match_the_adapter():
     }
 
 
+def test_documented_bedrock_failures_match_the_adapter():
+    rows = table_rows(PROVIDERS_DOC, "| API error code | Provider error")
+    documented = {row[0].strip("`"): row[1].split(",")[0].strip("`") for row in rows}
+    assert documented == {
+        code: error.code.value for code, error in bedrock_provider.API_ERRORS.items()
+    }
+    rows = table_rows(PROVIDERS_DOC, "| botocore exception | Cause")
+    assert [row[0].strip("`") for row in rows] == [
+        cls.__name__ for cls in bedrock_provider.SDK_ERRORS
+    ]
+    for row, mapped in zip(rows, bedrock_provider.SDK_ERRORS.values(), strict=True):
+        if isinstance(mapped, adapters.ByCode):
+            assert mapped.errors is bedrock_provider.API_ERRORS and row[2] == "by its code, above"
+        else:
+            assert row[2] == f"`{mapped.code.value}`", row[0]
+
+
 def test_documented_request_limits_match_the_model():
     rows = table_rows(PROVIDERS_DOC, "| Request limit")
     assert [row[0].strip("`") for row in rows] == list(RequestLimits.model_fields)

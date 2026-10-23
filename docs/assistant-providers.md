@@ -600,10 +600,87 @@ Redacted reasoning is kept as the base64 text the API sent, so it goes back byte
 A continuation from another provider kind is refused as `provider_invalid_request` before
 anything is sent.
 
-Until failures are mapped by error code (step 42.3), every botocore failure, including an
-API error, a timeout, a connection failure, or a failed role assumption, is
-`provider_unavailable` and is not retried. A response botocore cannot parse is
-`provider_malformed_output`. Like every provider error, these carry no provider text.
+Botocore fixes the read timeout when it makes a client, but each request carries its own
+`timeout_seconds`, which the run's deadline can cut short. A request whose timeout differs
+from `request_timeout_seconds` is therefore sent by a client made for that timeout, from the
+same session, so a role is still assumed once. The configured timeout's client is kept, and
+only the latest other one.
+
+#### Bedrock failures
+
+Botocore raises one `ClientError` for every API error, so an API error maps by its error
+code, never by message text; any other code, or none, is `provider_unavailable`. Every
+error the Converse operation model declares has a row, which a test checks.
+
+| API error code | Provider error |
+|---|---|
+| `ThrottlingException` | `provider_rate_limit` |
+| `ServiceQuotaExceededException` | `provider_rate_limit` |
+| `AccessDeniedException` | `provider_authentication` |
+| `UnrecognizedClientException` | `provider_authentication` |
+| `ExpiredTokenException` | `provider_authentication` |
+| `InvalidSignatureException` | `provider_authentication` |
+| `IncompleteSignature` | `provider_authentication` |
+| `MissingAuthenticationTokenException` | `provider_authentication` |
+| `InvalidClientTokenId` | `provider_authentication` |
+| `RequestExpired` | `provider_authentication` |
+| `ValidationException` | `provider_invalid_request`, including a model without tool support |
+| `ResourceNotFoundException` | `provider_invalid_request` |
+| `ModelTimeoutException` | `provider_timeout` |
+| `ModelNotReadyException` | `provider_unavailable` |
+| `ModelErrorException` | `provider_unavailable` |
+| `InternalServerException` | `provider_unavailable` |
+| `ServiceUnavailableException` | `provider_unavailable` |
+
+Botocore's own failures map by class, through the class hierarchy, so a subclass maps
+before its base:
+
+| botocore exception | Cause | Provider error |
+|---|---|---|
+| `ClientError` | an API error | by its code, above |
+| `ReadTimeoutError` | the response did not arrive within the request's timeout | `provider_timeout` |
+| `ConnectTimeoutError` | no connection within `connect_timeout_seconds` | `provider_timeout` |
+| `HTTPClientError` | the connection failed during the request | `provider_transport` |
+| `ConnectionError` | the endpoint, a proxy, or TLS could not be reached | `provider_transport` |
+| `NoCredentialsError` | the profile has no credentials | `provider_authentication` |
+| `PartialCredentialsError` | the profile's credentials are incomplete | `provider_authentication` |
+| `CredentialRetrievalError` | the role could not be assumed | `provider_authentication` |
+| `TokenRetrievalError` | a login token could not be refreshed | `provider_authentication` |
+| `SSOError` | the profile's SSO session is missing or expired | `provider_authentication` |
+| `ParamValidationError` | the request does not fit the service model | `provider_invalid_request` |
+| `ResponseParserError` | a response botocore cannot parse | `provider_malformed_output` |
+| `BotoCoreError` | any other botocore failure | `provider_unavailable` |
+| `AttributeError` | a response field of the wrong type, as botocore parses it | `provider_malformed_output` |
+| `TypeError` | likewise | `provider_malformed_output` |
+| `ValueError` | likewise, such as a non-numeric token count | `provider_malformed_output` |
+
+A role is assumed on the first request, so a role assumption that STS rejects, or that
+answers without usable credentials, is that request's `CredentialRetrievalError`, and so
+`provider_authentication`; an STS timeout or connection failure maps as for Converse.
+Botocore warns of a failed role assumption with a traceback that holds STS's message,
+naming the role, so the `botocore.credentials` logger is held at `ERROR`. Botocore parses a
+success body that is not JSON as an empty response, which the mapping refuses as
+`provider_malformed_output`. As for the other adapters, an error has its fixed message and
+chains the botocore exception, copying none of its message, request ID, or ARN.
+
+Retries, waits, and `retry-after` use the same shared loop and constants as the
+[Anthropic adapter](#failures-and-retries): only transport and rate-limit errors,
+throttling included, are retried, up to `max_retries`, and a timeout never is. Botocore's
+own retries stay off.
+
+#### Bedrock live smoke test
+
+`tests/live/test_bedrock_live.py` asks the same README question, with the same caps. It is
+marked `live` and skips unless variables name the AWS profile, region, and a model that
+supports tool use; another optionally names a role to assume. The profile's secret key and
+session token must not reach the result or the transcript. Run it only on purpose:
+
+```sh
+ARCHDISCOV_LIVE_BEDROCK_PROFILE=assistant \
+ARCHDISCOV_LIVE_BEDROCK_REGION=eu-west-1 \
+ARCHDISCOV_LIVE_BEDROCK_MODEL=eu.anthropic.claude-sonnet-5-5-v1:0 \
+.venv/bin/python -m pytest -m live tests/live/test_bedrock_live.py
+```
 
 ### Credentials
 

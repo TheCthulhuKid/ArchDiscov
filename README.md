@@ -36,7 +36,7 @@ evidence inspection; it does not provide live Azure collection or analysis.
 | Graph resource ownership, lookup, containment, dependencies, and evidence/coverage | [Implemented and verified together across schemas 1–3](docs/graph-index.md#composed-graph-boundary), including external/unresolved terminals and complete-context coverage |
 | Resource search, inspection, neighbours, and paths | [Implemented Python services and `archdiscov query` CLI](docs/graph-queries.md) with exact filters, bounds, detached data, citations, and coverage/provenance limitations |
 | Snapshot comparison | [Implemented](docs/comparison-results.md): `compare` and `comparison` CLI, identity matching without guessing, field-level differences with citations on both sides, lifecycle, source-kind, and coverage qualification, atomic no-overwrite results verified against both snapshots; recorded differences, not drift detection or proof of change |
-| LLM assistant/providers | [Provider-neutral contracts, configuration, and a scripted fake provider](docs/assistant-providers.md), [bounded typed assistant tools](docs/assistant-tools.md), the [tool-calling loop](docs/assistant-orchestration.md), and [structured answers with validation, one repair, conclusions rendered from records, failure explanations, and readable and JSON renderings](docs/assistant-answers.md) behind the [`ask` command](docs/ask-command.md), which answers one question with a configured provider, verified offline through the installed CLI with the five example questions; the fake provider, the [Anthropic adapter](docs/assistant-providers.md#anthropic-adapter), and the [OpenAI-compatible adapter](docs/assistant-providers.md#openai-compatible-adapter) (OpenAI or a compatible server, through the configured Responses or Chat Completions protocol with declared capabilities) answer, each adapter also verified through the installed CLI against a loopback mock API, and the [Bedrock adapter](docs/assistant-providers.md#bedrock-adapter) answers through Converse from its own AWS profile and declared capabilities, with its failure table still to come |
+| LLM assistant/providers | [Provider-neutral contracts, configuration, and a scripted fake provider](docs/assistant-providers.md), [bounded typed assistant tools](docs/assistant-tools.md), the [tool-calling loop](docs/assistant-orchestration.md), and [structured answers with validation, one repair, conclusions rendered from records, failure explanations, and readable and JSON renderings](docs/assistant-answers.md) behind the [`ask` command](docs/ask-command.md), which answers one question with a configured provider, verified offline through the installed CLI with the five example questions; the fake provider, the [Anthropic adapter](docs/assistant-providers.md#anthropic-adapter), and the [OpenAI-compatible adapter](docs/assistant-providers.md#openai-compatible-adapter) (OpenAI or a compatible server, through the configured Responses or Chat Completions protocol with declared capabilities) answer, each adapter also verified through the installed CLI against a loopback mock API, and the [Bedrock adapter](docs/assistant-providers.md#bedrock-adapter) answers through Converse from its own AWS profile and declared capabilities, with failures mapped by error code |
 
 ## Installation and development
 
@@ -681,10 +681,9 @@ These commands read saved snapshots offline and call public application services
 Saved results follow the [result file contracts](docs/result-contracts.md). The
 natural-language `ask` command answers with the scripted fake provider, the Anthropic
 adapter, the OpenAI-compatible adapter through Responses or Chat Completions, or the
-Bedrock adapter through Converse from its own AWS profile, whose failure table is still in
-progress (phase 4). Commands provide readable output
-and machine-readable JSON, and call public application services rather than containing
-discovery or analysis logic.
+Bedrock adapter through Converse from its own AWS profile (phase 4). Commands provide
+readable output and machine-readable JSON, and call public application services rather
+than containing discovery or analysis logic.
 
 ## Ingestion and analysis
 

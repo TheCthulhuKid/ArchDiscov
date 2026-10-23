@@ -3,7 +3,7 @@
 A harness builds a provider that behaves as a list of fake-transcript turns describes,
 and reports how many attempts reached it. The turns are the provider-neutral scenario
 format: the fake replays them directly, and each real adapter (steps 40-42) adds a
-harness that turns them into mocked transport responses for its mapping layer. A harness's
+harness that turns them into mocked API responses for its mapping layer. A harness's
 `name` is the provider kind a run declares. Scripted delays advance the given `FakeClock`,
 so runs that depend on deadlines behave alike under every harness.
 """
@@ -509,14 +509,6 @@ class ResponsesHarness(OpenAIHarness):
     body = staticmethod(responses_body)
 
 
-HARNESSES: list[ProviderHarness] = [
-    FakeHarness(),
-    AnthropicHarness(),
-    ChatCompletionsHarness(),
-    ResponsesHarness(),
-]
-
-
 HARNESS_PROFILE = AwsProfile(
     FIXTURES_ROOT / "assistant" / "aws" / "config",
     FIXTURES_ROOT / "assistant" / "aws" / "credentials",
@@ -606,7 +598,12 @@ class BedrockHarness(MockedHarness):
         }
 
     def construct(self, config: Any, api_key: SecretStr, api: Any) -> Provider:
-        return BedrockProvider(config, session_factory=api.session_factory)
+        return BedrockProvider(
+            config,
+            session_factory=api.session_factory,
+            sleep=no_wait,
+            async_sleep=no_wait_async,
+        )
 
     @staticmethod
     def _respond(delay: float, body: dict[str, Any]) -> Served:
@@ -615,3 +612,12 @@ class BedrockHarness(MockedHarness):
     @staticmethod
     def _mock(served: list[Served], clock: FakeClock | None) -> Any:
         return BotocoreApi(served, clock, HARNESS_PROFILE)
+
+
+HARNESSES: list[ProviderHarness] = [
+    FakeHarness(),
+    AnthropicHarness(),
+    ChatCompletionsHarness(),
+    ResponsesHarness(),
+    BedrockHarness(),
+]

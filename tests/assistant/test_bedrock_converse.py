@@ -1,4 +1,4 @@
-"""The Bedrock adapter's Converse mapping: requests, responses, and reasoning continuations.
+"""The Bedrock adapter's Converse mapping: requests, responses, continuations, and failures.
 
 Requests go to a mocked Converse API through botocore, which validates each one against the
 service model; nothing reaches AWS. The mocked sessions read the harness's own AWS profile.
@@ -10,11 +10,20 @@ import json
 import logging
 from typing import Any
 
+import botocore.session
 import pytest
-from botocore.exceptions import ReadTimeoutError
+from botocore.exceptions import (
+    ClientError,
+    ConnectionClosedError,
+    ConnectTimeoutError,
+    EndpointConnectionError,
+    ReadTimeoutError,
+    SSLError,
+)
 from botocore.stub import Stubber
 
-from archdiscov.assistant.bedrock_provider import BedrockProvider
+from archdiscov.assistant.adapters import RETRY_BACKOFF_SECONDS, retry_wait
+from archdiscov.assistant.bedrock_provider import API_ERRORS, BedrockProvider
 from archdiscov.assistant.config import parse_provider_config
 from archdiscov.assistant.conversation import (
     AssistantMessage,
@@ -30,10 +39,13 @@ from archdiscov.assistant.orchestrator import run_assistant
 from archdiscov.assistant.provider import (
     CompletionRequest,
     CompletionResponse,
-    ProviderErrorCode,
+    ProviderError,
     ProviderInvalidRequestError,
     ProviderMalformedOutputError,
+    ProviderRateLimitError,
     ProviderRefusalError,
+    ProviderTimeoutError,
+    ProviderTransportError,
     ProviderTruncatedOutputError,
     ProviderUnavailableError,
     RequestLimits,
@@ -43,13 +55,24 @@ from archdiscov.assistant.provider import (
 from archdiscov.assistant.tools.session import ToolSession
 from tests.assistant.provider_harness import HARNESS_PROFILE, BedrockHarness
 from tests.assistant.test_anthropic_provider import EXCHANGE
-from tests.assistant.test_bedrock_provider import ANSWER, MODEL, QUESTION, _fields
+from tests.assistant.test_bedrock_provider import (
+    ANSWER,
+    MODEL,
+    QUESTION,
+    ROLE,
+    ROLE_KEY,
+    _assumed,
+    _credential,
+    _fields,
+)
 from tests.assistant.test_continuations import SIGNATURE, THINKING
 from tests.assistant.test_orchestrator import SNAPSHOT
-from tests.assistant.test_provider_contract import INSPECT, SEARCH, _fail
+from tests.assistant.test_provider_contract import INSPECT, SEARCH
 from tests.assistant.test_secret_leaks import _renderings
 from tests.paths import FIXTURES_ROOT
-from tests.support.mock_api import AwsResponse, BotocoreApi
+from tests.support.mock_api import AwsResponse, BotocoreApi, Waits
+
+HARNESS_KEY = "AKIAHARNESSKEY000000"
 
 TEXT = {"text": "None of them."}
 LOOKUP = {"toolUse": {"toolUseId": "tooluse_1", "name": "search_resources", "input": {"type": "x"}}}
@@ -72,9 +95,18 @@ def _api(*bodies: dict) -> BotocoreApi:
     return BotocoreApi([AwsResponse(200, body) for body in bodies], profile=HARNESS_PROFILE)
 
 
-def _provider(api: BotocoreApi) -> BedrockProvider:
-    config = parse_provider_config(_fields(capabilities=["tool_calling", "parallel_tool_calls"]))
-    return BedrockProvider(config, session_factory=api.session_factory)
+def _provider(api: BotocoreApi, waits: Waits | None = None, **fields: Any) -> BedrockProvider:
+    """The adapter over `api`, its retries waiting into `waits`."""
+    config = parse_provider_config(
+        _fields(capabilities=["tool_calling", "parallel_tool_calls"], **fields)
+    )
+    waits = Waits() if waits is None else waits
+    return BedrockProvider(
+        config,
+        session_factory=api.session_factory,
+        sleep=waits.sleep,
+        async_sleep=waits.sleep_async,
+    )
 
 
 def _request(*messages: dict, tools=(SEARCH, INSPECT), **limits: Any) -> CompletionRequest:
@@ -167,7 +199,7 @@ def test_a_request_maps_every_message_tool_and_limit() -> None:
         "toolConfig": {"tools": [_tool_spec(SEARCH), _tool_spec(INSPECT)]},
     }
     # The stubber checks the request against both this and the service model.
-    with Stubber(provider._client) as stubber:
+    with Stubber(provider._client(request.limits.timeout_seconds)) as stubber:
         stubber.add_response("converse", ANSWER, expected)
         complete(provider, request)
         stubber.assert_no_pending_responses()
@@ -439,38 +471,174 @@ def test_the_harness_serves_fake_turns_that_map_back_unchanged() -> None:
     assert harness.attempts(provider) == len(turns)
 
 
-def test_a_delay_beyond_the_clients_read_timeout_is_a_read_timeout() -> None:
+def test_a_delay_beyond_the_clients_read_timeout_is_a_timeout() -> None:
     respond = {"kind": "respond", "delay_seconds": 90, "response": _ANSWER}
     clock = FakeClock()
     provider = BedrockHarness().build([respond], clock=clock)
-    with pytest.raises(ProviderUnavailableError) as raised:
+    with pytest.raises(ProviderTimeoutError) as raised:
         _send(provider)
     assert isinstance(raised.value.__cause__, ReadTimeoutError)
     assert clock.monotonic() == 60
 
 
-# ---- failures until step 42.3 ------------------------------------------------------
+# ---- failures ----------------------------------------------------------------------
+
+REQUEST_ID = "bedrock-request-id-0001"
+
+
+def _api_error(code: str | None, status: int = 400, headers: dict | None = None) -> AwsResponse:
+    """An API error whose message holds the question and an ARN, and a request ID."""
+    sent = {"x-amzn-RequestId": REQUEST_ID, **(headers or {})}
+    if code is not None:
+        sent["x-amzn-ErrorType"] = code
+    return AwsResponse(status, {"message": f"{QUESTION} on {ROLE}"}, sent)
+
+
+def _failing(
+    *served, max_retries: int = 0, clock: FakeClock | None = None
+) -> tuple[BedrockProvider, Waits, BotocoreApi]:
+    """The adapter over an API serving `served`, the waits between retries, and the API."""
+    api = BotocoreApi(list(served), clock, HARNESS_PROFILE)
+    waits = Waits()
+    return _provider(api, waits, max_retries=max_retries), waits, api
 
 
 @pytest.mark.parametrize(
     ("code", "error"),
     [
-        (ProviderErrorCode.AUTHENTICATION, ProviderUnavailableError),
-        (ProviderErrorCode.RATE_LIMIT, ProviderUnavailableError),
-        (ProviderErrorCode.TIMEOUT, ProviderUnavailableError),
-        (ProviderErrorCode.TRANSPORT, ProviderUnavailableError),
-        (ProviderErrorCode.UNAVAILABLE, ProviderUnavailableError),
-        (ProviderErrorCode.MALFORMED_OUTPUT, ProviderMalformedOutputError),
+        *API_ERRORS.items(),
+        ("SomethingNewException", ProviderUnavailableError),
+        (None, ProviderUnavailableError),
+    ],
+    ids=str,
+)
+def test_api_errors_map_by_code_to_fixed_safe_errors(caplog, code, error) -> None:
+    caplog.set_level(logging.DEBUG)
+    provider, _, api = _failing(_api_error(code))
+    with pytest.raises(ProviderError) as raised:
+        _send(provider)
+    assert type(raised.value) is error
+    assert raised.value.retryable is (error is ProviderRateLimitError)
+    assert isinstance(raised.value.__cause__, ClientError)
+    rendered = "".join(_renderings(raised.value)) + caplog.text
+    for leaked in (QUESTION, ROLE, REQUEST_ID):
+        assert leaked not in rendered
+    assert len(api.requests) == 1
+
+
+def test_every_converse_error_has_a_mapping() -> None:
+    model = botocore.session.get_session().get_service_model("bedrock-runtime")
+    errors = {shape.name for shape in model.operation_model("Converse").error_shapes}
+    assert errors <= set(API_ERRORS)
+
+
+@pytest.mark.parametrize(
+    ("served", "error"),
+    [
+        (lambda request: ReadTimeoutError(endpoint_url=request.url), ProviderTimeoutError),
+        (lambda request: ConnectTimeoutError(endpoint_url=request.url), ProviderTimeoutError),
+        (
+            lambda request: EndpointConnectionError(endpoint_url=request.url),
+            ProviderTransportError,
+        ),
+        (
+            lambda request: ConnectionClosedError(endpoint_url=request.url),
+            ProviderTransportError,
+        ),
+        (lambda request: SSLError(endpoint_url=request.url, error="x"), ProviderTransportError),
+        (AwsResponse(200, b"{not json"), ProviderMalformedOutputError),
+        (AwsResponse(200, b"[]"), ProviderMalformedOutputError),
+        (AwsResponse(200, {"usage": {"inputTokens": "x"}}), ProviderMalformedOutputError),
+        (AwsResponse(502, b"<html>Bad gateway</html>"), ProviderUnavailableError),
+    ],
+    ids=[
+        "read-timeout",
+        "connect-timeout",
+        "connection",
+        "connection-closed",
+        "tls",
+        "not-json",
+        "not-an-object",
+        "wrong-field-type",
+        "gateway-page",
     ],
 )
 @pytest.mark.parametrize("mode", ["sync", "async"])
-def test_failures_are_unavailable_until_mapped_and_never_retried(caplog, code, error, mode) -> None:
-    caplog.set_level(logging.DEBUG)
-    harness = BedrockHarness()
-    provider = harness.build([_fail(code), {"kind": "respond", "response": _ANSWER}], max_retries=2)
-    with pytest.raises(error) as raised:
+def test_botocore_failures_map_by_class(served, error, mode: str) -> None:
+    provider, _, _ = _failing(served)
+    with pytest.raises(error):
         _send(provider, mode)
-    assert str(raised.value) == error.message
-    assert harness.attempts(provider) == 1
-    rendered = "".join(_renderings(raised.value)) + caplog.text
-    assert QUESTION not in rendered
+
+
+@pytest.mark.parametrize("mode", ["sync", "async"])
+@pytest.mark.parametrize("code", ["ThrottlingException", "ServiceQuotaExceededException"])
+def test_throttling_is_retried_with_exponential_backoff(mode: str, code: str) -> None:
+    provider, waits, api = _failing(
+        _api_error(code, 429), _api_error(code, 429), AwsResponse(200, _body(TEXT)), max_retries=2
+    )
+    assert _send(provider, mode).message.text == TEXT["text"]
+    assert len(api.requests) == 3
+    assert waits == [RETRY_BACKOFF_SECONDS, RETRY_BACKOFF_SECONDS * 2]
+
+
+def test_retry_after_is_read_from_botocores_parsed_response() -> None:
+    throttled = _api_error("ThrottlingException", 429, {"Retry-After": "2"})
+    provider, waits, _ = _failing(throttled, AwsResponse(200, _body(TEXT)), max_retries=1)
+    _send(provider)
+    assert waits == [2.0]
+    # A `ClientError` built without response metadata waits the backoff.
+    bare = ClientError({"Error": {"Code": "ThrottlingException"}}, "Converse")
+    assert retry_wait(bare, 0, 60) == RETRY_BACKOFF_SECONDS
+
+
+@pytest.mark.parametrize("mode", ["sync", "async"])
+def test_retries_stop_at_the_configured_count(mode: str) -> None:
+    refused = lambda request: EndpointConnectionError(endpoint_url=request.url)  # noqa: E731
+    provider, waits, api = _failing(refused, refused, refused, max_retries=2)
+    with pytest.raises(ProviderTransportError):
+        _send(provider, mode)
+    assert len(api.requests) == 3 and len(waits) == 2
+
+
+@pytest.mark.parametrize(
+    "served",
+    [
+        _api_error("ValidationException"),
+        _api_error("ModelTimeoutException", 408),
+        _api_error("ServiceUnavailableException", 503),
+        lambda request: ReadTimeoutError(endpoint_url=request.url),
+    ],
+    ids=["invalid-request", "model-timeout", "unavailable", "read-timeout"],
+)
+def test_other_failures_are_never_retried(served) -> None:
+    provider, waits, api = _failing(served, AwsResponse(200, _body(TEXT)), max_retries=3)
+    with pytest.raises(ProviderError):
+        _send(provider)
+    assert len(api.requests) == 1 and waits == []
+
+
+# ---- timeouts ----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("mode", ["sync", "async"])
+def test_each_request_is_read_with_its_own_timeout(mode: str) -> None:
+    clock = FakeClock()
+    slow = AwsResponse(200, _body(TEXT), delay=15)
+    provider, _, api = _failing(slow, slow, slow, slow, clock=clock)
+    with pytest.raises(ProviderTimeoutError):
+        _send(provider, mode, _request(timeout_seconds=10))
+    assert clock.monotonic() == 10
+    for timeout in (60, 20, 30):
+        assert _send(provider, mode, _request(timeout_seconds=timeout)).message.text
+    assert clock.monotonic() == 10 + 15 * 3
+    # The configured timeout's client is kept, and only the latest other one.
+    assert set(provider._clients) == {60, 30}
+
+
+def test_clients_for_other_timeouts_share_the_assumed_role() -> None:
+    answer = AwsResponse(200, _body(TEXT))
+    api = BotocoreApi([_assumed(), answer, answer], profile=HARNESS_PROFILE)
+    provider = _provider(api, role_arn=ROLE)
+    for timeout in (60, 20):
+        _send(provider, request=_request(timeout_seconds=timeout))
+    assert [_credential(request) for request in api.requests] == [HARNESS_KEY, ROLE_KEY, ROLE_KEY]
