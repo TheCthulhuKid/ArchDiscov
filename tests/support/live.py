@@ -6,7 +6,6 @@ scenario, and accepts a validated answer or an explained failure without the key
 output.
 """
 
-import json
 import os
 from pathlib import Path
 from typing import Any
@@ -17,7 +16,7 @@ from archdiscov.assistant.runs import RunTranscript
 from archdiscov.models.enums import AnalyzerKind
 from archdiscov.services import ask_question
 from archdiscov.services.snapshots import save_snapshot
-from tests.support.ask_examples import OWNERSHIP
+from tests.support.ask_examples import OWNERSHIP, write_provider_config
 from tests.support.audit_scenarios import SCENARIOS
 
 MAX_REQUESTS = 4
@@ -40,10 +39,8 @@ def key_variable(key_env: str) -> str:
 
 
 def write_config(path: Path, fields: dict[str, Any]) -> Path:
-    """A capped configuration; JSON strings, numbers, and booleans are also TOML."""
-    lines = (f"{key} = {json.dumps(value)}" for key, value in {**fields, **_CAPS}.items())
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return path
+    """A configuration of `fields` with the live caps."""
+    return write_provider_config(path, {**fields, **_CAPS})
 
 
 def ask_one_question(tmp_path: Path, config: Path, provider_kind: str, key: str) -> None:

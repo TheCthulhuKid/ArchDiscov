@@ -339,8 +339,11 @@ def test_the_readme_links_the_provider_contracts_without_claiming_real_providers
     assert "docs/assistant-providers.md" in text
     assert "docs/assistant-providers.md#anthropic-adapter" in text
     assert "docs/assistant-providers.md#openai-compatible-adapter" in text
-    for claim in ("OpenAI-compatible adapter is implemented", "Bedrock adapter is implemented"):
-        assert claim not in text
+    assert "Bedrock adapter is implemented" not in text
+    # Every adapter that exists answers; none is described as built but silent.
+    assert "does not answer" not in text
+    # The phase row lists the adapter as a finished step.
+    assert "#openai-compatible-adapter) (step 41) |" in text
     provider_doc = PROVIDERS_DOC.read_text(encoding="utf-8")
     assert "`bedrock` has no adapter yet" in " ".join(provider_doc.split())
 

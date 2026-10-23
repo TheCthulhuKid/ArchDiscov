@@ -76,6 +76,22 @@ api_key_env = "ANTHROPIC_API_KEY"
 max_requests = 6
 ```
 
+An OpenAI-compatible configuration names its key variable, the API root as `endpoint`, the
+`protocol`, and what the model can do as `capabilities`, since a compatible server cannot be
+asked; the
+[OpenAI-compatible adapter](assistant-providers.md#openai-compatible-adapter) describes the
+rest, including `encrypted_reasoning` for reasoning models:
+
+```toml
+kind = "openai_compatible"
+model = "gpt-5"
+api_key_env = "OPENAI_API_KEY"
+endpoint = "https://api.openai.com/v1"
+protocol = "responses"
+capabilities = ["tool_calling", "parallel_tool_calls"]
+max_tool_calls_per_turn = 4
+```
+
 A real kind names its credential by environment variable (`api_key_env`) or AWS profile,
 never by value, and the key is never accepted as an option. A missing or empty key fails
 with `provider_credential_missing` or `provider_credential_empty` before any snapshot is
@@ -171,11 +187,12 @@ how to try the command by hand with a written fake transcript or the example hel
 through the `archdiscov` script and `python -m archdiscov`, with an offline guard that fails
 any network use and an environment without credentials. It answers the five README example
 questions in both output forms, refuses a missing configuration, an unknown snapshot, a real
-provider kind without an adapter, an Anthropic configuration without its key, and an existing
-transcript path, and reports a scripted provider error and a run limit, each with the exit
-code above. It also answers a README question through the Anthropic adapter against a mock
-Messages API on one loopback port, the only connection the guard allows, with the same
-answer as the fake provider. In-process tests in
+provider kind without an adapter, an Anthropic or OpenAI-compatible configuration without
+its key, and an existing transcript path, and reports a scripted provider error and a run
+limit, each with the exit code above. It also answers a README question through the
+Anthropic adapter and through the OpenAI-compatible adapter with each protocol, each against
+a mock API on one loopback port, the only connection the guard allows, with the same answer
+as the fake provider. In-process tests in
 `tests/cli/test_ask_cli.py` and `tests/cli/test_ask_examples.py` cover every exit code,
 the envelope, and further examples (limited coverage, insufficient evidence, a Terraform
 plan, and a comparison).

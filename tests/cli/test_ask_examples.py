@@ -26,7 +26,13 @@ from archdiscov.assistant.answers import InsufficientReason
 from archdiscov.cli import app
 from tests.assistant.provider_harness import HARNESSES, MockedHarness
 from tests.paths import PROJECT_ROOT
-from tests.support.ask_examples import EXAMPLES, README_QUESTIONS, ExampleRun, write_example
+from tests.support.ask_examples import (
+    EXAMPLES,
+    README_QUESTIONS,
+    ExampleRun,
+    write_example,
+    write_provider_config,
+)
 from tests.support.mock_api import MockApi
 
 runner = CliRunner()
@@ -59,11 +65,7 @@ def _through_the_adapter(directory: Path, monkeypatch, harness: MockedHarness) -
     """
     turns = json.loads((directory / "transcript.json").read_text(encoding="utf-8"))["turns"]
     api = harness.api(turns)
-    # JSON strings and lists of strings are also TOML.
-    lines = (
-        f"{key} = {json.dumps(value)}" for key, value in harness.configuration(KEY_VARIABLE).items()
-    )
-    (directory / "provider.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_provider_config(directory / "provider.toml", harness.configuration(KEY_VARIABLE))
     monkeypatch.setenv(KEY_VARIABLE, "sk-proj-EXAMPLEkey0123456789abcdefXYZ")
     monkeypatch.setitem(
         providers.ADAPTERS, harness.name, lambda config, key, _: harness.construct(config, key, api)

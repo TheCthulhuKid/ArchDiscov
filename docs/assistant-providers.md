@@ -342,6 +342,20 @@ model without function calling, fails with `provider_unsupported_capability` bef
 request, and one that allows more than one call per turn without declaring
 `parallel_tool_calls` fails the same way.
 
+`endpoint` is the API root including any version path, such as
+`https://api.openai.com/v1`, a gateway's root, or a local model server's. Every request
+carries the key as `Authorization: Bearer`, and no other credential header, so a gateway
+that expects its key elsewhere is not supported. Plain HTTP is accepted only for loopback
+hosts, such as a local model server or a mock API:
+
+```toml
+kind = "openai_compatible"
+model = "llama3.1"
+api_key_env = "LOCAL_LLM_KEY"     # still required; any non-blank value if the server ignores it
+endpoint = "http://localhost:11434/v1"
+protocol = "chat_completions"
+```
+
 The client comes only from the configuration, through the same shared guarded clients as
 the Anthropic adapter:
 

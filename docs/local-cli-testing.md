@@ -222,10 +222,30 @@ archdiscov ask "Which resources appear to have no clear owner?" \
   --transcript $WORK/anthropic-run.json
 ```
 
-The key is read only from that variable, never from an option or the file. Without it the
-command exits with 2 (`provider_credential_missing`) before any request; an API failure ends
-the run with 6 and the [provider error](assistant-providers.md#failures-and-retries) it maps
-to.
+An OpenAI key, or a compatible server such as a gateway or a local model server, works the
+same way through the
+[OpenAI-compatible adapter](assistant-providers.md#openai-compatible-adapter); the
+configuration also names the API root, the protocol, and what the model can do:
+
+```sh
+printf '%s\n' 'kind = "openai_compatible"' 'model = "gpt-5"' 'api_key_env = "OPENAI_API_KEY"' \
+  'endpoint = "https://api.openai.com/v1"' 'protocol = "responses"' 'max_requests = 6' \
+  > $WORK/openai.toml
+archdiscov ask "Which resources appear to have no clear owner?" \
+  --snapshot $WORK/owners/snapshot.json --config $WORK/openai.toml \
+  --transcript $WORK/openai-run.json
+```
+
+A local server on `localhost` may use plain HTTP, such as
+`endpoint = "http://localhost:11434/v1"` with `protocol = "chat_completions"`. `ask` always
+offers tools, so a model that cannot call them cannot answer: leave `tool_calling` out of
+`capabilities` for it and the run is refused before any request.
+
+The key is read only from the configured variable, never from an option or the file.
+Without it the command exits with 2 (`provider_credential_missing`) before any request; an
+API failure ends the run with 6 and the provider error it maps to
+([Anthropic](assistant-providers.md#failures-and-retries),
+[OpenAI-compatible](assistant-providers.md#openai-compatible-failures)).
 
 ## Run the automated checks
 
@@ -247,5 +267,7 @@ For a narrower loop while changing the CLI, run its tests or one acceptance jour
 
 The installed-CLI acceptance tests run the command outside the checkout through both the
 `archdiscov` script and `python -m archdiscov`, with a guard that fails and records any
-network use. The [live smoke test](assistant-providers.md#live-smoke-test) against the real
-Anthropic API is deselected by default and runs only with `-m live` and its variables.
+network use. The live smoke tests against the real
+[Anthropic](assistant-providers.md#live-smoke-test) and
+[OpenAI-compatible](assistant-providers.md#openai-compatible-live-smoke-tests) APIs are
+deselected by default and run only with `-m live` and their variables.
