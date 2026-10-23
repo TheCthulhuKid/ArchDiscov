@@ -2978,7 +2978,7 @@ Implement and verify substeps 41.1–41.6 in order. Keep the parent planned unti
 
 ### Step 42: Add the Bedrock Converse adapter
 **Status:** Planned.
-**Prerequisites:** Steps 34–40.
+**Prerequisites:** Steps 34–41.
 
 - Implement a Converse adapter using the existing boto3 dependency and the profile/region/role configuration patterns from collection, with its own credentials separate from the collection credentials. Map messages, tool specifications, tool use/results, stop reasons, and usage; reject models lacking tool support.
 - Preserve configured timeouts, retries, and the shared limits; map throttling, access-denied, validation, and model errors to typed safe provider errors. Document the `bedrock:InvokeModel`/Converse permissions required.
@@ -2987,6 +2987,62 @@ Implement and verify substeps 41.1–41.6 in order. Keep the parent planned unti
 **Advice:** Provider response text is untrusted input; all adapters hand only parsed tool calls and structured proposals onward.
 
 **Acceptance check:** Stubbed text, tool-use, multi-tool, error, throttling, malformed, and truncated-output cases pass; the same fake-provider transcripts run through the adapter's mapping layer; no credentials are required in normal tests.
+
+Implement and verify substeps 42.1–42.4 in order. Keep the parent planned until every substep's acceptance checks pass. The adapter lives in `src/archdiscov/assistant/bedrock_provider.py`, is registered in `ADAPTERS` for `ProviderKind.BEDROCK`, and is the only assistant module that imports `boto3` or `botocore`, lazily, as steps 40 and 41 do for their SDKs (ingestion already imports them, so the isolation test checks the assistant package only). It reuses the step 40–41 plumbing where it fits: `provider_error`, `Retries`, `require_known`, `require_text_only`, `untrusted_response`, the continuation contract, and the harness and suite structure. Botocore differs from the two `httpx2` SDKs in four ways that shape the substeps: its failures are one `ClientError` class told apart by error code, so the failure table is keyed by code; it reads the environment for proxies, endpoint URLs, retry settings, and credential files rather than headers; its client fixes the read timeout at construction; and it is mocked through its own `Stubber` and `before-send` event hook, not an `httpx2` transport. Normal tests need no credentials and no network; the live tests run only on request.
+
+#### Step 42.1: Share AWS sessions and build the Bedrock client from configuration
+**Status:** Planned.
+**Prerequisite:** Step 41.
+
+- Extract the profile-then-assumed-role session creation from `ingestion/aws.py` (`create_session`) into a vendor-neutral helper that both collection and the adapter use, with each caller mapping its own failures; collection behaviour, errors, and tests stay unchanged. The adapter's session comes only from its own `profile`, `region`, `role_arn`, and `session_name`, never the collection's, and an explicit profile already makes botocore skip environment credentials.
+- Building the adapter makes no request, as for the other adapters: with `role_arn`, the role is assumed lazily on the first request (for example through botocore's deferred refreshable credentials), so an STS failure surfaces as a provider error at request time. A missing profile fails before the run with a provider configuration error naming the profile, never its contents.
+- Build the `bedrock-runtime` client with the configured region, `connect_timeout_seconds` and `request_timeout_seconds`, botocore's own retries off (`total_max_attempts = 1`; the adapter retries through `Retries`), `ignore_configured_endpoint_urls`, and an explicit empty proxy setting, so `AWS_ENDPOINT_URL*`, a profile's `endpoint_url`, `AWS_MAX_ATTEMPTS`, `AWS_RETRY_MODE`, and proxy variables change neither the target nor the retries; probe each, since botocore falls back to environment proxies when none are configured. Keep the `botocore` and `boto3` loggers at `WARNING`, because their debug records hold request bodies. Add an optional `endpoint` (HTTPS, or HTTP for loopback hosts, as `_EndpointConfig` already validates) for VPC interface endpoints and for the installed test's mock server.
+- Bedrock models differ in tool support and cannot be asked cheaply, so move `capabilities` (and its parallel-calls rule) from `OpenAICompatibleProviderConfig` to a shared base used by both, default `tool_calling`. Converse has no switch to disable parallel tool use, so a model that may return several calls when `max_tool_calls_per_turn` is 1 is handled by the orchestrator's existing per-turn limit; document that.
+- With every kind adapted, `ADAPTERS.get(kind) is None` becomes unreachable. Replace it with a test that `ADAPTERS` covers `ProviderKind`, and remove `provider_adapter_unavailable` with its code, docs, exit-code row, `UNADAPTED_KIND`, and the in-process and installed no-adapter cases; or, if keeping the defensive path is preferred, test it by removing an entry from `ADAPTERS` in-process. Decide before starting, and record the choice.
+- Until 42.2, `complete` raises `ProviderUnavailableError` without sending anything, as steps 40.1 and 41.2 did.
+
+**Advice:** Botocore hooks give no header allowlist the way `HeaderGuard` does; rely on explicit session and client arguments, and prove each environment variable is ignored with a test rather than by reading botocore's source.
+
+**Acceptance check:** A TOML configuration builds the adapter without any request, with and without `role_arn`; a missing profile fails before the run; hostile `AWS_*` and proxy variables (credentials, endpoint URLs, retry settings, proxies, a profile file's `endpoint_url`) change neither the URL, the credential, nor the retry count of a stubbed request; no credential reaches a `repr`, error, or captured DEBUG log; collection tests pass unchanged; the no-adapter decision is implemented and documented.
+
+#### Step 42.2: Map Converse requests and responses
+**Status:** Planned.
+**Prerequisite:** Step 42.1.
+
+- Requests: system messages as `system` text blocks; user, assistant, and tool-result messages in order, with consecutive user-role messages (tool results and a repair prompt) merged into one turn, since Converse requires alternating roles; tool calls as `toolUse` blocks (a JSON object input, `{}` for malformed arguments that never ran); results as `toolResult` blocks with a text content block and `status` `error` or `success`; tools as `toolSpec` with `inputSchema.json`, and `toolChoice` `auto`; `inferenceConfig.maxTokens`; nothing in `additionalModelRequestFields`, `guardrailConfig`, `performanceConfig`, or sampling fields.
+- Responses: only `text`, `toolUse`, and `reasoningContent` blocks are mapped; any other block type (images, documents, citations, guard content, server tools) is `provider_malformed_output`. `stopReason` by lookup table: `end_turn` and `stop_sequence` to `end`, `tool_use` to `tool_use`, `max_tokens` and `model_context_window_exceeded` to `length` (or `provider_truncated_output`), `guardrail_intervened` and `content_filtered` to `refusal` (or `provider_refusal`), `malformed_model_output`, `malformed_tool_use`, and anything unknown to `provider_malformed_output`. Usage from `inputTokens`, `outputTokens`, `cacheReadInputTokens`, and `cacheWriteInputTokens`.
+- A response holding `reasoningContent` blocks keeps its whole ordered content as a `bedrock` continuation, replayed verbatim (Anthropic models on Bedrock require their reasoning back with tool use, as in step 40); a foreign continuation is refused before sending.
+- Add a test API for botocore: `Stubber` for the request-shape cases, so botocore validates every request against the service model offline, and a `before-send` hook that serves raw HTTP responses (status, headers, JSON or unparseable bodies, delays, and transport exceptions) for cases the stubber cannot express, recording each request. Generalise `MockedHarness` over the API it serves where needed, and add `BedrockHarness`, used by the adapter tests only until 42.3.
+
+**Advice:** Botocore parses responses into plain dictionaries without a strict model, so treat every field as untrusted, exactly as for the `openai` SDK's lenient models.
+
+**Acceptance check:** Adapter tests cover the exact request (validated by the stubber), text, single and multiple tool calls, mixed text and calls, malformed and non-object inputs, `max_tokens` with text and with a partial call, each refusal stop with and without text, malformed-output stops, unknown blocks and stop reasons, usage with and without cache fields, and a reasoning block replayed unchanged and in order through the orchestrator; a foreign continuation is refused before any request.
+
+#### Step 42.3: Map failures, retries, and timeouts, and run the suites through Bedrock
+**Status:** Planned.
+**Prerequisite:** Step 42.2.
+
+- Map failures by error code through a lookup table, never by message text: `ThrottlingException` (and `ServiceQuotaExceededException`, should a model return it) to `provider_rate_limit`; `AccessDeniedException`, `UnrecognizedClientException`, `ExpiredTokenException`, and other signature and token codes to `provider_authentication`; `ValidationException` (including a model without tool support) and `ResourceNotFoundException` to `provider_invalid_request`; `ModelTimeoutException` to `provider_timeout`; `ModelNotReadyException`, `ModelErrorException`, `InternalServerException`, and `ServiceUnavailableException` to `provider_unavailable`; an unknown code to `provider_unavailable`; botocore's read and connect timeouts to `provider_timeout`, connection failures to `provider_transport`, credential failures at request time (including a lazy STS call) to `provider_authentication`, and an unparseable body to `provider_malformed_output`. Check that every error shape in the Converse operation model has a mapping. Errors chain the exception and copy no message, request ID, or ARN.
+- Retries use the shared `Retries`. Its `retry-after` parsing reads `error.response.headers`, which a botocore `ClientError` (whose `response` is a dictionary) lacks, so generalise `_retry_after` to read headers from either shape, or ignore a missing one, with a regression test.
+- Botocore fixes the read timeout per client, but each request carries its own `timeout_seconds`; build or cache a client per distinct read timeout, or show the configured timeout always equals the request's, so the contract suite's per-request timeout cases hold.
+- Add `BedrockHarness` to `HARNESSES`, so the contract, orchestration, and answer-service suites and the README examples run through it with the fake's results and the existing `fake_only` cases; the examples' `ADAPTERS` hook already generalises.
+- Add an opt-in live test under the `live` marker, skipped unless variables name the profile, region, and model, with the same caps as the other live tests and `tests/support/live.py`.
+
+**Advice:** Keep the code table the only place a Bedrock error code appears; it is the part the documentation drift test checks.
+
+**Acceptance check:** Every error code, timeout, and transport failure maps to its code with the right retryable flag and no provider text; retries stop at the configured count and never wait for real; every suite and example case passes through the Bedrock harness with outcomes identical to the fake; the default run collects no live test.
+
+#### Step 42.4: Verify the installed command and document the adapter
+**Status:** Planned.
+**Prerequisite:** Step 42.3.
+
+- Extend the installed `ask` acceptance test: a `bedrock` configuration whose profile is missing fails before any request, and one with a dummy profile (written to temporary `AWS_CONFIG_FILE` and `AWS_SHARED_CREDENTIALS_FILE` forwarded only to that run) and an `endpoint` at the loopback mock server answers a README question offline through both entry points, with SigV4-signed `POST /model/{modelId}/converse` requests and the guard allowing only that port.
+- Document the adapter in `docs/assistant-providers.md`: configuration and declared capabilities, its own profile and role separate from collection, the IAM permissions (`bedrock:InvokeModel` on the model or inference profile and, for cross-Region inference profiles, on the underlying foundation models; `sts:AssumeRole` when `role_arn` is set), the environment variables that are ignored, the request and response mapping, continuations, the failure table, and the live test. Update `docs/ask-command.md`, `docs/local-cli-testing.md`, the README capability table, provider text, and phase 4 row, and the drift tests that pin Bedrock as unadapted.
+- Run focused and full offline tests, the acceptance suite, Ruff lint and format, documentation links, and whitespace checks with `.venv/bin/python`. Mark each substep and the parent implemented only after their acceptance checks pass.
+
+**Advice:** Reuse the step 40 loopback server and offline guard allowance; the mock only needs to check the SigV4 `Authorization` header's shape, not the signature.
+
+**Acceptance check:** The installed command refuses a missing profile safely and answers through the adapter against a local mock server with no real credentials or internet access; the documentation matches the adapter's tables, options, permissions, and declared capabilities; all checks pass.
 
 ### Step 43: Add evaluation fixtures and commands
 **Status:** Planned.
