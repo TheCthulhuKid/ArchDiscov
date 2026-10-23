@@ -1,9 +1,10 @@
 """The README example questions, answered through the `ask` command with fake transcripts.
 
 Each example is written to a temporary directory and run in both output forms, with the
-fake provider and with the Anthropic adapter over a mocked Messages API serving the same
-turns; the validated status, the cited findings and differences, and the qualifications are
-checked against what the example's tools returned.
+fake provider and with each adapter harness (Anthropic, and the OpenAI-compatible adapter
+through each protocol) over a mocked API serving the same turns; the validated status, the
+cited findings and differences, and the qualifications are checked against what the
+example's tools returned.
 """
 
 import json
@@ -12,7 +13,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from archdiscov.assistant import anthropic_provider
+from archdiscov.assistant import providers
 from archdiscov.assistant.answer_rendering import (
     INSUFFICIENT_REASONS,
     LIMITED_COVERAGE,
@@ -23,9 +24,16 @@ from archdiscov.assistant.answer_rendering import (
 from archdiscov.assistant.answer_results import RenderedAnswer
 from archdiscov.assistant.answers import InsufficientReason
 from archdiscov.cli import app
-from tests.assistant.provider_harness import AnthropicHarness, MockApi
+from tests.assistant.provider_harness import HARNESSES, MockedHarness
 from tests.paths import PROJECT_ROOT
-from tests.support.ask_examples import EXAMPLES, README_QUESTIONS, ExampleRun, write_example
+from tests.support.ask_examples import (
+    EXAMPLES,
+    README_QUESTIONS,
+    ExampleRun,
+    write_example,
+    write_provider_config,
+)
+from tests.support.mock_api import MockApi
 
 runner = CliRunner()
 INSUFFICIENT_COVERAGE = INSUFFICIENT_REASONS[InsufficientReason.LIMITED_COVERAGE]
@@ -44,31 +52,35 @@ QUALIFICATIONS = {
 DECLARED = {"ownership_planned"}
 
 
-PROVIDERS = ["fake", "anthropic"]
+HARNESS = {harness.label: harness for harness in HARNESSES}
+PROVIDERS = list(HARNESS)
 KEY_VARIABLE = "ASK_EXAMPLE_KEY"
 
 
-def _through_the_adapter(directory: Path, monkeypatch) -> MockApi:
-    """Configure the example for the Anthropic adapter, over a mocked API serving its turns."""
+def _through_the_adapter(directory: Path, monkeypatch, harness: MockedHarness) -> MockApi:
+    """Configure the example for the harness's adapter, over a mocked API serving its turns.
+
+    The configuration file names the harness's provider kind, and its registered adapter
+    builds the real adapter from that file with the mocked API in place of the network.
+    """
     turns = json.loads((directory / "transcript.json").read_text(encoding="utf-8"))["turns"]
-    api = AnthropicHarness.api(turns)
-    (directory / "provider.toml").write_text(
-        f'kind = "anthropic"\nmodel = "claude-sonnet-5-5"\napi_key_env = "{KEY_VARIABLE}"\n',
-        encoding="utf-8",
+    api = harness.api(turns)
+    write_provider_config(directory / "provider.toml", harness.configuration(KEY_VARIABLE))
+    monkeypatch.setenv(KEY_VARIABLE, "sk-proj-EXAMPLEkey0123456789abcdefXYZ")
+    monkeypatch.setitem(
+        providers.ADAPTERS, harness.name, lambda config, key, _: harness.construct(config, key, api)
     )
-    monkeypatch.setenv(KEY_VARIABLE, "sk-ant-api03-EXAMPLEkey0123456789abcdefXYZ")
-    adapter = anthropic_provider.AnthropicProvider
-
-    def mocked(config, key):
-        return adapter(config, key, transport=api, async_transport=api)
-
-    monkeypatch.setattr(anthropic_provider, "AnthropicProvider", mocked)
     return api
 
 
 def _ask(name: str, tmp_path: Path, monkeypatch, provider: str, *flags: str):
     run = write_example(EXAMPLES[name], tmp_path)
-    api = _through_the_adapter(tmp_path, monkeypatch) if provider == "anthropic" else None
+    harness = HARNESS[provider]
+    api = (
+        _through_the_adapter(tmp_path, monkeypatch, harness)
+        if isinstance(harness, MockedHarness)
+        else None
+    )
     result = runner.invoke(app, ["ask", *run.arguments, *flags])
     assert result.exit_code == 0, result.output
     assert result.stderr == ""
@@ -159,7 +171,7 @@ def test_each_example_answers_readably(tmp_path: Path, monkeypatch, name: str, p
 
 
 @pytest.mark.parametrize("name", list(EXAMPLES))
-def test_each_example_answers_alike_through_both_providers(
+def test_each_example_answers_alike_through_every_provider(
     tmp_path: Path, monkeypatch, name: str
 ) -> None:
     answers = {}
@@ -168,6 +180,7 @@ def test_each_example_answers_alike_through_both_providers(
         directory.mkdir()
         _, output = _ask(name, directory, monkeypatch, provider, "--json")
         data = json.loads(output)
-        assert data["summary"]["provider_kind"] == provider
+        assert data["summary"]["provider_kind"] == HARNESS[provider].name
         answers[provider] = data["result"]
-    assert answers["anthropic"] == answers["fake"]
+    for provider in PROVIDERS:
+        assert answers[provider] == answers["fake"], provider

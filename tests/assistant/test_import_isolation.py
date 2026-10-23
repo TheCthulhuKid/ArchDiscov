@@ -29,7 +29,7 @@ from pathlib import Path
 
 from archdiscov.assistant import config, conversation, fake, instructions, orchestrator, provider
 from archdiscov.assistant import answer_rendering, answer_results, answer_validation, answers
-from archdiscov.assistant import answer_service, providers, redaction, repair
+from archdiscov.assistant import adapters, answer_service, providers, redaction, repair
 from archdiscov.assistant import rejections, runs
 from archdiscov.assistant.tools import contracts as tool_contracts
 from archdiscov.assistant.tools import session as tool_session
@@ -62,6 +62,7 @@ assert session.record.returned().snapshots
 assert tool_contracts.untrusted("x").untrusted_text == "x"
 assert runs.RunLimits.from_config(config.FakeProviderConfig()) == runs.RunLimits()
 assert redaction.redact_secrets("Bearer abc") == redaction.REDACTED
+assert adapters.retry_wait(ValueError(), 0, 60) == adapters.RETRY_BACKOFF_SECONDS
 assert len(instructions.initial_conversation("q").messages) == 2
 assert answers.submit_answer_declaration().name == "submit_answer"
 assert len(rejections.RejectionCode) == len(rejections.REJECTION_MESSAGES)
@@ -131,15 +132,24 @@ built = providers.build_provider(
 )
 assert built.remaining_turns > 0
 # Only building a vendor adapter imports its SDK.
-anthropic_config = config.parse_provider_config(
-    {{"kind": "anthropic", "model": "m", "api_key_env": "ASK_KEY"}}
-)
-try:
-    providers.build_provider(anthropic_config, config_dir=Path("."), environ={{"ASK_KEY": "k"}})
-except ImportError as error:
-    assert "blocked vendor SDK: anthropic" in str(error), error
-else:
-    raise AssertionError("the Anthropic adapter was built without its SDK")
+vendor_configs = {{
+    "anthropic": {{"kind": "anthropic", "model": "m", "api_key_env": "ASK_KEY"}},
+    "openai": {{
+        "kind": "openai_compatible",
+        "model": "m",
+        "api_key_env": "ASK_KEY",
+        "endpoint": "https://api.example.com/v1",
+        "protocol": "responses",
+    }},
+}}
+for sdk, data in vendor_configs.items():
+    vendor = config.parse_provider_config(data)
+    try:
+        providers.build_provider(vendor, config_dir=Path("."), environ={{"ASK_KEY": "k"}})
+    except ImportError as error:
+        assert "blocked vendor SDK: " + sdk in str(error), error
+    else:
+        raise AssertionError("an adapter was built without its SDK: " + sdk)
 import json
 import tempfile
 

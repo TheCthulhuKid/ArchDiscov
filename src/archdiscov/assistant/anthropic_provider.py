@@ -1,12 +1,9 @@
 """The Anthropic Messages API adapter: the only assistant module that imports the SDK.
 
-The client is built only from the configuration. The SDK would otherwise read the
-environment for its credential, base URL, extra headers, proxies, tracing, and logging,
-so the adapter passes the key and base URL explicitly, and sends every request through a
-transport that keeps only the headers the SDK itself needs and sets the credential last;
-`httpx2` applies no environment proxy to a client given its own transport. Redirects and
-OpenTelemetry spans are off, and the SDK's loggers stay at `WARNING`, because their debug
-records hold request bodies.
+The client is built only from the configuration: the key and base URL are passed
+explicitly, and requests go through the shared guarded clients (`adapters.py`), so the
+environment cannot change the target, headers, or credential. OpenTelemetry spans are off,
+and the SDK's loggers stay at `WARNING`.
 
 Building the adapter makes no request. Each `complete` maps the conversation to one
 Messages API request and the response back to the shared contracts. The response is
@@ -14,19 +11,14 @@ untrusted: only text, tool-use, and reasoning blocks are mapped, and anything el
 malformed output. Reasoning blocks must go back unchanged and in their original order, so
 a response holding them becomes a continuation of its whole content, replayed verbatim.
 
-Failures map to typed provider errors by the SDK's exception classes, never by message text,
-and chain the SDK exception without copying its text. Only transport and rate-limit errors
-(including overload) are retried, up to `max_retries`, after a bounded exponential backoff
-or the server's `retry-after`, never longer than the request timeout.
+Failures map to typed provider errors through `SDK_ERRORS`, and the shared `Retries`
+retries only transport and rate-limit errors, overload included.
 """
 
 import asyncio
 import json
-import logging
-import math
 import time
 from collections.abc import Awaitable, Callable, Iterable, Mapping
-from itertools import count
 from typing import Any
 
 import anthropic
@@ -39,8 +31,18 @@ from anthropic.types import (
     ToolResultBlockParam,
     ToolUseBlockParam,
 )
-from pydantic import SecretStr, ValidationError
+from pydantic import SecretStr
 
+from .adapters import (
+    HTTP_HEADERS,
+    HeaderGuard,
+    Retries,
+    guarded_http_clients,
+    quiet_loggers,
+    require_known,
+    require_text_only,
+    untrusted_response,
+)
 from .config import AnthropicProviderConfig, ProviderKind
 from .conversation import (
     AssistantMessage,
@@ -64,10 +66,8 @@ from .provider import (
     ProviderInvalidRequestError,
     ProviderMalformedOutputError,
     ProviderRateLimitError,
-    ProviderRefusalError,
     ProviderTimeoutError,
     ProviderTransportError,
-    ProviderTruncatedOutputError,
     ProviderUnavailableError,
     StopReason,
 )
@@ -75,18 +75,7 @@ from .provider import (
 DEFAULT_BASE_URL = "https://api.anthropic.com"
 
 # What the SDK sends on its own; anything else (such as `ANTHROPIC_CUSTOM_HEADERS`) is dropped.
-_SDK_HEADERS = frozenset(
-    {
-        "accept",
-        "accept-encoding",
-        "anthropic-version",
-        "connection",
-        "content-length",
-        "content-type",
-        "host",
-        "user-agent",
-    }
-)
+_SDK_HEADERS = HTTP_HEADERS | {"anthropic-version"}
 _SDK_HEADER_PREFIX = "x-stainless-"
 _SDK_LOGGERS = ("anthropic", "httpx2")
 
@@ -123,64 +112,13 @@ SDK_ERRORS: Mapping[type[Exception], type[ProviderError]] = {
     json.JSONDecodeError: ProviderMalformedOutputError,
     anthropic.APIError: ProviderUnavailableError,
 }
-_SDK_FAILURES = (anthropic.APIError, json.JSONDecodeError)
-RETRY_BACKOFF_SECONDS = 0.5
-MAX_RETRY_WAIT_SECONDS = 30.0
-
-# These stops are usable only as text without tool calls; otherwise they are this error.
-_TEXT_ONLY_STOPS: Mapping[StopReason, type[ProviderError]] = {
-    StopReason.LENGTH: ProviderTruncatedOutputError,
-    StopReason.REFUSAL: ProviderRefusalError,
-}
-
-
-def _guard(request: httpx2.Request, api_key: SecretStr) -> httpx2.Request:
-    """Keep only the SDK's own headers, then send the configured credential and no other."""
-    for name in list(request.headers):
-        if name not in _SDK_HEADERS and not name.startswith(_SDK_HEADER_PREFIX):
-            del request.headers[name]
-    request.headers["authorization"] = f"Bearer {api_key.get_secret_value()}"
-    return request
-
-
-class _GuardedTransport(httpx2.BaseTransport):
-    def __init__(self, inner: httpx2.BaseTransport, api_key: SecretStr) -> None:
-        self._inner = inner
-        self._api_key = api_key
-
-    def handle_request(self, request: httpx2.Request) -> httpx2.Response:
-        return self._inner.handle_request(_guard(request, self._api_key))
-
-    def close(self) -> None:
-        self._inner.close()
-
-
-class _AsyncGuardedTransport(httpx2.AsyncBaseTransport):
-    def __init__(self, inner: httpx2.AsyncBaseTransport, api_key: SecretStr) -> None:
-        self._inner = inner
-        self._api_key = api_key
-
-    async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
-        return await self._inner.handle_async_request(_guard(request, self._api_key))
-
-    async def aclose(self) -> None:
-        await self._inner.aclose()
-
-
-def _quiet_sdk_loggers() -> None:
-    """Hold the SDK's loggers at `WARNING`, whatever `ANTHROPIC_LOG` or the root level says."""
-    for name in _SDK_LOGGERS:
-        logger = logging.getLogger(name)
-        if logger.getEffectiveLevel() < logging.WARNING:
-            logger.setLevel(logging.WARNING)
 
 
 class AnthropicProvider:
     """A `Provider` over the Messages API, built from one configuration and its key.
 
     `transport` and `async_transport` replace the network transports, so tests can mock
-    the API; the guard wraps them as it wraps the real ones. `sleep` and `async_sleep` wait
-    between retries.
+    the API (see `guarded_http_clients`); `sleep` and `async_sleep` wait between retries.
     """
 
     def __init__(
@@ -193,17 +131,22 @@ class AnthropicProvider:
         sleep: Callable[[float], None] = time.sleep,
         async_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
-        _quiet_sdk_loggers()
+        quiet_loggers(_SDK_LOGGERS)
         self.model = config.model
-        self._max_retries = config.max_retries
-        self._sleep = sleep
-        self._async_sleep = async_sleep
+        self._retries = Retries(SDK_ERRORS, config.max_retries, sleep, async_sleep)
         self._connect_timeout = config.connect_timeout_seconds
         self.base_url = DEFAULT_BASE_URL if config.endpoint is None else str(config.endpoint)
         timeout = httpx2.Timeout(
             config.request_timeout_seconds, connect=config.connect_timeout_seconds
         )
-        client_options: dict[str, Any] = {"timeout": timeout, "follow_redirects": False}
+        guard = HeaderGuard(
+            headers=_SDK_HEADERS,
+            prefixes=(_SDK_HEADER_PREFIX,),
+            credentials={"authorization": SecretStr(f"Bearer {api_key.get_secret_value()}")},
+        )
+        http, async_http = guarded_http_clients(
+            guard, timeout, transport=transport, async_transport=async_transport
+        )
         sdk_options: dict[str, Any] = {
             "api_key": api_key.get_secret_value(),
             "base_url": self.base_url,
@@ -211,22 +154,8 @@ class AnthropicProvider:
             "max_retries": 0,
             "open_telemetry": False,
         }
-        self._client = anthropic.Anthropic(
-            **sdk_options,
-            http_client=httpx2.Client(
-                transport=_GuardedTransport(transport or httpx2.HTTPTransport(), api_key),
-                **client_options,
-            ),
-        )
-        self._async_client = anthropic.AsyncAnthropic(
-            **sdk_options,
-            http_client=httpx2.AsyncClient(
-                transport=_AsyncGuardedTransport(
-                    async_transport or httpx2.AsyncHTTPTransport(), api_key
-                ),
-                **client_options,
-            ),
-        )
+        self._client = anthropic.Anthropic(**sdk_options, http_client=http)
+        self._async_client = anthropic.AsyncAnthropic(**sdk_options, http_client=async_http)
 
     def __repr__(self) -> str:
         return f"AnthropicProvider(model={self.model!r}, base_url={self.base_url!r})"
@@ -241,27 +170,17 @@ class AnthropicProvider:
 
     def complete(self, request: CompletionRequest) -> CompletionResponse:
         params = self._params(request)
-        # The last attempt's failure is raised by `_retry_wait`, which ends the loop.
-        for attempt in count():
-            try:
-                return _response(self._client.messages.create(**params))
-            except _SDK_FAILURES as error:
-                self._sleep(self._retry_wait(error, attempt, request))
+        message = self._retries.call(
+            lambda: self._client.messages.create(**params), request.limits.timeout_seconds
+        )
+        return untrusted_response(_response, message)
 
     async def complete_async(self, request: CompletionRequest) -> CompletionResponse:
         params = self._params(request)
-        for attempt in count():
-            try:
-                return _response(await self._async_client.messages.create(**params))
-            except _SDK_FAILURES as error:
-                await self._async_sleep(self._retry_wait(error, attempt, request))
-
-    def _retry_wait(self, error: Exception, attempt: int, request: CompletionRequest) -> float:
-        """Seconds to wait before the next attempt; raises the provider error when final."""
-        failure = provider_error(error)
-        if not failure.retryable or attempt >= self._max_retries:
-            raise failure from error
-        return retry_wait(error, attempt, request.limits.timeout_seconds)
+        message = await self._retries.call_async(
+            lambda: self._async_client.messages.create(**params), request.limits.timeout_seconds
+        )
+        return untrusted_response(_response, message)
 
     def _params(self, request: CompletionRequest) -> dict[str, Any]:
         """The `messages.create` arguments for one request; no sampling or forced tool choice."""
@@ -288,33 +207,6 @@ class AnthropicProvider:
                 type="auto", disable_parallel_tool_use=limits.max_tool_calls_per_turn == 1
             )
         return params
-
-
-# ---- failures -------------------------------------------------------------------------
-
-
-def provider_error(error: Exception) -> ProviderError:
-    """The typed, fixed-message error for an SDK failure."""
-    return next(SDK_ERRORS[cls] for cls in type(error).__mro__ if cls in SDK_ERRORS)()
-
-
-def retry_wait(error: Exception, attempt: int, timeout_seconds: float) -> float:
-    """The server's `retry-after`, else exponential backoff, capped by the request timeout."""
-    wait = _retry_after(error)
-    if wait is None:
-        wait = RETRY_BACKOFF_SECONDS * 2**attempt
-    return min(wait, MAX_RETRY_WAIT_SECONDS, timeout_seconds)
-
-
-def _retry_after(error: Exception) -> float | None:
-    """`retry-after` in seconds, when the response sent a usable one."""
-    response = getattr(error, "response", None)
-    value = None if response is None else response.headers.get("retry-after")
-    try:
-        seconds = float(value)
-    except (TypeError, ValueError):
-        return None
-    return seconds if math.isfinite(seconds) and seconds >= 0 else None
 
 
 # ---- requests -------------------------------------------------------------------------
@@ -384,22 +276,14 @@ def _message_params(messages: Iterable[Message]) -> list[MessageParam]:
 
 
 def _response(message: anthropic.types.Message) -> CompletionResponse:
-    """The shared contract for an untrusted response; anything that does not fit is malformed."""
-    try:
-        return _mapped(message)
-    except (ValidationError, AttributeError, TypeError) as error:
-        raise ProviderMalformedOutputError() from error
-
-
-def _mapped(message: anthropic.types.Message) -> CompletionResponse:
     stop = _STOP_REASONS.get(message.stop_reason)
-    blocks = message.content
-    if stop is None or any(block.type not in _KNOWN_BLOCKS for block in blocks):
+    if stop is None:
         raise ProviderMalformedOutputError()
+    blocks = message.content
+    require_known((block.type for block in blocks), _KNOWN_BLOCKS)
     text = "".join(block.text for block in blocks if block.type == "text") or None
     tool_uses = [block for block in blocks if block.type == "tool_use"]
-    if stop in _TEXT_ONLY_STOPS and (tool_uses or text is None):
-        raise _TEXT_ONLY_STOPS[stop]()
+    require_text_only(stop, text, tool_uses)
     return CompletionResponse(
         message=AssistantMessage(
             text=text,

@@ -116,6 +116,14 @@ EXAMPLES = {
 }
 
 
+def write_provider_config(path: Path, fields: dict[str, Any]) -> Path:
+    """A provider configuration file; JSON strings, numbers, booleans, and lists of
+    strings are also TOML."""
+    lines = (f"{key} = {json.dumps(value)}" for key, value in fields.items())
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
 def write_example(example: Example, directory: Path) -> ExampleRun:
     """Write the example's snapshots, saved comparison, transcript, and configuration."""
     snapshot_path = directory / "snapshot.json"
@@ -144,8 +152,9 @@ def write_example(example: Example, directory: Path) -> ExampleRun:
     turns = [_tool(name, call, f"c{number}") for number, (name, call) in enumerate(example.calls)]
     turns.append(_tool("submit_answer", proposal, "answer"))
     (directory / "transcript.json").write_text(json.dumps({"turns": turns}), encoding="utf-8")
-    config_path = directory / "provider.toml"
-    config_path.write_text('kind = "fake"\ntranscript = "transcript.json"\n', encoding="utf-8")
+    config_path = write_provider_config(
+        directory / "provider.toml", {"kind": "fake", "transcript": "transcript.json"}
+    )
     finding_ids = tuple(item["finding_id"] for item in _findings(outputs))
     return ExampleRun(
         [*arguments, "--config", str(config_path)], finding_ids, _differences(outputs)

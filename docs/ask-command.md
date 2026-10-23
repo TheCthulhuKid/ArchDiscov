@@ -12,8 +12,14 @@ The scripted fake replays a transcript and needs no credentials or network. An
 [Anthropic adapter](assistant-providers.md#anthropic-adapter) with the key its
 `api_key_env` names; an API or connection error ends the run as `provider_error` (6) with
 the [provider error](assistant-providers.md#failures-and-retries) it maps to, after any
-retries. The other real kinds are accepted in configuration but fail before the run with
-`provider_adapter_unavailable`.
+retries. An `openai_compatible` configuration builds the
+[OpenAI-compatible adapter](assistant-providers.md#openai-compatible-adapter), which
+answers through either `protocol`; an API or connection error ends the run as
+`provider_error` (6) with the
+[provider error](assistant-providers.md#openai-compatible-failures) it maps to, after any
+retries. Either protocol ends with `provider_unsupported_capability` before any request when the
+configuration does not declare tool calling. A `bedrock` configuration is accepted
+but fails before the run with `provider_adapter_unavailable`.
 
 ## Usage
 
@@ -68,6 +74,22 @@ kind = "anthropic"
 model = "claude-sonnet-5-5"
 api_key_env = "ANTHROPIC_API_KEY"
 max_requests = 6
+```
+
+An OpenAI-compatible configuration names its key variable, the API root as `endpoint`, the
+`protocol`, and what the model can do as `capabilities`, since a compatible server cannot be
+asked; the
+[OpenAI-compatible adapter](assistant-providers.md#openai-compatible-adapter) describes the
+rest, including `encrypted_reasoning` for reasoning models:
+
+```toml
+kind = "openai_compatible"
+model = "gpt-5"
+api_key_env = "OPENAI_API_KEY"
+endpoint = "https://api.openai.com/v1"
+protocol = "responses"
+capabilities = ["tool_calling", "parallel_tool_calls"]
+max_tool_calls_per_turn = 4
 ```
 
 A real kind names its credential by environment variable (`api_key_env`) or AWS profile,
@@ -158,15 +180,19 @@ credentials, or the question.
 
 ## Verification
 
+[Testing the CLI locally](local-cli-testing.md#ask-a-question-with-the-fake-provider) shows
+how to try the command by hand with a written fake transcript or the example helper.
+
 `tests/acceptance/test_installed_ask.py` runs the installed command outside the checkout,
 through the `archdiscov` script and `python -m archdiscov`, with an offline guard that fails
 any network use and an environment without credentials. It answers the five README example
 questions in both output forms, refuses a missing configuration, an unknown snapshot, a real
-provider kind without an adapter, an Anthropic configuration without its key, and an existing
-transcript path, and reports a scripted provider error and a run limit, each with the exit
-code above. It also answers a README question through the Anthropic adapter against a mock
-Messages API on one loopback port, the only connection the guard allows, with the same
-answer as the fake provider. In-process tests in
+provider kind without an adapter, an Anthropic or OpenAI-compatible configuration without
+its key, and an existing transcript path, and reports a scripted provider error and a run
+limit, each with the exit code above. It also answers a README question through the
+Anthropic adapter and through the OpenAI-compatible adapter with each protocol, each against
+a mock API on one loopback port, the only connection the guard allows, with the same answer
+as the fake provider. In-process tests in
 `tests/cli/test_ask_cli.py` and `tests/cli/test_ask_examples.py` cover every exit code,
 the envelope, and further examples (limited coverage, insufficient evidence, a Terraform
 plan, and a comparison).

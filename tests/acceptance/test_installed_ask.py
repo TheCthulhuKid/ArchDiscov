@@ -2,22 +2,19 @@
 
 Both entry points answer the five README example questions in both output forms, and refuse
 a missing configuration, an unknown snapshot, a real provider kind without an adapter, an
-Anthropic configuration without its key, and an existing transcript path before the run, and
-report a scripted provider error and a run limit as answer outcomes, each with its documented
-exit code. The Anthropic adapter also answers a README question through a mock Messages API
-on one loopback port, the only connection the run may make. The child sees no credentials
+Anthropic or OpenAI-compatible configuration without its key, and an existing transcript
+path before the run, and report a scripted provider error and a run limit as answer
+outcomes, each with its documented exit code. The Anthropic adapter and the
+OpenAI-compatible adapter through each protocol also answer a README question through a
+mock API on one loopback port, the only connection the run may make. The child sees no credentials
 and no checkout: its whole `PYTHONPATH` is the offline guard, which fails and records any
 other network use.
 """
 
 import hashlib
 import json
-import threading
-from collections.abc import Iterator
-from contextlib import contextmanager
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -25,13 +22,24 @@ from archdiscov.assistant.fake import FakeTranscript
 from archdiscov.assistant.runs import RunTranscript
 from archdiscov.models.enums import AnalyzerKind
 from tests.acceptance.test_installed_end_to_end import Workspace
-from tests.assistant.provider_harness import messages_body
+from tests.assistant.provider_harness import (
+    AnthropicHarness,
+    ChatCompletionsHarness,
+    MockedHarness,
+    ResponsesHarness,
+)
 from tests.assistant.test_answer_service import SEARCH
 from tests.assistant.test_orchestrator import _calls, _fail
 from tests.assistant.test_providers import UNADAPTED_KIND, unadapted_config
 from tests.services.test_ask import _fake
-from tests.support.ask_examples import EXAMPLES, README_QUESTIONS, write_example
+from tests.support.ask_examples import (
+    EXAMPLES,
+    README_QUESTIONS,
+    write_example,
+    write_provider_config,
+)
 from tests.support.installed_cli import ENTRY_POINTS, run_installed
+from tests.support.mock_api import mock_api_server
 
 # Each entry point runs every case once per module: keep them on one xdist worker.
 pytestmark = pytest.mark.xdist_group("installed-ask")
@@ -40,10 +48,17 @@ pytestmark = pytest.mark.xdist_group("installed-ask")
 README_EXAMPLES = [kind.value for kind in AnalyzerKind]
 # The example whose snapshot and configuration the failure cases reuse.
 SNAPSHOT = "internet_exposure"
-# The example the Anthropic adapter answers through the mock Messages API.
+# The example each adapter answers through a mock API.
 ADAPTED = "ownership"
-KEY_VARIABLE = "ASK_INSTALLED_ANTHROPIC_KEY"
-DUMMY_KEY = "sk-ant-api03-INSTALLEDdummy0123456789abcdefXYZ"
+ADAPTERS = [AnthropicHarness(), ChatCompletionsHarness(), ResponsesHarness()]
+# Each adapter's API root under the mock server, and the path its requests go to.
+ROUTES = {
+    "anthropic": ("", "/v1/messages"),
+    "chat_completions": ("/v1", "/v1/chat/completions"),
+    "responses": ("/v1", "/v1/responses"),
+}
+KEY_VARIABLE = "ASK_INSTALLED_PROVIDER_KEY"
+DUMMY_KEY = "sk-proj-INSTALLEDdummy0123456789abcdefXYZ"
 
 
 def _digest(path: Path) -> str:
@@ -75,23 +90,33 @@ def _existing_transcript(ws: Workspace, snapshot: Path) -> tuple[list, int, str]
     return options, 3, "snapshot_conflict"
 
 
-def _anthropic_config(directory: Path, endpoint: str | None = None) -> Path:
-    path = directory / "anthropic.toml"
-    lines = ['kind = "anthropic"', 'model = "claude-sonnet-5-5"', f'api_key_env = "{KEY_VARIABLE}"']
+def _adapter_config(directory: Path, harness: MockedHarness, endpoint: str | None = None) -> Path:
+    """The harness's configuration, its key in `KEY_VARIABLE`, at `endpoint` when given."""
+    fields = harness.configuration(KEY_VARIABLE)
     if endpoint is not None:
-        lines.append(f'endpoint = "{endpoint}"')
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return path
+        fields["endpoint"] = endpoint
+    return write_provider_config(directory / f"{harness.label}.toml", fields)
 
 
-def _missing_key(ws: Workspace, snapshot: Path) -> tuple[list, int, str]:
-    directory = ws.path("cases", "missing-key")
-    directory.mkdir(parents=True)
-    options = ["--snapshot", snapshot, "--config", _anthropic_config(directory)]
-    return options, 2, "provider_credential_missing"
+def _missing_key(harness: MockedHarness) -> Callable[[Workspace, Path], tuple[list, int, str]]:
+    def case(ws: Workspace, snapshot: Path) -> tuple[list, int, str]:
+        directory = ws.path("cases", f"missing-{harness.label}-key")
+        directory.mkdir(parents=True)
+        options = ["--snapshot", snapshot, "--config", _adapter_config(directory, harness)]
+        return options, 2, "provider_credential_missing"
+
+    case.__name__ = f"_missing_{harness.name}_key"
+    return case
 
 
-REFUSALS = [_missing_config, _unknown_snapshot, _no_adapter, _missing_key, _existing_transcript]
+REFUSALS = [
+    _missing_config,
+    _unknown_snapshot,
+    _no_adapter,
+    _missing_key(AnthropicHarness()),
+    _missing_key(ResponsesHarness()),
+    _existing_transcript,
+]
 # Scripted runs that start and fail: (turns, extra configuration, exit code, failure reason).
 FAILED_RUNS = {
     "provider-error": ([_fail("provider_unavailable")], "", 6, "provider_error"),
@@ -146,64 +171,26 @@ def _failed_runs(ws: Workspace) -> dict:
     return failed
 
 
-class _MessagesApi(BaseHTTPRequestHandler):
-    """A mock Messages API: each POST gets the server's next body; requests are kept."""
-
-    server: "MockMessagesServer"
-
-    def do_POST(self) -> None:
-        body = self.rfile.read(int(self.headers["content-length"]))
-        self.server.requests.append((self.path, dict(self.headers), json.loads(body)))
-        payload = json.dumps(self.server.bodies.pop(0)).encode()
-        self.send_response(200)
-        self.send_header("content-type", "application/json")
-        self.send_header("content-length", str(len(payload)))
-        self.end_headers()
-        self.wfile.write(payload)
-
-    def log_message(self, *args: Any) -> None:
-        """Requests are kept on the server, not logged."""
-
-
-class MockMessagesServer(ThreadingHTTPServer):
-    def __init__(self, bodies: list[dict]) -> None:
-        self.bodies = bodies
-        self.requests: list[tuple[str, dict, dict]] = []
-        super().__init__(("127.0.0.1", 0), _MessagesApi)
-
-    @property
-    def port(self) -> int:
-        return self.server_address[1]
-
-
-@contextmanager
-def mock_messages_api(bodies: list[dict]) -> Iterator[MockMessagesServer]:
-    server = MockMessagesServer(bodies)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        yield server
-    finally:
-        server.shutdown()
-        server.server_close()
-
-
-def _through_the_adapter(ws: Workspace) -> tuple[dict, str, list]:
-    """The adapted example answered in JSON and readably through the mock Messages API."""
+def _through_the_adapters(ws: Workspace) -> dict[str, tuple[dict, str, list]]:
+    """The adapted example answered in JSON and readably through each adapter's mock API."""
     directory = ws.path("examples", ADAPTED)
     turns = json.loads((directory / "transcript.json").read_text(encoding="utf-8"))["turns"]
-    bodies = [messages_body(turn.response) for turn in FakeTranscript(turns=turns).turns]
     arguments = [EXAMPLES[ADAPTED].question, "--snapshot", directory / "snapshot.json"]
-    with mock_messages_api(bodies * 2) as api:
-        config = _anthropic_config(directory, f"http://127.0.0.1:{api.port}")
-        env = ws.guard.allowing(api.port, **{KEY_VARIABLE: DUMMY_KEY})
-        command = ["ask", *map(str, arguments), "--config", str(config)]
-        data = json.loads(
-            run_installed(ws.entry_point, ws.root, *command, "--json", env=env).stdout
-        )
-        readable = run_installed(ws.entry_point, ws.root, *command, env=env).stdout
-    assert api.bodies == []
-    return data, readable, api.requests
+    answered = {}
+    for harness in ADAPTERS:
+        bodies = [harness.body(turn.response) for turn in FakeTranscript(turns=turns).turns]
+        with mock_api_server(bodies * 2) as api:
+            root, _ = ROUTES[harness.label]
+            config = _adapter_config(directory, harness, f"http://127.0.0.1:{api.port}{root}")
+            env = ws.guard.allowing(api.port, **{KEY_VARIABLE: DUMMY_KEY})
+            command = ["ask", *map(str, arguments), "--config", str(config)]
+            data = json.loads(
+                run_installed(ws.entry_point, ws.root, *command, "--json", env=env).stdout
+            )
+            readable = run_installed(ws.entry_point, ws.root, *command, env=env).stdout
+        assert api.bodies == []
+        answered[harness.label] = (data, readable, api.requests)
+    return answered
 
 
 def journey(entry_point: str, root: Path) -> dict:
@@ -212,7 +199,7 @@ def journey(entry_point: str, root: Path) -> dict:
         "examples": _examples(ws),
         "refusals": _refusals(ws),
         "failed": _failed_runs(ws),
-        "adapter": _through_the_adapter(ws),
+        "adapters": _through_the_adapters(ws),
     }
     assert ws.guard.attempts == []
     return summary
@@ -259,7 +246,8 @@ def test_errors_before_the_run_fail_safely(summaries, entry_point):
     assert "variable" not in refused["no_adapter"]
     assert refused["missing_config"]["path"].endswith("missing.toml")
     # A missing key names its variable, never a value, and stops the run before any request.
-    assert refused["missing_key"]["variable"] == KEY_VARIABLE
+    for kind in ("anthropic", "openai_compatible"):
+        assert refused[f"missing_{kind}_key"]["variable"] == KEY_VARIABLE
 
 
 @pytest.mark.parametrize("entry_point", ENTRY_POINTS)
@@ -276,18 +264,21 @@ def test_answers_do_not_depend_on_the_entry_point(summaries):
         assert script["examples"][name][1]["result"] == module["examples"][name][1]["result"]
 
 
+@pytest.mark.parametrize("harness", ADAPTERS, ids=lambda harness: harness.label)
 @pytest.mark.parametrize("entry_point", ENTRY_POINTS)
-def test_the_anthropic_adapter_answers_through_a_loopback_api(summaries, entry_point):
-    data, readable, requests = summaries[entry_point]["adapter"]
+def test_each_adapter_answers_through_a_loopback_api(summaries, entry_point, harness):
+    data, readable, requests = summaries[entry_point]["adapters"][harness.label]
     _, fake, _ = summaries[entry_point]["examples"][ADAPTED]
-    assert data["summary"]["provider_kind"] == "anthropic"
+    model = harness.configuration(KEY_VARIABLE)["model"]
+    assert data["summary"]["provider_kind"] == harness.name
     assert data["result"] == fake["result"]
     assert data["result"]["answer"]["status"] == EXAMPLES[ADAPTED].status
-    assert "Provider: anthropic, model claude-sonnet-5-5" in readable.splitlines()
+    assert f"Provider: {harness.name}, model {model}" in readable.splitlines()
     assert f"Status: {EXAMPLES[ADAPTED].status}" in readable.splitlines()
-    assert requests and all(path == "/v1/messages" for path, _, _ in requests)
+    _, path = ROUTES[harness.label]
+    assert requests and all(sent == path for sent, _, _ in requests)
     for _, headers, body in requests:
         lowered = {name.lower(): value for name, value in headers.items()}
         assert lowered["authorization"] == f"Bearer {DUMMY_KEY}"
-        assert body["model"] == "claude-sonnet-5-5"
+        assert body["model"] == model
     assert DUMMY_KEY not in json.dumps(data) + readable

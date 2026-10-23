@@ -9,7 +9,13 @@ import typer.main
 from annotated_types import Ge, Gt, Le
 
 from archdiscov import cli_answer_output, cli_ask_output
-from archdiscov.assistant import answer_results, answer_validation, anthropic_provider
+from archdiscov.assistant import (
+    adapters,
+    answer_results,
+    answer_validation,
+    anthropic_provider,
+    openai_provider,
+)
 from archdiscov.assistant import answers as assistant_answers
 from archdiscov.assistant import config as assistant_config
 from archdiscov.assistant import conversation as assistant_conversation
@@ -23,6 +29,7 @@ from archdiscov.assistant.provider import (
     ProviderError,
     ProviderErrorCode,
     RequestLimits,
+    StopReason,
     UnsupportedCapabilityError,
 )
 from archdiscov.assistant.tools import contracts as tool_contracts
@@ -199,8 +206,12 @@ def check_default(documented: str, field, where) -> None:
         assert documented == "required", where
     elif field.default is None:
         assert documented == "none", where
+    elif isinstance(field.default, bool):
+        assert documented == f"`{str(field.default).lower()}`", where
     elif isinstance(field.default, (int, float)):
         assert decimal(documented) == field.default, where
+    elif isinstance(field.default, frozenset):
+        assert documented == ", ".join(f"`{item}`" for item in sorted(field.default)), where
     else:
         assert documented == f"`{field.default}`", where
 
@@ -242,6 +253,30 @@ def test_documented_anthropic_stop_reasons_match_the_adapter():
         assert f"`{anthropic_provider._STOP_REASONS[reason].value}`" in row[1], reason
 
 
+def test_documented_chat_completions_finish_reasons_match_the_adapter():
+    rows = table_rows(PROVIDERS_DOC, "| `finish_reason` | Maps to")
+    mapped = openai_provider._FINISH_REASONS
+    assert [row[0].strip("`") for row in rows[:-1]] == list(mapped)
+    for reason, target in ((row[0].strip("`"), row[1]) for row in rows[:-1]):
+        outcome = mapped[reason]
+        code = outcome.value if isinstance(outcome, StopReason) else outcome.code.value
+        assert target.startswith(f"`{code}`"), reason
+
+
+def test_documented_responses_statuses_match_the_adapter():
+    rows = table_rows(PROVIDERS_DOC, "| `status` | `incomplete_details.reason` | Maps to")
+    mapped = openai_provider._STATUSES
+    documented = [
+        (status.strip("`"), None if reason == "none" else reason.strip("`"))
+        for status, reason in (row[:2] for row in rows[:-1])
+    ]
+    assert documented == list(mapped)
+    for key, target in zip(documented, (row[2] for row in rows[:-1]), strict=True):
+        outcome = mapped[key]
+        code = outcome.value if isinstance(outcome, StopReason) else outcome.code.value
+        assert f"`{code}`" in target, key
+
+
 def test_documented_anthropic_failures_match_the_adapter():
     rows = table_rows(PROVIDERS_DOC, "| SDK exception | Status")
     documented = {row[0].strip("`"): row[2].strip("`") for row in rows}
@@ -249,8 +284,16 @@ def test_documented_anthropic_failures_match_the_adapter():
         cls.__name__: error.code.value for cls, error in anthropic_provider.SDK_ERRORS.items()
     }
     text = " ".join(PROVIDERS_DOC.read_text(encoding="utf-8").split())
-    assert f"`RETRY_BACKOFF_SECONDS` ({anthropic_provider.RETRY_BACKOFF_SECONDS:g})" in text
-    assert f"`MAX_RETRY_WAIT_SECONDS` ({anthropic_provider.MAX_RETRY_WAIT_SECONDS:g})" in text
+    assert f"`RETRY_BACKOFF_SECONDS` ({adapters.RETRY_BACKOFF_SECONDS:g})" in text
+    assert f"`MAX_RETRY_WAIT_SECONDS` ({adapters.MAX_RETRY_WAIT_SECONDS:g})" in text
+
+
+def test_documented_openai_failures_match_the_adapter():
+    rows = table_rows(PROVIDERS_DOC, "| `openai` exception | Status")
+    documented = {row[0].strip("`"): row[2].strip("`") for row in rows}
+    assert documented == {
+        cls.__name__: error.code.value for cls, error in openai_provider.SDK_ERRORS.items()
+    }
 
 
 def test_documented_request_limits_match_the_model():
@@ -295,10 +338,14 @@ def test_the_readme_links_the_provider_contracts_without_claiming_real_providers
     text = README.read_text(encoding="utf-8")
     assert "docs/assistant-providers.md" in text
     assert "docs/assistant-providers.md#anthropic-adapter" in text
-    for claim in ("OpenAI-compatible adapter is implemented", "Bedrock adapter is implemented"):
-        assert claim not in text
+    assert "docs/assistant-providers.md#openai-compatible-adapter" in text
+    assert "Bedrock adapter is implemented" not in text
+    # Every adapter that exists answers; none is described as built but silent.
+    assert "does not answer" not in text
+    # The phase row lists the adapter as a finished step.
+    assert "#openai-compatible-adapter) (step 41) |" in text
     provider_doc = PROVIDERS_DOC.read_text(encoding="utf-8")
-    assert "the other kinds have no adapter yet" in " ".join(provider_doc.split())
+    assert "`bedrock` has no adapter yet" in " ".join(provider_doc.split())
 
 
 # ---- assistant tools ---------------------------------------------------------------
@@ -512,9 +559,7 @@ def test_the_readme_links_answers_without_claiming_rendering():
     assert "docs/assistant-answers.md" in text
     for claim in ("answers are rendered", "repair is implemented"):
         assert claim not in text
-    assert "the other real providers are later steps" in " ".join(
-        ANSWERS_DOC.read_text(encoding="utf-8").split()
-    )
+    assert "Bedrock is a later step" in " ".join(ANSWERS_DOC.read_text(encoding="utf-8").split())
 
 
 # ---- ask command -------------------------------------------------------------------

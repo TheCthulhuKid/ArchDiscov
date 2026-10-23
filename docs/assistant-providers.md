@@ -3,8 +3,10 @@
 This page describes the provider-neutral layer under `src/archdiscov/assistant/`: the
 conversation and tool-call contracts, provider errors and capabilities, the `Provider`
 protocol, provider configuration, and the scripted fake provider used to test everything
-above it. The `ask` command builds its provider from a configuration file: the fake or the
-[Anthropic adapter](#anthropic-adapter); the other kinds have no adapter yet. The
+above it. The `ask` command builds its provider from a configuration file: the fake, the
+[Anthropic adapter](#anthropic-adapter), or the
+[OpenAI-compatible adapter](#openai-compatible-adapter), which answers through Responses
+or Chat Completions; `bedrock` has no adapter yet. The
 [assistant tools](assistant-tools.md), [orchestration](assistant-orchestration.md), and
 [answers](assistant-answers.md) build on this layer. Only an adapter module imports a
 vendor SDK, and only when its kind is built.
@@ -91,6 +93,9 @@ tools or its conversation already contains tool calls or results, and
 `complete` and `complete_async` run `check_capabilities` first, so a request needing an
 unsupported capability fails with `provider_unsupported_capability` before any provider
 call, rather than being degraded silently. No request requires `structured_output` yet.
+An adapter that cannot ask its API what a model supports, such as the
+[OpenAI-compatible adapter](#openai-compatible-adapter), declares what its configuration
+says.
 
 ### Errors and the retry boundary
 
@@ -122,8 +127,8 @@ answer renderer in a later step.
 `assistant/config.py` loads a TOML file of at most 64 KiB (`MAX_CONFIG_BYTES`) with
 `load_provider_config(path)`, or validates data with `parse_provider_config`. The file
 is one table selected by `kind`. The `ask` command reads it with `--config`;
-the fake and `anthropic` have adapters, and the other kinds define the configuration their
-adapters will use.
+the fake, `anthropic`, and `openai_compatible` have adapters, and `bedrock` defines the
+configuration its adapter will use.
 
 ```toml
 kind = "anthropic"
@@ -151,6 +156,8 @@ request_timeout_seconds = 30
 | `endpoint` | `anthropic` | none | HTTPS URL |
 | `endpoint` | `openai_compatible` | required | HTTPS URL |
 | `protocol` | `openai_compatible` | required | `responses`, `chat_completions` |
+| `capabilities` | `openai_compatible` | `tool_calling` | a list of `tool_calling`, `parallel_tool_calls` (which requires `tool_calling`), `structured_output` |
+| `encrypted_reasoning` | `openai_compatible` | `false` | `true` or `false`; `true` requires `protocol = "responses"` |
 | `profile` | `bedrock` | required | AWS profile name |
 | `region` | `bedrock` | required | a concrete AWS region, not `global` |
 | `role_arn` | `bedrock` | none | IAM role ARN |
@@ -173,8 +180,9 @@ against the file's directory.
   build fails with `provider_transcript_missing`, and an unreadable or invalid transcript
   fails with the fake's own error codes.
 - `anthropic` builds the [Anthropic adapter](#anthropic-adapter).
-- A kind without an adapter (`openai_compatible` and `bedrock`) fails with
-  `provider_adapter_unavailable`, before its credential is read or any request is made.
+- `openai_compatible` builds the [OpenAI-compatible adapter](#openai-compatible-adapter).
+- A kind without an adapter (`bedrock`) fails with `provider_adapter_unavailable`, before
+  its credential is read or any request is made.
 
 Errors name the file and the kind, never the configuration's values or credentials.
 
@@ -196,7 +204,10 @@ receives `POST {endpoint}/v1/messages` with the key as `Authorization: Bearer`, 
 SDK sends in place of `x-api-key`, so a gateway that accepts only `x-api-key` is not
 supported. Plain HTTP is accepted only for loopback hosts, such as a local mock server.
 
-The client comes only from the configuration:
+The client comes only from the configuration. The guarded clients, logger quieting, retry
+loop, and the response rules every protocol shares live in `assistant/adapters.py`, which
+imports no vendor SDK, so each adapter supplies only its SDK's header names, exception
+table, and mapping:
 
 - The key from `api_key_env` and the base URL (`endpoint`, the API root without `/v1`, or
   `https://api.anthropic.com`) are passed explicitly, so the SDK's own environment
@@ -296,7 +307,200 @@ tokens, so run it only on purpose:
 ```sh
 ARCHDISCOV_LIVE_ANTHROPIC_KEY_ENV=ANTHROPIC_API_KEY \
 ARCHDISCOV_LIVE_ANTHROPIC_MODEL=claude-sonnet-5-5 \
-.venv/bin/python -m pytest -m live tests/live
+.venv/bin/python -m pytest -m live tests/live/test_anthropic_live.py
+```
+
+Both live tests share `tests/support/live.py`, which writes the capped configuration and
+checks the run.
+
+### OpenAI-compatible adapter
+
+`assistant/openai_provider.py` is the only module that imports the `openai` SDK, and
+`ADAPTERS` imports it only when an `openai_compatible` configuration is built. One adapter
+serves OpenAI and compatible servers (gateways and local model servers) through either
+protocol, [Responses](#responses) or [Chat Completions](#chat-completions), each a
+request-body and response function behind one table keyed by protocol, so the orchestrator
+cannot tell them apart. Building it makes no request. Failures and retries are shared by
+both protocols, as described under [OpenAI-compatible failures](#openai-compatible-failures).
+
+```toml
+kind = "openai_compatible"
+model = "gpt-5"
+api_key_env = "OPENAI_API_KEY"
+endpoint = "https://api.openai.com/v1"   # required: the API root, including any /v1
+protocol = "responses"                    # or "chat_completions"; never guessed
+capabilities = ["tool_calling", "parallel_tool_calls"]
+encrypted_reasoning = true                # responses only: replay a reasoning model's reasoning
+```
+
+Nothing is guessed. `endpoint` and `protocol` are required, and requests go to
+`{endpoint}/responses` or `{endpoint}/chat/completions`. A compatible server cannot be
+asked what its model supports, so `capabilities` declares it: tool calling by default, and
+parallel tool calls only when listed, because some servers reject `parallel_tool_calls`.
+`ask` always offers tools, so a configuration that does not declare `tool_calling`, for a
+model without function calling, fails with `provider_unsupported_capability` before any
+request, and one that allows more than one call per turn without declaring
+`parallel_tool_calls` fails the same way.
+
+`endpoint` is the API root including any version path, such as
+`https://api.openai.com/v1`, a gateway's root, or a local model server's. Every request
+carries the key as `Authorization: Bearer`, and no other credential header, so a gateway
+that expects its key elsewhere is not supported. Plain HTTP is accepted only for loopback
+hosts, such as a local model server or a mock API:
+
+```toml
+kind = "openai_compatible"
+model = "llama3.1"
+api_key_env = "LOCAL_LLM_KEY"     # still required; any non-blank value if the server ignores it
+endpoint = "http://localhost:11434/v1"
+protocol = "chat_completions"
+```
+
+The client comes only from the configuration, through the same shared guarded clients as
+the Anthropic adapter:
+
+- The key from `api_key_env` and the `endpoint` are passed explicitly, so `OPENAI_API_KEY`
+  and `OPENAI_BASE_URL` are never used.
+- Every request passes through a transport that keeps only the SDK's own headers and then
+  sets the configured key as `Authorization: Bearer`, so `OPENAI_ORG_ID`,
+  `OPENAI_PROJECT_ID`, `OPENAI_CUSTOM_HEADERS`, and `OPENAI_ADMIN_KEY` cannot add headers
+  or replace the credential. Workload identity is never configured, and a client with its
+  own transport uses no environment proxy.
+- Redirects are not followed, the SDK's own retries are off (`max_retries = 0`), and the
+  timeouts are `connect_timeout_seconds` and `request_timeout_seconds`.
+- The `openai` and `httpx2` loggers are held at `WARNING` whatever `OPENAI_LOG` or the root
+  level says, because their debug records hold request bodies.
+
+#### Chat Completions
+
+With `protocol = "chat_completions"`, each request becomes one `chat.completions.create`
+call, holding only fields the protocol defines:
+
+- System and user messages become `system` and `user` messages, in order. An assistant
+  message becomes an `assistant` message with its text as `content` (left out when there is
+  none) and its calls as `function` tool calls whose arguments are compact JSON text; a call
+  with malformed arguments, which never ran, is replayed as `{}`. Each tool result becomes
+  its own `tool` message with its `tool_call_id`; the protocol has no error flag, so a
+  failed tool's content says so itself.
+- Tools become `function` declarations with `name`, `description`, and `parameters`, with
+  `tool_choice` `auto`. `parallel_tool_calls` is sent only when `parallel_tool_calls` is
+  declared, set to whether `max_tool_calls_per_turn` exceeds 1. `max_completion_tokens` is
+  `max_output_tokens`, and the request's timeout is passed with it.
+- No sampling parameters, `n`, or streaming are sent; the model's defaults apply. Both
+  protocols send the same tool choice and parallel-calls field.
+
+The response is untrusted. It must hold exactly one choice; several or none are
+`provider_malformed_output`. The message's `content` is the text, and its `function` tool
+calls become tool calls through the shared argument parsing, so invalid JSON and
+non-object arguments are malformed-arguments values; any other tool-call type, or a
+response that does not fit the contracts, is `provider_malformed_output`. A non-empty
+`refusal` field is the `refusal` stop with its text, whatever the finish reason. Usage maps
+`prompt_tokens` (which include cached tokens), `completion_tokens`, and
+`prompt_tokens_details` `cached_tokens` and `cache_write_tokens` as cache read and write.
+
+| `finish_reason` | Maps to |
+|---|---|
+| `stop` | `end` |
+| `tool_calls` | `tool_use` |
+| `length` | `length` for text alone; otherwise `provider_truncated_output` |
+| `content_filter` | `provider_refusal` |
+| any other, such as `function_call` | `provider_malformed_output` |
+
+Chat Completions returns no reasoning to replay, so it never sets a continuation, and a
+conversation holding one, from any provider kind, is refused as `provider_invalid_request`
+before anything is sent.
+
+#### Responses
+
+With `protocol = "responses"`, each request becomes one stateless `responses.create` call:
+`store` is false and no `previous_response_id` is sent, so the whole conversation goes as
+`input` every time.
+
+- System and user messages become `message` input items with role `system` or `user`. An
+  assistant message that carries a continuation is replayed as its continuation's output
+  items, unchanged and in order; otherwise it becomes an `assistant` message item (when it
+  has text) followed by a `function_call` item per call, with its `call_id` and compact
+  JSON arguments (`{}` for malformed ones). Each tool result becomes a
+  `function_call_output` item with its `call_id`; as in Chat Completions there is no error
+  flag.
+- Tools become `function` tools with `name`, `description`, `parameters`, and `strict`
+  false, since Responses otherwise makes functions strict, which needs schemas the tool
+  contracts do not require. `tool_choice` and `parallel_tool_calls` are as for Chat
+  Completions, and `max_output_tokens` is `max_output_tokens`.
+- `include` holds `reasoning.encrypted_content` only when `encrypted_reasoning` is true.
+
+A stateless reasoning model needs its reasoning back with its function calls, and only the
+encrypted content can carry it, since nothing is stored. The official guidance could not
+be checked for whether asking for it is safe with models and servers that do not reason,
+and compatible servers need not know the field, so it is a declared choice, off by default,
+and valid only with `protocol = "responses"` (otherwise
+`provider_config_reasoning_protocol`). Turn it on for OpenAI reasoning models.
+
+The response is untrusted. Its `output` items are read in order: `message` items give their
+`output_text` parts as text and their `refusal` parts as a refusal, `function_call` items
+become tool calls (by `call_id`) through the shared argument parsing, and `reasoning`
+items are kept for replay; any other item or part type, such as a server tool call, is
+`provider_malformed_output`, as is a response that does not fit the contracts. A refusal
+part is the `refusal` stop with its text, whatever the status. Usage maps `input_tokens`
+(which include cached tokens), `output_tokens`, and `input_tokens_details` `cached_tokens`
+and `cache_write_tokens` as cache read and write.
+
+| `status` | `incomplete_details.reason` | Maps to |
+|---|---|---|
+| `completed` | none | `end`, or `tool_use` when it holds function calls |
+| `incomplete` | `max_output_tokens` | `length` for text alone; otherwise `provider_truncated_output` |
+| `incomplete` | `content_filter` | `provider_refusal` |
+| any other, such as `failed` | any | `provider_malformed_output` |
+
+A response holding a `reasoning` item with encrypted content keeps its whole output, in
+order, as an `openai_compatible` continuation, and the next request replays that output
+verbatim, as the Anthropic adapter does with thinking blocks. Reasoning without encrypted
+content cannot be replayed to a server that stores nothing, so such a response is rebuilt
+from its text and calls without it. A continuation from another provider kind is refused
+as `provider_invalid_request` before anything is sent.
+
+#### OpenAI-compatible failures
+
+Failures map as for the Anthropic adapter, by the SDK's exception class through the class
+hierarchy and never by message text, with a fixed message and no provider text. The SDK
+never raises its own finish-reason errors, because only `create` is called, never its
+parsing helpers.
+
+| `openai` exception | Status | Provider error |
+|---|---|---|
+| `BadRequestError` | 400 | `provider_invalid_request` |
+| `NotFoundError` | 404, such as an unknown model | `provider_invalid_request` |
+| `ConflictError` | 409 | `provider_invalid_request` |
+| `UnprocessableEntityError` | 422 | `provider_invalid_request` |
+| `AuthenticationError` | 401 | `provider_authentication` |
+| `PermissionDeniedError` | 403 | `provider_authentication` |
+| `RateLimitError` | 429 | `provider_rate_limit` |
+| `InternalServerError` | any 5xx | `provider_unavailable` |
+| `APIStatusError` | any other status, such as 413 or a redirect | `provider_invalid_request` |
+| `APITimeoutError` | none: the request timed out | `provider_timeout` |
+| `APIConnectionError` | none: the API could not be reached | `provider_transport` |
+| `APIResponseValidationError` | a response that does not fit the SDK | `provider_malformed_output` |
+| `JSONDecodeError` | a success body that is not JSON | `provider_malformed_output` |
+| `APIError` | any other SDK failure | `provider_unavailable` |
+
+Retries, waits, and `retry-after` use the same shared loop and constants as the
+[Anthropic adapter](#failures-and-retries): only transport and rate-limit errors are
+retried, up to `max_retries`, and a timeout never is.
+
+#### OpenAI-compatible live smoke tests
+
+`tests/live/test_openai_live.py` asks the same README question, with the same caps, once
+per protocol. It is marked `live` and skips unless variables name the key variable, the
+endpoint, and the model, and list the protocols to run; a protocol the list leaves out
+skips with its reason. `ARCHDISCOV_LIVE_OPENAI_ENCRYPTED_REASONING=1` declares
+`encrypted_reasoning` for the Responses run. Run it only on purpose:
+
+```sh
+ARCHDISCOV_LIVE_OPENAI_KEY_ENV=OPENAI_API_KEY \
+ARCHDISCOV_LIVE_OPENAI_ENDPOINT=https://api.openai.com/v1 \
+ARCHDISCOV_LIVE_OPENAI_MODEL=gpt-5 \
+ARCHDISCOV_LIVE_OPENAI_PROTOCOLS=responses,chat_completions \
+.venv/bin/python -m pytest -m live tests/live/test_openai_live.py
 ```
 
 ### Credentials
@@ -377,6 +581,8 @@ Example transcripts are in `tests/fixtures/assistant/`. The shared contract suit
 retry, and timeout cases. The orchestration and answer-service suites and the README example
 questions run through every harness too, and check that each adapter reaches the same run
 and answer as the fake from the same turns; the Anthropic harness serves them from a mocked
-Messages API. Two orchestration cases are the fake's alone: a response arriving after the
+Messages API. An adapter's harness subclasses `MockedHarness`, giving its protocol's response
+body and how its API shows each scripted error; the mocked transport, scripted failures, and
+the loopback server for installed-command tests are in `tests/support/mock_api.py`. Two orchestration cases are the fake's alone: a response arriving after the
 provider's own timeout, which an HTTP client cannot receive, and another provider's
 continuation, since an adapter marks its own.

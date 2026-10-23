@@ -187,6 +187,10 @@ SAFE_VALIDATION_MESSAGES = MappingProxyType(
         "provider_config_region_invalid": (
             "Provider configuration constraint failed: region must be a concrete AWS region."
         ),
+        "provider_config_reasoning_protocol": (
+            "Provider configuration constraint failed: encrypted reasoning needs the "
+            "responses protocol."
+        ),
     }
 )
 

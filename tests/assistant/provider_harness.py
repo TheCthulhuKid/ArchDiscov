@@ -8,33 +8,68 @@ harness that turns them into mocked transport responses for its mapping layer. A
 so runs that depend on deadlines behave alike under every harness.
 """
 
-from collections.abc import Callable, Sequence
-from typing import Any, Protocol
+import json
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any, ClassVar, Protocol
 
 import httpx2
 from anthropic.types import Message, TextBlock, ToolUseBlock, Usage
+from openai.types import CompletionUsage
+from openai.types.chat import (
+    ChatCompletion,
+    ChatCompletionMessage,
+    ChatCompletionMessageFunctionToolCall,
+)
+from openai.types.chat.chat_completion import Choice
+from openai.types.chat.chat_completion_message_function_tool_call import Function
+from openai.types.completion_usage import PromptTokensDetails
+from openai.types.responses import (
+    Response,
+    ResponseFunctionToolCall,
+    ResponseOutputMessage,
+    ResponseOutputRefusal,
+    ResponseOutputText,
+    ResponseUsage,
+)
+from openai.types.responses.response import IncompleteDetails
+from openai.types.responses.response_usage import InputTokensDetails
 from pydantic import SecretStr
 
 from archdiscov.assistant.anthropic_provider import AnthropicProvider
-from archdiscov.assistant.config import parse_provider_config
+from archdiscov.assistant.config import OpenAIProtocol, parse_provider_config
 from archdiscov.assistant.conversation import (
     MAX_TOOL_ARGUMENT_BYTES,
     MalformedArgumentsReason,
     ParsedToolArguments,
+    TokenUsage,
     ToolArguments,
 )
 from archdiscov.assistant.fake import FakeClock, FakeProvider, FakeRespond, FakeTranscript
+from archdiscov.assistant.openai_provider import OpenAIProvider
 from archdiscov.assistant.provider import (
+    CompletionRequest,
     CompletionResponse,
     Provider,
     ProviderCapabilities,
     ProviderErrorCode,
     StopReason,
 )
+from tests.support.mock_api import (
+    DelayedResponse,
+    MockApi,
+    Served,
+    no_wait,
+    no_wait_async,
+    status_failure,
+    transport_failure,
+    unparseable_body,
+)
 
 
 class ProviderHarness(Protocol):
     name: str
+    # Tells harnesses of one provider kind apart in test IDs.
+    label: str
 
     def build(
         self,
@@ -49,7 +84,7 @@ class ProviderHarness(Protocol):
 
 
 class FakeHarness:
-    name = "fake"
+    name = label = "fake"
 
     def build(
         self,
@@ -73,39 +108,7 @@ class FakeHarness:
         return len(provider.requests)
 
 
-type Served = httpx2.Response | Exception | Callable[[httpx2.Request], httpx2.Response]
-
-
-class MockApi(httpx2.MockTransport):
-    """A mocked API: answers each request with the next response, and keeps the requests.
-
-    A response may be a function of the request, or an exception, raised as the transport
-    would. A `DelayedResponse` advances `clock` by its delay, up to the request's read
-    timeout, and a delay beyond that timeout is a read timeout.
-    """
-
-    def __init__(self, responses: Sequence[Served], clock: FakeClock | None = None) -> None:
-        self.requests: list[httpx2.Request] = []
-        self._responses = list(responses)
-        self._clock = clock
-        super().__init__(self._handle)
-
-    def _handle(self, request: httpx2.Request) -> httpx2.Response:
-        self.requests.append(request)
-        response = self._responses.pop(0)
-        if callable(response):
-            response = response(request)
-        if isinstance(response, Exception):
-            raise response
-        delay, timeout = getattr(response, "delay", 0.0), request.extensions["timeout"]["read"]
-        if self._clock is not None:
-            self._clock.sleep(min(delay, timeout))
-        if delay > timeout:
-            raise httpx2.ReadTimeout("scripted delay", request=request)
-        return response
-
-
-ANTHROPIC_KEY = SecretStr("sk-ant-api03-HARNESSkey0123456789abcdefXYZ")
+HARNESS_KEY = SecretStr("sk-proj-HARNESSkey0123456789abcdefXYZ")
 _API_STOP_REASONS = {
     StopReason.END: "end_turn",
     StopReason.TOOL_USE: "tool_use",
@@ -161,80 +164,62 @@ def messages_body(response: CompletionResponse) -> dict[str, Any]:
     ).model_dump(mode="json", exclude_unset=True, warnings=False)
 
 
-class DelayedResponse(httpx2.Response):
-    """A response the API sends after `delay` seconds, without waiting in the test."""
+def _mocked(api: MockApi) -> dict[str, Any]:
+    """An adapter's options for a mocked API whose retries do not wait."""
+    return {
+        "transport": api,
+        "async_transport": api,
+        "sleep": no_wait,
+        "async_sleep": no_wait_async,
+    }
 
-    def __init__(self, delay: float, **kwargs: Any) -> None:
-        super().__init__(200, **kwargs)
-        self.delay = delay
 
+class ScopedProvider:
+    """A provider with scripted capabilities, for the capability cases of the suite."""
 
-class _ScopedAnthropicProvider(AnthropicProvider):
-    """The adapter with scripted capabilities, for the capability cases of the suite."""
-
-    def __init__(self, *args: Any, capabilities: ProviderCapabilities, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(self, provider: Provider, capabilities: ProviderCapabilities) -> None:
+        self._provider = provider
         self._capabilities = capabilities
 
     @property
     def capabilities(self) -> ProviderCapabilities:
         return self._capabilities
 
+    def complete(self, request: CompletionRequest) -> CompletionResponse:
+        return self._provider.complete(request)
 
-def _status(status: int, error_type: str) -> Callable[[httpx2.Request], httpx2.Response]:
-    """An API error whose message echoes the request, so a leak of it would show."""
-
-    def respond(request: httpx2.Request) -> httpx2.Response:
-        error = {"type": error_type, "message": f"Rejected: {request.content.decode()}"}
-        return httpx2.Response(status, json={"type": "error", "error": error})
-
-    return respond
+    async def complete_async(self, request: CompletionRequest) -> CompletionResponse:
+        return await self._provider.complete_async(request)
 
 
-def _transport(error: type[httpx2.TransportError]) -> Callable[[httpx2.Request], Exception]:
-    return lambda request: error("scripted transport failure", request=request)
+class MockedHarness:
+    """An adapter over a mocked API that serves fake turns in its protocol's shape.
 
+    A subclass names the provider kind, builds the protocol's response `body`, shows each
+    scripted provider error as the API would (`failures`), gives its provider
+    `configuration`, and `construct`s its adapter from a configuration, key, and API.
+    """
 
-def _cut_short(stop: str) -> Callable[[httpx2.Request], httpx2.Response]:
-    return lambda request: httpx2.Response(
-        200, json={**messages_body(_EMPTY), "content": [], "stop_reason": stop}
-    )
-
-
-_EMPTY = CompletionResponse.model_validate(
-    {"message": {"role": "assistant", "text": "-"}, "stop_reason": "end"}
-)
-# How the Messages API shows each scripted provider error.
-_FAILURES: dict[ProviderErrorCode, Callable[[httpx2.Request], Any]] = {
-    ProviderErrorCode.AUTHENTICATION: _status(401, "authentication_error"),
-    ProviderErrorCode.RATE_LIMIT: _status(429, "rate_limit_error"),
-    ProviderErrorCode.TIMEOUT: _transport(httpx2.ReadTimeout),
-    ProviderErrorCode.TRANSPORT: _transport(httpx2.ConnectError),
-    ProviderErrorCode.INVALID_REQUEST: _status(400, "invalid_request_error"),
-    ProviderErrorCode.MALFORMED_OUTPUT: lambda request: httpx2.Response(
-        200, content=b"{not json", headers={"content-type": "application/json"}
-    ),
-    ProviderErrorCode.TRUNCATED_OUTPUT: _cut_short("max_tokens"),
-    ProviderErrorCode.REFUSAL: _cut_short("refusal"),
-    ProviderErrorCode.UNAVAILABLE: _status(503, "api_error"),
-}
-
-
-def _no_wait(seconds: float) -> None:
-    """Retries in the suite do not wait; the adapter tests check the waits."""
-
-
-async def _no_wait_async(seconds: float) -> None:
-    """Retries in the suite do not wait; the adapter tests check the waits."""
-
-
-class AnthropicHarness:
-    """The Anthropic adapter over a mocked Messages API that serves the scripted turns."""
-
-    name = "anthropic"
+    name: ClassVar[str]
+    failures: ClassVar[Mapping[ProviderErrorCode, Served]]
 
     def __init__(self) -> None:
         self._apis: dict[Provider, MockApi] = {}
+
+    @property
+    def label(self) -> str:
+        return self.name
+
+    @staticmethod
+    def body(response: CompletionResponse) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def configuration(self, api_key_env: str) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def construct(self, config: Any, api_key: SecretStr, api: MockApi) -> Provider:
+        """The adapter over `api`, retrying without waiting."""
+        raise NotImplementedError
 
     def build(
         self,
@@ -246,43 +231,271 @@ class AnthropicHarness:
     ) -> Provider:
         api = self.api(turns, clock)
         config = parse_provider_config(
-            {
-                "kind": "anthropic",
-                "model": "claude-sonnet-5-5",
-                "api_key_env": "ANTHROPIC_API_KEY",
-                "max_retries": max_retries,
-            }
+            {**self.configuration("PROVIDER_API_KEY"), "max_retries": max_retries}
         )
-        options: dict[str, Any] = {
-            "transport": api,
-            "async_transport": api,
-            "sleep": _no_wait,
-            "async_sleep": _no_wait_async,
-        }
-        provider = (
-            AnthropicProvider(config, ANTHROPIC_KEY, **options)
-            if capabilities is None
-            else _ScopedAnthropicProvider(
-                config, ANTHROPIC_KEY, capabilities=capabilities, **options
-            )
-        )
+        provider = self.construct(config, HARNESS_KEY, api)
+        if capabilities is not None:
+            provider = ScopedProvider(provider, capabilities)
         self._apis[provider] = api
         return provider
 
     @classmethod
     def api(cls, turns: Sequence[dict[str, Any]], clock: FakeClock | None = None) -> MockApi:
-        """A mocked Messages API that serves the turns, for callers that build the adapter."""
+        """A mocked API that serves the turns, for callers that build the adapter."""
         transcript = FakeTranscript.model_validate({"turns": list(turns)})
         return MockApi([cls._served(turn) for turn in transcript.turns], clock)
 
-    @staticmethod
-    def _served(turn: Any) -> Served:
+    @classmethod
+    def _served(cls, turn: Any) -> Served:
         if isinstance(turn, FakeRespond):
-            return DelayedResponse(turn.delay_seconds, json=messages_body(turn.response))
-        return _FAILURES[turn.error]
+            return DelayedResponse(turn.delay_seconds, json=cls.body(turn.response))
+        return cls.failures[turn.error]
 
     def attempts(self, provider: Provider) -> int:
         return len(self._apis[provider].requests)
 
 
-HARNESSES: list[ProviderHarness] = [FakeHarness(), AnthropicHarness()]
+def _anthropic_error(status: int, error_type: str) -> Served:
+    return status_failure(
+        status, lambda message: {"type": "error", "error": {"type": error_type, "message": message}}
+    )
+
+
+def _cut_short(stop: str) -> Callable[[httpx2.Request], httpx2.Response]:
+    return lambda request: httpx2.Response(
+        200, json={**messages_body(_EMPTY), "content": [], "stop_reason": stop}
+    )
+
+
+_EMPTY = CompletionResponse.model_validate(
+    {"message": {"role": "assistant", "text": "-"}, "stop_reason": "end"}
+)
+
+
+class AnthropicHarness(MockedHarness):
+    """The Anthropic adapter over a mocked Messages API that serves the scripted turns."""
+
+    name = "anthropic"
+    # How the Messages API shows each scripted provider error.
+    failures = {
+        ProviderErrorCode.AUTHENTICATION: _anthropic_error(401, "authentication_error"),
+        ProviderErrorCode.RATE_LIMIT: _anthropic_error(429, "rate_limit_error"),
+        ProviderErrorCode.TIMEOUT: transport_failure(httpx2.ReadTimeout),
+        ProviderErrorCode.TRANSPORT: transport_failure(httpx2.ConnectError),
+        ProviderErrorCode.INVALID_REQUEST: _anthropic_error(400, "invalid_request_error"),
+        ProviderErrorCode.MALFORMED_OUTPUT: unparseable_body,
+        ProviderErrorCode.TRUNCATED_OUTPUT: _cut_short("max_tokens"),
+        ProviderErrorCode.REFUSAL: _cut_short("refusal"),
+        ProviderErrorCode.UNAVAILABLE: _anthropic_error(503, "api_error"),
+    }
+    body = staticmethod(messages_body)
+
+    def configuration(self, api_key_env: str) -> dict[str, Any]:
+        return {"kind": "anthropic", "model": "claude-sonnet-5-5", "api_key_env": api_key_env}
+
+    def construct(self, config: Any, api_key: SecretStr, api: MockApi) -> Provider:
+        return AnthropicProvider(config, api_key, **_mocked(api))
+
+
+_FINISH_REASONS = {
+    StopReason.END: "stop",
+    StopReason.TOOL_USE: "tool_calls",
+    StopReason.LENGTH: "length",
+    # A refusal is the message's `refusal` field, whatever the finish reason.
+    StopReason.REFUSAL: "stop",
+}
+# Chat Completions arguments text that maps back to each malformed reason.
+_MALFORMED_ARGUMENTS: dict[MalformedArgumentsReason, str] = {
+    MalformedArgumentsReason.INVALID_JSON: "{not json",
+    MalformedArgumentsReason.NOT_OBJECT: "[]",
+    MalformedArgumentsReason.TOO_LARGE: json.dumps({"padding": "x" * MAX_TOOL_ARGUMENT_BYTES}),
+}
+
+
+def _arguments_text(arguments: ToolArguments) -> str:
+    if isinstance(arguments, ParsedToolArguments):
+        return json.dumps(arguments.value)
+    return _MALFORMED_ARGUMENTS[arguments.reason]
+
+
+def _usage(
+    usage: TokenUsage, usage_type: type, details_type: type, input_name: str, output_name: str
+) -> Any:
+    """The protocol's usage object for `usage`, holding only the reported counts."""
+    if usage == TokenUsage():
+        return None
+    details = {
+        "cached_tokens": usage.cache_read_input_tokens,
+        "cache_write_tokens": usage.cache_write_input_tokens,
+    }
+    return usage_type.model_construct(
+        **{
+            f"{input_name}_tokens": usage.input_tokens,
+            f"{output_name}_tokens": usage.output_tokens,
+            f"{input_name}_tokens_details": details_type.model_construct(
+                **{k: v for k, v in details.items() if v is not None}
+            ),
+        }
+    )
+
+
+def chat_completion_body(response: CompletionResponse) -> dict[str, Any]:
+    """The Chat Completions body that the OpenAI-compatible adapter maps back to `response`."""
+    message = response.message
+    if message.continuation is not None:
+        raise ValueError("Chat Completions returns no continuations")
+    refused = response.stop_reason == StopReason.REFUSAL
+    fields: dict[str, Any] = {"role": "assistant", "content": None if refused else message.text}
+    if refused:
+        fields["refusal"] = message.text
+    if message.tool_calls:
+        fields["tool_calls"] = [
+            ChatCompletionMessageFunctionToolCall(
+                type="function",
+                id=call.id,
+                function=Function(name=call.name, arguments=_arguments_text(call.arguments)),
+            )
+            for call in message.tool_calls
+        ]
+    choice = Choice.model_construct(
+        index=0,
+        finish_reason=_FINISH_REASONS[response.stop_reason],
+        message=ChatCompletionMessage.model_construct(**fields),
+    )
+    body = ChatCompletion.model_construct(
+        id="chatcmpl_harness",
+        object="chat.completion",
+        created=0,
+        model="gpt-5",
+        choices=[choice],
+    )
+    body.usage = _usage(
+        response.usage, CompletionUsage, PromptTokensDetails, "prompt", "completion"
+    )
+    return body.model_dump(mode="json", exclude_unset=True)
+
+
+def _openai_error(status: int, error_type: str) -> Served:
+    return status_failure(
+        status, lambda message: {"error": {"message": message, "type": error_type, "code": None}}
+    )
+
+
+def responses_body(response: CompletionResponse) -> dict[str, Any]:
+    """The Responses body that the OpenAI-compatible adapter maps back to `response`."""
+    message = response.message
+    if message.continuation is not None:
+        if message.continuation.provider_kind != "openai_compatible":
+            raise ValueError("the Responses API returns only its own continuations")
+        output: list[Any] = list(message.continuation.blocks)
+    else:
+        output = [] if message.text is None else [_output_message(response)]
+        output += [
+            ResponseFunctionToolCall.model_construct(
+                type="function_call",
+                id=f"fc_{call.id}",
+                call_id=call.id,
+                name=call.name,
+                arguments=_arguments_text(call.arguments),
+            )
+            for call in message.tool_calls
+        ]
+    body = Response.model_construct(
+        id="resp_harness", object="response", created_at=0, model="gpt-5", output=output
+    )
+    if response.stop_reason == StopReason.LENGTH:
+        body.status = "incomplete"
+        body.incomplete_details = IncompleteDetails(reason="max_output_tokens")
+    else:
+        body.status = "completed"
+    body.usage = _usage(response.usage, ResponseUsage, InputTokensDetails, "input", "output")
+    # Malformed arguments and verbatim output break the SDK's types on purpose.
+    return body.model_dump(mode="json", exclude_unset=True, warnings=False)
+
+
+def _output_message(response: CompletionResponse) -> ResponseOutputMessage:
+    """The message item, its text an `output_text` part or, for a refusal, a `refusal` one."""
+    text = response.message.text
+    part: Any = (
+        ResponseOutputRefusal(type="refusal", refusal=text)
+        if response.stop_reason == StopReason.REFUSAL
+        else ResponseOutputText(type="output_text", text=text, annotations=[])
+    )
+    return ResponseOutputMessage(
+        type="message", id="msg_harness", role="assistant", status="completed", content=[part]
+    )
+
+
+def _finished(reason: str) -> Callable[[httpx2.Request], httpx2.Response]:
+    body = chat_completion_body(_EMPTY)
+    choice = {**body["choices"][0], "finish_reason": reason, "message": {"role": "assistant"}}
+    return lambda request: httpx2.Response(200, json={**body, "choices": [choice]})
+
+
+def _incomplete(reason: str) -> Callable[[httpx2.Request], httpx2.Response]:
+    body = {
+        **responses_body(_EMPTY),
+        "status": "incomplete",
+        "incomplete_details": {"reason": reason},
+        "output": [],
+    }
+    return lambda request: httpx2.Response(200, json=body)
+
+
+def _openai_failures(truncated: Served, refused: Served) -> dict[ProviderErrorCode, Served]:
+    """How an OpenAI-compatible API shows each scripted provider error."""
+    return {
+        ProviderErrorCode.AUTHENTICATION: _openai_error(401, "invalid_request_error"),
+        ProviderErrorCode.RATE_LIMIT: _openai_error(429, "requests"),
+        ProviderErrorCode.TIMEOUT: transport_failure(httpx2.ReadTimeout),
+        ProviderErrorCode.TRANSPORT: transport_failure(httpx2.ConnectError),
+        ProviderErrorCode.INVALID_REQUEST: _openai_error(400, "invalid_request_error"),
+        ProviderErrorCode.MALFORMED_OUTPUT: unparseable_body,
+        ProviderErrorCode.TRUNCATED_OUTPUT: truncated,
+        ProviderErrorCode.REFUSAL: refused,
+        ProviderErrorCode.UNAVAILABLE: _openai_error(503, "server_error"),
+    }
+
+
+class OpenAIHarness(MockedHarness):
+    """The OpenAI-compatible adapter over a mocked API of one protocol."""
+
+    name = "openai_compatible"
+    protocol: ClassVar[OpenAIProtocol]
+
+    @property
+    def label(self) -> str:
+        return self.protocol.value
+
+    def configuration(self, api_key_env: str) -> dict[str, Any]:
+        return {
+            "kind": "openai_compatible",
+            "model": "gpt-5",
+            "api_key_env": api_key_env,
+            "endpoint": "https://api.openai.com/v1",
+            "protocol": self.protocol.value,
+            "capabilities": ["tool_calling", "parallel_tool_calls"],
+        }
+
+    def construct(self, config: Any, api_key: SecretStr, api: MockApi) -> Provider:
+        return OpenAIProvider(config, api_key, **_mocked(api))
+
+
+class ChatCompletionsHarness(OpenAIHarness):
+    protocol = OpenAIProtocol.CHAT_COMPLETIONS
+    failures = _openai_failures(_finished("length"), _finished("content_filter"))
+    body = staticmethod(chat_completion_body)
+
+
+class ResponsesHarness(OpenAIHarness):
+    protocol = OpenAIProtocol.RESPONSES
+    failures = _openai_failures(_incomplete("max_output_tokens"), _incomplete("content_filter"))
+    body = staticmethod(responses_body)
+
+
+HARNESSES: list[ProviderHarness] = [
+    FakeHarness(),
+    AnthropicHarness(),
+    ChatCompletionsHarness(),
+    ResponsesHarness(),
+]

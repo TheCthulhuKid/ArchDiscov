@@ -15,13 +15,8 @@ import pytest
 from pydantic import SecretStr
 
 from archdiscov.assistant import anthropic_provider
-from archdiscov.assistant.anthropic_provider import (
-    DEFAULT_BASE_URL,
-    MAX_RETRY_WAIT_SECONDS,
-    RETRY_BACKOFF_SECONDS,
-    SDK_ERRORS,
-    AnthropicProvider,
-)
+from archdiscov.assistant.adapters import MAX_RETRY_WAIT_SECONDS, RETRY_BACKOFF_SECONDS
+from archdiscov.assistant.anthropic_provider import DEFAULT_BASE_URL, SDK_ERRORS, AnthropicProvider
 from archdiscov.assistant.config import (
     ProviderConfigError,
     ProviderConfigErrorCode,
@@ -57,12 +52,12 @@ from archdiscov.assistant.provider import (
 )
 from archdiscov.assistant.providers import load_provider
 from archdiscov.assistant.tools.session import ToolSession
-from tests.assistant.provider_harness import MockApi
 from tests.assistant.test_config import ANTHROPIC
 from tests.assistant.test_continuations import THINKING
 from tests.assistant.test_orchestrator import SNAPSHOT
 from tests.assistant.test_provider_contract import INSPECT, SEARCH
 from tests.assistant.test_secret_leaks import SECRET, _renderings
+from tests.support.mock_api import MockApi, Waits
 
 ENDPOINT = "https://gateway.example.com/anthropic"
 QUESTION = "Which databases are reachable?"
@@ -109,16 +104,6 @@ def _body(
 
 def _api(*bodies: dict) -> MockApi:
     return MockApi([httpx2.Response(200, json=body) for body in bodies])
-
-
-class Waits(list):
-    """The waits between retries, recorded instead of slept."""
-
-    def sleep(self, seconds: float) -> None:
-        self.append(seconds)
-
-    async def sleep_async(self, seconds: float) -> None:
-        self.append(seconds)
 
 
 def _provider(

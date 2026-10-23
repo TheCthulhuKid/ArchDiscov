@@ -16,6 +16,7 @@ from pydantic import SecretStr
 from .config import (
     AnthropicProviderConfig,
     FakeProviderConfig,
+    OpenAICompatibleProviderConfig,
     ProviderConfig,
     ProviderConfigError,
     ProviderConfigErrorCode,
@@ -42,9 +43,16 @@ def _anthropic(config: AnthropicProviderConfig, api_key: SecretStr, _: Path) -> 
     return AnthropicProvider(config, api_key)
 
 
+def _openai(config: OpenAICompatibleProviderConfig, api_key: SecretStr, _: Path) -> Provider:
+    from .openai_provider import OpenAIProvider
+
+    return OpenAIProvider(config, api_key)
+
+
 ADAPTERS: Mapping[ProviderKind, Adapter] = {
     ProviderKind.FAKE: _fake,
     ProviderKind.ANTHROPIC: _anthropic,
+    ProviderKind.OPENAI_COMPATIBLE: _openai,
 }
 
 

@@ -16,7 +16,7 @@ from archdiscov.assistant.config import (
     parse_provider_config,
     resolve_api_key,
 )
-from archdiscov.assistant.provider import RequestLimits
+from archdiscov.assistant.provider import ProviderCapability, RequestLimits
 from archdiscov.models.enums import AwsRegion
 
 SECRET = "sk-ant-api03-SECRETvalue0123456789abcdefXYZ"
@@ -94,6 +94,9 @@ protocol = "chat_completions"
     )
     assert isinstance(openai, OpenAICompatibleProviderConfig)
     assert openai.protocol is OpenAIProtocol.CHAT_COMPLETIONS
+    # A compatible server cannot be asked; only tool calling is assumed unless declared.
+    assert openai.capabilities == {ProviderCapability.TOOL_CALLING}
+    assert openai.encrypted_reasoning is False
 
     bedrock = load_provider_config(
         _write(
@@ -184,6 +187,17 @@ def test_real_model_names_are_not_mistaken_for_secrets(model: str) -> None:
             "provider_config_endpoint_invalid",
         ),
         ({**OPENAI, "endpoint": "ftp://api.example.com"}, "url_scheme"),
+        (
+            {**OPENAI, "capabilities": ["parallel_tool_calls"]},
+            "provider_parallel_calls_without_tools",
+        ),
+        ({**OPENAI, "capabilities": ["function_calling"]}, "enum"),
+        ({**OPENAI, "capabilities": "tool_calling"}, "frozen_set_type"),
+        (
+            {**OPENAI, "protocol": "chat_completions", "encrypted_reasoning": True},
+            "provider_config_reasoning_protocol",
+        ),
+        ({**OPENAI, "encrypted_reasoning": "true"}, "bool_type"),
         ({**BEDROCK, "region": "global"}, "provider_config_region_invalid"),
         ({**BEDROCK, "region": "mars-1"}, "enum"),
         ({**BEDROCK, "role_arn": "role/x"}, "string_pattern_mismatch"),
