@@ -5,6 +5,8 @@ from dataclasses import asdict
 import pytest
 
 from archdiscov.ingestion.adapter import IngestionError
+from archdiscov.ingestion.strict_json import MAX_JSON_FILE_BYTES, FileTooLargeError
+from archdiscov.ingestion.terraform import parsing
 from archdiscov.ingestion.terraform.parsing import load_export, parse_export
 from archdiscov.ingestion.terraform.sensitivity import REDACTED, read_pointer, sanitize_values
 
@@ -292,6 +294,19 @@ def test_load_export_rejects_duplicate_object_keys(tmp_path, nested):
     path.write_text(content, encoding="utf-8")
     with pytest.raises(IngestionError, match="duplicate object keys") as exc:
         load_export(path)
+    assert_safe_error(exc.value)
+
+
+def test_load_export_refuses_an_oversized_export(tmp_path, monkeypatch):
+    def too_large(path):
+        raise FileTooLargeError
+
+    monkeypatch.setattr(parsing, "read_bounded", too_large)
+    path = tmp_path / "state.json"
+    path.write_text("{}", encoding="utf-8")
+    with pytest.raises(IngestionError, match="Terraform export exceeds") as exc:
+        load_export(path)
+    assert str(MAX_JSON_FILE_BYTES) in str(exc.value)
     assert_safe_error(exc.value)
 
 

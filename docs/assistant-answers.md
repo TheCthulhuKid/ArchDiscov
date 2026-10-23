@@ -86,9 +86,14 @@ otherwise. Without cited findings, recorded differences allow at most `partial`,
 configuration alone only `insufficient_evidence`. Every limitation of a cited finding must
 be acknowledged. A cited finding may not leave out a returned finding from the same result,
 about the same primary resource, that reaches a different status or network decision.
-Narrative may not repeat imported text of at least `MIN_REPEATED_TEXT_CHARS` characters
-(compared case-folded with whitespace collapsed, by fingerprint) or name a recorded ID of
-at least `MIN_NAMED_ID_CHARS` characters that no conclusion cites.
+Narrative may not repeat imported text, whole or in part, or name a recorded ID of at least
+`MIN_NAMED_ID_CHARS` characters that no conclusion cites. Imported text is compared
+case-folded with whitespace collapsed, by fingerprints of windows of
+`MIN_REPEATED_TEXT_CHARS` characters taken every `FINGERPRINT_STRIDE` (8) characters of each
+value at least that long. So a narrative is rejected when it repeats a whole such value, or
+any stretch of 31 characters of one; a stretch as short as 24 characters is found when it
+lines up with a recorded window. Values shorter than a window, such as a resource named
+`web`, may be named freely.
 
 | Code | Check | Message |
 |---|---|---|

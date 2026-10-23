@@ -131,3 +131,16 @@ def test_imported_text_is_only_quoted_data_in_an_accepted_answer(tmp_path) -> No
     assert not any(INJECTION in text for text in [*statements, *answer["qualifications"]])
     lines = [line for line in readable.splitlines() if INJECTION in line]
     assert lines and all("imported: " in line for line in lines)
+
+
+# Claude Code moves a longer tool result out of the conversation into a file by default.
+INLINE_RESULT_CHARS = 50_000
+
+
+def test_every_readme_answer_fits_inline_without_a_declared_limit(tmp_path) -> None:
+    for case, session, calls, [proposal], _ in _cases(README_SUITE, tmp_path).values():
+        *_, (is_error, texts) = _replies(session, [*calls, ("submit_answer", proposal)])
+        assert not is_error, case.id
+        assert sum(len(text) for text in texts) < INLINE_RESULT_CHARS, case.id
+        # The JSON is compact: the readable answer beside it is the form a person reads.
+        assert "\n" not in texts[2], case.id

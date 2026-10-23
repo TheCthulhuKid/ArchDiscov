@@ -7,9 +7,12 @@ requires-python = ">=3.13"
 dependencies = [
     "anthropic>=2.1.0",
     "boto3>=1.43.108",
+    "botocore>=1.43.108",
+    "httpx2>=2.13.1",
     "mcp>=2.3.0",
     "openai>=3.26.1",
     "pydantic>=2.13.5",
+    "pydantic-core>=2.46.5",
     "pyyaml>=6.0.3,<7",
     "typer>=0.15.1",
 ]

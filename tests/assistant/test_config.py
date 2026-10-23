@@ -180,8 +180,13 @@ def test_real_model_names_are_not_mistaken_for_secrets(model: str) -> None:
         ({k: v for k, v in OPENAI.items() if k != "endpoint"}, "missing"),
         ({k: v for k, v in ANTHROPIC.items() if k != "api_key_env"}, "missing"),
         ({**OPENAI, "endpoint": "http://api.example.com/v1"}, "provider_config_endpoint_invalid"),
+        # A password in the URL is a secret-looking value, refused before the endpoint check.
         (
             {**OPENAI, "endpoint": "https://user:pw@api.example.com/v1"},
+            "provider_config_secret_value",
+        ),
+        (
+            {**OPENAI, "endpoint": "https://user@api.example.com/v1"},
             "provider_config_endpoint_invalid",
         ),
         (

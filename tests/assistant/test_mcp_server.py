@@ -25,6 +25,7 @@ from archdiscov.assistant.conversation import ParsedToolArguments as Parsed
 from archdiscov.assistant.instructions import MCP_INSTRUCTIONS
 from archdiscov.assistant.mcp_limits import ServerLimits
 from archdiscov.assistant.mcp_server import (
+    ANSWER_RESULT_META,
     PRESENT_ANSWER,
     SERVER_NAME,
     SUBMIT_FOLLOW_UP,
@@ -83,6 +84,9 @@ def test_the_server_lists_the_registry_tools_then_submit_answer() -> None:
     # The proposal schema is `ask`'s; only the description differs.
     assert submit.input_schema == submit_answer_declaration().input_schema
     assert "exactly once" not in tools[-1].description
+    # Only `submit_answer` declares a larger result, so an accepted answer stays inline.
+    assert tools[-1].meta == ANSWER_RESULT_META
+    assert all(tool.meta is None for tool in tools[:-1])
 
 
 def test_the_server_names_itself_and_gives_the_mcp_instructions() -> None:

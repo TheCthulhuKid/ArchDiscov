@@ -7,7 +7,13 @@ from pathlib import Path
 from typing import Any
 
 from ..adapter import IngestionError
-from ..strict_json import reject_constant, unique_object
+from ..strict_json import (
+    MAX_JSON_FILE_BYTES,
+    FileTooLargeError,
+    read_bounded,
+    reject_constant,
+    unique_object,
+)
 from .parsing_common import parse_versions, resource_identity, walk_resources
 from .sensitivity import sanitize_values
 
@@ -36,7 +42,7 @@ def _invalid(message: str) -> IngestionError:
 def load_json(path: Path) -> Any:
     try:
         data = json.loads(
-            path.read_text(encoding="utf-8"),
+            read_bounded(path).decode("utf-8"),
             object_pairs_hook=partial(
                 unique_object,
                 error_factory=lambda: _invalid("Terraform JSON contains duplicate object keys"),
@@ -46,6 +52,8 @@ def load_json(path: Path) -> Any:
                 error_factory=lambda: _invalid("Terraform JSON must contain finite JSON values"),
             ),
         )
+    except FileTooLargeError as error:
+        raise _invalid(f"Terraform export exceeds {MAX_JSON_FILE_BYTES} bytes") from error
     except UnicodeError as error:
         raise _invalid("Terraform export must be UTF-8 JSON") from error
     except json.JSONDecodeError as error:

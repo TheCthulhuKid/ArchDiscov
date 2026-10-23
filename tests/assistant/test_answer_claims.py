@@ -16,6 +16,7 @@ from archdiscov.assistant.conversation import ParsedToolArguments, ToolCall
 from archdiscov.assistant.rejections import REJECTION_MESSAGES, RejectionCode
 from archdiscov.assistant.tools.catalog import default_registry
 from archdiscov.assistant.tools.contracts import IdKind, ToolLimits
+from archdiscov.assistant.tools.record import FINGERPRINT_STRIDE, FINGERPRINT_WINDOW
 from archdiscov.assistant.tools.session import ToolSession
 from archdiscov.models.enums import AnalysisStatus, AnalyzerKind, SnapshotSourceKind
 from tests.paths import FIXTURES_ROOT
@@ -300,6 +301,20 @@ def test_narrative_repeating_imported_text_is_rejected(injected: ToolSession, su
     assert _codes(check_claims(explained, injected)) == [
         ("answer_narrative_imported_text", "explanation")
     ]
+
+
+def test_narrative_repeating_part_of_imported_text_is_rejected(injected: ToolSession) -> None:
+    """Any stretch of `FINGERPRINT_WINDOW + FINGERPRINT_STRIDE - 1` characters of a long
+    imported value is found, wherever it starts."""
+    stretch = FINGERPRINT_WINDOW + FINGERPRINT_STRIDE - 1
+    for start in range(len(INJECTION) - stretch + 1):
+        part = INJECTION[start : start + stretch]
+        proposal = _proposal(
+            injected, [], status="insufficient_evidence", summary=f"It says {part} here."
+        )
+        assert _codes(check_claims(proposal, injected)) == [
+            ("answer_narrative_imported_text", "summary")
+        ], part
 
 
 def test_short_imported_values_and_paraphrase_are_allowed(injected: ToolSession) -> None:

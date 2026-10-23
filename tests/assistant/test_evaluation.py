@@ -34,6 +34,7 @@ from archdiscov.assistant.evaluation import (
 from archdiscov.assistant.rejections import RejectionCode
 from archdiscov.assistant.runs import RunLimits
 from archdiscov.assistant.tools.contracts import untrusted
+from archdiscov.assistant.tools.record import FINGERPRINT_STRIDE, FINGERPRINT_WINDOW
 from archdiscov.assistant.tools.session import ToolSession
 from archdiscov.models.enums import AnalysisStatus
 from archdiscov.services.ask import AskResult, ask_question
@@ -385,6 +386,23 @@ def test_unsafe_answers_fail_their_safety_check_whatever_the_expectations(
     narrated = _with_rendered(
         supported,
         narrative=supported.answer.rendered.narrative.model_copy(update={"summary": summary}),
+    )
+    assert _failed_checks(narrated) == {CheckName.QUOTED}
+
+
+def test_a_narrative_repeating_part_of_a_long_imported_value_fails_quoted(
+    tmp_path: Path,
+) -> None:
+    _, result = _example("ownership", tmp_path)
+    summary = result.answer.rendered.conclusions[0].findings[0].summary.untrusted_text
+    # A middle stretch, as long as the narrative check always finds, but not the whole value.
+    part = summary[20 : 20 + FINGERPRINT_WINDOW + FINGERPRINT_STRIDE - 1]
+    assert part != summary
+    narrated = _with_rendered(
+        result,
+        narrative=result.answer.rendered.narrative.model_copy(
+            update={"summary": f"In short, {part} and so on."}
+        ),
     )
     assert _failed_checks(narrated) == {CheckName.QUOTED}
 

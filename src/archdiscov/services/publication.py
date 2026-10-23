@@ -4,11 +4,20 @@ import json
 import logging
 import os
 import tempfile
+from functools import partial
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
 from pydantic_core import PydanticSerializationError
+
+from archdiscov.ingestion.strict_json import (
+    MAX_JSON_FILE_BYTES,
+    FileTooLargeError,
+    read_bounded,
+    reject_constant,
+    unique_object,
+)
 
 from .snapshot_errors import SnapshotConflictError, SnapshotIOError, SnapshotJSONError
 
@@ -86,18 +95,22 @@ def publish_text(text: str, path: Path, *, subject: str) -> Path:
     return path
 
 
-def _reject_json_constant(value: str) -> None:
-    raise ValueError("Nonstandard JSON constant")
+class _DuplicateKeysError(ValueError):
+    pass
 
 
-def read_json(path: Path, *, subject: str) -> Any:
-    """Read UTF-8 JSON with safe diagnostics; the caller validates the content."""
+def read_json(path: Path, *, subject: str, limit: int = MAX_JSON_FILE_BYTES) -> Any:
+    """Read bounded, strict UTF-8 JSON with safe diagnostics; the caller validates it.
+
+    Strict like every other reader: duplicate object keys and non-finite numbers are
+    invalid, since either would make a file mean something other than it appears to.
+    """
     try:
-        text = path.read_text(encoding="utf-8")
-    except UnicodeError as exc:
+        content = read_bounded(path, limit)
+    except FileTooLargeError as exc:
         raise SnapshotJSONError(
-            f"{subject.capitalize()} JSON must use UTF-8 encoding.",
-            code="invalid_encoding",
+            f"{subject.capitalize()} JSON exceeds {limit} bytes.",
+            code="json_too_large",
             path=path,
         ) from exc
     except OSError as exc:
@@ -105,7 +118,19 @@ def read_json(path: Path, *, subject: str) -> Any:
             f"Unable to read {subject}; check the path and read permissions.", path=path
         ) from exc
     try:
-        return json.loads(text, parse_constant=_reject_json_constant)
+        text = content.decode("utf-8")
+    except UnicodeError as exc:
+        raise SnapshotJSONError(
+            f"{subject.capitalize()} JSON must use UTF-8 encoding.",
+            code="invalid_encoding",
+            path=path,
+        ) from exc
+    try:
+        return json.loads(
+            text,
+            object_pairs_hook=partial(unique_object, error_factory=_DuplicateKeysError),
+            parse_constant=reject_constant,
+        )
     except json.JSONDecodeError as exc:
         raise SnapshotJSONError(
             f"Invalid JSON syntax at line {exc.lineno}, column {exc.colno}.",
@@ -113,6 +138,10 @@ def read_json(path: Path, *, subject: str) -> Any:
             path=path,
             line=exc.lineno,
             column=exc.colno,
+        ) from exc
+    except _DuplicateKeysError as exc:
+        raise SnapshotJSONError(
+            "JSON contains duplicate object keys.", code="invalid_json", path=path
         ) from exc
     except (ValueError, RecursionError) as exc:
         raise SnapshotJSONError(

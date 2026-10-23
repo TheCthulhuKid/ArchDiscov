@@ -9,8 +9,9 @@ limitations against the findings themselves. The record therefore keeps:
 - a lean record of each delivered analyzer finding for validation, and the `FindingView`
   exactly as it was first delivered, for rendering;
 - the source kind and collection window of each session snapshot;
-- a fingerprint (normalized length and SHA-256) of every `untrusted_text` value delivered,
-  so narrative can be checked for repeated imported text without keeping that text.
+- fingerprints of every `untrusted_text` value delivered: compact digests of overlapping
+  windows of its normalized text, so narrative can be checked for repeating any part of
+  imported text, not only the whole value, without keeping that text.
 
 Each delivered output is collected in full before anything is committed. `returned()` and
 `context()` are sorted, frozen, and detached from later recording or caller changes.
@@ -120,11 +121,13 @@ class RecordedSnapshot(Contract):
     collection_completed_at: AwareDatetime
 
 
-class TextFingerprint(Contract):
-    """A delivered `untrusted_text` value, as its normalized length and SHA-256."""
-
-    length: NonNegativeInt
-    digest: str
+# Imported text is fingerprinted in windows of this many normalized characters; a value
+# shorter than a window (a name such as "web") is too common to show a repeat.
+FINGERPRINT_WINDOW = 24
+# Windows start this many characters apart, and the last window ends with the value, so any
+# repeated stretch of `FINGERPRINT_WINDOW + FINGERPRINT_STRIDE - 1` characters, and every
+# whole value, contains a recorded window, while a value costs one digest per stride.
+FINGERPRINT_STRIDE = 8
 
 
 def normalize_text(text: str) -> str:
@@ -132,10 +135,30 @@ def normalize_text(text: str) -> str:
     return " ".join(text.casefold().split())
 
 
-def fingerprint(text: str) -> TextFingerprint:
+def window_digest(window: str) -> int:
+    """A compact digest of one normalized window: the first 64 bits of its SHA-256."""
+    return int.from_bytes(hashlib.sha256(window.encode()).digest()[:8], "big")
+
+
+def fingerprints(text: str) -> frozenset[int]:
+    """The recorded window digests of a delivered value; none when it is shorter than a
+    window."""
     normalized = normalize_text(text)
-    return TextFingerprint(
-        length=len(normalized), digest=hashlib.sha256(normalized.encode()).hexdigest()
+    last = len(normalized) - FINGERPRINT_WINDOW
+    if last < 0:
+        return frozenset()
+    starts = {*range(0, last + 1, FINGERPRINT_STRIDE), last}
+    return frozenset(
+        window_digest(normalized[start : start + FINGERPRINT_WINDOW]) for start in starts
+    )
+
+
+def repeats_recorded_text(text: str, recorded: frozenset[int]) -> bool:
+    """Whether any window of the normalized text is one of the recorded window digests."""
+    normalized = normalize_text(text)
+    return any(
+        window_digest(normalized[start : start + FINGERPRINT_WINDOW]) in recorded
+        for start in range(len(normalized) - FINGERPRINT_WINDOW + 1)
     )
 
 
@@ -146,7 +169,7 @@ class RunContext(Contract):
     snapshots: tuple[RecordedSnapshot, ...]
     findings: tuple[RecordedFinding, ...]
     views: tuple[DeliveredView, ...]
-    fingerprints: tuple[TextFingerprint, ...]
+    fingerprints: tuple[NonNegativeInt, ...]
 
     def finding(self, snapshot_id: UUID, finding_id: str) -> RecordedFinding | None:
         for item in self.findings:
@@ -195,7 +218,7 @@ class _Collected:
 
     def __init__(self) -> None:
         self.ids: list[tuple[UUID, IdKind, str]] = []
-        self.fingerprints: set[TextFingerprint] = set()
+        self.fingerprints: set[int] = set()
 
 
 class RunRecord:
@@ -206,7 +229,7 @@ class RunRecord:
         self._snapshots: dict[UUID, RecordedSnapshot] = {}
         self._findings: dict[tuple[UUID, str], RecordedFinding] = {}
         self._views: dict[tuple[UUID, str], FindingView] = {}
-        self._fingerprints: set[TextFingerprint] = set()
+        self._fingerprints: set[int] = set()
 
     def record(self, snapshot_id: UUID, kind: IdKind, ids: Iterable[str]) -> None:
         for value in _checked(ids):
@@ -276,9 +299,7 @@ class RunRecord:
                 DeliveredView(snapshot_id=key[0], view=self._views[key].model_copy(deep=True))
                 for key in sorted(self._views)
             ),
-            fingerprints=tuple(
-                sorted(self._fingerprints, key=lambda item: (item.length, item.digest))
-            ),
+            fingerprints=tuple(sorted(self._fingerprints)),
         )
 
 
@@ -319,7 +340,7 @@ def _delivered_findings(
 
 def _collect(value: Any, snapshot_id: UUID | None, collected: _Collected) -> None:
     if isinstance(value, UntrustedText):
-        collected.fingerprints.add(fingerprint(value.untrusted_text))
+        collected.fingerprints |= fingerprints(value.untrusted_text)
     elif isinstance(value, BaseModel):
         fields = type(value).model_fields
         if "snapshot_id" in fields and getattr(value, "snapshot_id") is not None:

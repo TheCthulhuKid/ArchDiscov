@@ -41,6 +41,7 @@ from archdiscov.assistant.provider import (
 from archdiscov.assistant.questions import README_QUESTIONS
 from archdiscov.assistant.repair import submission_text
 from archdiscov.assistant.tools import contracts as tool_contracts
+from archdiscov.assistant.tools import record as tool_record
 from archdiscov.assistant.tools.catalog import default_registry
 from archdiscov.assistant.tools.session import ToolSessionError
 from archdiscov.cli import app
@@ -525,6 +526,18 @@ def test_documented_answer_bounds_match_the_constants():
     assert {row[0].strip("`"): number(row[1]) for row in rows} == expected
 
 
+def test_documented_fingerprint_windows_match_the_record():
+    window, stride = tool_record.FINGERPRINT_WINDOW, tool_record.FINGERPRINT_STRIDE
+    assert answer_validation.MIN_REPEATED_TEXT_CHARS == window
+    answers = " ".join(ANSWERS_DOC.read_text(encoding="utf-8").split())
+    assert f"every `FINGERPRINT_STRIDE` ({stride}) characters" in answers
+    assert f"any stretch of {window + stride - 1} characters" in answers
+    assert f"as short as {window} characters" in answers
+    tools = " ".join(TOOLS_DOC.read_text(encoding="utf-8").split())
+    assert f"at least {window} characters (`FINGERPRINT_WINDOW`)" in tools
+    assert f"every {stride} characters (`FINGERPRINT_STRIDE`)" in tools
+
+
 def test_documented_rendering_bound_matches_the_constant():
     text = " ".join(ANSWERS_DOC.read_text(encoding="utf-8").split())
     assert f"`MAX_RENDERED_ENTRIES` ({answer_results.MAX_RENDERED_ENTRIES})" in text
@@ -800,6 +813,8 @@ def test_documented_mcp_answers_match_the_code():
         assert rows[name][1] == "yes"
     assert f"at most {assistant_rejections.MAX_LISTED_REJECTIONS}" in rows["rejected"][2]
     assert rows["accepted"][1] == "no" and rows["accepted"][2].startswith("three:")
+    [(key, limit)] = mcp_server.ANSWER_RESULT_META.items()
+    assert f'`"_meta": {{"{key}": {limit}}}`' in text
 
 
 # ---- ask command -------------------------------------------------------------------

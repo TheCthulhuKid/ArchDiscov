@@ -191,7 +191,9 @@ def injected(tmp_path: Path) -> RenderedAnswer:
     }
     turns = [
         _calls(("i1", "inspect_resource", {"resource_id": resource})),
-        _submit("a", _proposal(session, conclusions=[conclusion])),
+        # The default summary names the same secret the imported name ends with, which the
+        # narrative check rejects as repeated imported text; this test is about quoting.
+        _submit("a", _proposal(session, conclusions=[conclusion], summary="See above.")),
     ]
     provider = FakeProvider(FakeTranscript.model_validate({"turns": turns}))
     return answer_question(

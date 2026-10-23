@@ -555,8 +555,11 @@ Catch `SnapshotError` for all service errors, or the more specific
 stable `code` and optional `path`. Validation `details` contain only field `location`,
 error `type`, and a safe `message`, not raw input values or exception contexts;
 unsupported versions use `unsupported_schema_version` rather than `invalid_snapshot`.
-JSON failures use `invalid_json` with `line`/`column` for syntax errors or
-`invalid_encoding` for non-UTF-8 files; filesystem failures use `snapshot_io_error`.
+JSON failures use `invalid_json` with `line`/`column` for syntax errors, `invalid_json`
+for duplicate object keys or non-finite numbers, `invalid_encoding` for non-UTF-8 files, or
+`json_too_large` for a file over 256 MiB, which is never read past that point (the same
+reader loads saved analyses, comparisons, and evaluation reports, and Terraform exports have
+the same limit); filesystem failures use `snapshot_io_error`.
 The original exception is retained as `__cause__` for debugging and may contain raw
 data: do not expose its traceback or diagnostics to untrusted callers. The CLI renders
 only safe public diagnostics and maps error categories to the exit codes below.

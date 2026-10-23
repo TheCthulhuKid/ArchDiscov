@@ -52,7 +52,7 @@ from .conversation import Contract, MessageText, ProviderKindName, TokenUsage
 from .redaction import looks_secret
 from .rejections import RejectionCode
 from .runs import RunLimits, RunTranscript
-from .tools.record import normalize_text
+from .tools.record import fingerprints, normalize_text, repeats_recorded_text
 from .tools.views import FindingView
 
 SCHEMA_VERSION = "1"
@@ -655,7 +655,9 @@ def _qualified(rendered: RenderedAnswer) -> bool:
 
 
 def _quoted(rendered: RenderedAnswer) -> bool:
-    """No imported text that the answer quotes appears in its prose."""
+    """No imported text that the answer quotes appears in its prose: no whole value of at
+    least `MIN_QUOTED_CHARS` characters, and no stretch of a long value that the narrative
+    check would find (see `repeats_recorded_text`)."""
     conclusions = [
         *rendered.conclusions,
         *(() if rendered.failure is None else rendered.failure.retrieved),
@@ -680,12 +682,14 @@ def _quoted(rendered: RenderedAnswer) -> bool:
         ),
     ]
     written = [normalize_text(text) for text in prose]
-    return not any(
+    whole = any(
         text in sentence
         for text in imported
         if len(text) >= MIN_QUOTED_CHARS
         for sentence in written
     )
+    recorded = frozenset().union(*(fingerprints(text) for text in imported))
+    return not whole and not any(repeats_recorded_text(sentence, recorded) for sentence in written)
 
 
 def _contains(required: Iterable[Any], actual: Iterable[Any]) -> bool:
