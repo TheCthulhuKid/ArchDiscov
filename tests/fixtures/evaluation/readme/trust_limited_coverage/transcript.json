@@ -1,0 +1,152 @@
+{
+  "turns": [
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "c0",
+              "name": "search_resources",
+              "arguments": {
+                "kind": "parsed",
+                "value": {
+                  "limit": 5
+                }
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use"
+      }
+    },
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "c1",
+              "name": "list_analyzers",
+              "arguments": {
+                "kind": "parsed",
+                "value": {}
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use"
+      }
+    },
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "c2",
+              "name": "run_analyzer",
+              "arguments": {
+                "kind": "parsed",
+                "value": {
+                  "kind": "cross_account_trust"
+                }
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use"
+      }
+    },
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "answer",
+              "name": "submit_answer",
+              "arguments": {
+                "kind": "parsed",
+                "value": {
+                  "status": "partial",
+                  "contexts": [
+                    {
+                      "side": "primary",
+                      "source_kind": "aws"
+                    }
+                  ],
+                  "conclusions": [
+                    {
+                      "kind": "analyzer_finding",
+                      "citations": [
+                        {
+                          "finding_ids": [
+                            "3bf5984ba03cf52ccfa21f60cc2e72a069a65c05174bbf430d56bf6e058ba33f",
+                            "980aaf8adb5454f36cf0fa0164b461e7de853c6cec12f34d41b5ee37a9146a11",
+                            "adc12715c0b651fec41c187ecebf15d852af80fb9454d05a08a1994def5b60bc",
+                            "b13255b05e32b1d245558429de1649323f3d862465a06df9e6580e192a30c11d",
+                            "c74537ca93771723582bd9119e1860407247425d30a3160738e20412945330a8",
+                            "fecbfd06e3a58ffc458e654f2385dc63b8160b44edc89dc1efc960524fa66a14"
+                          ]
+                        }
+                      ]
+                    }
+                  ],
+                  "limitations": [
+                    {
+                      "finding_id": "3bf5984ba03cf52ccfa21f60cc2e72a069a65c05174bbf430d56bf6e058ba33f",
+                      "limitation": "coverage_failed"
+                    },
+                    {
+                      "finding_id": "980aaf8adb5454f36cf0fa0164b461e7de853c6cec12f34d41b5ee37a9146a11",
+                      "limitation": "coverage_failed"
+                    },
+                    {
+                      "finding_id": "adc12715c0b651fec41c187ecebf15d852af80fb9454d05a08a1994def5b60bc",
+                      "limitation": "coverage_failed"
+                    },
+                    {
+                      "finding_id": "adc12715c0b651fec41c187ecebf15d852af80fb9454d05a08a1994def5b60bc",
+                      "limitation": "external_target"
+                    },
+                    {
+                      "finding_id": "b13255b05e32b1d245558429de1649323f3d862465a06df9e6580e192a30c11d",
+                      "limitation": "coverage_failed"
+                    },
+                    {
+                      "finding_id": "b13255b05e32b1d245558429de1649323f3d862465a06df9e6580e192a30c11d",
+                      "limitation": "external_target"
+                    },
+                    {
+                      "finding_id": "c74537ca93771723582bd9119e1860407247425d30a3160738e20412945330a8",
+                      "limitation": "coverage_failed"
+                    },
+                    {
+                      "finding_id": "c74537ca93771723582bd9119e1860407247425d30a3160738e20412945330a8",
+                      "limitation": "external_target"
+                    },
+                    {
+                      "finding_id": "fecbfd06e3a58ffc458e654f2385dc63b8160b44edc89dc1efc960524fa66a14",
+                      "limitation": "coverage_failed"
+                    },
+                    {
+                      "finding_id": "fecbfd06e3a58ffc458e654f2385dc63b8160b44edc89dc1efc960524fa66a14",
+                      "limitation": "unresolved_target"
+                    }
+                  ],
+                  "summary": "The conclusions above are rendered from the cited records."
+                }
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use"
+      }
+    }
+  ]
+}

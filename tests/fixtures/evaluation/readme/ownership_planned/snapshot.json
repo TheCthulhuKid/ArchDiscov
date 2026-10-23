@@ -1,0 +1,51 @@
+{
+  "account_id": "123456789012",
+  "name": null,
+  "metadata": {},
+  "regions": {
+    "eu-west-1": {
+      "metadata": {},
+      "resources": [
+        {
+          "id": "123456789012/eu-west-1/ec2/logical/module.network.aws_vpc.main",
+          "identity": {
+            "account_id": "123456789012",
+            "region": "eu-west-1",
+            "service": "ec2",
+            "physical_id": null,
+            "logical_address": "module.network.aws_vpc.main"
+          },
+          "name": "main",
+          "resource_type": "AWS::EC2::VPC",
+          "attributes": {},
+          "evidence_ids": [],
+          "fact_evidence": {},
+          "children": [],
+          "cidr_blocks": null
+        }
+      ]
+    }
+  },
+  "global_resources": [],
+  "schema_version": "1",
+  "snapshot_id": "00000000-0000-4000-8000-000000000002",
+  "collection_started_at": "2026-10-13T08:02:00Z",
+  "collection_completed_at": "2026-10-13T08:02:01Z",
+  "source": {
+    "exported_at": "2026-10-13T07:59:00Z",
+    "path": "plan.json",
+    "format_version": "1.2",
+    "terraform_version": "1.13.0",
+    "workspace": "production",
+    "kind": "terraform_plan"
+  },
+  "coverage": {
+    "regions": [
+      "eu-west-1"
+    ],
+    "account_wide": false,
+    "operations": []
+  },
+  "dependencies_by_region": {},
+  "evidence": {}
+}

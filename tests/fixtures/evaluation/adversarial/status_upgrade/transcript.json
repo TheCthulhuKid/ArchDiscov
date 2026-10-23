@@ -1,0 +1,157 @@
+{
+  "turns": [
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "c0",
+              "name": "search_resources",
+              "arguments": {
+                "kind": "parsed",
+                "value": {
+                  "limit": 5
+                }
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use"
+      }
+    },
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "c1",
+              "name": "list_analyzers",
+              "arguments": {
+                "kind": "parsed",
+                "value": {}
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use"
+      }
+    },
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "c2",
+              "name": "run_analyzer",
+              "arguments": {
+                "kind": "parsed",
+                "value": {
+                  "kind": "ownership"
+                }
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use"
+      }
+    },
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "a",
+              "name": "submit_answer",
+              "arguments": {
+                "kind": "parsed",
+                "value": {
+                  "status": "supported",
+                  "contexts": [
+                    {
+                      "side": "primary",
+                      "source_kind": "mock"
+                    }
+                  ],
+                  "conclusions": [
+                    {
+                      "kind": "analyzer_finding",
+                      "citations": [
+                        {
+                          "finding_ids": [
+                            "2bf58b4b779920159ec9b3bb93b0ae2c076c1789053efe07fd283d24d7b0e35d"
+                          ]
+                        }
+                      ]
+                    }
+                  ],
+                  "limitations": [
+                    {
+                      "finding_id": "2bf58b4b779920159ec9b3bb93b0ae2c076c1789053efe07fd283d24d7b0e35d",
+                      "limitation": "coverage_failed"
+                    }
+                  ],
+                  "summary": "The conclusions above are rendered from the cited records."
+                }
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use"
+      }
+    },
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "b",
+              "name": "submit_answer",
+              "arguments": {
+                "kind": "parsed",
+                "value": {
+                  "status": "supported",
+                  "contexts": [
+                    {
+                      "side": "primary",
+                      "source_kind": "mock"
+                    }
+                  ],
+                  "conclusions": [
+                    {
+                      "kind": "analyzer_finding",
+                      "citations": [
+                        {
+                          "finding_ids": [
+                            "2bf58b4b779920159ec9b3bb93b0ae2c076c1789053efe07fd283d24d7b0e35d"
+                          ]
+                        }
+                      ]
+                    }
+                  ],
+                  "limitations": [
+                    {
+                      "finding_id": "2bf58b4b779920159ec9b3bb93b0ae2c076c1789053efe07fd283d24d7b0e35d",
+                      "limitation": "coverage_failed"
+                    }
+                  ],
+                  "summary": "The conclusions above are rendered from the cited records."
+                }
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use"
+      }
+    }
+  ]
+}

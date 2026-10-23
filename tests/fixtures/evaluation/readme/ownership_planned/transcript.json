@@ -1,0 +1,72 @@
+{
+  "turns": [
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "c0",
+              "name": "run_analyzer",
+              "arguments": {
+                "kind": "parsed",
+                "value": {
+                  "kind": "ownership"
+                }
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use"
+      }
+    },
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "answer",
+              "name": "submit_answer",
+              "arguments": {
+                "kind": "parsed",
+                "value": {
+                  "status": "insufficient_evidence",
+                  "contexts": [
+                    {
+                      "side": "primary",
+                      "source_kind": "terraform_plan"
+                    }
+                  ],
+                  "conclusions": [
+                    {
+                      "kind": "analyzer_finding",
+                      "citations": [
+                        {
+                          "finding_ids": [
+                            "04cdb30c871f9575e4f87deaa72ef03cbcbf1d0c3a89253b0f100c85b7f0f8eb"
+                          ]
+                        }
+                      ]
+                    }
+                  ],
+                  "limitations": [
+                    {
+                      "finding_id": "04cdb30c871f9575e4f87deaa72ef03cbcbf1d0c3a89253b0f100c85b7f0f8eb",
+                      "limitation": "tags_unavailable"
+                    }
+                  ],
+                  "summary": "The conclusions above are rendered from the cited records.",
+                  "insufficient_reason": "limited_coverage"
+                }
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use"
+      }
+    }
+  ]
+}

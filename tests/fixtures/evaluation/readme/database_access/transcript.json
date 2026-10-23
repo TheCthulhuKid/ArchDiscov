@@ -1,0 +1,130 @@
+{
+  "turns": [
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "c0",
+              "name": "search_resources",
+              "arguments": {
+                "kind": "parsed",
+                "value": {
+                  "limit": 5
+                }
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use"
+      }
+    },
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "c1",
+              "name": "list_analyzers",
+              "arguments": {
+                "kind": "parsed",
+                "value": {}
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use"
+      }
+    },
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "c2",
+              "name": "run_analyzer",
+              "arguments": {
+                "kind": "parsed",
+                "value": {
+                  "kind": "database_access",
+                  "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+                  "port": 5432
+                }
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use"
+      }
+    },
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "answer",
+              "name": "submit_answer",
+              "arguments": {
+                "kind": "parsed",
+                "value": {
+                  "status": "partial",
+                  "contexts": [
+                    {
+                      "side": "primary",
+                      "source_kind": "aws"
+                    }
+                  ],
+                  "conclusions": [
+                    {
+                      "kind": "analyzer_finding",
+                      "citations": [
+                        {
+                          "finding_ids": [
+                            "19f6a3d5c040310f563637669c4366a347d92efe37d49e566cb6462d2694207d",
+                            "1b2b36800daa15d3b2a8f7c904d27f9bc399447880f6b601bd32b8c14ff502ed",
+                            "2cba78301deecbcee15dbc7ad39457993437656f8c2736094fab39597f827632",
+                            "40d2359c46d3116a7ab98d9426c376c63be851271505885e382e5f6cd50b0204",
+                            "48197d8fe66bfb4dcfd2af19f7bcdac4a0d28528ac4ba80b3fe4fd8517ce142e",
+                            "5355c79d929d04ce2239232513a066365338b9bb075d73b95c7def6262796e7c"
+                          ]
+                        }
+                      ]
+                    }
+                  ],
+                  "limitations": [
+                    {
+                      "finding_id": "19f6a3d5c040310f563637669c4366a347d92efe37d49e566cb6462d2694207d",
+                      "limitation": "source_address_unrecorded"
+                    },
+                    {
+                      "finding_id": "1b2b36800daa15d3b2a8f7c904d27f9bc399447880f6b601bd32b8c14ff502ed",
+                      "limitation": "sources_other_vpc"
+                    },
+                    {
+                      "finding_id": "48197d8fe66bfb4dcfd2af19f7bcdac4a0d28528ac4ba80b3fe4fd8517ce142e",
+                      "limitation": "missing_evidence"
+                    },
+                    {
+                      "finding_id": "48197d8fe66bfb4dcfd2af19f7bcdac4a0d28528ac4ba80b3fe4fd8517ce142e",
+                      "limitation": "source_security_groups_unrecorded"
+                    }
+                  ],
+                  "summary": "The conclusions above are rendered from the cited records."
+                }
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use"
+      }
+    }
+  ]
+}

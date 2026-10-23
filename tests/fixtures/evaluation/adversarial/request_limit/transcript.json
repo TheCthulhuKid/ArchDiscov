@@ -1,0 +1,220 @@
+{
+  "turns": [
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "s0",
+              "name": "search_resources",
+              "arguments": {
+                "kind": "parsed",
+                "value": {
+                  "limit": 5
+                }
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use",
+        "usage": {
+          "output_tokens": 5
+        }
+      }
+    },
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "s1",
+              "name": "search_resources",
+              "arguments": {
+                "kind": "parsed",
+                "value": {
+                  "limit": 5
+                }
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use",
+        "usage": {
+          "output_tokens": 5
+        }
+      }
+    },
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "s2",
+              "name": "search_resources",
+              "arguments": {
+                "kind": "parsed",
+                "value": {
+                  "limit": 5
+                }
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use",
+        "usage": {
+          "output_tokens": 5
+        }
+      }
+    },
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "s3",
+              "name": "search_resources",
+              "arguments": {
+                "kind": "parsed",
+                "value": {
+                  "limit": 5
+                }
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use",
+        "usage": {
+          "output_tokens": 5
+        }
+      }
+    },
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "s4",
+              "name": "search_resources",
+              "arguments": {
+                "kind": "parsed",
+                "value": {
+                  "limit": 5
+                }
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use",
+        "usage": {
+          "output_tokens": 5
+        }
+      }
+    },
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "s5",
+              "name": "search_resources",
+              "arguments": {
+                "kind": "parsed",
+                "value": {
+                  "limit": 5
+                }
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use",
+        "usage": {
+          "output_tokens": 5
+        }
+      }
+    },
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "s6",
+              "name": "search_resources",
+              "arguments": {
+                "kind": "parsed",
+                "value": {
+                  "limit": 5
+                }
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use",
+        "usage": {
+          "output_tokens": 5
+        }
+      }
+    },
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "s7",
+              "name": "search_resources",
+              "arguments": {
+                "kind": "parsed",
+                "value": {
+                  "limit": 5
+                }
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use",
+        "usage": {
+          "output_tokens": 5
+        }
+      }
+    },
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "s8",
+              "name": "search_resources",
+              "arguments": {
+                "kind": "parsed",
+                "value": {
+                  "limit": 5
+                }
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use",
+        "usage": {
+          "output_tokens": 5
+        }
+      }
+    }
+  ]
+}

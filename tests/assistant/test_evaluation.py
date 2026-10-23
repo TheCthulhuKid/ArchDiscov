@@ -100,7 +100,7 @@ def _scripted(directory: Path, turns: list[dict], config: str = "") -> AskResult
 
 
 def _passing(name: str, run: ExampleRun) -> EvaluationCase:
-    expect = example_expectations(name, run)
+    expect = example_expectations(EXAMPLES[name], run)
     return EvaluationCase.model_validate(_case_data(name.replace("_", "-"), expect=expect))
 
 
@@ -226,12 +226,12 @@ def test_the_readme_examples_pass_their_expectations(tmp_path: Path, name: str) 
     expected = {CheckName.OUTCOME, CheckName.STATUS, *SAFETY_CHECKS}
     if run.finding_ids:
         expected.add(CheckName.FINDING_IDS)
-    if example_analyzers(name):
+    if example_analyzers(EXAMPLES[name]):
         expected.add(CheckName.ANALYZERS)
     assert set(_checks(record)) == expected
     assert record.cited_finding_ids == tuple(sorted(run.finding_ids))
     assert record.analysis_status == EXAMPLES[name].status
-    assert record.analyzers_run == tuple(sorted(example_analyzers(name)))
+    assert record.analyzers_run == tuple(sorted(example_analyzers(EXAMPLES[name])))
     assert record.citations_valid is True
     assert record.usage == result.summary.usage
     assert record.latency_seconds == result.answer.transcript.latency_seconds

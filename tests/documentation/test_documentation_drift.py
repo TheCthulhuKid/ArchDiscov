@@ -48,7 +48,7 @@ from archdiscov.services import evaluation as evaluation_service
 from archdiscov.services.ask import RunSummary
 from tests.cli.test_ask_cli import ENVELOPE, PRE_RUN_ERRORS
 from tests.documentation.markdown import DOC_FILES, code_blocks, table_rows
-from tests.paths import PROJECT_ROOT
+from tests.paths import FIXTURES_ROOT, PROJECT_ROOT
 
 DOCS = PROJECT_ROOT / "docs"
 README = PROJECT_ROOT / "README.md"
@@ -597,6 +597,7 @@ def test_the_readme_links_answers_without_claiming_rendering():
 # ---- evaluation --------------------------------------------------------------------
 
 EVALUATION_DOC = DOCS / "assistant-evaluation.md"
+ADVERSARIAL_SUITE = FIXTURES_ROOT / "evaluation" / "adversarial" / "suite.json"
 
 
 def _first_cells(header: str) -> list[str]:
@@ -624,6 +625,15 @@ def test_documented_evaluation_contracts_match_the_models():
     assert set(documented) == {code.value for code in codes} - {"invalid_evaluation_report"}
     assert evaluation.MAX_SUITE_BYTES == 1024 * 1024 and "at most 1 MiB" in text
     assert f"1–{evaluation.MAX_PROVIDERS} provider configurations" in text
+
+
+def test_documented_adversarial_cases_match_the_suite():
+    suite = evaluation.load_suite(ADVERSARIAL_SUITE)
+    rows = table_rows(EVALUATION_DOC, "| Adversarial case")
+    assert [row[0].strip("`") for row in rows] == [case.id for case in suite.cases]
+    for row, case in zip(rows, suite.cases, strict=True):
+        expected = [*case.expect.outcomes, *case.expect.rejections]
+        assert re.findall(r"`([a-z_]+)`", row[2]) == [value.value for value in expected], case.id
 
 
 # ---- ask command -------------------------------------------------------------------

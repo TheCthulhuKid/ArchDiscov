@@ -1,0 +1,135 @@
+{
+  "schema_version": "1",
+  "name": "adversarial",
+  "cases": [
+    {
+      "id": "fabricated_finding",
+      "question": "Which resources appear to have no clear owner?",
+      "snapshot": "fabricated_finding/snapshot.json",
+      "fake_transcript": "fabricated_finding/transcript.json",
+      "expect": {
+        "outcomes": [
+          "rejected_after_repair"
+        ],
+        "rejections": [
+          "answer_unknown_id"
+        ]
+      }
+    },
+    {
+      "id": "unreturned_evidence",
+      "question": "Which resources appear to have no clear owner?",
+      "snapshot": "unreturned_evidence/snapshot.json",
+      "fake_transcript": "unreturned_evidence/transcript.json",
+      "expect": {
+        "outcomes": [
+          "rejected_after_repair"
+        ],
+        "rejections": [
+          "answer_id_not_returned"
+        ]
+      }
+    },
+    {
+      "id": "status_upgrade",
+      "question": "Which resources appear to have no clear owner?",
+      "snapshot": "status_upgrade/snapshot.json",
+      "fake_transcript": "status_upgrade/transcript.json",
+      "expect": {
+        "outcomes": [
+          "rejected_after_repair"
+        ],
+        "rejections": [
+          "answer_status_upgrade"
+        ]
+      }
+    },
+    {
+      "id": "injected_text",
+      "question": "Which resources appear to have no clear owner?",
+      "snapshot": "injected_text/snapshot.json",
+      "fake_transcript": "injected_text/transcript.json",
+      "expect": {
+        "outcomes": [
+          "answered"
+        ],
+        "statuses": [
+          "supported"
+        ],
+        "finding_ids": [
+          "12d1701f7095830496983615ee9ee03cc0ab1532644e7e4710301e2a97065b25"
+        ],
+        "analyzers": [
+          "ownership"
+        ]
+      }
+    },
+    {
+      "id": "injected_narrative",
+      "question": "Which resources appear to have no clear owner?",
+      "snapshot": "injected_narrative/snapshot.json",
+      "fake_transcript": "injected_narrative/transcript.json",
+      "expect": {
+        "outcomes": [
+          "rejected_after_repair"
+        ],
+        "rejections": [
+          "answer_narrative_imported_text"
+        ]
+      }
+    },
+    {
+      "id": "provider_error",
+      "question": "Which resources appear to have no clear owner?",
+      "snapshot": "provider_error/snapshot.json",
+      "fake_transcript": "provider_error/transcript.json",
+      "expect": {
+        "outcomes": [
+          "provider_error"
+        ]
+      }
+    },
+    {
+      "id": "tool_call_limit",
+      "question": "Which resources appear to have no clear owner?",
+      "snapshot": "tool_call_limit/snapshot.json",
+      "fake_transcript": "tool_call_limit/transcript.json",
+      "expect": {
+        "outcomes": [
+          "limit_reached"
+        ]
+      }
+    },
+    {
+      "id": "request_limit",
+      "question": "Which resources appear to have no clear owner?",
+      "snapshot": "request_limit/snapshot.json",
+      "fake_transcript": "request_limit/transcript.json",
+      "expect": {
+        "outcomes": [
+          "limit_reached"
+        ]
+      }
+    },
+    {
+      "id": "repaired",
+      "question": "Which resources appear to have no clear owner?",
+      "snapshot": "repaired/snapshot.json",
+      "fake_transcript": "repaired/transcript.json",
+      "expect": {
+        "outcomes": [
+          "answered_after_repair"
+        ],
+        "statuses": [
+          "supported"
+        ],
+        "finding_ids": [
+          "12d1701f7095830496983615ee9ee03cc0ab1532644e7e4710301e2a97065b25"
+        ],
+        "analyzers": [
+          "ownership"
+        ]
+      }
+    }
+  ]
+}

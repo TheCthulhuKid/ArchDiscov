@@ -1,0 +1,96 @@
+{
+  "turns": [
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "c0",
+              "name": "list_saved_results",
+              "arguments": {
+                "kind": "parsed",
+                "value": {}
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use"
+      }
+    },
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "c1",
+              "name": "get_saved_comparison",
+              "arguments": {
+                "kind": "parsed",
+                "value": {
+                  "number": 1
+                }
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use"
+      }
+    },
+    {
+      "kind": "respond",
+      "response": {
+        "message": {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "answer",
+              "name": "submit_answer",
+              "arguments": {
+                "kind": "parsed",
+                "value": {
+                  "status": "partial",
+                  "contexts": [
+                    {
+                      "side": "primary",
+                      "source_kind": "mock"
+                    },
+                    {
+                      "side": "comparison",
+                      "source_kind": "mock"
+                    }
+                  ],
+                  "conclusions": [
+                    {
+                      "kind": "recorded_difference",
+                      "citations": [
+                        {
+                          "side": "primary",
+                          "resource_ids": [
+                            "123456789012/eu-west-1/ec2/physical/vpc-owner"
+                          ]
+                        },
+                        {
+                          "side": "comparison",
+                          "resource_ids": [
+                            "123456789012/eu-west-1/ec2/physical/vpc-owner"
+                          ]
+                        }
+                      ]
+                    }
+                  ],
+                  "limitations": [],
+                  "summary": "The conclusions above are rendered from the cited records."
+                }
+              }
+            }
+          ]
+        },
+        "stop_reason": "tool_use"
+      }
+    }
+  ]
+}

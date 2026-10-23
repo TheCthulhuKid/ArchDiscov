@@ -1,0 +1,3254 @@
+{
+  "account_id": "123456789012",
+  "name": null,
+  "metadata": {},
+  "regions": {
+    "us-east-1": {
+      "metadata": {},
+      "resources": [
+        {
+          "id": "123456789012/us-east-1/ec2/physical/vpc-a",
+          "identity": {
+            "account_id": "123456789012",
+            "region": "us-east-1",
+            "service": "ec2",
+            "physical_id": "vpc-a",
+            "logical_address": null
+          },
+          "name": null,
+          "resource_type": "AWS::EC2::VPC",
+          "attributes": {},
+          "evidence_ids": [
+            "us-east-1/DescribeVpcs/vpc-a"
+          ],
+          "fact_evidence": {
+            "/cidr_blocks": [
+              "us-east-1/DescribeVpcs/vpc-a#CidrBlock"
+            ]
+          },
+          "children": [
+            {
+              "id": "123456789012/us-east-1/ec2/physical/acl-1",
+              "identity": {
+                "account_id": "123456789012",
+                "region": "us-east-1",
+                "service": "ec2",
+                "physical_id": "acl-1",
+                "logical_address": null
+              },
+              "name": null,
+              "resource_type": "AWS::EC2::NetworkAcl",
+              "attributes": {
+                "vpc_id": "vpc-a"
+              },
+              "evidence_ids": [
+                "us-east-1/DescribeNetworkAcls/acl-1"
+              ],
+              "fact_evidence": {
+                "/attributes/vpc_id": [
+                  "us-east-1/DescribeNetworkAcls/acl-1#VpcId"
+                ],
+                "/entries/0": [
+                  "us-east-1/DescribeNetworkAcls/acl-1#NetworkAcls[0].Entries[0]"
+                ],
+                "/entries/1": [
+                  "us-east-1/DescribeNetworkAcls/acl-1#NetworkAcls[0].Entries[1]"
+                ]
+              },
+              "children": [],
+              "entries": [
+                {
+                  "rule_number": 100,
+                  "direction": "ingress",
+                  "action": "allow",
+                  "protocol": "-1",
+                  "from_port": null,
+                  "to_port": null,
+                  "cidr": "0.0.0.0/0"
+                },
+                {
+                  "rule_number": 100,
+                  "direction": "egress",
+                  "action": "allow",
+                  "protocol": "-1",
+                  "from_port": null,
+                  "to_port": null,
+                  "cidr": "0.0.0.0/0"
+                }
+              ]
+            },
+            {
+              "id": "123456789012/us-east-1/ec2/physical/rtb-1",
+              "identity": {
+                "account_id": "123456789012",
+                "region": "us-east-1",
+                "service": "ec2",
+                "physical_id": "rtb-1",
+                "logical_address": null
+              },
+              "name": null,
+              "resource_type": "AWS::EC2::RouteTable",
+              "attributes": {
+                "vpc_id": "vpc-a"
+              },
+              "evidence_ids": [
+                "us-east-1/DescribeRouteTables/rtb-1"
+              ],
+              "fact_evidence": {
+                "/attributes/vpc_id": [
+                  "us-east-1/DescribeRouteTables/rtb-1#VpcId"
+                ],
+                "/routes/0": [
+                  "us-east-1/DescribeRouteTables/rtb-1#RouteTables[0].Routes[0]"
+                ]
+              },
+              "children": [],
+              "routes": [
+                {
+                  "destination": "10.0.0.0/16",
+                  "target_kind": "local",
+                  "target_id": null,
+                  "state": "active"
+                }
+              ]
+            },
+            {
+              "id": "123456789012/us-east-1/ec2/physical/sg-a",
+              "identity": {
+                "account_id": "123456789012",
+                "region": "us-east-1",
+                "service": "ec2",
+                "physical_id": "sg-a",
+                "logical_address": null
+              },
+              "name": null,
+              "resource_type": "AWS::EC2::SecurityGroup",
+              "attributes": {
+                "vpc_id": "vpc-a",
+                "rules_source": "DescribeSecurityGroupRules"
+              },
+              "evidence_ids": [
+                "us-east-1/DescribeSecurityGroups/sg-a"
+              ],
+              "fact_evidence": {
+                "/attributes/vpc_id": [
+                  "us-east-1/DescribeSecurityGroups/sg-a#VpcId"
+                ],
+                "/ingress_rules/0": [
+                  "us-east-1/DescribeSecurityGroupRules/sg-a#SecurityGroupRules[0]"
+                ],
+                "/egress_rules/0": [
+                  "us-east-1/DescribeSecurityGroupRules/sg-a#SecurityGroupRules[2]"
+                ]
+              },
+              "children": [],
+              "ingress_rules": [
+                {
+                  "direction": "ingress",
+                  "rule_id": "sgr-sg-a-1-5432-False",
+                  "protocol": "tcp",
+                  "from_port": 5432,
+                  "to_port": 5432,
+                  "cidr": null,
+                  "referenced_group_id": "sg-app",
+                  "referenced_account_id": "123456789012",
+                  "prefix_list_id": null
+                }
+              ],
+              "egress_rules": [
+                {
+                  "direction": "egress",
+                  "rule_id": "sgr-sg-a-1-5432-True",
+                  "protocol": "-1",
+                  "from_port": -1,
+                  "to_port": -1,
+                  "cidr": "0.0.0.0/0",
+                  "referenced_group_id": null,
+                  "referenced_account_id": null,
+                  "prefix_list_id": null
+                }
+              ]
+            },
+            {
+              "id": "123456789012/us-east-1/ec2/physical/sg-app",
+              "identity": {
+                "account_id": "123456789012",
+                "region": "us-east-1",
+                "service": "ec2",
+                "physical_id": "sg-app",
+                "logical_address": null
+              },
+              "name": null,
+              "resource_type": "AWS::EC2::SecurityGroup",
+              "attributes": {
+                "vpc_id": "vpc-a",
+                "rules_source": "DescribeSecurityGroupRules"
+              },
+              "evidence_ids": [
+                "us-east-1/DescribeSecurityGroups/sg-app"
+              ],
+              "fact_evidence": {
+                "/attributes/vpc_id": [
+                  "us-east-1/DescribeSecurityGroups/sg-app#VpcId"
+                ],
+                "/egress_rules/0": [
+                  "us-east-1/DescribeSecurityGroupRules/sg-app#SecurityGroupRules[1]"
+                ]
+              },
+              "children": [],
+              "ingress_rules": [],
+              "egress_rules": [
+                {
+                  "direction": "egress",
+                  "rule_id": "sgr-sg-app-1-5432-True",
+                  "protocol": "-1",
+                  "from_port": -1,
+                  "to_port": -1,
+                  "cidr": "0.0.0.0/0",
+                  "referenced_group_id": null,
+                  "referenced_account_id": null,
+                  "prefix_list_id": null
+                }
+              ]
+            },
+            {
+              "id": "123456789012/us-east-1/ec2/physical/subnet-a",
+              "identity": {
+                "account_id": "123456789012",
+                "region": "us-east-1",
+                "service": "ec2",
+                "physical_id": "subnet-a",
+                "logical_address": null
+              },
+              "name": null,
+              "resource_type": "AWS::EC2::Subnet",
+              "attributes": {
+                "vpc_id": "vpc-a"
+              },
+              "evidence_ids": [
+                "us-east-1/DescribeSubnets/subnet-a"
+              ],
+              "fact_evidence": {
+                "/cidr_blocks": [
+                  "us-east-1/DescribeSubnets/subnet-a#CidrBlock"
+                ],
+                "/attributes/vpc_id": [
+                  "us-east-1/DescribeSubnets/subnet-a#VpcId"
+                ]
+              },
+              "children": [
+                {
+                  "id": "123456789012/us-east-1/ec2/physical/i-multi",
+                  "identity": {
+                    "account_id": "123456789012",
+                    "region": "us-east-1",
+                    "service": "ec2",
+                    "physical_id": "i-multi",
+                    "logical_address": null
+                  },
+                  "name": null,
+                  "resource_type": "AWS::EC2::Instance",
+                  "attributes": {
+                    "vpc_id": "vpc-a",
+                    "subnet_id": "subnet-a",
+                    "security_group_ids": [
+                      "sg-app"
+                    ]
+                  },
+                  "evidence_ids": [
+                    "us-east-1/DescribeInstances/i-multi"
+                  ],
+                  "fact_evidence": {
+                    "/attributes/subnet_id": [
+                      "us-east-1/DescribeInstances/i-multi#SubnetId"
+                    ],
+                    "/attributes/vpc_id": [
+                      "us-east-1/DescribeInstances/i-multi#VpcId"
+                    ],
+                    "/attributes/security_group_ids": [
+                      "us-east-1/DescribeInstances/i-multi#SecurityGroups"
+                    ]
+                  },
+                  "children": [],
+                  "instance_type": null
+                },
+                {
+                  "id": "123456789012/us-east-1/ec2/physical/i-nosg",
+                  "identity": {
+                    "account_id": "123456789012",
+                    "region": "us-east-1",
+                    "service": "ec2",
+                    "physical_id": "i-nosg",
+                    "logical_address": null
+                  },
+                  "name": null,
+                  "resource_type": "AWS::EC2::Instance",
+                  "attributes": {
+                    "vpc_id": "vpc-a",
+                    "subnet_id": "subnet-a"
+                  },
+                  "evidence_ids": [
+                    "us-east-1/DescribeInstances/i-nosg"
+                  ],
+                  "fact_evidence": {
+                    "/attributes/subnet_id": [
+                      "us-east-1/DescribeInstances/i-nosg#SubnetId"
+                    ],
+                    "/attributes/vpc_id": [
+                      "us-east-1/DescribeInstances/i-nosg#VpcId"
+                    ]
+                  },
+                  "children": [],
+                  "instance_type": null
+                },
+                {
+                  "id": "123456789012/us-east-1/ec2/physical/i-plain",
+                  "identity": {
+                    "account_id": "123456789012",
+                    "region": "us-east-1",
+                    "service": "ec2",
+                    "physical_id": "i-plain",
+                    "logical_address": null
+                  },
+                  "name": null,
+                  "resource_type": "AWS::EC2::Instance",
+                  "attributes": {
+                    "vpc_id": "vpc-a",
+                    "subnet_id": "subnet-a",
+                    "private_ip_address": "10.0.1.20",
+                    "security_group_ids": [
+                      "sg-app"
+                    ]
+                  },
+                  "evidence_ids": [
+                    "us-east-1/DescribeInstances/i-plain"
+                  ],
+                  "fact_evidence": {
+                    "/attributes/subnet_id": [
+                      "us-east-1/DescribeInstances/i-plain#SubnetId"
+                    ],
+                    "/attributes/vpc_id": [
+                      "us-east-1/DescribeInstances/i-plain#VpcId"
+                    ],
+                    "/attributes/private_ip_address": [
+                      "us-east-1/DescribeInstances/i-plain#PrivateIpAddress"
+                    ],
+                    "/attributes/security_group_ids": [
+                      "us-east-1/DescribeInstances/i-plain#SecurityGroups"
+                    ]
+                  },
+                  "children": [],
+                  "instance_type": null
+                },
+                {
+                  "id": "123456789012/us-east-1/ec2/physical/eni-1",
+                  "identity": {
+                    "account_id": "123456789012",
+                    "region": "us-east-1",
+                    "service": "ec2",
+                    "physical_id": "eni-1",
+                    "logical_address": null
+                  },
+                  "name": null,
+                  "resource_type": "AWS::EC2::NetworkInterface",
+                  "attributes": {
+                    "vpc_id": "vpc-a",
+                    "subnet_id": "subnet-a",
+                    "security_group_ids": [
+                      "sg-app"
+                    ],
+                    "attached_instance_id": "i-multi"
+                  },
+                  "evidence_ids": [
+                    "us-east-1/DescribeNetworkInterfaces/eni-1"
+                  ],
+                  "fact_evidence": {
+                    "/private_ip_addresses": [
+                      "us-east-1/DescribeNetworkInterfaces/eni-1#PrivateIpAddresses"
+                    ],
+                    "/attributes/security_group_ids": [
+                      "us-east-1/DescribeNetworkInterfaces/eni-1#Groups"
+                    ],
+                    "/attributes/attached_instance_id": [
+                      "us-east-1/DescribeNetworkInterfaces/eni-1#Attachment.InstanceId"
+                    ]
+                  },
+                  "children": [],
+                  "private_ip_addresses": [
+                    {
+                      "address": "10.0.1.10",
+                      "primary": true,
+                      "public_ip": null
+                    }
+                  ],
+                  "public_ip": null,
+                  "mac_address": null
+                },
+                {
+                  "id": "123456789012/us-east-1/ec2/physical/eni-task",
+                  "identity": {
+                    "account_id": "123456789012",
+                    "region": "us-east-1",
+                    "service": "ec2",
+                    "physical_id": "eni-task",
+                    "logical_address": null
+                  },
+                  "name": null,
+                  "resource_type": "AWS::EC2::NetworkInterface",
+                  "attributes": {
+                    "vpc_id": "vpc-a",
+                    "subnet_id": "subnet-a",
+                    "security_group_ids": [
+                      "sg-app"
+                    ]
+                  },
+                  "evidence_ids": [
+                    "us-east-1/DescribeNetworkInterfaces/eni-task"
+                  ],
+                  "fact_evidence": {
+                    "/private_ip_addresses": [
+                      "us-east-1/DescribeNetworkInterfaces/eni-task#PrivateIpAddresses"
+                    ],
+                    "/attributes/security_group_ids": [
+                      "us-east-1/DescribeNetworkInterfaces/eni-task#Groups"
+                    ]
+                  },
+                  "children": [],
+                  "private_ip_addresses": [
+                    {
+                      "address": "10.0.1.30",
+                      "primary": true,
+                      "public_ip": null
+                    }
+                  ],
+                  "public_ip": null,
+                  "mac_address": null
+                }
+              ],
+              "availability_zone": null,
+              "cidr_blocks": [
+                "10.0.1.0/24"
+              ]
+            },
+            {
+              "id": "123456789012/us-east-1/ec2/physical/subnet-b",
+              "identity": {
+                "account_id": "123456789012",
+                "region": "us-east-1",
+                "service": "ec2",
+                "physical_id": "subnet-b",
+                "logical_address": null
+              },
+              "name": null,
+              "resource_type": "AWS::EC2::Subnet",
+              "attributes": {
+                "vpc_id": "vpc-a"
+              },
+              "evidence_ids": [
+                "us-east-1/DescribeSubnets/subnet-b"
+              ],
+              "fact_evidence": {
+                "/cidr_blocks": [
+                  "us-east-1/DescribeSubnets/subnet-b#CidrBlock"
+                ],
+                "/attributes/vpc_id": [
+                  "us-east-1/DescribeSubnets/subnet-b#VpcId"
+                ]
+              },
+              "children": [
+                {
+                  "id": "123456789012/us-east-1/ec2/physical/eni-2",
+                  "identity": {
+                    "account_id": "123456789012",
+                    "region": "us-east-1",
+                    "service": "ec2",
+                    "physical_id": "eni-2",
+                    "logical_address": null
+                  },
+                  "name": null,
+                  "resource_type": "AWS::EC2::NetworkInterface",
+                  "attributes": {
+                    "vpc_id": "vpc-a",
+                    "subnet_id": "subnet-b",
+                    "security_group_ids": [
+                      "sg-app"
+                    ],
+                    "attached_instance_id": "i-multi"
+                  },
+                  "evidence_ids": [
+                    "us-east-1/DescribeNetworkInterfaces/eni-2"
+                  ],
+                  "fact_evidence": {
+                    "/private_ip_addresses": [
+                      "us-east-1/DescribeNetworkInterfaces/eni-2#PrivateIpAddresses"
+                    ],
+                    "/attributes/security_group_ids": [
+                      "us-east-1/DescribeNetworkInterfaces/eni-2#Groups"
+                    ],
+                    "/attributes/attached_instance_id": [
+                      "us-east-1/DescribeNetworkInterfaces/eni-2#Attachment.InstanceId"
+                    ]
+                  },
+                  "children": [],
+                  "private_ip_addresses": [
+                    {
+                      "address": "10.0.2.10",
+                      "primary": true,
+                      "public_ip": null
+                    }
+                  ],
+                  "public_ip": null,
+                  "mac_address": null
+                }
+              ],
+              "availability_zone": null,
+              "cidr_blocks": [
+                "10.0.2.0/24"
+              ]
+            },
+            {
+              "id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+              "identity": {
+                "account_id": "123456789012",
+                "region": "us-east-1",
+                "service": "rds",
+                "physical_id": "arn:aws:rds:us-east-1:123456789012:db:writer",
+                "logical_address": null
+              },
+              "name": "writer",
+              "resource_type": "AWS::RDS::DBInstance",
+              "attributes": {},
+              "evidence_ids": [
+                "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0]"
+              ],
+              "fact_evidence": {
+                "/arn": [
+                  "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].DBInstanceArn"
+                ],
+                "/identifier": [
+                  "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].DBInstanceIdentifier"
+                ],
+                "/name": [
+                  "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].DBInstanceIdentifier"
+                ],
+                "/status": [
+                  "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].DBInstanceStatus"
+                ],
+                "/engine": [
+                  "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].Engine"
+                ],
+                "/engine_version": [
+                  "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].EngineVersion"
+                ],
+                "/storage_encrypted": [
+                  "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].StorageEncrypted"
+                ],
+                "/publicly_accessible": [
+                  "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].PubliclyAccessible"
+                ],
+                "/allocated_storage": [
+                  "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].AllocatedStorage"
+                ],
+                "/backup_retention_period": [
+                  "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].BackupRetentionPeriod"
+                ],
+                "/security_group_ids/0": [
+                  "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].VpcSecurityGroups[0].VpcSecurityGroupId"
+                ],
+                "/security_group_ids": [
+                  "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].VpcSecurityGroups"
+                ],
+                "/associated_role_arns/0": [
+                  "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].AssociatedRoles[0].RoleArn"
+                ],
+                "/associated_role_arns": [
+                  "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].AssociatedRoles"
+                ],
+                "/instance_class": [
+                  "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].DBInstanceClass"
+                ],
+                "/availability_zone": [
+                  "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].AvailabilityZone"
+                ],
+                "/cluster_identifier": [
+                  "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].DBClusterIdentifier"
+                ],
+                "/endpoint_address": [
+                  "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].Endpoint.Address"
+                ],
+                "/endpoint_port": [
+                  "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].Endpoint.Port"
+                ],
+                "/db_subnet_group_name": [
+                  "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].DBSubnetGroup.DBSubnetGroupName"
+                ],
+                "/vpc_id": [
+                  "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].DBSubnetGroup.VpcId"
+                ],
+                "/subnet_ids/0": [
+                  "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].DBSubnetGroup.Subnets[0].SubnetIdentifier"
+                ],
+                "/subnet_ids": [
+                  "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].DBSubnetGroup.Subnets"
+                ]
+              },
+              "children": [],
+              "arn": "arn:aws:rds:us-east-1:123456789012:db:writer",
+              "status": "available",
+              "vpc_id": "vpc-a",
+              "subnet_ids": [
+                "subnet-a"
+              ],
+              "security_group_ids": [
+                "sg-a"
+              ],
+              "associated_role_arns": [
+                "arn:aws:iam::123456789012:role/rds-monitoring"
+              ],
+              "identifier": "writer",
+              "engine": "aurora-postgresql",
+              "engine_version": "16.4",
+              "endpoint_address": "writer.example.rds.amazonaws.com",
+              "endpoint_port": 5432,
+              "db_subnet_group_name": "private",
+              "storage_encrypted": true,
+              "publicly_accessible": false,
+              "allocated_storage": 0,
+              "storage_type": null,
+              "iops": null,
+              "storage_throughput": null,
+              "backup_retention_period": 0,
+              "deletion_protection": null,
+              "multi_az": null,
+              "instance_class": "db.t4g.medium",
+              "availability_zone": "us-east-1a",
+              "cluster_identifier": "database"
+            },
+            {
+              "id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Asubgrp%3Aprivate",
+              "identity": {
+                "account_id": "123456789012",
+                "region": "us-east-1",
+                "service": "rds",
+                "physical_id": "arn:aws:rds:us-east-1:123456789012:subgrp:private",
+                "logical_address": null
+              },
+              "name": "private",
+              "resource_type": "AWS::RDS::DBSubnetGroup",
+              "attributes": {},
+              "evidence_ids": [
+                "rds/us-east-1/DescribeDBSubnetGroups/arn:aws:rds:us-east-1:123456789012:subgrp:private#Request[{}].Page[0].DBSubnetGroups[0]"
+              ],
+              "fact_evidence": {
+                "/arn": [
+                  "rds/us-east-1/DescribeDBSubnetGroups/arn:aws:rds:us-east-1:123456789012:subgrp:private#Request[{}].Page[0].DBSubnetGroups[0].DBSubnetGroupArn"
+                ],
+                "/group_name": [
+                  "rds/us-east-1/DescribeDBSubnetGroups/arn:aws:rds:us-east-1:123456789012:subgrp:private#Request[{}].Page[0].DBSubnetGroups[0].DBSubnetGroupName"
+                ],
+                "/name": [
+                  "rds/us-east-1/DescribeDBSubnetGroups/arn:aws:rds:us-east-1:123456789012:subgrp:private#Request[{}].Page[0].DBSubnetGroups[0].DBSubnetGroupName"
+                ],
+                "/status": [
+                  "rds/us-east-1/DescribeDBSubnetGroups/arn:aws:rds:us-east-1:123456789012:subgrp:private#Request[{}].Page[0].DBSubnetGroups[0].SubnetGroupStatus"
+                ],
+                "/vpc_id": [
+                  "rds/us-east-1/DescribeDBSubnetGroups/arn:aws:rds:us-east-1:123456789012:subgrp:private#Request[{}].Page[0].DBSubnetGroups[0].VpcId"
+                ],
+                "/subnet_ids/0": [
+                  "rds/us-east-1/DescribeDBSubnetGroups/arn:aws:rds:us-east-1:123456789012:subgrp:private#Request[{}].Page[0].DBSubnetGroups[0].Subnets[0].SubnetIdentifier"
+                ],
+                "/subnet_ids": [
+                  "rds/us-east-1/DescribeDBSubnetGroups/arn:aws:rds:us-east-1:123456789012:subgrp:private#Request[{}].Page[0].DBSubnetGroups[0].Subnets"
+                ]
+              },
+              "children": [],
+              "arn": "arn:aws:rds:us-east-1:123456789012:subgrp:private",
+              "status": "Complete",
+              "vpc_id": "vpc-a",
+              "subnet_ids": [
+                "subnet-a"
+              ],
+              "security_group_ids": null,
+              "associated_role_arns": null,
+              "group_name": "private"
+            },
+            {
+              "id": "123456789012/us-east-1/lambda/physical/arn%3Aaws%3Alambda%3Aus-east-1%3A123456789012%3Afunction%3Aworker",
+              "identity": {
+                "account_id": "123456789012",
+                "region": "us-east-1",
+                "service": "lambda",
+                "physical_id": "arn:aws:lambda:us-east-1:123456789012:function:worker",
+                "logical_address": null
+              },
+              "name": null,
+              "resource_type": "AWS::Lambda::Function",
+              "attributes": {},
+              "evidence_ids": [],
+              "fact_evidence": {
+                "/subnet_ids/0": [
+                  "ecs/us-east-1/GetFunction/arn:aws:lambda:us-east-1:123456789012:function:worker#VpcConfig.subnet_ids"
+                ],
+                "/security_group_ids/0": [
+                  "ecs/us-east-1/GetFunction/arn:aws:lambda:us-east-1:123456789012:function:worker#VpcConfig.security_group_ids"
+                ]
+              },
+              "children": [],
+              "arn": "arn:aws:lambda:us-east-1:123456789012:function:worker",
+              "role_arn": null,
+              "vpc_id": "vpc-a",
+              "subnet_ids": [
+                "subnet-b"
+              ],
+              "security_group_ids": [
+                "sg-app"
+              ],
+              "runtime": null,
+              "package_type": null,
+              "state": null,
+              "last_update_status": null,
+              "memory_size": null,
+              "timeout": null,
+              "architectures": null,
+              "configuration": null
+            }
+          ],
+          "cidr_blocks": [
+            "10.0.0.0/16"
+          ]
+        },
+        {
+          "id": "123456789012/us-east-1/ec2/physical/vpc-b",
+          "identity": {
+            "account_id": "123456789012",
+            "region": "us-east-1",
+            "service": "ec2",
+            "physical_id": "vpc-b",
+            "logical_address": null
+          },
+          "name": null,
+          "resource_type": "AWS::EC2::VPC",
+          "attributes": {},
+          "evidence_ids": [
+            "us-east-1/DescribeVpcs/vpc-b"
+          ],
+          "fact_evidence": {
+            "/cidr_blocks": [
+              "us-east-1/DescribeVpcs/vpc-b#CidrBlock"
+            ]
+          },
+          "children": [
+            {
+              "id": "123456789012/us-east-1/ec2/physical/sg-x",
+              "identity": {
+                "account_id": "123456789012",
+                "region": "us-east-1",
+                "service": "ec2",
+                "physical_id": "sg-x",
+                "logical_address": null
+              },
+              "name": null,
+              "resource_type": "AWS::EC2::SecurityGroup",
+              "attributes": {
+                "vpc_id": "vpc-b",
+                "rules_source": "DescribeSecurityGroupRules"
+              },
+              "evidence_ids": [
+                "us-east-1/DescribeSecurityGroups/sg-x"
+              ],
+              "fact_evidence": {
+                "/attributes/vpc_id": [
+                  "us-east-1/DescribeSecurityGroups/sg-x#VpcId"
+                ]
+              },
+              "children": [],
+              "ingress_rules": [],
+              "egress_rules": []
+            },
+            {
+              "id": "123456789012/us-east-1/ec2/physical/subnet-x",
+              "identity": {
+                "account_id": "123456789012",
+                "region": "us-east-1",
+                "service": "ec2",
+                "physical_id": "subnet-x",
+                "logical_address": null
+              },
+              "name": null,
+              "resource_type": "AWS::EC2::Subnet",
+              "attributes": {
+                "vpc_id": "vpc-b"
+              },
+              "evidence_ids": [
+                "us-east-1/DescribeSubnets/subnet-x"
+              ],
+              "fact_evidence": {
+                "/cidr_blocks": [
+                  "us-east-1/DescribeSubnets/subnet-x#CidrBlock"
+                ],
+                "/attributes/vpc_id": [
+                  "us-east-1/DescribeSubnets/subnet-x#VpcId"
+                ]
+              },
+              "children": [
+                {
+                  "id": "123456789012/us-east-1/ec2/physical/i-other",
+                  "identity": {
+                    "account_id": "123456789012",
+                    "region": "us-east-1",
+                    "service": "ec2",
+                    "physical_id": "i-other",
+                    "logical_address": null
+                  },
+                  "name": null,
+                  "resource_type": "AWS::EC2::Instance",
+                  "attributes": {
+                    "vpc_id": "vpc-b",
+                    "subnet_id": "subnet-x",
+                    "private_ip_address": "10.9.1.5",
+                    "security_group_ids": [
+                      "sg-x"
+                    ]
+                  },
+                  "evidence_ids": [
+                    "us-east-1/DescribeInstances/i-other"
+                  ],
+                  "fact_evidence": {
+                    "/attributes/subnet_id": [
+                      "us-east-1/DescribeInstances/i-other#SubnetId"
+                    ],
+                    "/attributes/vpc_id": [
+                      "us-east-1/DescribeInstances/i-other#VpcId"
+                    ],
+                    "/attributes/private_ip_address": [
+                      "us-east-1/DescribeInstances/i-other#PrivateIpAddress"
+                    ],
+                    "/attributes/security_group_ids": [
+                      "us-east-1/DescribeInstances/i-other#SecurityGroups"
+                    ]
+                  },
+                  "children": [],
+                  "instance_type": null
+                }
+              ],
+              "availability_zone": null,
+              "cidr_blocks": [
+                "10.9.1.0/24"
+              ]
+            }
+          ],
+          "cidr_blocks": [
+            "10.9.0.0/16"
+          ]
+        },
+        {
+          "id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Acluster%3Adatabase",
+          "identity": {
+            "account_id": "123456789012",
+            "region": "us-east-1",
+            "service": "rds",
+            "physical_id": "arn:aws:rds:us-east-1:123456789012:cluster:database",
+            "logical_address": null
+          },
+          "name": "database",
+          "resource_type": "AWS::RDS::DBCluster",
+          "attributes": {},
+          "evidence_ids": [
+            "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0]"
+          ],
+          "fact_evidence": {
+            "/arn": [
+              "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].DBClusterArn"
+            ],
+            "/identifier": [
+              "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].DBClusterIdentifier"
+            ],
+            "/name": [
+              "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].DBClusterIdentifier"
+            ],
+            "/status": [
+              "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].Status"
+            ],
+            "/engine": [
+              "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].Engine"
+            ],
+            "/security_group_ids": [
+              "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].VpcSecurityGroups"
+            ],
+            "/associated_role_arns": [
+              "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].AssociatedRoles"
+            ],
+            "/endpoint_address": [
+              "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].Endpoint"
+            ],
+            "/endpoint_port": [
+              "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].Port"
+            ],
+            "/reader_endpoint_address": [
+              "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].ReaderEndpoint"
+            ],
+            "/db_subnet_group_name": [
+              "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].DBSubnetGroup"
+            ],
+            "/members/0/db_instance_identifier": [
+              "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].DBClusterMembers[0].DBInstanceIdentifier"
+            ],
+            "/members/0/is_cluster_writer": [
+              "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].DBClusterMembers[0].IsClusterWriter"
+            ],
+            "/members/0/promotion_tier": [
+              "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].DBClusterMembers[0].PromotionTier"
+            ],
+            "/members": [
+              "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].DBClusterMembers"
+            ]
+          },
+          "children": [],
+          "arn": "arn:aws:rds:us-east-1:123456789012:cluster:database",
+          "status": "available",
+          "vpc_id": null,
+          "subnet_ids": null,
+          "security_group_ids": [],
+          "associated_role_arns": [],
+          "identifier": "database",
+          "engine": "aurora-postgresql",
+          "engine_version": null,
+          "endpoint_address": "cluster.example.rds.amazonaws.com",
+          "endpoint_port": 5432,
+          "db_subnet_group_name": "private",
+          "storage_encrypted": null,
+          "publicly_accessible": null,
+          "allocated_storage": null,
+          "storage_type": null,
+          "iops": null,
+          "storage_throughput": null,
+          "backup_retention_period": null,
+          "deletion_protection": null,
+          "multi_az": null,
+          "reader_endpoint_address": "reader.example.rds.amazonaws.com",
+          "availability_zones": null,
+          "members": [
+            {
+              "db_instance_identifier": "writer",
+              "is_cluster_writer": true,
+              "promotion_tier": 0
+            }
+          ]
+        },
+        {
+          "id": "123456789012/us-east-1/ecs/physical/arn%3Aaws%3Aecs%3Aus-east-1%3A123456789012%3Atask%2Fapp%2F0123456789abcdef",
+          "identity": {
+            "account_id": "123456789012",
+            "region": "us-east-1",
+            "service": "ecs",
+            "physical_id": "arn:aws:ecs:us-east-1:123456789012:task/app/0123456789abcdef",
+            "logical_address": null
+          },
+          "name": null,
+          "resource_type": "AWS::ECS::Task",
+          "attributes": {},
+          "evidence_ids": [],
+          "fact_evidence": {
+            "/subnet_ids/0": [
+              "ecs/us-east-1/DescribeTasks/arn:aws:ecs:us-east-1:123456789012:task/app/0123456789abcdef#Task.subnet_ids"
+            ],
+            "/security_group_ids/0": [
+              "ecs/us-east-1/DescribeTasks/arn:aws:ecs:us-east-1:123456789012:task/app/0123456789abcdef#Task.security_group_ids"
+            ],
+            "/network_interface_ids/0": [
+              "ecs/us-east-1/DescribeTasks/arn:aws:ecs:us-east-1:123456789012:task/app/0123456789abcdef#Task.network_interface_ids"
+            ],
+            "/task_definition_arn": [
+              "ecs/us-east-1/DescribeTasks/arn:aws:ecs:us-east-1:123456789012:task/app/0123456789abcdef#Task.TaskDefinitionArn"
+            ]
+          },
+          "children": [],
+          "arn": "arn:aws:ecs:us-east-1:123456789012:task/app/0123456789abcdef",
+          "cluster_arn": null,
+          "task_definition_arn": "arn:aws:ecs:us-east-1:123456789012:task-definition/app:1",
+          "desired_status": null,
+          "last_status": null,
+          "launch_type": null,
+          "platform_version": null,
+          "availability_zone": null,
+          "cpu": null,
+          "memory": null,
+          "subnet_ids": [
+            "subnet-a"
+          ],
+          "security_group_ids": [
+            "sg-app"
+          ],
+          "network_interface_ids": [
+            "eni-task"
+          ]
+        },
+        {
+          "id": "123456789012/us-east-1/ecs/physical/arn%3Aaws%3Aecs%3Aus-east-1%3A123456789012%3Atask-definition%2Fapp%3A1",
+          "identity": {
+            "account_id": "123456789012",
+            "region": "us-east-1",
+            "service": "ecs",
+            "physical_id": "arn:aws:ecs:us-east-1:123456789012:task-definition/app:1",
+            "logical_address": null
+          },
+          "name": null,
+          "resource_type": "AWS::ECS::TaskDefinition",
+          "attributes": {},
+          "evidence_ids": [],
+          "fact_evidence": {},
+          "children": [],
+          "arn": "arn:aws:ecs:us-east-1:123456789012:task-definition/app:1",
+          "execution_role_arn": null,
+          "task_role_arn": null,
+          "family": null,
+          "revision": null,
+          "status": null,
+          "network_mode": "awsvpc",
+          "cpu": null,
+          "memory": null,
+          "requires_compatibilities": null,
+          "containers": null
+        }
+      ]
+    }
+  },
+  "global_resources": [],
+  "schema_version": "2",
+  "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+  "collection_started_at": "2026-01-01T00:00:00Z",
+  "collection_completed_at": "2026-01-01T00:00:00Z",
+  "source": {
+    "exported_at": null,
+    "kind": "aws",
+    "profile": null,
+    "role_arn": null
+  },
+  "coverage": {
+    "regions": [
+      "us-east-1"
+    ],
+    "account_wide": false,
+    "operations": [
+      {
+        "account_id": "123456789012",
+        "region": "us-east-1",
+        "service": "rds",
+        "operation": "DescribeDBInstances",
+        "status": "success",
+        "started_at": "2026-01-01T00:00:00Z",
+        "completed_at": "2026-01-01T00:00:00Z",
+        "result_count": 1,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      },
+      {
+        "account_id": "123456789012",
+        "region": "us-east-1",
+        "service": "rds",
+        "operation": "DescribeDBClusters",
+        "status": "success",
+        "started_at": "2026-01-01T00:00:00Z",
+        "completed_at": "2026-01-01T00:00:00Z",
+        "result_count": 1,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      },
+      {
+        "account_id": "123456789012",
+        "region": "us-east-1",
+        "service": "rds",
+        "operation": "DescribeDBSubnetGroups",
+        "status": "success",
+        "started_at": "2026-01-01T00:00:00Z",
+        "completed_at": "2026-01-01T00:00:00Z",
+        "result_count": 1,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      },
+      {
+        "account_id": "123456789012",
+        "region": "us-east-1",
+        "service": "ec2",
+        "operation": "DescribeInstances",
+        "status": "success",
+        "started_at": "2026-01-01T00:00:00Z",
+        "completed_at": "2026-01-01T00:00:00Z",
+        "result_count": 1,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      },
+      {
+        "account_id": "123456789012",
+        "region": "us-east-1",
+        "service": "ec2",
+        "operation": "DescribeNetworkInterfaces",
+        "status": "success",
+        "started_at": "2026-01-01T00:00:00Z",
+        "completed_at": "2026-01-01T00:00:00Z",
+        "result_count": 1,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      },
+      {
+        "account_id": "123456789012",
+        "region": "us-east-1",
+        "service": "ec2",
+        "operation": "DescribeNetworkAcls",
+        "status": "success",
+        "started_at": "2026-01-01T00:00:00Z",
+        "completed_at": "2026-01-01T00:00:00Z",
+        "result_count": 1,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      },
+      {
+        "account_id": "123456789012",
+        "region": "us-east-1",
+        "service": "ec2",
+        "operation": "DescribeRouteTables",
+        "status": "success",
+        "started_at": "2026-01-01T00:00:00Z",
+        "completed_at": "2026-01-01T00:00:00Z",
+        "result_count": 1,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      },
+      {
+        "account_id": "123456789012",
+        "region": "us-east-1",
+        "service": "ec2",
+        "operation": "DescribeSecurityGroups",
+        "status": "success",
+        "started_at": "2026-01-01T00:00:00Z",
+        "completed_at": "2026-01-01T00:00:00Z",
+        "result_count": 1,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      },
+      {
+        "account_id": "123456789012",
+        "region": "us-east-1",
+        "service": "ecs",
+        "operation": "DescribeTasks",
+        "status": "success",
+        "started_at": "2026-01-01T00:00:00Z",
+        "completed_at": "2026-01-01T00:00:00Z",
+        "result_count": 1,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      },
+      {
+        "account_id": "123456789012",
+        "region": "us-east-1",
+        "service": "lambda",
+        "operation": "GetFunctionConfiguration",
+        "status": "success",
+        "started_at": "2026-01-01T00:00:00Z",
+        "completed_at": "2026-01-01T00:00:00Z",
+        "result_count": 1,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      }
+    ]
+  },
+  "dependencies_by_region": {
+    "us-east-1": [
+      {
+        "source_id": "123456789012/us-east-1/ec2/physical/acl-1",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/subnet-a"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "network_acl_association"
+        },
+        "evidence_ids": [
+          "us-east-1/DescribeNetworkAcls/acl-1#NetworkAcls[0].Associations[0]"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/ec2/physical/acl-1",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/subnet-b"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "network_acl_association"
+        },
+        "evidence_ids": [
+          "us-east-1/DescribeNetworkAcls/acl-1#NetworkAcls[0].Associations[1]"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/ec2/physical/eni-1",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/i-multi"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "instance_interface",
+          "device_index": 0,
+          "status": "attached"
+        },
+        "evidence_ids": [
+          "us-east-1/DescribeNetworkInterfaces/eni-1#NetworkInterfaces[0].Attachment"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/ec2/physical/eni-1",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/sg-app"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_membership"
+        },
+        "evidence_ids": [
+          "us-east-1/DescribeNetworkInterfaces/eni-1#NetworkInterfaces[0].Groups[0]"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/ec2/physical/eni-2",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/i-multi"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "instance_interface",
+          "device_index": 0,
+          "status": "attached"
+        },
+        "evidence_ids": [
+          "us-east-1/DescribeNetworkInterfaces/eni-2#NetworkInterfaces[1].Attachment"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/ec2/physical/eni-2",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/sg-app"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_membership"
+        },
+        "evidence_ids": [
+          "us-east-1/DescribeNetworkInterfaces/eni-2#NetworkInterfaces[1].Groups[0]"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/ec2/physical/eni-task",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/sg-app"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_membership"
+        },
+        "evidence_ids": [
+          "us-east-1/DescribeNetworkInterfaces/eni-task#NetworkInterfaces[2].Groups[0]"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/ec2/physical/i-multi",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/sg-app"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_membership"
+        },
+        "evidence_ids": [
+          "us-east-1/DescribeInstances/i-multi#Reservations[0].Instances[0].SecurityGroups[0]"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/ec2/physical/i-other",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/sg-x"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_membership"
+        },
+        "evidence_ids": [
+          "us-east-1/DescribeInstances/i-other#Reservations[0].Instances[3].SecurityGroups[0]"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/ec2/physical/i-plain",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/sg-app"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_membership"
+        },
+        "evidence_ids": [
+          "us-east-1/DescribeInstances/i-plain#Reservations[0].Instances[1].SecurityGroups[0]"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/ec2/physical/rtb-1",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/subnet-a"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_table_association"
+        },
+        "evidence_ids": [
+          "us-east-1/DescribeRouteTables/rtb-1#RouteTables[0].Associations[0]"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/ec2/physical/rtb-1",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/subnet-b"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_table_association"
+        },
+        "evidence_ids": [
+          "us-east-1/DescribeRouteTables/rtb-1#RouteTables[0].Associations[1]"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/ec2/physical/sg-a",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/sg-app"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_reference",
+          "direction": "ingress",
+          "rule_id": "sgr-sg-a-1-5432-False",
+          "protocol": "tcp",
+          "from_port": 5432,
+          "to_port": 5432
+        },
+        "evidence_ids": [
+          "us-east-1/DescribeSecurityGroupRules/sg-a#SecurityGroupRules[0]"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Acluster%3Adatabase"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "database_cluster",
+          "observed_identifier": "database"
+        },
+        "evidence_ids": [
+          "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].DBClusterIdentifier"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Asubgrp%3Aprivate"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "database_subnet_group",
+          "observed_identifier": "private"
+        },
+        "evidence_ids": [
+          "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].DBSubnetGroup.DBSubnetGroupName"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/subnet-a"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "subnet_membership",
+          "observed_identifier": "subnet-a"
+        },
+        "evidence_ids": [
+          "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].DBSubnetGroup.Subnets[0].SubnetIdentifier"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/sg-a"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_membership",
+          "observed_identifier": "sg-a"
+        },
+        "evidence_ids": [
+          "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].VpcSecurityGroups[0].VpcSecurityGroupId"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+        "target": {
+          "kind": "unresolved",
+          "reason": "target was not uniquely collected with the expected resource type",
+          "source_path": "Request[{}].Page[0].DBInstances[0].AssociatedRoles[0].RoleArn"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "associated_role",
+          "observed_identifier": "arn:aws:iam::123456789012:role/rds-monitoring"
+        },
+        "evidence_ids": [
+          "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].AssociatedRoles[0].RoleArn"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Asubgrp%3Aprivate",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/subnet-a"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "subnet_membership",
+          "observed_identifier": "subnet-a"
+        },
+        "evidence_ids": [
+          "rds/us-east-1/DescribeDBSubnetGroups/arn:aws:rds:us-east-1:123456789012:subgrp:private#Request[{}].Page[0].DBSubnetGroups[0].Subnets[0].SubnetIdentifier"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/lambda/physical/arn%3Aaws%3Alambda%3Aus-east-1%3A123456789012%3Afunction%3Aworker",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/subnet-b"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "subnet_membership",
+          "observed_identifier": "subnet-b"
+        },
+        "evidence_ids": [
+          "ecs/us-east-1/GetFunction/arn:aws:lambda:us-east-1:123456789012:function:worker#VpcConfig.subnet_ids"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/lambda/physical/arn%3Aaws%3Alambda%3Aus-east-1%3A123456789012%3Afunction%3Aworker",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/sg-app"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_membership",
+          "observed_identifier": "sg-app"
+        },
+        "evidence_ids": [
+          "ecs/us-east-1/GetFunction/arn:aws:lambda:us-east-1:123456789012:function:worker#VpcConfig.security_group_ids"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Acluster%3Adatabase",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Asubgrp%3Aprivate"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "database_subnet_group",
+          "observed_identifier": "private"
+        },
+        "evidence_ids": [
+          "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].DBSubnetGroup"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/ecs/physical/arn%3Aaws%3Aecs%3Aus-east-1%3A123456789012%3Atask%2Fapp%2F0123456789abcdef",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ecs/physical/arn%3Aaws%3Aecs%3Aus-east-1%3A123456789012%3Atask-definition%2Fapp%3A1"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "task_definition",
+          "observed_identifier": "arn:aws:ecs:us-east-1:123456789012:task-definition/app:1"
+        },
+        "evidence_ids": [
+          "ecs/us-east-1/DescribeTasks/arn:aws:ecs:us-east-1:123456789012:task/app/0123456789abcdef#Task.TaskDefinitionArn"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/ecs/physical/arn%3Aaws%3Aecs%3Aus-east-1%3A123456789012%3Atask%2Fapp%2F0123456789abcdef",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/subnet-a"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "subnet_membership",
+          "observed_identifier": "subnet-a"
+        },
+        "evidence_ids": [
+          "ecs/us-east-1/DescribeTasks/arn:aws:ecs:us-east-1:123456789012:task/app/0123456789abcdef#Task.subnet_ids"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/ecs/physical/arn%3Aaws%3Aecs%3Aus-east-1%3A123456789012%3Atask%2Fapp%2F0123456789abcdef",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/sg-app"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_membership",
+          "observed_identifier": "sg-app"
+        },
+        "evidence_ids": [
+          "ecs/us-east-1/DescribeTasks/arn:aws:ecs:us-east-1:123456789012:task/app/0123456789abcdef#Task.security_group_ids"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/ecs/physical/arn%3Aaws%3Aecs%3Aus-east-1%3A123456789012%3Atask%2Fapp%2F0123456789abcdef",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/eni-task"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "instance_interface",
+          "observed_identifier": "eni-task"
+        },
+        "evidence_ids": [
+          "ecs/us-east-1/DescribeTasks/arn:aws:ecs:us-east-1:123456789012:task/app/0123456789abcdef#Task.network_interface_ids"
+        ]
+      }
+    ]
+  },
+  "evidence": {
+    "us-east-1/DescribeVpcs/vpc-a": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/vpc-a",
+      "source": "aws",
+      "locator": "ec2:DescribeVpcs",
+      "configuration_path": "Vpcs[0]",
+      "value": {
+        "VpcId": "vpc-a",
+        "CidrBlock": "10.0.0.0/16"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeVpcs/vpc-a#CidrBlock": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/vpc-a",
+      "source": "aws",
+      "locator": "ec2:DescribeVpcs",
+      "configuration_path": "Vpcs[0].CidrBlock",
+      "value": "10.0.0.0/16",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeVpcs/vpc-b": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/vpc-b",
+      "source": "aws",
+      "locator": "ec2:DescribeVpcs",
+      "configuration_path": "Vpcs[1]",
+      "value": {
+        "VpcId": "vpc-b",
+        "CidrBlock": "10.9.0.0/16"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeVpcs/vpc-b#CidrBlock": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/vpc-b",
+      "source": "aws",
+      "locator": "ec2:DescribeVpcs",
+      "configuration_path": "Vpcs[1].CidrBlock",
+      "value": "10.9.0.0/16",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSubnets/subnet-a": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/subnet-a",
+      "source": "aws",
+      "locator": "ec2:DescribeSubnets",
+      "configuration_path": "Subnets[0]",
+      "value": {
+        "SubnetId": "subnet-a",
+        "VpcId": "vpc-a",
+        "CidrBlock": "10.0.1.0/24"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSubnets/subnet-a#CidrBlock": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/subnet-a",
+      "source": "aws",
+      "locator": "ec2:DescribeSubnets",
+      "configuration_path": "Subnets[0].CidrBlock",
+      "value": "10.0.1.0/24",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSubnets/subnet-a#VpcId": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/subnet-a",
+      "source": "aws",
+      "locator": "ec2:DescribeSubnets",
+      "configuration_path": "Subnets[0].VpcId",
+      "value": "vpc-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSubnets/subnet-b": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/subnet-b",
+      "source": "aws",
+      "locator": "ec2:DescribeSubnets",
+      "configuration_path": "Subnets[1]",
+      "value": {
+        "SubnetId": "subnet-b",
+        "VpcId": "vpc-a",
+        "CidrBlock": "10.0.2.0/24"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSubnets/subnet-b#CidrBlock": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/subnet-b",
+      "source": "aws",
+      "locator": "ec2:DescribeSubnets",
+      "configuration_path": "Subnets[1].CidrBlock",
+      "value": "10.0.2.0/24",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSubnets/subnet-b#VpcId": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/subnet-b",
+      "source": "aws",
+      "locator": "ec2:DescribeSubnets",
+      "configuration_path": "Subnets[1].VpcId",
+      "value": "vpc-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSubnets/subnet-x": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/subnet-x",
+      "source": "aws",
+      "locator": "ec2:DescribeSubnets",
+      "configuration_path": "Subnets[2]",
+      "value": {
+        "SubnetId": "subnet-x",
+        "VpcId": "vpc-b",
+        "CidrBlock": "10.9.1.0/24"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSubnets/subnet-x#CidrBlock": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/subnet-x",
+      "source": "aws",
+      "locator": "ec2:DescribeSubnets",
+      "configuration_path": "Subnets[2].CidrBlock",
+      "value": "10.9.1.0/24",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSubnets/subnet-x#VpcId": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/subnet-x",
+      "source": "aws",
+      "locator": "ec2:DescribeSubnets",
+      "configuration_path": "Subnets[2].VpcId",
+      "value": "vpc-b",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInstances/i-multi": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/i-multi",
+      "source": "aws",
+      "locator": "ec2:DescribeInstances",
+      "configuration_path": "Reservations[0].Instances[0]",
+      "value": {
+        "InstanceId": "i-multi",
+        "SubnetId": "subnet-a",
+        "VpcId": "vpc-a",
+        "SecurityGroups": [
+          {
+            "GroupId": "sg-app"
+          }
+        ]
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInstances/i-multi#SubnetId": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/i-multi",
+      "source": "aws",
+      "locator": "ec2:DescribeInstances",
+      "configuration_path": "Reservations[0].Instances[0].SubnetId",
+      "value": "subnet-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInstances/i-multi#VpcId": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/i-multi",
+      "source": "aws",
+      "locator": "ec2:DescribeInstances",
+      "configuration_path": "Reservations[0].Instances[0].VpcId",
+      "value": "vpc-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInstances/i-multi#SecurityGroups": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/i-multi",
+      "source": "aws",
+      "locator": "ec2:DescribeInstances",
+      "configuration_path": "Reservations[0].Instances[0].SecurityGroups",
+      "value": [
+        {
+          "GroupId": "sg-app"
+        }
+      ],
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInstances/i-plain": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/i-plain",
+      "source": "aws",
+      "locator": "ec2:DescribeInstances",
+      "configuration_path": "Reservations[0].Instances[1]",
+      "value": {
+        "InstanceId": "i-plain",
+        "SubnetId": "subnet-a",
+        "VpcId": "vpc-a",
+        "SecurityGroups": [
+          {
+            "GroupId": "sg-app"
+          }
+        ],
+        "PrivateIpAddress": "10.0.1.20"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInstances/i-plain#SubnetId": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/i-plain",
+      "source": "aws",
+      "locator": "ec2:DescribeInstances",
+      "configuration_path": "Reservations[0].Instances[1].SubnetId",
+      "value": "subnet-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInstances/i-plain#VpcId": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/i-plain",
+      "source": "aws",
+      "locator": "ec2:DescribeInstances",
+      "configuration_path": "Reservations[0].Instances[1].VpcId",
+      "value": "vpc-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInstances/i-plain#PrivateIpAddress": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/i-plain",
+      "source": "aws",
+      "locator": "ec2:DescribeInstances",
+      "configuration_path": "Reservations[0].Instances[1].PrivateIpAddress",
+      "value": "10.0.1.20",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInstances/i-plain#SecurityGroups": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/i-plain",
+      "source": "aws",
+      "locator": "ec2:DescribeInstances",
+      "configuration_path": "Reservations[0].Instances[1].SecurityGroups",
+      "value": [
+        {
+          "GroupId": "sg-app"
+        }
+      ],
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInstances/i-nosg": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/i-nosg",
+      "source": "aws",
+      "locator": "ec2:DescribeInstances",
+      "configuration_path": "Reservations[0].Instances[2]",
+      "value": {
+        "InstanceId": "i-nosg",
+        "SubnetId": "subnet-a",
+        "VpcId": "vpc-a",
+        "SecurityGroups": []
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInstances/i-nosg#SubnetId": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/i-nosg",
+      "source": "aws",
+      "locator": "ec2:DescribeInstances",
+      "configuration_path": "Reservations[0].Instances[2].SubnetId",
+      "value": "subnet-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInstances/i-nosg#VpcId": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/i-nosg",
+      "source": "aws",
+      "locator": "ec2:DescribeInstances",
+      "configuration_path": "Reservations[0].Instances[2].VpcId",
+      "value": "vpc-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInstances/i-other": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/i-other",
+      "source": "aws",
+      "locator": "ec2:DescribeInstances",
+      "configuration_path": "Reservations[0].Instances[3]",
+      "value": {
+        "InstanceId": "i-other",
+        "SubnetId": "subnet-x",
+        "VpcId": "vpc-b",
+        "SecurityGroups": [
+          {
+            "GroupId": "sg-x"
+          }
+        ],
+        "PrivateIpAddress": "10.9.1.5"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInstances/i-other#SubnetId": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/i-other",
+      "source": "aws",
+      "locator": "ec2:DescribeInstances",
+      "configuration_path": "Reservations[0].Instances[3].SubnetId",
+      "value": "subnet-x",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInstances/i-other#VpcId": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/i-other",
+      "source": "aws",
+      "locator": "ec2:DescribeInstances",
+      "configuration_path": "Reservations[0].Instances[3].VpcId",
+      "value": "vpc-b",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInstances/i-other#PrivateIpAddress": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/i-other",
+      "source": "aws",
+      "locator": "ec2:DescribeInstances",
+      "configuration_path": "Reservations[0].Instances[3].PrivateIpAddress",
+      "value": "10.9.1.5",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInstances/i-other#SecurityGroups": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/i-other",
+      "source": "aws",
+      "locator": "ec2:DescribeInstances",
+      "configuration_path": "Reservations[0].Instances[3].SecurityGroups",
+      "value": [
+        {
+          "GroupId": "sg-x"
+        }
+      ],
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeRouteTables/rtb-1": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/rtb-1",
+      "source": "aws",
+      "locator": "ec2:DescribeRouteTables",
+      "configuration_path": "RouteTables[0]",
+      "value": {
+        "RouteTableId": "rtb-1",
+        "VpcId": "vpc-a",
+        "Routes": [
+          {
+            "DestinationCidrBlock": "10.0.0.0/16",
+            "GatewayId": "local",
+            "State": "active"
+          }
+        ],
+        "Associations": [
+          {
+            "SubnetId": "subnet-a"
+          },
+          {
+            "SubnetId": "subnet-b"
+          }
+        ]
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeRouteTables/rtb-1#VpcId": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/rtb-1",
+      "source": "aws",
+      "locator": "ec2:DescribeRouteTables",
+      "configuration_path": "RouteTables[0].VpcId",
+      "value": "vpc-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeRouteTables/rtb-1#RouteTables[0].Routes[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/rtb-1",
+      "source": "aws",
+      "locator": "ec2:DescribeRouteTables",
+      "configuration_path": "RouteTables[0].Routes[0]",
+      "value": {
+        "DestinationCidrBlock": "10.0.0.0/16",
+        "GatewayId": "local",
+        "State": "active"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkAcls/acl-1": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/acl-1",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkAcls",
+      "configuration_path": "NetworkAcls[0]",
+      "value": {
+        "NetworkAclId": "acl-1",
+        "VpcId": "vpc-a",
+        "Entries": [
+          {
+            "RuleNumber": 100,
+            "Protocol": "-1",
+            "RuleAction": "allow",
+            "Egress": false,
+            "CidrBlock": "0.0.0.0/0"
+          },
+          {
+            "RuleNumber": 100,
+            "Protocol": "-1",
+            "RuleAction": "allow",
+            "Egress": true,
+            "CidrBlock": "0.0.0.0/0"
+          }
+        ],
+        "Associations": [
+          {
+            "SubnetId": "subnet-a"
+          },
+          {
+            "SubnetId": "subnet-b"
+          }
+        ]
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkAcls/acl-1#VpcId": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/acl-1",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkAcls",
+      "configuration_path": "NetworkAcls[0].VpcId",
+      "value": "vpc-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkAcls/acl-1#NetworkAcls[0].Entries[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/acl-1",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkAcls",
+      "configuration_path": "NetworkAcls[0].Entries[0]",
+      "value": {
+        "RuleNumber": 100,
+        "Protocol": "-1",
+        "RuleAction": "allow",
+        "Egress": false,
+        "CidrBlock": "0.0.0.0/0"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkAcls/acl-1#NetworkAcls[0].Entries[1]": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/acl-1",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkAcls",
+      "configuration_path": "NetworkAcls[0].Entries[1]",
+      "value": {
+        "RuleNumber": 100,
+        "Protocol": "-1",
+        "RuleAction": "allow",
+        "Egress": true,
+        "CidrBlock": "0.0.0.0/0"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSecurityGroups/sg-a": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/sg-a",
+      "source": "aws",
+      "locator": "ec2:DescribeSecurityGroups",
+      "configuration_path": "SecurityGroups[0]",
+      "value": {
+        "GroupId": "sg-a",
+        "VpcId": "vpc-a",
+        "IpPermissions": [],
+        "IpPermissionsEgress": []
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSecurityGroups/sg-a#VpcId": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/sg-a",
+      "source": "aws",
+      "locator": "ec2:DescribeSecurityGroups",
+      "configuration_path": "SecurityGroups[0].VpcId",
+      "value": "vpc-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSecurityGroupRules/sg-a#SecurityGroupRules[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/sg-a",
+      "source": "aws",
+      "locator": "ec2:DescribeSecurityGroupRules",
+      "configuration_path": "SecurityGroupRules[0]",
+      "value": {
+        "SecurityGroupRuleId": "sgr-sg-a-1-5432-False",
+        "GroupId": "sg-a",
+        "IsEgress": false,
+        "IpProtocol": "tcp",
+        "FromPort": 5432,
+        "ToPort": 5432,
+        "ReferencedGroupInfo": {
+          "GroupId": "sg-app",
+          "UserId": "123456789012"
+        }
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSecurityGroupRules/sg-a#SecurityGroupRules[2]": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/sg-a",
+      "source": "aws",
+      "locator": "ec2:DescribeSecurityGroupRules",
+      "configuration_path": "SecurityGroupRules[2]",
+      "value": {
+        "SecurityGroupRuleId": "sgr-sg-a-1-5432-True",
+        "GroupId": "sg-a",
+        "IsEgress": true,
+        "IpProtocol": "-1",
+        "FromPort": -1,
+        "ToPort": -1,
+        "CidrIpv4": "0.0.0.0/0"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSecurityGroups/sg-app": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/sg-app",
+      "source": "aws",
+      "locator": "ec2:DescribeSecurityGroups",
+      "configuration_path": "SecurityGroups[1]",
+      "value": {
+        "GroupId": "sg-app",
+        "VpcId": "vpc-a",
+        "IpPermissions": [],
+        "IpPermissionsEgress": []
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSecurityGroups/sg-app#VpcId": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/sg-app",
+      "source": "aws",
+      "locator": "ec2:DescribeSecurityGroups",
+      "configuration_path": "SecurityGroups[1].VpcId",
+      "value": "vpc-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSecurityGroupRules/sg-app#SecurityGroupRules[1]": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/sg-app",
+      "source": "aws",
+      "locator": "ec2:DescribeSecurityGroupRules",
+      "configuration_path": "SecurityGroupRules[1]",
+      "value": {
+        "SecurityGroupRuleId": "sgr-sg-app-1-5432-True",
+        "GroupId": "sg-app",
+        "IsEgress": true,
+        "IpProtocol": "-1",
+        "FromPort": -1,
+        "ToPort": -1,
+        "CidrIpv4": "0.0.0.0/0"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSecurityGroups/sg-x": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/sg-x",
+      "source": "aws",
+      "locator": "ec2:DescribeSecurityGroups",
+      "configuration_path": "SecurityGroups[2]",
+      "value": {
+        "GroupId": "sg-x",
+        "VpcId": "vpc-b",
+        "IpPermissions": [],
+        "IpPermissionsEgress": []
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSecurityGroups/sg-x#VpcId": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/sg-x",
+      "source": "aws",
+      "locator": "ec2:DescribeSecurityGroups",
+      "configuration_path": "SecurityGroups[2].VpcId",
+      "value": "vpc-b",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkInterfaces/eni-1": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/eni-1",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkInterfaces",
+      "configuration_path": "NetworkInterfaces[0]",
+      "value": {
+        "NetworkInterfaceId": "eni-1",
+        "SubnetId": "subnet-a",
+        "VpcId": "vpc-a",
+        "Groups": [
+          {
+            "GroupId": "sg-app"
+          }
+        ],
+        "PrivateIpAddresses": [
+          {
+            "PrivateIpAddress": "10.0.1.10",
+            "Primary": true
+          }
+        ],
+        "Attachment": {
+          "InstanceId": "i-multi",
+          "DeviceIndex": 0,
+          "Status": "attached"
+        }
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkInterfaces/eni-1#PrivateIpAddresses": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/eni-1",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkInterfaces",
+      "configuration_path": "NetworkInterfaces[0].PrivateIpAddresses",
+      "value": [
+        {
+          "PrivateIpAddress": "10.0.1.10",
+          "Primary": true
+        }
+      ],
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkInterfaces/eni-1#Groups": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/eni-1",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkInterfaces",
+      "configuration_path": "NetworkInterfaces[0].Groups",
+      "value": [
+        {
+          "GroupId": "sg-app"
+        }
+      ],
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkInterfaces/eni-1#Attachment.InstanceId": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/eni-1",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkInterfaces",
+      "configuration_path": "NetworkInterfaces[0].Attachment.InstanceId",
+      "value": "i-multi",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkInterfaces/eni-2": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/eni-2",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkInterfaces",
+      "configuration_path": "NetworkInterfaces[1]",
+      "value": {
+        "NetworkInterfaceId": "eni-2",
+        "SubnetId": "subnet-b",
+        "VpcId": "vpc-a",
+        "Groups": [
+          {
+            "GroupId": "sg-app"
+          }
+        ],
+        "PrivateIpAddresses": [
+          {
+            "PrivateIpAddress": "10.0.2.10",
+            "Primary": true
+          }
+        ],
+        "Attachment": {
+          "InstanceId": "i-multi",
+          "DeviceIndex": 0,
+          "Status": "attached"
+        }
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkInterfaces/eni-2#PrivateIpAddresses": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/eni-2",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkInterfaces",
+      "configuration_path": "NetworkInterfaces[1].PrivateIpAddresses",
+      "value": [
+        {
+          "PrivateIpAddress": "10.0.2.10",
+          "Primary": true
+        }
+      ],
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkInterfaces/eni-2#Groups": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/eni-2",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkInterfaces",
+      "configuration_path": "NetworkInterfaces[1].Groups",
+      "value": [
+        {
+          "GroupId": "sg-app"
+        }
+      ],
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkInterfaces/eni-2#Attachment.InstanceId": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/eni-2",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkInterfaces",
+      "configuration_path": "NetworkInterfaces[1].Attachment.InstanceId",
+      "value": "i-multi",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkInterfaces/eni-task": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/eni-task",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkInterfaces",
+      "configuration_path": "NetworkInterfaces[2]",
+      "value": {
+        "NetworkInterfaceId": "eni-task",
+        "SubnetId": "subnet-a",
+        "VpcId": "vpc-a",
+        "Groups": [
+          {
+            "GroupId": "sg-app"
+          }
+        ],
+        "PrivateIpAddresses": [
+          {
+            "PrivateIpAddress": "10.0.1.30",
+            "Primary": true
+          }
+        ]
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkInterfaces/eni-task#PrivateIpAddresses": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/eni-task",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkInterfaces",
+      "configuration_path": "NetworkInterfaces[2].PrivateIpAddresses",
+      "value": [
+        {
+          "PrivateIpAddress": "10.0.1.30",
+          "Primary": true
+        }
+      ],
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkInterfaces/eni-task#Groups": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/eni-task",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkInterfaces",
+      "configuration_path": "NetworkInterfaces[2].Groups",
+      "value": [
+        {
+          "GroupId": "sg-app"
+        }
+      ],
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInstances/i-multi#Reservations[0].Instances[0].SecurityGroups[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/i-multi",
+      "source": "aws",
+      "locator": "ec2:DescribeInstances",
+      "configuration_path": "Reservations[0].Instances[0].SecurityGroups[0]",
+      "value": {
+        "GroupId": "sg-app"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInstances/i-plain#Reservations[0].Instances[1].SecurityGroups[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/i-plain",
+      "source": "aws",
+      "locator": "ec2:DescribeInstances",
+      "configuration_path": "Reservations[0].Instances[1].SecurityGroups[0]",
+      "value": {
+        "GroupId": "sg-app"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInstances/i-other#Reservations[0].Instances[3].SecurityGroups[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/i-other",
+      "source": "aws",
+      "locator": "ec2:DescribeInstances",
+      "configuration_path": "Reservations[0].Instances[3].SecurityGroups[0]",
+      "value": {
+        "GroupId": "sg-x"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeRouteTables/rtb-1#RouteTables[0].Associations[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/rtb-1",
+      "source": "aws",
+      "locator": "ec2:DescribeRouteTables",
+      "configuration_path": "RouteTables[0].Associations[0]",
+      "value": {
+        "SubnetId": "subnet-a"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeRouteTables/rtb-1#RouteTables[0].Associations[1]": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/rtb-1",
+      "source": "aws",
+      "locator": "ec2:DescribeRouteTables",
+      "configuration_path": "RouteTables[0].Associations[1]",
+      "value": {
+        "SubnetId": "subnet-b"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkAcls/acl-1#NetworkAcls[0].Associations[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/acl-1",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkAcls",
+      "configuration_path": "NetworkAcls[0].Associations[0]",
+      "value": {
+        "SubnetId": "subnet-a"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkAcls/acl-1#NetworkAcls[0].Associations[1]": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/acl-1",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkAcls",
+      "configuration_path": "NetworkAcls[0].Associations[1]",
+      "value": {
+        "SubnetId": "subnet-b"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkInterfaces/eni-1#NetworkInterfaces[0].Attachment": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/eni-1",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkInterfaces",
+      "configuration_path": "NetworkInterfaces[0].Attachment",
+      "value": {
+        "InstanceId": "i-multi",
+        "DeviceIndex": 0,
+        "Status": "attached"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkInterfaces/eni-1#NetworkInterfaces[0].Groups[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/eni-1",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkInterfaces",
+      "configuration_path": "NetworkInterfaces[0].Groups[0]",
+      "value": {
+        "GroupId": "sg-app"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkInterfaces/eni-2#NetworkInterfaces[1].Attachment": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/eni-2",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkInterfaces",
+      "configuration_path": "NetworkInterfaces[1].Attachment",
+      "value": {
+        "InstanceId": "i-multi",
+        "DeviceIndex": 0,
+        "Status": "attached"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkInterfaces/eni-2#NetworkInterfaces[1].Groups[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/eni-2",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkInterfaces",
+      "configuration_path": "NetworkInterfaces[1].Groups[0]",
+      "value": {
+        "GroupId": "sg-app"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkInterfaces/eni-task#NetworkInterfaces[2].Groups[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ec2/physical/eni-task",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkInterfaces",
+      "configuration_path": "NetworkInterfaces[2].Groups[0]",
+      "value": {
+        "GroupId": "sg-app"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].DBInstanceArn": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+      "source": "aws",
+      "locator": "rds:DescribeDBInstances",
+      "configuration_path": "Request[{}].Page[0].DBInstances[0].DBInstanceArn",
+      "value": "arn:aws:rds:us-east-1:123456789012:db:writer",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].DBInstanceIdentifier": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+      "source": "aws",
+      "locator": "rds:DescribeDBInstances",
+      "configuration_path": "Request[{}].Page[0].DBInstances[0].DBInstanceIdentifier",
+      "value": "writer",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].DBInstanceStatus": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+      "source": "aws",
+      "locator": "rds:DescribeDBInstances",
+      "configuration_path": "Request[{}].Page[0].DBInstances[0].DBInstanceStatus",
+      "value": "available",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].Engine": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+      "source": "aws",
+      "locator": "rds:DescribeDBInstances",
+      "configuration_path": "Request[{}].Page[0].DBInstances[0].Engine",
+      "value": "aurora-postgresql",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].EngineVersion": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+      "source": "aws",
+      "locator": "rds:DescribeDBInstances",
+      "configuration_path": "Request[{}].Page[0].DBInstances[0].EngineVersion",
+      "value": "16.4",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].StorageEncrypted": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+      "source": "aws",
+      "locator": "rds:DescribeDBInstances",
+      "configuration_path": "Request[{}].Page[0].DBInstances[0].StorageEncrypted",
+      "value": true,
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].PubliclyAccessible": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+      "source": "aws",
+      "locator": "rds:DescribeDBInstances",
+      "configuration_path": "Request[{}].Page[0].DBInstances[0].PubliclyAccessible",
+      "value": false,
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].AllocatedStorage": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+      "source": "aws",
+      "locator": "rds:DescribeDBInstances",
+      "configuration_path": "Request[{}].Page[0].DBInstances[0].AllocatedStorage",
+      "value": 0,
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].BackupRetentionPeriod": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+      "source": "aws",
+      "locator": "rds:DescribeDBInstances",
+      "configuration_path": "Request[{}].Page[0].DBInstances[0].BackupRetentionPeriod",
+      "value": 0,
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].VpcSecurityGroups[0].VpcSecurityGroupId": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+      "source": "aws",
+      "locator": "rds:DescribeDBInstances",
+      "configuration_path": "Request[{}].Page[0].DBInstances[0].VpcSecurityGroups[0].VpcSecurityGroupId",
+      "value": "sg-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].VpcSecurityGroups": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+      "source": "aws",
+      "locator": "rds:DescribeDBInstances",
+      "configuration_path": "Request[{}].Page[0].DBInstances[0].VpcSecurityGroups",
+      "value": [
+        {
+          "VpcSecurityGroupId": "sg-a",
+          "Status": "active"
+        }
+      ],
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].AssociatedRoles[0].RoleArn": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+      "source": "aws",
+      "locator": "rds:DescribeDBInstances",
+      "configuration_path": "Request[{}].Page[0].DBInstances[0].AssociatedRoles[0].RoleArn",
+      "value": "arn:aws:iam::123456789012:role/rds-monitoring",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].AssociatedRoles": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+      "source": "aws",
+      "locator": "rds:DescribeDBInstances",
+      "configuration_path": "Request[{}].Page[0].DBInstances[0].AssociatedRoles",
+      "value": [
+        {
+          "RoleArn": "arn:aws:iam::123456789012:role/rds-monitoring",
+          "FeatureName": "s3Import"
+        }
+      ],
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].DBInstanceClass": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+      "source": "aws",
+      "locator": "rds:DescribeDBInstances",
+      "configuration_path": "Request[{}].Page[0].DBInstances[0].DBInstanceClass",
+      "value": "db.t4g.medium",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].AvailabilityZone": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+      "source": "aws",
+      "locator": "rds:DescribeDBInstances",
+      "configuration_path": "Request[{}].Page[0].DBInstances[0].AvailabilityZone",
+      "value": "us-east-1a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].DBClusterIdentifier": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+      "source": "aws",
+      "locator": "rds:DescribeDBInstances",
+      "configuration_path": "Request[{}].Page[0].DBInstances[0].DBClusterIdentifier",
+      "value": "database",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].Endpoint.Address": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+      "source": "aws",
+      "locator": "rds:DescribeDBInstances",
+      "configuration_path": "Request[{}].Page[0].DBInstances[0].Endpoint.Address",
+      "value": "writer.example.rds.amazonaws.com",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].Endpoint.Port": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+      "source": "aws",
+      "locator": "rds:DescribeDBInstances",
+      "configuration_path": "Request[{}].Page[0].DBInstances[0].Endpoint.Port",
+      "value": 5432,
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].DBSubnetGroup.DBSubnetGroupName": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+      "source": "aws",
+      "locator": "rds:DescribeDBInstances",
+      "configuration_path": "Request[{}].Page[0].DBInstances[0].DBSubnetGroup.DBSubnetGroupName",
+      "value": "private",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].DBSubnetGroup.VpcId": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+      "source": "aws",
+      "locator": "rds:DescribeDBInstances",
+      "configuration_path": "Request[{}].Page[0].DBInstances[0].DBSubnetGroup.VpcId",
+      "value": "vpc-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].DBSubnetGroup.Subnets[0].SubnetIdentifier": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+      "source": "aws",
+      "locator": "rds:DescribeDBInstances",
+      "configuration_path": "Request[{}].Page[0].DBInstances[0].DBSubnetGroup.Subnets[0].SubnetIdentifier",
+      "value": "subnet-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0].DBSubnetGroup.Subnets": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+      "source": "aws",
+      "locator": "rds:DescribeDBInstances",
+      "configuration_path": "Request[{}].Page[0].DBInstances[0].DBSubnetGroup.Subnets",
+      "value": [
+        {
+          "SubnetIdentifier": "subnet-a"
+        }
+      ],
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBInstances/arn:aws:rds:us-east-1:123456789012:db:writer#Request[{}].Page[0].DBInstances[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Adb%3Awriter",
+      "source": "aws",
+      "locator": "rds:DescribeDBInstances",
+      "configuration_path": "Request[{}].Page[0].DBInstances[0]",
+      "value": {
+        "Engine": "aurora-postgresql",
+        "EngineVersion": "16.4",
+        "StorageEncrypted": true,
+        "PubliclyAccessible": false,
+        "AllocatedStorage": 0,
+        "BackupRetentionPeriod": 0,
+        "VpcSecurityGroups": [
+          {
+            "VpcSecurityGroupId": "sg-a",
+            "Status": "active"
+          }
+        ],
+        "AssociatedRoles": [
+          {
+            "RoleArn": "arn:aws:iam::123456789012:role/rds-monitoring",
+            "FeatureName": "s3Import"
+          }
+        ],
+        "DBInstanceIdentifier": "writer",
+        "DBInstanceClass": "db.t4g.medium",
+        "DBInstanceStatus": "available",
+        "AvailabilityZone": "us-east-1a",
+        "DBClusterIdentifier": "database",
+        "Endpoint": {
+          "Address": "writer.example.rds.amazonaws.com",
+          "Port": 5432
+        },
+        "DBSubnetGroup": {
+          "DBSubnetGroupName": "private",
+          "VpcId": "vpc-a",
+          "Subnets": [
+            {
+              "SubnetIdentifier": "subnet-a"
+            }
+          ]
+        },
+        "DBInstanceArn": "arn:aws:rds:us-east-1:123456789012:db:writer"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].DBClusterArn": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Acluster%3Adatabase",
+      "source": "aws",
+      "locator": "rds:DescribeDBClusters",
+      "configuration_path": "Request[{}].Page[0].DBClusters[0].DBClusterArn",
+      "value": "arn:aws:rds:us-east-1:123456789012:cluster:database",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].DBClusterIdentifier": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Acluster%3Adatabase",
+      "source": "aws",
+      "locator": "rds:DescribeDBClusters",
+      "configuration_path": "Request[{}].Page[0].DBClusters[0].DBClusterIdentifier",
+      "value": "database",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].Status": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Acluster%3Adatabase",
+      "source": "aws",
+      "locator": "rds:DescribeDBClusters",
+      "configuration_path": "Request[{}].Page[0].DBClusters[0].Status",
+      "value": "available",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].Engine": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Acluster%3Adatabase",
+      "source": "aws",
+      "locator": "rds:DescribeDBClusters",
+      "configuration_path": "Request[{}].Page[0].DBClusters[0].Engine",
+      "value": "aurora-postgresql",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].VpcSecurityGroups": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Acluster%3Adatabase",
+      "source": "aws",
+      "locator": "rds:DescribeDBClusters",
+      "configuration_path": "Request[{}].Page[0].DBClusters[0].VpcSecurityGroups",
+      "value": [],
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].AssociatedRoles": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Acluster%3Adatabase",
+      "source": "aws",
+      "locator": "rds:DescribeDBClusters",
+      "configuration_path": "Request[{}].Page[0].DBClusters[0].AssociatedRoles",
+      "value": [],
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].Endpoint": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Acluster%3Adatabase",
+      "source": "aws",
+      "locator": "rds:DescribeDBClusters",
+      "configuration_path": "Request[{}].Page[0].DBClusters[0].Endpoint",
+      "value": "cluster.example.rds.amazonaws.com",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].Port": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Acluster%3Adatabase",
+      "source": "aws",
+      "locator": "rds:DescribeDBClusters",
+      "configuration_path": "Request[{}].Page[0].DBClusters[0].Port",
+      "value": 5432,
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].ReaderEndpoint": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Acluster%3Adatabase",
+      "source": "aws",
+      "locator": "rds:DescribeDBClusters",
+      "configuration_path": "Request[{}].Page[0].DBClusters[0].ReaderEndpoint",
+      "value": "reader.example.rds.amazonaws.com",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].DBSubnetGroup": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Acluster%3Adatabase",
+      "source": "aws",
+      "locator": "rds:DescribeDBClusters",
+      "configuration_path": "Request[{}].Page[0].DBClusters[0].DBSubnetGroup",
+      "value": "private",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].DBClusterMembers[0].DBInstanceIdentifier": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Acluster%3Adatabase",
+      "source": "aws",
+      "locator": "rds:DescribeDBClusters",
+      "configuration_path": "Request[{}].Page[0].DBClusters[0].DBClusterMembers[0].DBInstanceIdentifier",
+      "value": "writer",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].DBClusterMembers[0].IsClusterWriter": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Acluster%3Adatabase",
+      "source": "aws",
+      "locator": "rds:DescribeDBClusters",
+      "configuration_path": "Request[{}].Page[0].DBClusters[0].DBClusterMembers[0].IsClusterWriter",
+      "value": true,
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].DBClusterMembers[0].PromotionTier": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Acluster%3Adatabase",
+      "source": "aws",
+      "locator": "rds:DescribeDBClusters",
+      "configuration_path": "Request[{}].Page[0].DBClusters[0].DBClusterMembers[0].PromotionTier",
+      "value": 0,
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0].DBClusterMembers": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Acluster%3Adatabase",
+      "source": "aws",
+      "locator": "rds:DescribeDBClusters",
+      "configuration_path": "Request[{}].Page[0].DBClusters[0].DBClusterMembers",
+      "value": [
+        {
+          "DBInstanceIdentifier": "writer",
+          "IsClusterWriter": true,
+          "PromotionTier": 0
+        }
+      ],
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBClusters/arn:aws:rds:us-east-1:123456789012:cluster:database#Request[{}].Page[0].DBClusters[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Acluster%3Adatabase",
+      "source": "aws",
+      "locator": "rds:DescribeDBClusters",
+      "configuration_path": "Request[{}].Page[0].DBClusters[0]",
+      "value": {
+        "Engine": "aurora-postgresql",
+        "VpcSecurityGroups": [],
+        "AssociatedRoles": [],
+        "DBClusterIdentifier": "database",
+        "Status": "available",
+        "DBSubnetGroup": "private",
+        "Endpoint": "cluster.example.rds.amazonaws.com",
+        "ReaderEndpoint": "reader.example.rds.amazonaws.com",
+        "Port": 5432,
+        "DBClusterMembers": [
+          {
+            "DBInstanceIdentifier": "writer",
+            "IsClusterWriter": true,
+            "PromotionTier": 0
+          }
+        ],
+        "DBClusterArn": "arn:aws:rds:us-east-1:123456789012:cluster:database"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBSubnetGroups/arn:aws:rds:us-east-1:123456789012:subgrp:private#Request[{}].Page[0].DBSubnetGroups[0].DBSubnetGroupArn": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Asubgrp%3Aprivate",
+      "source": "aws",
+      "locator": "rds:DescribeDBSubnetGroups",
+      "configuration_path": "Request[{}].Page[0].DBSubnetGroups[0].DBSubnetGroupArn",
+      "value": "arn:aws:rds:us-east-1:123456789012:subgrp:private",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBSubnetGroups/arn:aws:rds:us-east-1:123456789012:subgrp:private#Request[{}].Page[0].DBSubnetGroups[0].DBSubnetGroupName": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Asubgrp%3Aprivate",
+      "source": "aws",
+      "locator": "rds:DescribeDBSubnetGroups",
+      "configuration_path": "Request[{}].Page[0].DBSubnetGroups[0].DBSubnetGroupName",
+      "value": "private",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBSubnetGroups/arn:aws:rds:us-east-1:123456789012:subgrp:private#Request[{}].Page[0].DBSubnetGroups[0].SubnetGroupStatus": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Asubgrp%3Aprivate",
+      "source": "aws",
+      "locator": "rds:DescribeDBSubnetGroups",
+      "configuration_path": "Request[{}].Page[0].DBSubnetGroups[0].SubnetGroupStatus",
+      "value": "Complete",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBSubnetGroups/arn:aws:rds:us-east-1:123456789012:subgrp:private#Request[{}].Page[0].DBSubnetGroups[0].VpcId": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Asubgrp%3Aprivate",
+      "source": "aws",
+      "locator": "rds:DescribeDBSubnetGroups",
+      "configuration_path": "Request[{}].Page[0].DBSubnetGroups[0].VpcId",
+      "value": "vpc-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBSubnetGroups/arn:aws:rds:us-east-1:123456789012:subgrp:private#Request[{}].Page[0].DBSubnetGroups[0].Subnets[0].SubnetIdentifier": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Asubgrp%3Aprivate",
+      "source": "aws",
+      "locator": "rds:DescribeDBSubnetGroups",
+      "configuration_path": "Request[{}].Page[0].DBSubnetGroups[0].Subnets[0].SubnetIdentifier",
+      "value": "subnet-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBSubnetGroups/arn:aws:rds:us-east-1:123456789012:subgrp:private#Request[{}].Page[0].DBSubnetGroups[0].Subnets": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Asubgrp%3Aprivate",
+      "source": "aws",
+      "locator": "rds:DescribeDBSubnetGroups",
+      "configuration_path": "Request[{}].Page[0].DBSubnetGroups[0].Subnets",
+      "value": [
+        {
+          "SubnetIdentifier": "subnet-a",
+          "SubnetAvailabilityZone": {
+            "Name": "us-east-1a"
+          },
+          "SubnetStatus": "Active"
+        }
+      ],
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "rds/us-east-1/DescribeDBSubnetGroups/arn:aws:rds:us-east-1:123456789012:subgrp:private#Request[{}].Page[0].DBSubnetGroups[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/rds/physical/arn%3Aaws%3Ards%3Aus-east-1%3A123456789012%3Asubgrp%3Aprivate",
+      "source": "aws",
+      "locator": "rds:DescribeDBSubnetGroups",
+      "configuration_path": "Request[{}].Page[0].DBSubnetGroups[0]",
+      "value": {
+        "DBSubnetGroupName": "private",
+        "SubnetGroupStatus": "Complete",
+        "VpcId": "vpc-a",
+        "Subnets": [
+          {
+            "SubnetIdentifier": "subnet-a",
+            "SubnetAvailabilityZone": {
+              "Name": "us-east-1a"
+            },
+            "SubnetStatus": "Active"
+          }
+        ],
+        "DBSubnetGroupArn": "arn:aws:rds:us-east-1:123456789012:subgrp:private"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "ecs/us-east-1/DescribeTasks/arn:aws:ecs:us-east-1:123456789012:task/app/0123456789abcdef#Task.subnet_ids": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ecs/physical/arn%3Aaws%3Aecs%3Aus-east-1%3A123456789012%3Atask%2Fapp%2F0123456789abcdef",
+      "source": "aws",
+      "locator": "ecs:DescribeTasks",
+      "configuration_path": "Task.subnet_ids",
+      "value": "subnet-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "ecs/us-east-1/DescribeTasks/arn:aws:ecs:us-east-1:123456789012:task/app/0123456789abcdef#Task.security_group_ids": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ecs/physical/arn%3Aaws%3Aecs%3Aus-east-1%3A123456789012%3Atask%2Fapp%2F0123456789abcdef",
+      "source": "aws",
+      "locator": "ecs:DescribeTasks",
+      "configuration_path": "Task.security_group_ids",
+      "value": "sg-app",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "ecs/us-east-1/DescribeTasks/arn:aws:ecs:us-east-1:123456789012:task/app/0123456789abcdef#Task.network_interface_ids": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ecs/physical/arn%3Aaws%3Aecs%3Aus-east-1%3A123456789012%3Atask%2Fapp%2F0123456789abcdef",
+      "source": "aws",
+      "locator": "ecs:DescribeTasks",
+      "configuration_path": "Task.network_interface_ids",
+      "value": "eni-task",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "ecs/us-east-1/DescribeTasks/arn:aws:ecs:us-east-1:123456789012:task/app/0123456789abcdef#Task.TaskDefinitionArn": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/ecs/physical/arn%3Aaws%3Aecs%3Aus-east-1%3A123456789012%3Atask%2Fapp%2F0123456789abcdef",
+      "source": "aws",
+      "locator": "ecs:DescribeTasks",
+      "configuration_path": "Task.TaskDefinitionArn",
+      "value": "arn:aws:ecs:us-east-1:123456789012:task-definition/app:1",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "ecs/us-east-1/GetFunction/arn:aws:lambda:us-east-1:123456789012:function:worker#VpcConfig.subnet_ids": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/lambda/physical/arn%3Aaws%3Alambda%3Aus-east-1%3A123456789012%3Afunction%3Aworker",
+      "source": "aws",
+      "locator": "ecs:GetFunction",
+      "configuration_path": "VpcConfig.subnet_ids",
+      "value": "subnet-b",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "ecs/us-east-1/GetFunction/arn:aws:lambda:us-east-1:123456789012:function:worker#VpcConfig.security_group_ids": {
+      "snapshot_id": "00000000-0000-0000-0000-0000000000a0",
+      "resource_id": "123456789012/us-east-1/lambda/physical/arn%3Aaws%3Alambda%3Aus-east-1%3A123456789012%3Afunction%3Aworker",
+      "source": "aws",
+      "locator": "ecs:GetFunction",
+      "configuration_path": "VpcConfig.security_group_ids",
+      "value": "sg-app",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    }
+  }
+}

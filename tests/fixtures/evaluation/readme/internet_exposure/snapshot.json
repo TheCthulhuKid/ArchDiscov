@@ -1,0 +1,2541 @@
+{
+  "account_id": "123456789012",
+  "name": null,
+  "metadata": {},
+  "regions": {
+    "us-east-1": {
+      "metadata": {},
+      "resources": [
+        {
+          "id": "123456789012/us-east-1/ec2/physical/vpc-a",
+          "identity": {
+            "account_id": "123456789012",
+            "region": "us-east-1",
+            "service": "ec2",
+            "physical_id": "vpc-a",
+            "logical_address": null
+          },
+          "name": null,
+          "resource_type": "AWS::EC2::VPC",
+          "attributes": {},
+          "evidence_ids": [
+            "us-east-1/DescribeVpcs/vpc-a"
+          ],
+          "fact_evidence": {
+            "/cidr_blocks": [
+              "us-east-1/DescribeVpcs/vpc-a#CidrBlock"
+            ]
+          },
+          "children": [
+            {
+              "id": "123456789012/us-east-1/ec2/physical/igw-1",
+              "identity": {
+                "account_id": "123456789012",
+                "region": "us-east-1",
+                "service": "ec2",
+                "physical_id": "igw-1",
+                "logical_address": null
+              },
+              "name": null,
+              "resource_type": "AWS::EC2::InternetGateway",
+              "attributes": {
+                "attached_vpc_ids": [
+                  "vpc-a"
+                ]
+              },
+              "evidence_ids": [
+                "us-east-1/DescribeInternetGateways/igw-1"
+              ],
+              "fact_evidence": {
+                "/attributes/attached_vpc_ids": [
+                  "us-east-1/DescribeInternetGateways/igw-1#Attachments"
+                ]
+              },
+              "children": []
+            },
+            {
+              "id": "123456789012/us-east-1/ec2/physical/acl-1",
+              "identity": {
+                "account_id": "123456789012",
+                "region": "us-east-1",
+                "service": "ec2",
+                "physical_id": "acl-1",
+                "logical_address": null
+              },
+              "name": null,
+              "resource_type": "AWS::EC2::NetworkAcl",
+              "attributes": {
+                "vpc_id": "vpc-a"
+              },
+              "evidence_ids": [
+                "us-east-1/DescribeNetworkAcls/acl-1"
+              ],
+              "fact_evidence": {
+                "/attributes/vpc_id": [
+                  "us-east-1/DescribeNetworkAcls/acl-1#VpcId"
+                ],
+                "/entries/0": [
+                  "us-east-1/DescribeNetworkAcls/acl-1#NetworkAcls[0].Entries[0]"
+                ],
+                "/entries/1": [
+                  "us-east-1/DescribeNetworkAcls/acl-1#NetworkAcls[0].Entries[1]"
+                ]
+              },
+              "children": [],
+              "entries": [
+                {
+                  "rule_number": 100,
+                  "direction": "ingress",
+                  "action": "allow",
+                  "protocol": "-1",
+                  "from_port": null,
+                  "to_port": null,
+                  "cidr": "0.0.0.0/0"
+                },
+                {
+                  "rule_number": 100,
+                  "direction": "egress",
+                  "action": "allow",
+                  "protocol": "-1",
+                  "from_port": null,
+                  "to_port": null,
+                  "cidr": "0.0.0.0/0"
+                }
+              ]
+            },
+            {
+              "id": "123456789012/us-east-1/ec2/physical/rtb-1",
+              "identity": {
+                "account_id": "123456789012",
+                "region": "us-east-1",
+                "service": "ec2",
+                "physical_id": "rtb-1",
+                "logical_address": null
+              },
+              "name": null,
+              "resource_type": "AWS::EC2::RouteTable",
+              "attributes": {
+                "vpc_id": "vpc-a"
+              },
+              "evidence_ids": [
+                "us-east-1/DescribeRouteTables/rtb-1"
+              ],
+              "fact_evidence": {
+                "/attributes/vpc_id": [
+                  "us-east-1/DescribeRouteTables/rtb-1#VpcId"
+                ],
+                "/routes/0": [
+                  "us-east-1/DescribeRouteTables/rtb-1#RouteTables[0].Routes[0]"
+                ],
+                "/routes/1": [
+                  "us-east-1/DescribeRouteTables/rtb-1#RouteTables[0].Routes[1]"
+                ]
+              },
+              "children": [],
+              "routes": [
+                {
+                  "destination": "10.0.0.0/16",
+                  "target_kind": "local",
+                  "target_id": null,
+                  "state": "active"
+                },
+                {
+                  "destination": "0.0.0.0/0",
+                  "target_kind": "internet_gateway",
+                  "target_id": "igw-1",
+                  "state": "active"
+                }
+              ]
+            },
+            {
+              "id": "123456789012/us-east-1/ec2/physical/sg-a",
+              "identity": {
+                "account_id": "123456789012",
+                "region": "us-east-1",
+                "service": "ec2",
+                "physical_id": "sg-a",
+                "logical_address": null
+              },
+              "name": null,
+              "resource_type": "AWS::EC2::SecurityGroup",
+              "attributes": {
+                "vpc_id": "vpc-a",
+                "rules_source": "DescribeSecurityGroupRules"
+              },
+              "evidence_ids": [
+                "us-east-1/DescribeSecurityGroups/sg-a"
+              ],
+              "fact_evidence": {
+                "/attributes/vpc_id": [
+                  "us-east-1/DescribeSecurityGroups/sg-a#VpcId"
+                ],
+                "/ingress_rules/0": [
+                  "us-east-1/DescribeSecurityGroupRules/sg-a#SecurityGroupRules[0]"
+                ]
+              },
+              "children": [],
+              "ingress_rules": [
+                {
+                  "direction": "ingress",
+                  "rule_id": "sgr-sg-a-80",
+                  "protocol": "tcp",
+                  "from_port": 80,
+                  "to_port": 80,
+                  "cidr": "0.0.0.0/0",
+                  "referenced_group_id": null,
+                  "referenced_account_id": null,
+                  "prefix_list_id": null
+                }
+              ],
+              "egress_rules": []
+            },
+            {
+              "id": "123456789012/us-east-1/ec2/physical/sg-backend",
+              "identity": {
+                "account_id": "123456789012",
+                "region": "us-east-1",
+                "service": "ec2",
+                "physical_id": "sg-backend",
+                "logical_address": null
+              },
+              "name": null,
+              "resource_type": "AWS::EC2::SecurityGroup",
+              "attributes": {
+                "vpc_id": "vpc-a",
+                "rules_source": "DescribeSecurityGroupRules"
+              },
+              "evidence_ids": [
+                "us-east-1/DescribeSecurityGroups/sg-backend"
+              ],
+              "fact_evidence": {
+                "/attributes/vpc_id": [
+                  "us-east-1/DescribeSecurityGroups/sg-backend#VpcId"
+                ],
+                "/ingress_rules/0": [
+                  "us-east-1/DescribeSecurityGroupRules/sg-backend#SecurityGroupRules[1]"
+                ]
+              },
+              "children": [],
+              "ingress_rules": [
+                {
+                  "direction": "ingress",
+                  "rule_id": "sgr-sg-backend-8080",
+                  "protocol": "tcp",
+                  "from_port": 8080,
+                  "to_port": 8080,
+                  "cidr": null,
+                  "referenced_group_id": "sg-a",
+                  "referenced_account_id": "123456789012",
+                  "prefix_list_id": null
+                }
+              ],
+              "egress_rules": []
+            },
+            {
+              "id": "123456789012/us-east-1/ec2/physical/subnet-a",
+              "identity": {
+                "account_id": "123456789012",
+                "region": "us-east-1",
+                "service": "ec2",
+                "physical_id": "subnet-a",
+                "logical_address": null
+              },
+              "name": null,
+              "resource_type": "AWS::EC2::Subnet",
+              "attributes": {
+                "vpc_id": "vpc-a"
+              },
+              "evidence_ids": [
+                "us-east-1/DescribeSubnets/subnet-a"
+              ],
+              "fact_evidence": {
+                "/cidr_blocks": [
+                  "us-east-1/DescribeSubnets/subnet-a#CidrBlock"
+                ],
+                "/attributes/vpc_id": [
+                  "us-east-1/DescribeSubnets/subnet-a#VpcId"
+                ]
+              },
+              "children": [
+                {
+                  "id": "123456789012/us-east-1/ec2/physical/eni-public",
+                  "identity": {
+                    "account_id": "123456789012",
+                    "region": "us-east-1",
+                    "service": "ec2",
+                    "physical_id": "eni-public",
+                    "logical_address": null
+                  },
+                  "name": null,
+                  "resource_type": "AWS::EC2::NetworkInterface",
+                  "attributes": {
+                    "vpc_id": "vpc-a",
+                    "subnet_id": "subnet-a",
+                    "security_group_ids": [
+                      "sg-a"
+                    ]
+                  },
+                  "evidence_ids": [
+                    "us-east-1/DescribeNetworkInterfaces/eni-public"
+                  ],
+                  "fact_evidence": {
+                    "/private_ip_addresses": [
+                      "us-east-1/DescribeNetworkInterfaces/eni-public#PrivateIpAddresses"
+                    ],
+                    "/public_ip": [
+                      "us-east-1/DescribeNetworkInterfaces/eni-public#Association.PublicIp"
+                    ],
+                    "/attributes/security_group_ids": [
+                      "us-east-1/DescribeNetworkInterfaces/eni-public#Groups"
+                    ]
+                  },
+                  "children": [],
+                  "private_ip_addresses": [
+                    {
+                      "address": "10.0.1.7",
+                      "primary": true,
+                      "public_ip": null
+                    }
+                  ],
+                  "public_ip": "198.51.100.7",
+                  "mac_address": null
+                }
+              ],
+              "availability_zone": null,
+              "cidr_blocks": [
+                "10.0.1.0/24"
+              ]
+            },
+            {
+              "id": "123456789012/us-east-1/ec2/physical/subnet-b",
+              "identity": {
+                "account_id": "123456789012",
+                "region": "us-east-1",
+                "service": "ec2",
+                "physical_id": "subnet-b",
+                "logical_address": null
+              },
+              "name": null,
+              "resource_type": "AWS::EC2::Subnet",
+              "attributes": {
+                "vpc_id": "vpc-a"
+              },
+              "evidence_ids": [
+                "us-east-1/DescribeSubnets/subnet-b"
+              ],
+              "fact_evidence": {
+                "/cidr_blocks": [
+                  "us-east-1/DescribeSubnets/subnet-b#CidrBlock"
+                ],
+                "/attributes/vpc_id": [
+                  "us-east-1/DescribeSubnets/subnet-b#VpcId"
+                ]
+              },
+              "children": [
+                {
+                  "id": "123456789012/us-east-1/ec2/physical/i-web",
+                  "identity": {
+                    "account_id": "123456789012",
+                    "region": "us-east-1",
+                    "service": "ec2",
+                    "physical_id": "i-web",
+                    "logical_address": null
+                  },
+                  "name": null,
+                  "resource_type": "AWS::EC2::Instance",
+                  "attributes": {
+                    "vpc_id": "vpc-a",
+                    "subnet_id": "subnet-b",
+                    "security_group_ids": [
+                      "sg-backend"
+                    ]
+                  },
+                  "evidence_ids": [
+                    "us-east-1/DescribeInstances/i-web"
+                  ],
+                  "fact_evidence": {
+                    "/attributes/subnet_id": [
+                      "us-east-1/DescribeInstances/i-web#SubnetId"
+                    ],
+                    "/attributes/vpc_id": [
+                      "us-east-1/DescribeInstances/i-web#VpcId"
+                    ],
+                    "/attributes/security_group_ids": [
+                      "us-east-1/DescribeInstances/i-web#SecurityGroups"
+                    ]
+                  },
+                  "children": [],
+                  "instance_type": null
+                }
+              ],
+              "availability_zone": null,
+              "cidr_blocks": [
+                "10.0.2.0/24"
+              ]
+            },
+            {
+              "id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Aloadbalancer%2Fapp%2Fweb%2F1234567890abcdef",
+              "identity": {
+                "account_id": "123456789012",
+                "region": "us-east-1",
+                "service": "elasticloadbalancing",
+                "physical_id": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef",
+                "logical_address": null
+              },
+              "name": "web",
+              "resource_type": "AWS::ElasticLoadBalancingV2::LoadBalancer",
+              "attributes": {
+                "summary": {
+                  "LoadBalancerArn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef",
+                  "LoadBalancerName": "web",
+                  "Type": "application",
+                  "Scheme": "internet-facing",
+                  "DNSName": "web.elb.example",
+                  "IpAddressType": "ipv4",
+                  "VpcId": "vpc-a",
+                  "SecurityGroups": [
+                    "sg-a"
+                  ],
+                  "AvailabilityZones": [
+                    {
+                      "ZoneName": "us-east-1a",
+                      "SubnetId": "subnet-a"
+                    }
+                  ],
+                  "State": {
+                    "Code": "active"
+                  }
+                },
+                "availability_zones": [
+                  {
+                    "ZoneName": "us-east-1a",
+                    "SubnetId": "subnet-a"
+                  }
+                ],
+                "state": {
+                  "Code": "active"
+                },
+                "tags": {
+                  "team": "infra"
+                }
+              },
+              "evidence_ids": [
+                "elasticloadbalancing/us-east-1/DescribeLoadBalancers/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{}].Page[0].LoadBalancers[0]"
+              ],
+              "fact_evidence": {
+                "/arn": [
+                  "elasticloadbalancing/us-east-1/DescribeLoadBalancers/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{}].Page[0].LoadBalancers[0].LoadBalancerArn"
+                ],
+                "/name": [
+                  "elasticloadbalancing/us-east-1/DescribeLoadBalancers/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{}].Page[0].LoadBalancers[0].LoadBalancerName"
+                ],
+                "/lb_type": [
+                  "elasticloadbalancing/us-east-1/DescribeLoadBalancers/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{}].Page[0].LoadBalancers[0].Type"
+                ],
+                "/scheme": [
+                  "elasticloadbalancing/us-east-1/DescribeLoadBalancers/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{}].Page[0].LoadBalancers[0].Scheme"
+                ],
+                "/dns_name": [
+                  "elasticloadbalancing/us-east-1/DescribeLoadBalancers/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{}].Page[0].LoadBalancers[0].DNSName"
+                ],
+                "/ip_address_type": [
+                  "elasticloadbalancing/us-east-1/DescribeLoadBalancers/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{}].Page[0].LoadBalancers[0].IpAddressType"
+                ],
+                "/vpc_id": [
+                  "elasticloadbalancing/us-east-1/DescribeLoadBalancers/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{}].Page[0].LoadBalancers[0].VpcId"
+                ],
+                "/attributes/availability_zones": [
+                  "elasticloadbalancing/us-east-1/DescribeLoadBalancers/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{}].Page[0].LoadBalancers[0].AvailabilityZones"
+                ],
+                "/subnet_ids/0": [
+                  "elasticloadbalancing/us-east-1/DescribeLoadBalancers/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{}].Page[0].LoadBalancers[0].AvailabilityZones[0].SubnetId"
+                ],
+                "/security_group_ids/0": [
+                  "elasticloadbalancing/us-east-1/DescribeLoadBalancers/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{}].Page[0].LoadBalancers[0].SecurityGroups[0]"
+                ],
+                "/attributes/state": [
+                  "elasticloadbalancing/us-east-1/DescribeLoadBalancers/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{}].Page[0].LoadBalancers[0].State"
+                ],
+                "/attributes/tags": [
+                  "elasticloadbalancing/us-east-1/DescribeTags/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{\"ResourceArns\":[\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"]}].Page[0].TagDescriptions[2].Tags"
+                ]
+              },
+              "children": [
+                {
+                  "id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890",
+                  "identity": {
+                    "account_id": "123456789012",
+                    "region": "us-east-1",
+                    "service": "elasticloadbalancing",
+                    "physical_id": "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890",
+                    "logical_address": null
+                  },
+                  "name": null,
+                  "resource_type": "AWS::ElasticLoadBalancingV2::Listener",
+                  "attributes": {
+                    "summary": {
+                      "ListenerArn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890",
+                      "LoadBalancerArn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef",
+                      "Port": 80,
+                      "Protocol": "HTTP",
+                      "DefaultActions": [
+                        {
+                          "Type": "forward",
+                          "Order": 1,
+                          "ForwardConfig": {
+                            "TargetGroups": [
+                              {
+                                "TargetGroupArn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef",
+                                "Weight": 100
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    "tags": {
+                      "team": "infra"
+                    }
+                  },
+                  "evidence_ids": [
+                    "elasticloadbalancing/us-east-1/DescribeListeners/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890#Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0]"
+                  ],
+                  "fact_evidence": {
+                    "/arn": [
+                      "elasticloadbalancing/us-east-1/DescribeListeners/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890#Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].ListenerArn"
+                    ],
+                    "/load_balancer_arn": [
+                      "elasticloadbalancing/us-east-1/DescribeListeners/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890#Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].LoadBalancerArn"
+                    ],
+                    "/port": [
+                      "elasticloadbalancing/us-east-1/DescribeListeners/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890#Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].Port"
+                    ],
+                    "/protocol": [
+                      "elasticloadbalancing/us-east-1/DescribeListeners/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890#Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].Protocol"
+                    ],
+                    "/actions/0/order": [
+                      "elasticloadbalancing/us-east-1/DescribeListeners/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890#Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].DefaultActions[0].Order"
+                    ],
+                    "/actions/0/forward_groups/0/arn": [
+                      "elasticloadbalancing/us-east-1/DescribeListeners/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890#Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].DefaultActions[0].ForwardConfig.TargetGroups[0].TargetGroupArn"
+                    ],
+                    "/actions/0/forward_groups/0/weight": [
+                      "elasticloadbalancing/us-east-1/DescribeListeners/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890#Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].DefaultActions[0].ForwardConfig.TargetGroups[0].Weight"
+                    ],
+                    "/actions/0": [
+                      "elasticloadbalancing/us-east-1/DescribeListeners/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890#Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].DefaultActions[0]"
+                    ],
+                    "/actions/0/type": [
+                      "elasticloadbalancing/us-east-1/DescribeListeners/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890#Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].DefaultActions[0].Type"
+                    ],
+                    "/attributes/tags": [
+                      "elasticloadbalancing/us-east-1/DescribeTags/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890#Request[{\"ResourceArns\":[\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"]}].Page[0].TagDescriptions[1].Tags"
+                    ]
+                  },
+                  "children": [
+                    {
+                      "id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener-rule%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890%2F1111111111111111",
+                      "identity": {
+                        "account_id": "123456789012",
+                        "region": "us-east-1",
+                        "service": "elasticloadbalancing",
+                        "physical_id": "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111",
+                        "logical_address": null
+                      },
+                      "name": null,
+                      "resource_type": "AWS::ElasticLoadBalancingV2::ListenerRule",
+                      "attributes": {
+                        "summary": {
+                          "RuleArn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111",
+                          "Priority": "1",
+                          "IsDefault": false,
+                          "Conditions": [
+                            {
+                              "Field": "path-pattern",
+                              "Values": [
+                                "/api/*"
+                              ]
+                            }
+                          ],
+                          "Actions": [
+                            {
+                              "Type": "forward",
+                              "TargetGroupArn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef",
+                              "Order": 1
+                            }
+                          ]
+                        },
+                        "tags": {
+                          "team": "infra"
+                        }
+                      },
+                      "evidence_ids": [
+                        "elasticloadbalancing/us-east-1/DescribeRules/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111#Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0]"
+                      ],
+                      "fact_evidence": {
+                        "/arn": [
+                          "elasticloadbalancing/us-east-1/DescribeRules/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111#Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].RuleArn"
+                        ],
+                        "/listener_arn": [
+                          "elasticloadbalancing/us-east-1/DescribeRules/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111#Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].ListenerArn"
+                        ],
+                        "/priority": [
+                          "elasticloadbalancing/us-east-1/DescribeRules/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111#Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].Priority"
+                        ],
+                        "/is_default": [
+                          "elasticloadbalancing/us-east-1/DescribeRules/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111#Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].IsDefault"
+                        ],
+                        "/conditions/0": [
+                          "elasticloadbalancing/us-east-1/DescribeRules/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111#Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].Conditions[0]"
+                        ],
+                        "/conditions/0/field": [
+                          "elasticloadbalancing/us-east-1/DescribeRules/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111#Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].Conditions[0].Field"
+                        ],
+                        "/actions/0/order": [
+                          "elasticloadbalancing/us-east-1/DescribeRules/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111#Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].Actions[0].Order"
+                        ],
+                        "/actions/0/target_group_arn": [
+                          "elasticloadbalancing/us-east-1/DescribeRules/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111#Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].Actions[0].TargetGroupArn"
+                        ],
+                        "/actions/0": [
+                          "elasticloadbalancing/us-east-1/DescribeRules/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111#Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].Actions[0]"
+                        ],
+                        "/actions/0/type": [
+                          "elasticloadbalancing/us-east-1/DescribeRules/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111#Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].Actions[0].Type"
+                        ],
+                        "/attributes/tags": [
+                          "elasticloadbalancing/us-east-1/DescribeTags/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111#Request[{\"ResourceArns\":[\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"]}].Page[0].TagDescriptions[0].Tags"
+                        ]
+                      },
+                      "children": [],
+                      "arn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111",
+                      "listener_arn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890",
+                      "priority": "1",
+                      "is_default": false,
+                      "conditions": [
+                        {
+                          "field": "path-pattern",
+                          "configuration": {
+                            "Values": [
+                              "/api/*"
+                            ]
+                          }
+                        }
+                      ],
+                      "actions": [
+                        {
+                          "type": "forward",
+                          "order": 1,
+                          "target_group_arn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef",
+                          "forward_groups": [],
+                          "configuration": {}
+                        }
+                      ]
+                    }
+                  ],
+                  "arn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890",
+                  "load_balancer_arn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef",
+                  "port": 80,
+                  "protocol": "HTTP",
+                  "actions": [
+                    {
+                      "type": "forward",
+                      "order": 1,
+                      "target_group_arn": null,
+                      "forward_groups": [
+                        {
+                          "arn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef",
+                          "weight": 100
+                        }
+                      ],
+                      "configuration": {
+                        "ForwardConfig": {
+                          "TargetGroups": [
+                            {
+                              "TargetGroupArn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef",
+                              "Weight": 100
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              ],
+              "arn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef",
+              "lb_type": "application",
+              "scheme": "internet-facing",
+              "dns_name": "web.elb.example",
+              "ip_address_type": "ipv4",
+              "vpc_id": "vpc-a",
+              "subnet_ids": [
+                "subnet-a"
+              ],
+              "security_group_ids": [
+                "sg-a"
+              ]
+            },
+            {
+              "id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Atargetgroup%2Fweb%2F1234567890abcdef",
+              "identity": {
+                "account_id": "123456789012",
+                "region": "us-east-1",
+                "service": "elasticloadbalancing",
+                "physical_id": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef",
+                "logical_address": null
+              },
+              "name": "web",
+              "resource_type": "AWS::ElasticLoadBalancingV2::TargetGroup",
+              "attributes": {
+                "summary": {
+                  "TargetGroupArn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef",
+                  "TargetGroupName": "web",
+                  "VpcId": "vpc-a",
+                  "TargetType": "instance",
+                  "Protocol": "HTTP",
+                  "Port": 8080,
+                  "HealthCheckProtocol": "HTTP",
+                  "HealthCheckPort": "traffic-port"
+                },
+                "target_health": [
+                  {
+                    "Target": {
+                      "Id": "i-web",
+                      "Port": 8080,
+                      "AvailabilityZone": "us-east-1a"
+                    },
+                    "TargetHealth": {
+                      "State": "unhealthy",
+                      "Reason": "Target.FailedHealthChecks"
+                    }
+                  }
+                ],
+                "tags": {
+                  "team": "infra"
+                }
+              },
+              "evidence_ids": [
+                "elasticloadbalancing/us-east-1/DescribeTargetGroups/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{}].Page[0].TargetGroups[0]",
+                "elasticloadbalancing/us-east-1/DescribeTargetHealth/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{\"TargetGroupArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"}].Page[0].TargetHealthDescriptions[0]"
+              ],
+              "fact_evidence": {
+                "/arn": [
+                  "elasticloadbalancing/us-east-1/DescribeTargetGroups/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{}].Page[0].TargetGroups[0].TargetGroupArn"
+                ],
+                "/name": [
+                  "elasticloadbalancing/us-east-1/DescribeTargetGroups/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{}].Page[0].TargetGroups[0].TargetGroupName"
+                ],
+                "/target_type": [
+                  "elasticloadbalancing/us-east-1/DescribeTargetGroups/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{}].Page[0].TargetGroups[0].TargetType"
+                ],
+                "/vpc_id": [
+                  "elasticloadbalancing/us-east-1/DescribeTargetGroups/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{}].Page[0].TargetGroups[0].VpcId"
+                ],
+                "/protocol": [
+                  "elasticloadbalancing/us-east-1/DescribeTargetGroups/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{}].Page[0].TargetGroups[0].Protocol"
+                ],
+                "/port": [
+                  "elasticloadbalancing/us-east-1/DescribeTargetGroups/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{}].Page[0].TargetGroups[0].Port"
+                ],
+                "/health_check/HealthCheckProtocol": [
+                  "elasticloadbalancing/us-east-1/DescribeTargetGroups/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{}].Page[0].TargetGroups[0].HealthCheckProtocol"
+                ],
+                "/health_check/HealthCheckPort": [
+                  "elasticloadbalancing/us-east-1/DescribeTargetGroups/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{}].Page[0].TargetGroups[0].HealthCheckPort"
+                ],
+                "/targets/0/id": [
+                  "elasticloadbalancing/us-east-1/DescribeTargetHealth/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{\"TargetGroupArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"}].Page[0].TargetHealthDescriptions[0].Target.Id"
+                ],
+                "/targets/0/port": [
+                  "elasticloadbalancing/us-east-1/DescribeTargetHealth/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{\"TargetGroupArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"}].Page[0].TargetHealthDescriptions[0].Target.Port"
+                ],
+                "/targets/0/availability_zone": [
+                  "elasticloadbalancing/us-east-1/DescribeTargetHealth/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{\"TargetGroupArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"}].Page[0].TargetHealthDescriptions[0].Target.AvailabilityZone"
+                ],
+                "/targets/0/health_state": [
+                  "elasticloadbalancing/us-east-1/DescribeTargetHealth/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{\"TargetGroupArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"}].Page[0].TargetHealthDescriptions[0].TargetHealth.State"
+                ],
+                "/targets/0/health_reason": [
+                  "elasticloadbalancing/us-east-1/DescribeTargetHealth/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{\"TargetGroupArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"}].Page[0].TargetHealthDescriptions[0].TargetHealth.Reason"
+                ],
+                "/targets/0": [
+                  "elasticloadbalancing/us-east-1/DescribeTargetHealth/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{\"TargetGroupArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"}].Page[0].TargetHealthDescriptions[0]"
+                ],
+                "/attributes/tags": [
+                  "elasticloadbalancing/us-east-1/DescribeTags/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{\"ResourceArns\":[\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"]}].Page[0].TagDescriptions[3].Tags"
+                ]
+              },
+              "children": [],
+              "arn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef",
+              "vpc_id": "vpc-a",
+              "protocol": "HTTP",
+              "port": 8080,
+              "target_type": "instance",
+              "health_check": {
+                "HealthCheckProtocol": "HTTP",
+                "HealthCheckPort": "traffic-port"
+              },
+              "targets": [
+                {
+                  "id": "i-web",
+                  "port": 8080,
+                  "availability_zone": "us-east-1a",
+                  "health_state": "unhealthy",
+                  "health_reason": "Target.FailedHealthChecks",
+                  "health_description": null
+                }
+              ]
+            }
+          ],
+          "cidr_blocks": [
+            "10.0.0.0/16"
+          ]
+        }
+      ]
+    }
+  },
+  "global_resources": [],
+  "schema_version": "2",
+  "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+  "collection_started_at": "2025-01-01T00:00:01Z",
+  "collection_completed_at": "2025-01-01T00:00:12Z",
+  "source": {
+    "exported_at": null,
+    "kind": "aws",
+    "profile": null,
+    "role_arn": null
+  },
+  "coverage": {
+    "regions": [
+      "us-east-1"
+    ],
+    "account_wide": false,
+    "operations": [
+      {
+        "account_id": "123456789012",
+        "region": "us-east-1",
+        "service": "elasticloadbalancing",
+        "operation": "DescribeLoadBalancers",
+        "status": "success",
+        "started_at": "2025-01-01T00:00:01Z",
+        "completed_at": "2025-01-01T00:00:02Z",
+        "result_count": 1,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      },
+      {
+        "account_id": "123456789012",
+        "region": "us-east-1",
+        "service": "elasticloadbalancing",
+        "operation": "DescribeTargetGroups",
+        "status": "success",
+        "started_at": "2025-01-01T00:00:03Z",
+        "completed_at": "2025-01-01T00:00:04Z",
+        "result_count": 1,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      },
+      {
+        "account_id": "123456789012",
+        "region": "us-east-1",
+        "service": "elasticloadbalancing",
+        "operation": "DescribeListeners",
+        "status": "success",
+        "started_at": "2025-01-01T00:00:05Z",
+        "completed_at": "2025-01-01T00:00:06Z",
+        "result_count": 1,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      },
+      {
+        "account_id": "123456789012",
+        "region": "us-east-1",
+        "service": "elasticloadbalancing",
+        "operation": "DescribeRules",
+        "status": "success",
+        "started_at": "2025-01-01T00:00:07Z",
+        "completed_at": "2025-01-01T00:00:08Z",
+        "result_count": 1,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      },
+      {
+        "account_id": "123456789012",
+        "region": "us-east-1",
+        "service": "elasticloadbalancing",
+        "operation": "DescribeTargetHealth",
+        "status": "success",
+        "started_at": "2025-01-01T00:00:09Z",
+        "completed_at": "2025-01-01T00:00:10Z",
+        "result_count": 1,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      },
+      {
+        "account_id": "123456789012",
+        "region": "us-east-1",
+        "service": "elasticloadbalancing",
+        "operation": "DescribeTags",
+        "status": "success",
+        "started_at": "2025-01-01T00:00:11Z",
+        "completed_at": "2025-01-01T00:00:12Z",
+        "result_count": 4,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      },
+      {
+        "account_id": "123456789012",
+        "region": "us-east-1",
+        "service": "ec2",
+        "operation": "DescribeInstances",
+        "status": "success",
+        "started_at": "2025-01-01T00:00:01Z",
+        "completed_at": "2025-01-01T00:00:01Z",
+        "result_count": 1,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      },
+      {
+        "account_id": "123456789012",
+        "region": "us-east-1",
+        "service": "ec2",
+        "operation": "DescribeNetworkInterfaces",
+        "status": "success",
+        "started_at": "2025-01-01T00:00:01Z",
+        "completed_at": "2025-01-01T00:00:01Z",
+        "result_count": 1,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      },
+      {
+        "account_id": "123456789012",
+        "region": "us-east-1",
+        "service": "ec2",
+        "operation": "DescribeNetworkAcls",
+        "status": "success",
+        "started_at": "2025-01-01T00:00:01Z",
+        "completed_at": "2025-01-01T00:00:01Z",
+        "result_count": 1,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      },
+      {
+        "account_id": "123456789012",
+        "region": "us-east-1",
+        "service": "ec2",
+        "operation": "DescribeRouteTables",
+        "status": "success",
+        "started_at": "2025-01-01T00:00:01Z",
+        "completed_at": "2025-01-01T00:00:01Z",
+        "result_count": 1,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      },
+      {
+        "account_id": "123456789012",
+        "region": "us-east-1",
+        "service": "ec2",
+        "operation": "DescribeInternetGateways",
+        "status": "success",
+        "started_at": "2025-01-01T00:00:01Z",
+        "completed_at": "2025-01-01T00:00:01Z",
+        "result_count": 1,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      },
+      {
+        "account_id": "123456789012",
+        "region": "us-east-1",
+        "service": "ec2",
+        "operation": "DescribeSecurityGroups",
+        "status": "success",
+        "started_at": "2025-01-01T00:00:01Z",
+        "completed_at": "2025-01-01T00:00:01Z",
+        "result_count": 1,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      },
+      {
+        "account_id": "123456789012",
+        "region": "us-east-1",
+        "service": "ec2",
+        "operation": "DescribeSecurityGroupRules",
+        "status": "success",
+        "started_at": "2025-01-01T00:00:01Z",
+        "completed_at": "2025-01-01T00:00:01Z",
+        "result_count": 1,
+        "failures": [],
+        "unresolved_values": [],
+        "reason": null
+      }
+    ]
+  },
+  "dependencies_by_region": {
+    "us-east-1": [
+      {
+        "source_id": "123456789012/us-east-1/ec2/physical/acl-1",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/subnet-a"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "network_acl_association"
+        },
+        "evidence_ids": [
+          "us-east-1/DescribeNetworkAcls/acl-1#NetworkAcls[0].Associations[0]"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/ec2/physical/acl-1",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/subnet-b"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "network_acl_association"
+        },
+        "evidence_ids": [
+          "us-east-1/DescribeNetworkAcls/acl-1#NetworkAcls[0].Associations[1]"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/ec2/physical/eni-public",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/sg-a"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_membership"
+        },
+        "evidence_ids": [
+          "us-east-1/DescribeNetworkInterfaces/eni-public#NetworkInterfaces[0].Groups[0]"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/ec2/physical/i-web",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/sg-backend"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_membership"
+        },
+        "evidence_ids": [
+          "us-east-1/DescribeInstances/i-web#Reservations[0].Instances[0].SecurityGroups[0]"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/ec2/physical/igw-1",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/vpc-a"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "internet_gateway_attachment",
+          "state": "available"
+        },
+        "evidence_ids": [
+          "us-east-1/DescribeInternetGateways/igw-1#InternetGateways[0].Attachments[0]"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/ec2/physical/rtb-1",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/subnet-a"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_table_association"
+        },
+        "evidence_ids": [
+          "us-east-1/DescribeRouteTables/rtb-1#RouteTables[0].Associations[0]"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/ec2/physical/rtb-1",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/subnet-b"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_table_association"
+        },
+        "evidence_ids": [
+          "us-east-1/DescribeRouteTables/rtb-1#RouteTables[0].Associations[1]"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/ec2/physical/rtb-1",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/igw-1"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_target",
+          "target_kind": "internet_gateway",
+          "destination": "0.0.0.0/0",
+          "state": "active"
+        },
+        "evidence_ids": [
+          "us-east-1/DescribeRouteTables/rtb-1#RouteTables[0].Routes[1]"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/ec2/physical/sg-backend",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/sg-a"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "security_group_reference",
+          "direction": "ingress",
+          "rule_id": "sgr-sg-backend-8080",
+          "protocol": "tcp",
+          "from_port": 8080,
+          "to_port": 8080
+        },
+        "evidence_ids": [
+          "us-east-1/DescribeSecurityGroupRules/sg-backend#SecurityGroupRules[1]"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Aloadbalancer%2Fapp%2Fweb%2F1234567890abcdef",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/subnet-a"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "observed_identifier": "subnet-a",
+          "kind": "subnet_membership"
+        },
+        "evidence_ids": [
+          "elasticloadbalancing/us-east-1/DescribeLoadBalancers/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{}].Page[0].LoadBalancers[0].AvailabilityZones[0].SubnetId"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Aloadbalancer%2Fapp%2Fweb%2F1234567890abcdef",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/sg-a"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "observed_identifier": "sg-a",
+          "kind": "security_group_membership"
+        },
+        "evidence_ids": [
+          "elasticloadbalancing/us-east-1/DescribeLoadBalancers/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{}].Page[0].LoadBalancers[0].SecurityGroups[0]"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Aloadbalancer%2Fapp%2Fweb%2F1234567890abcdef"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "observed_identifier": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef",
+          "kind": "listener_load_balancer"
+        },
+        "evidence_ids": [
+          "elasticloadbalancing/us-east-1/DescribeListeners/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890#Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].LoadBalancerArn"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Atargetgroup%2Fweb%2F1234567890abcdef"
+        },
+        "relationship": "forwards_to",
+        "attributes": {
+          "observed_identifier": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef",
+          "action_index": 0,
+          "action_order": 1,
+          "weight": 100
+        },
+        "evidence_ids": [
+          "elasticloadbalancing/us-east-1/DescribeListeners/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890#Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].DefaultActions[0].ForwardConfig.TargetGroups[0].TargetGroupArn"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener-rule%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890%2F1111111111111111",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "observed_identifier": "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890",
+          "kind": "rule_listener"
+        },
+        "evidence_ids": [
+          "elasticloadbalancing/us-east-1/DescribeRules/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111#Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].ListenerArn"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener-rule%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890%2F1111111111111111",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Atargetgroup%2Fweb%2F1234567890abcdef"
+        },
+        "relationship": "forwards_to",
+        "attributes": {
+          "observed_identifier": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef",
+          "action_index": 0,
+          "action_order": 1,
+          "weight": null
+        },
+        "evidence_ids": [
+          "elasticloadbalancing/us-east-1/DescribeRules/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111#Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].Actions[0].TargetGroupArn"
+        ]
+      },
+      {
+        "source_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Atargetgroup%2Fweb%2F1234567890abcdef",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/us-east-1/ec2/physical/i-web"
+        },
+        "relationship": "forwards_to",
+        "attributes": {
+          "observed_identifier": "i-web",
+          "port": 8080,
+          "availability_zone": "us-east-1a",
+          "health_state": "unhealthy",
+          "health_reason": "Target.FailedHealthChecks"
+        },
+        "evidence_ids": [
+          "elasticloadbalancing/us-east-1/DescribeTargetHealth/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{\"TargetGroupArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"}].Page[0].TargetHealthDescriptions[0].Target.Id"
+        ]
+      }
+    ]
+  },
+  "evidence": {
+    "us-east-1/DescribeVpcs/vpc-a": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/vpc-a",
+      "source": "aws",
+      "locator": "ec2:DescribeVpcs",
+      "configuration_path": "Vpcs[0]",
+      "value": {
+        "VpcId": "vpc-a",
+        "CidrBlock": "10.0.0.0/16"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeVpcs/vpc-a#CidrBlock": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/vpc-a",
+      "source": "aws",
+      "locator": "ec2:DescribeVpcs",
+      "configuration_path": "Vpcs[0].CidrBlock",
+      "value": "10.0.0.0/16",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSubnets/subnet-a": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/subnet-a",
+      "source": "aws",
+      "locator": "ec2:DescribeSubnets",
+      "configuration_path": "Subnets[0]",
+      "value": {
+        "SubnetId": "subnet-a",
+        "VpcId": "vpc-a",
+        "CidrBlock": "10.0.1.0/24"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSubnets/subnet-a#CidrBlock": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/subnet-a",
+      "source": "aws",
+      "locator": "ec2:DescribeSubnets",
+      "configuration_path": "Subnets[0].CidrBlock",
+      "value": "10.0.1.0/24",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSubnets/subnet-a#VpcId": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/subnet-a",
+      "source": "aws",
+      "locator": "ec2:DescribeSubnets",
+      "configuration_path": "Subnets[0].VpcId",
+      "value": "vpc-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSubnets/subnet-b": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/subnet-b",
+      "source": "aws",
+      "locator": "ec2:DescribeSubnets",
+      "configuration_path": "Subnets[1]",
+      "value": {
+        "SubnetId": "subnet-b",
+        "VpcId": "vpc-a",
+        "CidrBlock": "10.0.2.0/24"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSubnets/subnet-b#CidrBlock": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/subnet-b",
+      "source": "aws",
+      "locator": "ec2:DescribeSubnets",
+      "configuration_path": "Subnets[1].CidrBlock",
+      "value": "10.0.2.0/24",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSubnets/subnet-b#VpcId": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/subnet-b",
+      "source": "aws",
+      "locator": "ec2:DescribeSubnets",
+      "configuration_path": "Subnets[1].VpcId",
+      "value": "vpc-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInstances/i-web": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/i-web",
+      "source": "aws",
+      "locator": "ec2:DescribeInstances",
+      "configuration_path": "Reservations[0].Instances[0]",
+      "value": {
+        "InstanceId": "i-web",
+        "SubnetId": "subnet-b",
+        "VpcId": "vpc-a",
+        "SecurityGroups": [
+          {
+            "GroupId": "sg-backend"
+          }
+        ]
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInstances/i-web#SubnetId": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/i-web",
+      "source": "aws",
+      "locator": "ec2:DescribeInstances",
+      "configuration_path": "Reservations[0].Instances[0].SubnetId",
+      "value": "subnet-b",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInstances/i-web#VpcId": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/i-web",
+      "source": "aws",
+      "locator": "ec2:DescribeInstances",
+      "configuration_path": "Reservations[0].Instances[0].VpcId",
+      "value": "vpc-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInstances/i-web#SecurityGroups": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/i-web",
+      "source": "aws",
+      "locator": "ec2:DescribeInstances",
+      "configuration_path": "Reservations[0].Instances[0].SecurityGroups",
+      "value": [
+        {
+          "GroupId": "sg-backend"
+        }
+      ],
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeRouteTables/rtb-1": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/rtb-1",
+      "source": "aws",
+      "locator": "ec2:DescribeRouteTables",
+      "configuration_path": "RouteTables[0]",
+      "value": {
+        "RouteTableId": "rtb-1",
+        "VpcId": "vpc-a",
+        "Routes": [
+          {
+            "DestinationCidrBlock": "10.0.0.0/16",
+            "GatewayId": "local",
+            "State": "active"
+          },
+          {
+            "DestinationCidrBlock": "0.0.0.0/0",
+            "GatewayId": "igw-1",
+            "State": "active"
+          }
+        ],
+        "Associations": [
+          {
+            "SubnetId": "subnet-a"
+          },
+          {
+            "SubnetId": "subnet-b"
+          }
+        ]
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeRouteTables/rtb-1#VpcId": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/rtb-1",
+      "source": "aws",
+      "locator": "ec2:DescribeRouteTables",
+      "configuration_path": "RouteTables[0].VpcId",
+      "value": "vpc-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeRouteTables/rtb-1#RouteTables[0].Routes[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/rtb-1",
+      "source": "aws",
+      "locator": "ec2:DescribeRouteTables",
+      "configuration_path": "RouteTables[0].Routes[0]",
+      "value": {
+        "DestinationCidrBlock": "10.0.0.0/16",
+        "GatewayId": "local",
+        "State": "active"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeRouteTables/rtb-1#RouteTables[0].Routes[1]": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/rtb-1",
+      "source": "aws",
+      "locator": "ec2:DescribeRouteTables",
+      "configuration_path": "RouteTables[0].Routes[1]",
+      "value": {
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "GatewayId": "igw-1",
+        "State": "active"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInternetGateways/igw-1": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/igw-1",
+      "source": "aws",
+      "locator": "ec2:DescribeInternetGateways",
+      "configuration_path": "InternetGateways[0]",
+      "value": {
+        "InternetGatewayId": "igw-1",
+        "Attachments": [
+          {
+            "VpcId": "vpc-a",
+            "State": "available"
+          }
+        ]
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInternetGateways/igw-1#Attachments": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/igw-1",
+      "source": "aws",
+      "locator": "ec2:DescribeInternetGateways",
+      "configuration_path": "InternetGateways[0].Attachments",
+      "value": [
+        {
+          "VpcId": "vpc-a",
+          "State": "available"
+        }
+      ],
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkAcls/acl-1": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/acl-1",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkAcls",
+      "configuration_path": "NetworkAcls[0]",
+      "value": {
+        "NetworkAclId": "acl-1",
+        "VpcId": "vpc-a",
+        "Entries": [
+          {
+            "RuleNumber": 100,
+            "Protocol": "-1",
+            "RuleAction": "allow",
+            "Egress": false,
+            "CidrBlock": "0.0.0.0/0"
+          },
+          {
+            "RuleNumber": 100,
+            "Protocol": "-1",
+            "RuleAction": "allow",
+            "Egress": true,
+            "CidrBlock": "0.0.0.0/0"
+          }
+        ],
+        "Associations": [
+          {
+            "SubnetId": "subnet-a"
+          },
+          {
+            "SubnetId": "subnet-b"
+          }
+        ]
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkAcls/acl-1#VpcId": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/acl-1",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkAcls",
+      "configuration_path": "NetworkAcls[0].VpcId",
+      "value": "vpc-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkAcls/acl-1#NetworkAcls[0].Entries[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/acl-1",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkAcls",
+      "configuration_path": "NetworkAcls[0].Entries[0]",
+      "value": {
+        "RuleNumber": 100,
+        "Protocol": "-1",
+        "RuleAction": "allow",
+        "Egress": false,
+        "CidrBlock": "0.0.0.0/0"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkAcls/acl-1#NetworkAcls[0].Entries[1]": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/acl-1",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkAcls",
+      "configuration_path": "NetworkAcls[0].Entries[1]",
+      "value": {
+        "RuleNumber": 100,
+        "Protocol": "-1",
+        "RuleAction": "allow",
+        "Egress": true,
+        "CidrBlock": "0.0.0.0/0"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSecurityGroups/sg-a": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/sg-a",
+      "source": "aws",
+      "locator": "ec2:DescribeSecurityGroups",
+      "configuration_path": "SecurityGroups[0]",
+      "value": {
+        "GroupId": "sg-a",
+        "VpcId": "vpc-a",
+        "IpPermissions": [],
+        "IpPermissionsEgress": []
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSecurityGroups/sg-a#VpcId": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/sg-a",
+      "source": "aws",
+      "locator": "ec2:DescribeSecurityGroups",
+      "configuration_path": "SecurityGroups[0].VpcId",
+      "value": "vpc-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSecurityGroupRules/sg-a#SecurityGroupRules[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/sg-a",
+      "source": "aws",
+      "locator": "ec2:DescribeSecurityGroupRules",
+      "configuration_path": "SecurityGroupRules[0]",
+      "value": {
+        "SecurityGroupRuleId": "sgr-sg-a-80",
+        "GroupId": "sg-a",
+        "IsEgress": false,
+        "IpProtocol": "tcp",
+        "FromPort": 80,
+        "ToPort": 80,
+        "CidrIpv4": "0.0.0.0/0"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSecurityGroups/sg-backend": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/sg-backend",
+      "source": "aws",
+      "locator": "ec2:DescribeSecurityGroups",
+      "configuration_path": "SecurityGroups[1]",
+      "value": {
+        "GroupId": "sg-backend",
+        "VpcId": "vpc-a",
+        "IpPermissions": [],
+        "IpPermissionsEgress": []
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSecurityGroups/sg-backend#VpcId": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/sg-backend",
+      "source": "aws",
+      "locator": "ec2:DescribeSecurityGroups",
+      "configuration_path": "SecurityGroups[1].VpcId",
+      "value": "vpc-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeSecurityGroupRules/sg-backend#SecurityGroupRules[1]": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/sg-backend",
+      "source": "aws",
+      "locator": "ec2:DescribeSecurityGroupRules",
+      "configuration_path": "SecurityGroupRules[1]",
+      "value": {
+        "SecurityGroupRuleId": "sgr-sg-backend-8080",
+        "GroupId": "sg-backend",
+        "IsEgress": false,
+        "IpProtocol": "tcp",
+        "FromPort": 8080,
+        "ToPort": 8080,
+        "ReferencedGroupInfo": {
+          "GroupId": "sg-a",
+          "UserId": "123456789012"
+        }
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkInterfaces/eni-public": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/eni-public",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkInterfaces",
+      "configuration_path": "NetworkInterfaces[0]",
+      "value": {
+        "NetworkInterfaceId": "eni-public",
+        "SubnetId": "subnet-a",
+        "VpcId": "vpc-a",
+        "Groups": [
+          {
+            "GroupId": "sg-a"
+          }
+        ],
+        "PrivateIpAddresses": [
+          {
+            "PrivateIpAddress": "10.0.1.7",
+            "Primary": true
+          }
+        ],
+        "Association": {
+          "PublicIp": "198.51.100.7"
+        }
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkInterfaces/eni-public#PrivateIpAddresses": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/eni-public",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkInterfaces",
+      "configuration_path": "NetworkInterfaces[0].PrivateIpAddresses",
+      "value": [
+        {
+          "PrivateIpAddress": "10.0.1.7",
+          "Primary": true
+        }
+      ],
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkInterfaces/eni-public#Association.PublicIp": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/eni-public",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkInterfaces",
+      "configuration_path": "NetworkInterfaces[0].Association.PublicIp",
+      "value": "198.51.100.7",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkInterfaces/eni-public#Groups": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/eni-public",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkInterfaces",
+      "configuration_path": "NetworkInterfaces[0].Groups",
+      "value": [
+        {
+          "GroupId": "sg-a"
+        }
+      ],
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInstances/i-web#Reservations[0].Instances[0].SecurityGroups[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/i-web",
+      "source": "aws",
+      "locator": "ec2:DescribeInstances",
+      "configuration_path": "Reservations[0].Instances[0].SecurityGroups[0]",
+      "value": {
+        "GroupId": "sg-backend"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeRouteTables/rtb-1#RouteTables[0].Associations[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/rtb-1",
+      "source": "aws",
+      "locator": "ec2:DescribeRouteTables",
+      "configuration_path": "RouteTables[0].Associations[0]",
+      "value": {
+        "SubnetId": "subnet-a"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeRouteTables/rtb-1#RouteTables[0].Associations[1]": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/rtb-1",
+      "source": "aws",
+      "locator": "ec2:DescribeRouteTables",
+      "configuration_path": "RouteTables[0].Associations[1]",
+      "value": {
+        "SubnetId": "subnet-b"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeInternetGateways/igw-1#InternetGateways[0].Attachments[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/igw-1",
+      "source": "aws",
+      "locator": "ec2:DescribeInternetGateways",
+      "configuration_path": "InternetGateways[0].Attachments[0]",
+      "value": {
+        "VpcId": "vpc-a",
+        "State": "available"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkAcls/acl-1#NetworkAcls[0].Associations[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/acl-1",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkAcls",
+      "configuration_path": "NetworkAcls[0].Associations[0]",
+      "value": {
+        "SubnetId": "subnet-a"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkAcls/acl-1#NetworkAcls[0].Associations[1]": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/acl-1",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkAcls",
+      "configuration_path": "NetworkAcls[0].Associations[1]",
+      "value": {
+        "SubnetId": "subnet-b"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "us-east-1/DescribeNetworkInterfaces/eni-public#NetworkInterfaces[0].Groups[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/ec2/physical/eni-public",
+      "source": "aws",
+      "locator": "ec2:DescribeNetworkInterfaces",
+      "configuration_path": "NetworkInterfaces[0].Groups[0]",
+      "value": {
+        "GroupId": "sg-a"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeLoadBalancers/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{}].Page[0].LoadBalancers[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Aloadbalancer%2Fapp%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeLoadBalancers",
+      "configuration_path": "Request[{}].Page[0].LoadBalancers[0]",
+      "value": {
+        "LoadBalancerArn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef",
+        "LoadBalancerName": "web",
+        "Type": "application",
+        "Scheme": "internet-facing",
+        "DNSName": "web.elb.example",
+        "IpAddressType": "ipv4",
+        "VpcId": "vpc-a",
+        "SecurityGroups": [
+          "sg-a"
+        ],
+        "AvailabilityZones": [
+          {
+            "ZoneName": "us-east-1a",
+            "SubnetId": "subnet-a"
+          }
+        ],
+        "State": {
+          "Code": "active"
+        }
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeLoadBalancers/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{}].Page[0].LoadBalancers[0].LoadBalancerArn": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Aloadbalancer%2Fapp%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeLoadBalancers",
+      "configuration_path": "Request[{}].Page[0].LoadBalancers[0].LoadBalancerArn",
+      "value": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeLoadBalancers/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{}].Page[0].LoadBalancers[0].LoadBalancerName": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Aloadbalancer%2Fapp%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeLoadBalancers",
+      "configuration_path": "Request[{}].Page[0].LoadBalancers[0].LoadBalancerName",
+      "value": "web",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeLoadBalancers/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{}].Page[0].LoadBalancers[0].Type": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Aloadbalancer%2Fapp%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeLoadBalancers",
+      "configuration_path": "Request[{}].Page[0].LoadBalancers[0].Type",
+      "value": "application",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeLoadBalancers/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{}].Page[0].LoadBalancers[0].Scheme": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Aloadbalancer%2Fapp%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeLoadBalancers",
+      "configuration_path": "Request[{}].Page[0].LoadBalancers[0].Scheme",
+      "value": "internet-facing",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeLoadBalancers/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{}].Page[0].LoadBalancers[0].DNSName": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Aloadbalancer%2Fapp%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeLoadBalancers",
+      "configuration_path": "Request[{}].Page[0].LoadBalancers[0].DNSName",
+      "value": "web.elb.example",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeLoadBalancers/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{}].Page[0].LoadBalancers[0].IpAddressType": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Aloadbalancer%2Fapp%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeLoadBalancers",
+      "configuration_path": "Request[{}].Page[0].LoadBalancers[0].IpAddressType",
+      "value": "ipv4",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeLoadBalancers/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{}].Page[0].LoadBalancers[0].VpcId": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Aloadbalancer%2Fapp%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeLoadBalancers",
+      "configuration_path": "Request[{}].Page[0].LoadBalancers[0].VpcId",
+      "value": "vpc-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeLoadBalancers/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{}].Page[0].LoadBalancers[0].AvailabilityZones": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Aloadbalancer%2Fapp%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeLoadBalancers",
+      "configuration_path": "Request[{}].Page[0].LoadBalancers[0].AvailabilityZones",
+      "value": [
+        {
+          "ZoneName": "us-east-1a",
+          "SubnetId": "subnet-a"
+        }
+      ],
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeLoadBalancers/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{}].Page[0].LoadBalancers[0].AvailabilityZones[0].SubnetId": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Aloadbalancer%2Fapp%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeLoadBalancers",
+      "configuration_path": "Request[{}].Page[0].LoadBalancers[0].AvailabilityZones[0].SubnetId",
+      "value": "subnet-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeLoadBalancers/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{}].Page[0].LoadBalancers[0].SecurityGroups[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Aloadbalancer%2Fapp%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeLoadBalancers",
+      "configuration_path": "Request[{}].Page[0].LoadBalancers[0].SecurityGroups[0]",
+      "value": "sg-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeLoadBalancers/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{}].Page[0].LoadBalancers[0].State": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Aloadbalancer%2Fapp%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeLoadBalancers",
+      "configuration_path": "Request[{}].Page[0].LoadBalancers[0].State",
+      "value": {
+        "Code": "active"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeListeners/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890#Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeListeners",
+      "configuration_path": "Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0]",
+      "value": {
+        "ListenerArn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890",
+        "LoadBalancerArn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef",
+        "Port": 80,
+        "Protocol": "HTTP",
+        "DefaultActions": [
+          {
+            "Type": "forward",
+            "Order": 1,
+            "ForwardConfig": {
+              "TargetGroups": [
+                {
+                  "TargetGroupArn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef",
+                  "Weight": 100
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeListeners/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890#Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].ListenerArn": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeListeners",
+      "configuration_path": "Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].ListenerArn",
+      "value": "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeListeners/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890#Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].LoadBalancerArn": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeListeners",
+      "configuration_path": "Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].LoadBalancerArn",
+      "value": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeListeners/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890#Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].Port": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeListeners",
+      "configuration_path": "Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].Port",
+      "value": 80,
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeListeners/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890#Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].Protocol": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeListeners",
+      "configuration_path": "Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].Protocol",
+      "value": "HTTP",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeListeners/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890#Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].DefaultActions[0].Order": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeListeners",
+      "configuration_path": "Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].DefaultActions[0].Order",
+      "value": 1,
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeListeners/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890#Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].DefaultActions[0].ForwardConfig.TargetGroups[0].TargetGroupArn": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeListeners",
+      "configuration_path": "Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].DefaultActions[0].ForwardConfig.TargetGroups[0].TargetGroupArn",
+      "value": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeListeners/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890#Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].DefaultActions[0].ForwardConfig.TargetGroups[0].Weight": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeListeners",
+      "configuration_path": "Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].DefaultActions[0].ForwardConfig.TargetGroups[0].Weight",
+      "value": 100,
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeListeners/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890#Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].DefaultActions[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeListeners",
+      "configuration_path": "Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].DefaultActions[0]",
+      "value": {
+        "Type": "forward",
+        "Order": 1,
+        "ForwardConfig": {
+          "TargetGroups": [
+            {
+              "TargetGroupArn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef",
+              "Weight": 100
+            }
+          ]
+        }
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeListeners/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890#Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].DefaultActions[0].Type": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeListeners",
+      "configuration_path": "Request[{\"LoadBalancerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\"}].Page[0].Listeners[0].DefaultActions[0].Type",
+      "value": "forward",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeRules/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111#Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener-rule%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890%2F1111111111111111",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeRules",
+      "configuration_path": "Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0]",
+      "value": {
+        "RuleArn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111",
+        "Priority": "1",
+        "IsDefault": false,
+        "Conditions": [
+          {
+            "Field": "path-pattern",
+            "Values": [
+              "/api/*"
+            ]
+          }
+        ],
+        "Actions": [
+          {
+            "Type": "forward",
+            "TargetGroupArn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef",
+            "Order": 1
+          }
+        ]
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeRules/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111#Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].RuleArn": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener-rule%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890%2F1111111111111111",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeRules",
+      "configuration_path": "Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].RuleArn",
+      "value": "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeRules/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111#Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].ListenerArn": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener-rule%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890%2F1111111111111111",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeRules",
+      "configuration_path": "Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].ListenerArn",
+      "value": "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeRules/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111#Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].Priority": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener-rule%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890%2F1111111111111111",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeRules",
+      "configuration_path": "Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].Priority",
+      "value": "1",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeRules/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111#Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].IsDefault": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener-rule%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890%2F1111111111111111",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeRules",
+      "configuration_path": "Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].IsDefault",
+      "value": false,
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeRules/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111#Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].Conditions[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener-rule%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890%2F1111111111111111",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeRules",
+      "configuration_path": "Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].Conditions[0]",
+      "value": {
+        "Field": "path-pattern",
+        "Values": [
+          "/api/*"
+        ]
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeRules/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111#Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].Conditions[0].Field": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener-rule%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890%2F1111111111111111",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeRules",
+      "configuration_path": "Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].Conditions[0].Field",
+      "value": "path-pattern",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeRules/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111#Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].Actions[0].Order": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener-rule%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890%2F1111111111111111",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeRules",
+      "configuration_path": "Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].Actions[0].Order",
+      "value": 1,
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeRules/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111#Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].Actions[0].TargetGroupArn": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener-rule%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890%2F1111111111111111",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeRules",
+      "configuration_path": "Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].Actions[0].TargetGroupArn",
+      "value": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeRules/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111#Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].Actions[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener-rule%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890%2F1111111111111111",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeRules",
+      "configuration_path": "Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].Actions[0]",
+      "value": {
+        "Type": "forward",
+        "TargetGroupArn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef",
+        "Order": 1
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeRules/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111#Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].Actions[0].Type": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener-rule%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890%2F1111111111111111",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeRules",
+      "configuration_path": "Request[{\"ListenerArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\"}].Page[0].Rules[0].Actions[0].Type",
+      "value": "forward",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeTargetGroups/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{}].Page[0].TargetGroups[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Atargetgroup%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeTargetGroups",
+      "configuration_path": "Request[{}].Page[0].TargetGroups[0]",
+      "value": {
+        "TargetGroupArn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef",
+        "TargetGroupName": "web",
+        "VpcId": "vpc-a",
+        "TargetType": "instance",
+        "Protocol": "HTTP",
+        "Port": 8080,
+        "HealthCheckProtocol": "HTTP",
+        "HealthCheckPort": "traffic-port"
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeTargetGroups/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{}].Page[0].TargetGroups[0].TargetGroupArn": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Atargetgroup%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeTargetGroups",
+      "configuration_path": "Request[{}].Page[0].TargetGroups[0].TargetGroupArn",
+      "value": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeTargetGroups/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{}].Page[0].TargetGroups[0].TargetGroupName": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Atargetgroup%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeTargetGroups",
+      "configuration_path": "Request[{}].Page[0].TargetGroups[0].TargetGroupName",
+      "value": "web",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeTargetGroups/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{}].Page[0].TargetGroups[0].TargetType": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Atargetgroup%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeTargetGroups",
+      "configuration_path": "Request[{}].Page[0].TargetGroups[0].TargetType",
+      "value": "instance",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeTargetGroups/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{}].Page[0].TargetGroups[0].VpcId": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Atargetgroup%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeTargetGroups",
+      "configuration_path": "Request[{}].Page[0].TargetGroups[0].VpcId",
+      "value": "vpc-a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeTargetGroups/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{}].Page[0].TargetGroups[0].Protocol": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Atargetgroup%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeTargetGroups",
+      "configuration_path": "Request[{}].Page[0].TargetGroups[0].Protocol",
+      "value": "HTTP",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeTargetGroups/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{}].Page[0].TargetGroups[0].Port": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Atargetgroup%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeTargetGroups",
+      "configuration_path": "Request[{}].Page[0].TargetGroups[0].Port",
+      "value": 8080,
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeTargetGroups/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{}].Page[0].TargetGroups[0].HealthCheckProtocol": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Atargetgroup%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeTargetGroups",
+      "configuration_path": "Request[{}].Page[0].TargetGroups[0].HealthCheckProtocol",
+      "value": "HTTP",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeTargetGroups/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{}].Page[0].TargetGroups[0].HealthCheckPort": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Atargetgroup%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeTargetGroups",
+      "configuration_path": "Request[{}].Page[0].TargetGroups[0].HealthCheckPort",
+      "value": "traffic-port",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeTargetHealth/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{\"TargetGroupArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"}].Page[0].TargetHealthDescriptions[0]": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Atargetgroup%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeTargetHealth",
+      "configuration_path": "Request[{\"TargetGroupArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"}].Page[0].TargetHealthDescriptions[0]",
+      "value": {
+        "Target": {
+          "Id": "i-web",
+          "Port": 8080,
+          "AvailabilityZone": "us-east-1a"
+        },
+        "TargetHealth": {
+          "State": "unhealthy",
+          "Reason": "Target.FailedHealthChecks"
+        }
+      },
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeTargetHealth/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{\"TargetGroupArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"}].Page[0].TargetHealthDescriptions[0].Target.Id": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Atargetgroup%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeTargetHealth",
+      "configuration_path": "Request[{\"TargetGroupArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"}].Page[0].TargetHealthDescriptions[0].Target.Id",
+      "value": "i-web",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeTargetHealth/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{\"TargetGroupArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"}].Page[0].TargetHealthDescriptions[0].Target.Port": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Atargetgroup%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeTargetHealth",
+      "configuration_path": "Request[{\"TargetGroupArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"}].Page[0].TargetHealthDescriptions[0].Target.Port",
+      "value": 8080,
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeTargetHealth/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{\"TargetGroupArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"}].Page[0].TargetHealthDescriptions[0].Target.AvailabilityZone": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Atargetgroup%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeTargetHealth",
+      "configuration_path": "Request[{\"TargetGroupArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"}].Page[0].TargetHealthDescriptions[0].Target.AvailabilityZone",
+      "value": "us-east-1a",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeTargetHealth/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{\"TargetGroupArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"}].Page[0].TargetHealthDescriptions[0].TargetHealth.State": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Atargetgroup%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeTargetHealth",
+      "configuration_path": "Request[{\"TargetGroupArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"}].Page[0].TargetHealthDescriptions[0].TargetHealth.State",
+      "value": "unhealthy",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeTargetHealth/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{\"TargetGroupArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"}].Page[0].TargetHealthDescriptions[0].TargetHealth.Reason": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Atargetgroup%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeTargetHealth",
+      "configuration_path": "Request[{\"TargetGroupArn\":\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"}].Page[0].TargetHealthDescriptions[0].TargetHealth.Reason",
+      "value": "Target.FailedHealthChecks",
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeTags/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111#Request[{\"ResourceArns\":[\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"]}].Page[0].TagDescriptions[0].Tags": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener-rule%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890%2F1111111111111111",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeTags",
+      "configuration_path": "Request[{\"ResourceArns\":[\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"]}].Page[0].TagDescriptions[0].Tags",
+      "value": [
+        {
+          "Key": "team",
+          "Value": "infra"
+        }
+      ],
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeTags/arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890#Request[{\"ResourceArns\":[\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"]}].Page[0].TagDescriptions[1].Tags": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Alistener%2Fapp%2Fweb%2F1234567890abcdef%2Fabcdef1234567890",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeTags",
+      "configuration_path": "Request[{\"ResourceArns\":[\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"]}].Page[0].TagDescriptions[1].Tags",
+      "value": [
+        {
+          "Key": "team",
+          "Value": "infra"
+        }
+      ],
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeTags/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef#Request[{\"ResourceArns\":[\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"]}].Page[0].TagDescriptions[2].Tags": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Aloadbalancer%2Fapp%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeTags",
+      "configuration_path": "Request[{\"ResourceArns\":[\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"]}].Page[0].TagDescriptions[2].Tags",
+      "value": [
+        {
+          "Key": "team",
+          "Value": "infra"
+        }
+      ],
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    },
+    "elasticloadbalancing/us-east-1/DescribeTags/arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef#Request[{\"ResourceArns\":[\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"]}].Page[0].TagDescriptions[3].Tags": {
+      "snapshot_id": "00000000-0000-0000-0000-00000000000f",
+      "resource_id": "123456789012/us-east-1/elasticloadbalancing/physical/arn%3Aaws%3Aelasticloadbalancing%3Aus-east-1%3A123456789012%3Atargetgroup%2Fweb%2F1234567890abcdef",
+      "source": "aws",
+      "locator": "elasticloadbalancing:DescribeTags",
+      "configuration_path": "Request[{\"ResourceArns\":[\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/web/1234567890abcdef/abcdef1234567890/1111111111111111\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/1234567890abcdef/abcdef1234567890\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1234567890abcdef\",\"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1234567890abcdef\"]}].Page[0].TagDescriptions[3].Tags",
+      "value": [
+        {
+          "Key": "team",
+          "Value": "infra"
+        }
+      ],
+      "value_status": "present",
+      "redacted_paths": [],
+      "limitation": null
+    }
+  }
+}

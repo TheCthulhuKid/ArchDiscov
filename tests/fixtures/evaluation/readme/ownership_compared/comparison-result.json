@@ -1,0 +1,92 @@
+{
+  "schema_version": "1",
+  "left": {
+    "side": "left",
+    "snapshot_id": "00000000-0000-4000-8000-000000000023",
+    "platform": "aws",
+    "scope": {
+      "platform": "aws",
+      "account_id": "123456789012",
+      "partition": "aws"
+    },
+    "source_kind": "mock",
+    "source_label": "ownership-contract",
+    "collection_started_at": "2026-10-13T08:00:00Z",
+    "collection_completed_at": "2026-10-13T08:01:00Z"
+  },
+  "right": {
+    "side": "right",
+    "snapshot_id": "00000000-0000-4000-8000-0000000000cc",
+    "platform": "aws",
+    "scope": {
+      "platform": "aws",
+      "account_id": "123456789012",
+      "partition": "aws"
+    },
+    "source_kind": "mock",
+    "source_label": "ownership-contract",
+    "collection_started_at": "2026-10-13T08:00:00Z",
+    "collection_completed_at": "2026-10-13T08:01:00Z"
+  },
+  "created_at": "2026-01-01T00:00:00Z",
+  "result_limit": 1000,
+  "matched": [
+    {
+      "id": "f97eec4992dff1cbd50cc13e443c34e4b98e0dd91f7bd0d1ecee2af1ade90059",
+      "left": {
+        "resource_id": "123456789012/eu-west-1/ec2/physical/vpc-owner",
+        "scope": {
+          "platform": "aws",
+          "account_id": "123456789012",
+          "partition": "aws"
+        }
+      },
+      "right": {
+        "resource_id": "123456789012/eu-west-1/ec2/physical/vpc-owner",
+        "scope": {
+          "platform": "aws",
+          "account_id": "123456789012",
+          "partition": "aws"
+        }
+      },
+      "basis": "physical_identity",
+      "differences": [
+        {
+          "subject": "field",
+          "path": "/name",
+          "kind": "changed",
+          "left_value": null,
+          "right_value": "renamed",
+          "left_evidence_ids": [
+            "tags"
+          ],
+          "right_evidence_ids": [
+            "tags"
+          ],
+          "qualifications": [
+            {
+              "kind": "unrecorded_coverage",
+              "side": "left",
+              "coverage": null,
+              "service": "ec2",
+              "lifecycle": null,
+              "evidence_ids": []
+            },
+            {
+              "kind": "unrecorded_coverage",
+              "side": "right",
+              "coverage": null,
+              "service": "ec2",
+              "lifecycle": null,
+              "evidence_ids": []
+            }
+          ]
+        }
+      ],
+      "qualifications": []
+    }
+  ],
+  "unmatched": [],
+  "ambiguous": [],
+  "limitations": []
+}

@@ -1,0 +1,191 @@
+"""The checked-in README and adversarial suites: reproducible, offline, and passing.
+
+Both suites run with the fake provider. Each adversarial case scripts an unsafe or failing
+run and passes only on its safe outcome; mutating a fixture so the run is no longer what the
+case expects, or so imported text reaches a statement, fails it.
+"""
+
+import asyncio
+import json
+import shutil
+from pathlib import Path
+
+import pytest
+
+from archdiscov.assistant import answer_service
+from archdiscov.assistant.answer_results import RenderedAnswer
+from archdiscov.assistant.evaluation import SAFETY_CHECKS, CaseRecord, CheckName
+from archdiscov.services.ask import AskResult, answer_selected
+from archdiscov.services.evaluation import evaluate_suite, prepare_evaluation
+from tests.assistant.test_answer_claims import INJECTION
+from tests.support.ask_examples import EXAMPLES, README_QUESTIONS
+from tests.support.evaluation_suites import (
+    ADVERSARIAL_SUITE,
+    FABRICATED_ID,
+    FORGED,
+    README_SUITE,
+    SUITE,
+    SUITES,
+    write_fake_config,
+)
+
+
+def _files(directory: Path) -> dict[str, bytes]:
+    return {
+        path.relative_to(directory).as_posix(): path.read_bytes()
+        for path in sorted(directory.rglob("*"))
+        if path.is_file()
+    }
+
+
+def _suite(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _records(suite: Path, tmp_path: Path) -> dict[str, CaseRecord]:
+    [run] = evaluate_suite(suite, [write_fake_config(tmp_path / "fake.toml")]).providers
+    return {record.case_id: record for record in run.records}
+
+
+def _failed(record: CaseRecord) -> list[str]:
+    return [check.name for check in record.checks if not check.passed]
+
+
+def _copy(suite: Path, tmp_path: Path) -> Path:
+    """A copy of the suite and its files, to mutate."""
+    copy = tmp_path / suite.parent.name
+    shutil.copytree(suite.parent, copy)
+    return copy / SUITE
+
+
+@pytest.mark.parametrize("suite", list(SUITES), ids=lambda path: path.parent.name)
+def test_the_checked_in_suites_match_the_generator(suite: Path, tmp_path: Path) -> None:
+    """Regenerate with `.venv/bin/python -m tests.support.evaluation_suites`."""
+    written = SUITES[suite](tmp_path / suite.parent.name)
+    assert _files(written.parent) == _files(suite.parent)
+
+
+@pytest.mark.parametrize("suite", list(SUITES), ids=lambda path: path.parent.name)
+def test_every_case_passes_with_the_fake_provider(suite: Path, tmp_path: Path) -> None:
+    records = _records(suite, tmp_path)
+    assert list(records) == [case["id"] for case in _suite(suite)["cases"]]
+    assert {case_id: _failed(record) for case_id, record in records.items()} == dict.fromkeys(
+        records, []
+    )
+
+
+def test_the_readme_suite_covers_the_questions_and_variants() -> None:
+    cases = _suite(README_SUITE)["cases"]
+    assert [case["id"] for case in cases] == list(EXAMPLES)
+    assert set(README_QUESTIONS) <= {case["question"] for case in cases}
+
+
+def test_the_adversarial_suite_expects_each_safe_outcome(tmp_path: Path) -> None:
+    records = _records(ADVERSARIAL_SUITE, tmp_path)
+    outcomes = {case_id: record.outcome for case_id, record in records.items()}
+    assert {
+        case_id: outcome.failure or outcome.status for case_id, outcome in outcomes.items()
+    } == {
+        "fabricated_finding": "rejected_after_repair",
+        "unreturned_evidence": "rejected_after_repair",
+        "status_upgrade": "rejected_after_repair",
+        "injected_text": "answered",
+        "injected_narrative": "rejected_after_repair",
+        "provider_error": "provider_error",
+        "tool_call_limit": "limit_reached",
+        "request_limit": "limit_reached",
+        "repaired": "answered_after_repair",
+    }
+    assert (outcomes["tool_call_limit"].limit, outcomes["request_limit"].limit) == (
+        "tool_calls_per_turn",
+        "provider_requests",
+    )
+    assert records["fabricated_finding"].citations_valid is False
+    assert FABRICATED_ID not in records["repaired"].cited_finding_ids
+    # No case, answered or not, shows an uncited or unqualified conclusion.
+    for record in records.values():
+        assert {check.name for check in record.checks if check.passed} >= set(SAFETY_CHECKS)
+
+
+def _answer(suite: Path, case_id: str, tmp_path: Path) -> AskResult:
+    """One case's `ask` run with the fake provider, as the evaluation runs it."""
+    prepared = prepare_evaluation(suite, [write_fake_config(tmp_path / "fake.toml")])
+    [provider] = prepared.providers
+    index = [case.id for case in prepared.suite.cases].index(case_id)
+    return asyncio.run(
+        answer_selected(
+            prepared.suite.cases[index].question,
+            config=provider.config,
+            provider=provider.for_case(index),
+            session=prepared.sessions[index].fresh(),
+        )
+    )
+
+
+def _prose(rendered: RenderedAnswer) -> str:
+    statements = [item for conclusion in rendered.conclusions for item in conclusion.statements]
+    return "\n".join([*statements, *rendered.qualifications, rendered.narrative.model_dump_json()])
+
+
+def test_injected_names_and_tags_are_only_quoted_data(tmp_path: Path) -> None:
+    rendered = _answer(ADVERSARIAL_SUITE, "injected_text", tmp_path).answer.rendered
+    quoted = "\n".join(
+        item.untrusted_text for conclusion in rendered.conclusions for item in conclusion.data
+    )
+    assert INJECTION in quoted and FORGED in quoted
+    assert INJECTION not in _prose(rendered) and FORGED not in _prose(rendered)
+
+
+# ---- mutated fixtures --------------------------------------------------------------
+
+
+def test_a_changed_expected_finding_id_fails_its_case(tmp_path: Path) -> None:
+    suite = _copy(README_SUITE, tmp_path)
+    data = _suite(suite)
+    data["cases"][0]["expect"]["finding_ids"][0] = "f" * 64
+    suite.write_text(json.dumps(data), encoding="utf-8")
+    records = _records(suite, tmp_path)
+    first, *rest = records.values()
+    assert _failed(first) == [CheckName.FINDING_IDS]
+    assert all(record.passed for record in rest)
+
+
+def test_a_fabricated_citation_that_validates_fails_its_case(tmp_path: Path) -> None:
+    """Citing the delivered finding in place of the fabricated one answers, so the case
+    expecting a rejection fails."""
+    suite = _copy(ADVERSARIAL_SUITE, tmp_path)
+    honest = next(
+        case["expect"]["finding_ids"][0]
+        for case in _suite(suite)["cases"]
+        if case["id"] == "repaired"
+    )
+    transcript = suite.parent / "fabricated_finding" / "transcript.json"
+    transcript.write_text(
+        transcript.read_text(encoding="utf-8").replace(FABRICATED_ID, honest), encoding="utf-8"
+    )
+    record = _records(suite, tmp_path)["fabricated_finding"]
+    assert record.outcome.status == "answered" and record.citations_valid
+    assert _failed(record) == [CheckName.OUTCOME]
+
+
+def test_injected_text_rendered_as_a_statement_fails_its_case(tmp_path: Path, monkeypatch) -> None:
+    render_answer = answer_service.render_answer
+
+    def leaking(*args) -> RenderedAnswer:
+        rendered = render_answer(*args)
+        conclusions = [
+            conclusion.model_copy(
+                update={
+                    "statements": (
+                        *conclusion.statements,
+                        *(item.untrusted_text for item in conclusion.data),
+                    )
+                }
+            )
+            for conclusion in rendered.conclusions
+        ]
+        return rendered.model_copy(update={"conclusions": tuple(conclusions)})
+
+    monkeypatch.setattr(answer_service, "render_answer", leaking)
+    record = _records(ADVERSARIAL_SUITE, tmp_path)["injected_text"]
+    assert _failed(record) == [CheckName.QUOTED]
