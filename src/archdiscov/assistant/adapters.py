@@ -14,7 +14,9 @@ hierarchy, never by message text, and retries only transport and rate-limit erro
 longer than the request timeout. The response rules apply to any protocol:
 `untrusted_response` turns a response that does not fit the contracts into malformed
 output, `require_known` refuses unknown block or item types, and `require_text_only`
-refuses a length or refusal stop that carries tool calls or no text.
+refuses a length or refusal stop that carries tool calls or no text. For requests,
+`role_turns` merges consecutive messages of one role, for APIs that require alternating
+roles.
 """
 
 import asyncio
@@ -202,6 +204,24 @@ class Retries:
         return retry_wait(error, attempt, timeout_seconds)
 
 
+# ---- requests -----------------------------------------------------------------------
+
+type RoleBlocks = Mapping[type, tuple[str, Callable[[Any], list[Any]]]]
+
+
+def role_turns(messages: Iterable[Any], roles: RoleBlocks) -> list[dict[str, Any]]:
+    """One API message per role turn, each message's blocks found by its type in `roles`:
+    consecutive messages of one role, such as tool results and a repair prompt, share one."""
+    turns: list[dict[str, Any]] = []
+    for message in messages:
+        role, blocks = roles[type(message)]
+        if turns and turns[-1]["role"] == role:
+            turns[-1]["content"] += blocks(message)
+        else:
+            turns.append({"role": role, "content": blocks(message)})
+    return turns
+
+
 # ---- responses ----------------------------------------------------------------------
 
 
@@ -209,7 +229,7 @@ def untrusted_response[T](mapping: Callable[[T], CompletionResponse], raw: T) ->
     """Map an untrusted response; anything that does not fit the contracts is malformed."""
     try:
         return mapping(raw)
-    except (ValidationError, AttributeError, TypeError) as error:
+    except (ValidationError, AttributeError, TypeError, LookupError) as error:
         raise ProviderMalformedOutputError() from error
 
 

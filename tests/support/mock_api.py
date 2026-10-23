@@ -8,9 +8,12 @@ received, so a test can check the requests, and neither reaches the network.
 
 import json
 import threading
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from dataclasses import dataclass, field
+from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 
 import httpx2
@@ -103,43 +106,88 @@ class _RawBody:
         yield self._content
 
 
-def aws_response(status: int, body: Any, headers: dict[str, str] | None = None) -> Served:
-    """A botocore HTTP response; a `bytes` body is sent as is, anything else as JSON."""
-    content = body if isinstance(body, bytes) else json.dumps(body).encode()
+@dataclass(frozen=True)
+class AwsResponse:
+    """A botocore HTTP response the API sends after `delay` seconds; a `bytes` body is sent
+    as is, anything else as JSON."""
 
-    def respond(request: Any) -> Any:
+    status: int
+    body: Any
+    headers: Mapping[str, str] = field(default_factory=dict)
+    delay: float = 0.0
+
+    def __call__(self, request: Any) -> Any:
         from botocore.awsrequest import AWSResponse
         from botocore.compat import HTTPHeaders
 
+        content = self.body if isinstance(self.body, bytes) else json.dumps(self.body).encode()
         sent = HTTPHeaders()
-        for name, value in (headers or {}).items():
+        for name, value in self.headers.items():
             sent[name] = value
-        return AWSResponse(request.url, status, sent, _RawBody(content))
+        return AWSResponse(request.url, self.status, sent, _RawBody(content))
 
-    return respond
+
+@dataclass(frozen=True)
+class AwsProfile:
+    """AWS config and credentials files, which a mocked session reads in place of the
+    environment's."""
+
+    config_file: Path
+    credentials_file: Path
 
 
 class BotocoreApi:
     """A mocked AWS API for botocore clients: answers each request with the next response.
 
     `session_factory` makes `boto3` sessions whose clients send through it, through
-    botocore's `before-send` event; the requests are kept, signed as sent.
+    botocore's `before-send` event, and read `profile`'s files when given; the requests are
+    kept, signed as sent. A response's `delay` advances `clock`, up to the sending client's
+    read timeout, and a delay beyond that timeout is a read timeout.
     """
 
-    def __init__(self, responses: Sequence[Served]) -> None:
+    def __init__(
+        self,
+        responses: Sequence[Served],
+        clock: FakeClock | None = None,
+        profile: AwsProfile | None = None,
+    ) -> None:
         self.requests: list[Any] = []
         self._responses = list(responses)
+        self._clock = clock
+        self._profile = profile
 
-    def session_factory(self, **kwargs: Any) -> Any:
+    def session_factory(self, *, botocore_session: Any = None, **kwargs: Any) -> Any:
         import boto3
+        import botocore.session
 
-        session = boto3.Session(**kwargs)
-        session.events.register("before-send", self._send)
-        return session
+        if botocore_session is None:
+            botocore_session = botocore.session.Session()
+        if self._profile is not None:
+            botocore_session.set_config_variable("config_file", str(self._profile.config_file))
+            botocore_session.set_config_variable(
+                "credentials_file", str(self._profile.credentials_file)
+            )
+        api = self
 
-    def _send(self, request: Any, **kwargs: Any) -> Any:
+        class MockedSession(boto3.Session):
+            def client(self, *args: Any, **kwargs: Any) -> Any:
+                client = super().client(*args, **kwargs)
+                timeout = client.meta.config.read_timeout
+                client.meta.events.register("before-send", partial(api._send, timeout))
+                return client
+
+        return MockedSession(botocore_session=botocore_session, **kwargs)
+
+    def _send(self, read_timeout: float, request: Any, **kwargs: Any) -> Any:
+        from botocore.exceptions import ReadTimeoutError
+
         self.requests.append(request)
         response = self._responses.pop(0)
+        delay = getattr(response, "delay", 0.0)
+        if self._clock is not None:
+            self._clock.sleep(min(delay, read_timeout))
+        if delay > read_timeout:
+            raise ReadTimeoutError(endpoint_url=request.url)
         if callable(response):
             response = response(request)
         if isinstance(response, Exception):

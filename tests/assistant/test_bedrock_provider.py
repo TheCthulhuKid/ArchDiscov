@@ -4,14 +4,13 @@ Requests go to a mocked API through botocore's `before-send` event, or to a loop
 nothing reaches AWS. Each test writes its own AWS profile files.
 """
 
-import asyncio
 import logging
 from functools import partial
 from pathlib import Path
 from typing import Any
 
 import pytest
-from botocore.exceptions import ClientError, CredentialRetrievalError
+from botocore.exceptions import CredentialRetrievalError
 
 from archdiscov.assistant import bedrock_provider
 from archdiscov.assistant.bedrock_provider import BedrockProvider
@@ -35,7 +34,7 @@ from tests.assistant.test_orchestrator import SNAPSHOT
 from tests.assistant.test_provider_contract import SEARCH
 from tests.assistant.test_secret_leaks import _renderings
 from tests.support.ask_examples import write_provider_config
-from tests.support.mock_api import BotocoreApi, aws_response, mock_api_server
+from tests.support.mock_api import AwsResponse, BotocoreApi, mock_api_server
 
 PROFILE = "assistant"
 REGION = "eu-west-1"
@@ -55,8 +54,6 @@ ANSWER = {
     "usage": {"inputTokens": 3, "outputTokens": 1, "totalTokens": 4},
     "metrics": {"latencyMs": 1},
 }
-# The smallest Converse request; the mapping (step 42.2) builds more.
-PARAMS = {"modelId": MODEL, "messages": [{"role": "user", "content": [{"text": QUESTION}]}]}
 HOSTILE_ENVIRONMENT = {
     "AWS_ACCESS_KEY_ID": "AKIAENVIRONMENT00000",
     "AWS_SECRET_ACCESS_KEY": "environmentSecret000000000000000000000000",
@@ -98,7 +95,7 @@ def _provider(api: BotocoreApi, **fields: Any) -> BedrockProvider:
 
 
 def _rejected() -> Any:
-    return aws_response(400, {"message": f"Rejected: {QUESTION}"}, {"x-amzn-ErrorType": "x"})
+    return AwsResponse(400, {"message": f"Rejected: {QUESTION}"}, {"x-amzn-ErrorType": "x"})
 
 
 def _assumed(key: str = ROLE_KEY, token: str | None = "roleToken") -> Any:
@@ -111,7 +108,7 @@ def _assumed(key: str = ROLE_KEY, token: str | None = "roleToken") -> Any:
         f"{session_token}<Expiration>2030-01-01T00:00:00Z</Expiration>"
         "</Credentials></AssumeRoleResult></AssumeRoleResponse>"
     )
-    return aws_response(200, body.encode())
+    return AwsResponse(200, body.encode())
 
 
 def _credential(request: Any) -> str:
@@ -122,7 +119,9 @@ def _credential(request: Any) -> str:
 
 def _request(**limits: Any) -> CompletionRequest:
     return CompletionRequest(
-        conversation=Conversation.model_validate({"messages": [{"role": "user", "text": "q"}]}),
+        conversation=Conversation.model_validate(
+            {"messages": [{"role": "user", "text": QUESTION}]}
+        ),
         tools=(SEARCH,),
         limits=limits or {},
     )
@@ -180,11 +179,11 @@ def test_only_the_configuration_chooses_the_target_credential_and_retries(
     _aws_files(tmp_path, monkeypatch, config=profile_endpoint)
     for name, value in HOSTILE_ENVIRONMENT.items():
         monkeypatch.setenv(name, value)
-    unavailable = aws_response(503, {"message": "busy"}, {"x-amzn-ErrorType": "x"})
+    unavailable = AwsResponse(503, {"message": "busy"}, {"x-amzn-ErrorType": "x"})
     served = [unavailable] if not fields else [_assumed(), unavailable]
     api = BotocoreApi(served)
-    with pytest.raises(ClientError):
-        _provider(api, **fields)._converse(**PARAMS)
+    with pytest.raises(ProviderUnavailableError):
+        complete(_provider(api, **fields), _request())
     # One attempt, whatever the environment and the profile say about retries.
     *assumed, sent = api.requests
     assert sent.url == CONVERSE
@@ -195,24 +194,26 @@ def test_only_the_configuration_chooses_the_target_credential_and_retries(
         assert f"RoleArn={ROLE.replace(':', '%3A').replace('/', '%2F')}" in request.body
         assert "RoleSessionName=archdiscov-assistant" in request.body
     body = sent.body.decode()
-    assert not any(value in body for value in HOSTILE_ENVIRONMENT.values())
+    # Short values such as `AWS_MAX_ATTEMPTS` occur in any body, as in `maxTokens`.
+    assert not any(value in body for value in HOSTILE_ENVIRONMENT.values() if len(value) > 4)
 
 
 def test_the_role_is_assumed_once_and_an_invalid_answer_is_a_credential_error(
     tmp_path: Path, monkeypatch
 ) -> None:
     _aws_files(tmp_path, monkeypatch)
-    rejected = aws_response(400, {"message": "no"}, {"x-amzn-ErrorType": "x"})
+    rejected = AwsResponse(400, {"message": "no"}, {"x-amzn-ErrorType": "x"})
     api = BotocoreApi([_assumed(), rejected, rejected])
     provider = _provider(api, role_arn=ROLE)
     for _ in range(2):
-        with pytest.raises(ClientError):
-            provider._converse(**PARAMS)
+        with pytest.raises(ProviderUnavailableError):
+            complete(provider, _request())
     assert [_credential(request) for request in api.requests] == [ACCESS_KEY, ROLE_KEY, ROLE_KEY]
 
     api = BotocoreApi([_assumed(token=None)])
-    with pytest.raises(CredentialRetrievalError):
-        _provider(api, role_arn=ROLE)._converse(**PARAMS)
+    with pytest.raises(ProviderUnavailableError) as raised:
+        complete(_provider(api, role_arn=ROLE), _request())
+    assert isinstance(raised.value.__cause__, CredentialRetrievalError)
     assert len(api.requests) == 1
 
 
@@ -228,11 +229,11 @@ def test_a_configured_endpoint_is_used_and_proxy_variables_are_not(
             monkeypatch.setenv(name, f"http://127.0.0.1:{proxy.port}")
         endpoint = f"http://127.0.0.1:{api.port}"
         provider = BedrockProvider(parse_provider_config(_fields(endpoint=endpoint)))
-        provider._converse(**PARAMS)
+        complete(provider, _request())
     [(path, headers, body)] = api.requests
     assert path == CONVERSE_PATH
     assert headers["Authorization"].startswith(f"AWS4-HMAC-SHA256 Credential={ACCESS_KEY}/")
-    assert body["messages"] == PARAMS["messages"]
+    assert body["messages"] == [{"role": "user", "content": [{"text": QUESTION}]}]
     assert proxy.requests == []
 
 
@@ -244,8 +245,8 @@ def test_no_credential_or_request_body_reaches_a_rendering_or_log(
     for name in bedrock_provider._SDK_LOGGERS:
         logging.getLogger(name).setLevel(logging.DEBUG)
     provider = _provider(BotocoreApi([_assumed(), _rejected()]), role_arn=ROLE)
-    with pytest.raises(ClientError):
-        provider._converse(**PARAMS)
+    with pytest.raises(ProviderUnavailableError):
+        complete(provider, _request())
     for name in bedrock_provider._SDK_LOGGERS:
         assert logging.getLogger(name).getEffectiveLevel() == logging.WARNING
     for rendering in (*_renderings(provider), caplog.text):
@@ -290,18 +291,4 @@ def test_an_ask_run_without_declared_tool_calling_fails_before_any_request(
     outcome = result.answer.outcome
     assert outcome.provider_error == ProviderErrorCode.UNSUPPORTED_CAPABILITY
     assert outcome.exit_code == 6
-    assert api.requests == []
-
-
-# ---- until the mapping -------------------------------------------------------------
-
-
-def test_completing_sends_nothing_until_converse_is_mapped(tmp_path: Path, monkeypatch) -> None:
-    _aws_files(tmp_path, monkeypatch)
-    api = BotocoreApi([])
-    provider = _provider(api)
-    with pytest.raises(ProviderUnavailableError):
-        complete(provider, _request())
-    with pytest.raises(ProviderUnavailableError):
-        asyncio.run(provider.complete_async(_request()))
     assert api.requests == []

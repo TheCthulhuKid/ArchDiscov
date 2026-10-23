@@ -7,7 +7,7 @@ above it. The `ask` command builds its provider from a configuration file: the f
 [Anthropic adapter](#anthropic-adapter), or the
 [OpenAI-compatible adapter](#openai-compatible-adapter), which answers through Responses
 or Chat Completions, or the [Bedrock adapter](#bedrock-adapter), which is built from its
-own AWS profile but does not answer yet. The
+own AWS profile and answers through Converse. The
 [assistant tools](assistant-tools.md), [orchestration](assistant-orchestration.md), and
 [answers](assistant-answers.md) build on this layer. Only an adapter module imports a
 vendor SDK, and only when its kind is built.
@@ -510,8 +510,8 @@ ARCHDISCOV_LIVE_OPENAI_PROTOCOLS=responses,chat_completions \
 
 `assistant/bedrock_provider.py` is the only assistant module that imports `boto3` or
 `botocore`, and `ADAPTERS` imports it only when a `bedrock` configuration is built. Building
-it makes no request. Until the Converse mapping lands (step 42.2), it sends nothing: each
-request fails with `provider_unavailable`.
+it makes no request; each `complete` then makes one Converse request. Botocore is
+synchronous, so `complete_async` runs the request in a thread.
 
 ```toml
 kind = "bedrock"
@@ -554,6 +554,56 @@ declares it, as for the OpenAI-compatible adapter: tool calling by default, para
 calls only when listed. Converse has no setting that stops a model from calling several
 tools in one turn, so a model that does so with `max_tool_calls_per_turn` at 1 ends the
 run as `limit_reached`; declare `parallel_tool_calls` and raise the limit for such models.
+
+#### Converse requests and responses
+
+Each request becomes one `converse` call holding only fields every tool-capable model
+accepts:
+
+- System messages become `system` text blocks. User, assistant, and tool-result messages
+  become `messages` in order; Converse requires alternating roles, so consecutive
+  user-role messages, such as tool results and a repair prompt, share one `user` message.
+- An assistant message that carries a continuation is replayed as its continuation's
+  content, unchanged and in order; otherwise it becomes a `text` block (when it has text)
+  followed by a `toolUse` block per call, with its `toolUseId` and JSON object `input`
+  (`{}` for malformed arguments, which never ran).
+- Each tool result becomes a `toolResult` block with one `text` content block, and a failed
+  tool's result has `status` `error`.
+- Tools become `toolSpec` entries with `name`, `description`, and `inputSchema.json`, and
+  `inferenceConfig.maxTokens` is `max_output_tokens`.
+- `toolChoice` is not sent, and a successful result has no `status`: both are the
+  defaults (`auto` and success), and some models reject the fields. Nothing goes in
+  `additionalModelRequestFields`, `guardrailConfig`, `performanceConfig`, or the sampling
+  fields, so the model's defaults apply.
+
+The response is untrusted: botocore parses it into plain dictionaries without checking
+it. Only `text`, `toolUse`, and `reasoningContent` blocks are mapped. Any other block is
+`provider_malformed_output`, as is a response that does not fit the contracts. That
+includes images, documents, citations, guard content, a tool result, a server tool's
+`toolUse` (one with a `type`), and reasoning of a kind botocore does not know, which it
+parses without its content and so could not go back. Text blocks are joined, and
+`toolUse` blocks become tool calls through the shared argument parsing. Usage maps
+`inputTokens`, `outputTokens`, `cacheReadInputTokens`, and `cacheWriteInputTokens`.
+
+| `stopReason` | Maps to |
+|---|---|
+| `end_turn`, `stop_sequence` | `end` |
+| `tool_use` | `tool_use` |
+| `max_tokens`, `model_context_window_exceeded` | `length` for text alone; otherwise `provider_truncated_output` |
+| `guardrail_intervened`, `content_filtered` | `refusal` for text alone; otherwise `provider_refusal` |
+| any other, such as `malformed_model_output` or `malformed_tool_use` | `provider_malformed_output` |
+
+Models that reason, such as Anthropic's on Bedrock, need their reasoning back with tool
+use. A response holding `reasoningContent` blocks therefore keeps its whole content, in
+order, as a `bedrock` continuation, and the next request replays that content verbatim.
+Redacted reasoning is kept as the base64 text the API sent, so it goes back byte for byte.
+A continuation from another provider kind is refused as `provider_invalid_request` before
+anything is sent.
+
+Until failures are mapped by error code (step 42.3), every botocore failure, including an
+API error, a timeout, a connection failure, or a failed role assumption, is
+`provider_unavailable` and is not retried. A response botocore cannot parse is
+`provider_malformed_output`. Like every provider error, these carry no provider text.
 
 ### Credentials
 

@@ -14,6 +14,7 @@ from archdiscov.assistant import (
     answer_results,
     answer_validation,
     anthropic_provider,
+    bedrock_provider,
     openai_provider,
 )
 from archdiscov.assistant import answers as assistant_answers
@@ -244,13 +245,21 @@ def test_documented_provider_configuration_matches_the_models():
     assert set(CONFIG_MODELS) == {kind.value for kind in assistant_config.ProviderKind}
 
 
-def test_documented_anthropic_stop_reasons_match_the_adapter():
-    rows = table_rows(PROVIDERS_DOC, "| `stop_reason` | Maps to")
+@pytest.mark.parametrize(
+    ("header", "stops"),
+    [
+        ("| `stop_reason` | Maps to", anthropic_provider._STOP_REASONS),
+        ("| `stopReason` | Maps to", bedrock_provider._STOP_REASONS),
+    ],
+    ids=["anthropic", "bedrock"],
+)
+def test_documented_stop_reasons_match_the_adapter(header: str, stops) -> None:
+    rows = table_rows(PROVIDERS_DOC, header)
     documented = {reason.strip("` ") for row in rows[:-1] for reason in row[0].split(",")}
-    assert documented == set(anthropic_provider._STOP_REASONS)
+    assert documented == set(stops)
     for row in rows[:-1]:
         reason = row[0].split(",")[0].strip("` ")
-        assert f"`{anthropic_provider._STOP_REASONS[reason].value}`" in row[1], reason
+        assert f"`{stops[reason].value}`" in row[1], reason
 
 
 def test_documented_chat_completions_finish_reasons_match_the_adapter():
@@ -559,7 +568,9 @@ def test_the_readme_links_answers_without_claiming_rendering():
     assert "docs/assistant-answers.md" in text
     for claim in ("answers are rendered", "repair is implemented"):
         assert claim not in text
-    assert "Bedrock is a later step" in " ".join(ANSWERS_DOC.read_text(encoding="utf-8").split())
+    assert "the Bedrock adapter through Converse" in " ".join(
+        ANSWERS_DOC.read_text(encoding="utf-8").split()
+    )
 
 
 # ---- ask command -------------------------------------------------------------------

@@ -14,6 +14,7 @@ from typing import Any, ClassVar, Protocol
 
 import httpx2
 from anthropic.types import Message, TextBlock, ToolUseBlock, Usage
+from botocore.exceptions import EndpointConnectionError, ReadTimeoutError
 from openai.types import CompletionUsage
 from openai.types.chat import (
     ChatCompletion,
@@ -36,6 +37,7 @@ from openai.types.responses.response_usage import InputTokensDetails
 from pydantic import SecretStr
 
 from archdiscov.assistant.anthropic_provider import AnthropicProvider
+from archdiscov.assistant.bedrock_provider import BedrockProvider
 from archdiscov.assistant.config import OpenAIProtocol, parse_provider_config
 from archdiscov.assistant.conversation import (
     MAX_TOOL_ARGUMENT_BYTES,
@@ -54,7 +56,11 @@ from archdiscov.assistant.provider import (
     ProviderErrorCode,
     StopReason,
 )
+from tests.paths import FIXTURES_ROOT
 from tests.support.mock_api import (
+    AwsProfile,
+    AwsResponse,
+    BotocoreApi,
     DelayedResponse,
     MockApi,
     Served,
@@ -197,7 +203,9 @@ class MockedHarness:
 
     A subclass names the provider kind, builds the protocol's response `body`, shows each
     scripted provider error as the API would (`failures`), gives its provider
-    `configuration`, and `construct`s its adapter from a configuration, key, and API.
+    `configuration`, and `construct`s its adapter from a configuration, key, and API. An
+    adapter mocked other than through an `httpx2` transport also says how its API serves a
+    body (`_respond`) and is made (`_mock`).
     """
 
     name: ClassVar[str]
@@ -217,7 +225,7 @@ class MockedHarness:
     def configuration(self, api_key_env: str) -> dict[str, Any]:
         raise NotImplementedError
 
-    def construct(self, config: Any, api_key: SecretStr, api: MockApi) -> Provider:
+    def construct(self, config: Any, api_key: SecretStr, api: Any) -> Provider:
         """The adapter over `api`, retrying without waiting."""
         raise NotImplementedError
 
@@ -240,16 +248,24 @@ class MockedHarness:
         return provider
 
     @classmethod
-    def api(cls, turns: Sequence[dict[str, Any]], clock: FakeClock | None = None) -> MockApi:
+    def api(cls, turns: Sequence[dict[str, Any]], clock: FakeClock | None = None) -> Any:
         """A mocked API that serves the turns, for callers that build the adapter."""
         transcript = FakeTranscript.model_validate({"turns": list(turns)})
-        return MockApi([cls._served(turn) for turn in transcript.turns], clock)
+        return cls._mock([cls._served(turn) for turn in transcript.turns], clock)
 
     @classmethod
     def _served(cls, turn: Any) -> Served:
         if isinstance(turn, FakeRespond):
-            return DelayedResponse(turn.delay_seconds, json=cls.body(turn.response))
+            return cls._respond(turn.delay_seconds, cls.body(turn.response))
         return cls.failures[turn.error]
+
+    @staticmethod
+    def _respond(delay: float, body: dict[str, Any]) -> Served:
+        return DelayedResponse(delay, json=body)
+
+    @staticmethod
+    def _mock(served: list[Served], clock: FakeClock | None) -> Any:
+        return MockApi(served, clock)
 
     def attempts(self, provider: Provider) -> int:
         return len(self._apis[provider].requests)
@@ -499,3 +515,103 @@ HARNESSES: list[ProviderHarness] = [
     ChatCompletionsHarness(),
     ResponsesHarness(),
 ]
+
+
+HARNESS_PROFILE = AwsProfile(
+    FIXTURES_ROOT / "assistant" / "aws" / "config",
+    FIXTURES_ROOT / "assistant" / "aws" / "credentials",
+)
+_CONVERSE_STOP_REASONS = {
+    StopReason.END: "end_turn",
+    StopReason.TOOL_USE: "tool_use",
+    StopReason.LENGTH: "max_tokens",
+    StopReason.REFUSAL: "guardrail_intervened",
+}
+
+
+def converse_body(response: CompletionResponse) -> dict[str, Any]:
+    """The Converse body that the Bedrock adapter maps back to `response`."""
+    message = response.message
+    if message.continuation is not None:
+        if message.continuation.provider_kind != "bedrock":
+            raise ValueError("Converse returns only its own continuations")
+        content: list[Any] = list(message.continuation.blocks)
+    else:
+        content = [] if message.text is None else [{"text": message.text}]
+        content += [
+            {
+                "toolUse": {
+                    "toolUseId": call.id,
+                    "name": call.name,
+                    "input": _tool_input(call.arguments),
+                }
+            }
+            for call in message.tool_calls
+        ]
+    usage = response.usage
+    counts = {
+        "inputTokens": usage.input_tokens,
+        "outputTokens": usage.output_tokens,
+        "cacheReadInputTokens": usage.cache_read_input_tokens,
+        "cacheWriteInputTokens": usage.cache_write_input_tokens,
+    }
+    return {
+        "output": {"message": {"role": "assistant", "content": content}},
+        "stopReason": _CONVERSE_STOP_REASONS[response.stop_reason],
+        "usage": {name: count for name, count in counts.items() if count is not None},
+        "metrics": {"latencyMs": 1},
+    }
+
+
+def _aws_error(status: int, code: str) -> Served:
+    """An AWS error whose message echoes the request, so a leak shows."""
+    return lambda request: AwsResponse(
+        status, {"message": f"Rejected: {request.body.decode()}"}, {"x-amzn-ErrorType": code}
+    )(request)
+
+
+def _stopped_empty(stop: str) -> Served:
+    empty = {"message": {"role": "assistant", "content": []}}
+    return AwsResponse(200, {**converse_body(_EMPTY), "output": empty, "stopReason": stop})
+
+
+class BedrockHarness(MockedHarness):
+    """The Bedrock adapter over a mocked Converse API, with the harness's own AWS profile."""
+
+    name = "bedrock"
+    # How Converse shows each scripted provider error.
+    failures = {
+        ProviderErrorCode.AUTHENTICATION: _aws_error(403, "AccessDeniedException"),
+        ProviderErrorCode.RATE_LIMIT: _aws_error(429, "ThrottlingException"),
+        ProviderErrorCode.TIMEOUT: lambda request: ReadTimeoutError(endpoint_url=request.url),
+        ProviderErrorCode.TRANSPORT: lambda request: EndpointConnectionError(
+            endpoint_url=request.url
+        ),
+        ProviderErrorCode.INVALID_REQUEST: _aws_error(400, "ValidationException"),
+        ProviderErrorCode.MALFORMED_OUTPUT: AwsResponse(200, b"{not json"),
+        ProviderErrorCode.TRUNCATED_OUTPUT: _stopped_empty("max_tokens"),
+        ProviderErrorCode.REFUSAL: _stopped_empty("guardrail_intervened"),
+        ProviderErrorCode.UNAVAILABLE: _aws_error(503, "ServiceUnavailableException"),
+    }
+    body = staticmethod(converse_body)
+
+    def configuration(self, api_key_env: str) -> dict[str, Any]:
+        """Bedrock signs with its AWS profile, so it takes no key variable."""
+        return {
+            "kind": "bedrock",
+            "model": "anthropic.claude-sonnet-5-5-v1:0",
+            "profile": "assistant",
+            "region": "eu-west-1",
+            "capabilities": ["tool_calling", "parallel_tool_calls"],
+        }
+
+    def construct(self, config: Any, api_key: SecretStr, api: Any) -> Provider:
+        return BedrockProvider(config, session_factory=api.session_factory)
+
+    @staticmethod
+    def _respond(delay: float, body: dict[str, Any]) -> Served:
+        return AwsResponse(200, body, delay=delay)
+
+    @staticmethod
+    def _mock(served: list[Served], clock: FakeClock | None) -> Any:
+        return BotocoreApi(served, clock, HARNESS_PROFILE)

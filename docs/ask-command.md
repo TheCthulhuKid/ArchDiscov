@@ -20,9 +20,10 @@ answers through either `protocol`; an API or connection error ends the run as
 retries. Either protocol ends with `provider_unsupported_capability` before any request when the
 configuration does not declare tool calling. A `bedrock` configuration builds the
 [Bedrock adapter](assistant-providers.md#bedrock-adapter) from its own AWS profile, which
-does not answer until its Converse mapping lands: its run ends as `provider_error` (6)
-with `provider_unavailable` before anything is sent. A profile that cannot be loaded fails
-before the run with `provider_profile_unavailable`.
+answers through Converse; until its failures are mapped by error code, any API,
+connection, or credential failure ends the run as `provider_error` (6) with
+`provider_unavailable`. A profile that cannot be loaded fails before the run with
+`provider_profile_unavailable`.
 
 ## Usage
 
