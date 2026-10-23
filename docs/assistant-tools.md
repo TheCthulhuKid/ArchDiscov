@@ -3,9 +3,10 @@
 This page describes the bounded, typed tools under `src/archdiscov/assistant/tools/` that the
 assistant calls. The tools call the same query and analysis services as the
 CLI, over data the user selected, and return allowlisted views with explicit truncation.
-The `ask` command offers them to the model through the
-[tool-calling loop](assistant-orchestration.md), and the only provider is the scripted fake
-described in [assistant provider contracts](assistant-providers.md).
+The `ask` command offers them to a configured
+[provider](assistant-providers.md) through the
+[tool-calling loop](assistant-orchestration.md), and the [MCP server](mcp-server.md) serves
+them, unchanged, to an MCP client.
 
 ## Tool set
 

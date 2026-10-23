@@ -6,6 +6,8 @@ from pydantic import ValidationError
 from archdiscov.assistant.conversation import MAX_TEXT_CHARS, SystemMessage, UserMessage
 from archdiscov.assistant.instructions import (
     INSTRUCTIONS_VERSION,
+    MCP_INSTRUCTIONS,
+    MCP_INSTRUCTIONS_VERSION,
     SYSTEM_INSTRUCTIONS,
     initial_conversation,
 )
@@ -14,6 +16,7 @@ from archdiscov.assistant.redaction import looks_secret
 # Changing the instructions requires a review: update the text, bump the version, and
 # update this digest together.
 PINNED = ("2", "0604ba8786d03fa42c8b9fef14ab2a6802006b00d55c5e8879e15fd55e8486b2")
+MCP_PINNED = ("1", "8adc8fb5abf6e6cf51ae6855ac6bb150dc9b4712f1597d0338564a963817600f")
 
 REQUIRED_STATEMENTS = [
     "Answer only from tool results in this conversation.",
@@ -38,9 +41,37 @@ REQUIRED_STATEMENTS = [
 ]
 
 
+# The statements an `ask` run's opening and submission make, which the MCP server's differ in.
+ASK_ONLY = {
+    "no files,\nnetwork, shell, credentials, or ability to change anything",
+    "call submit_answer exactly once, on its own, as your final\n  step.",
+    "Do not answer in plain text.",
+}
+MCP_STATEMENTS = [
+    "reach only those snapshots: they cannot open other files,\nreach a network, use "
+    "credentials, or change anything.",
+    "call submit_answer before presenting any conclusion",
+    "If submit_answer returns rejections, correct the answer and submit it again.",
+    "present that answer as returned, without adding conclusions to it.",
+]
+
+
 def test_instructions_are_pinned_to_their_version() -> None:
     digest = hashlib.sha256(SYSTEM_INSTRUCTIONS.encode()).hexdigest()
     assert (INSTRUCTIONS_VERSION, digest) == PINNED
+    mcp_digest = hashlib.sha256(MCP_INSTRUCTIONS.encode()).hexdigest()
+    assert (MCP_INSTRUCTIONS_VERSION, mcp_digest) == MCP_PINNED
+
+
+@pytest.mark.parametrize(
+    "statement", [*(item for item in REQUIRED_STATEMENTS if item not in ASK_ONLY), *MCP_STATEMENTS]
+)
+def test_mcp_instructions_contain_the_shared_and_their_own_statements(statement: str) -> None:
+    assert statement in MCP_INSTRUCTIONS
+
+
+def test_mcp_instructions_make_no_ask_only_statement() -> None:
+    assert all(statement not in MCP_INSTRUCTIONS for statement in ASK_ONLY)
 
 
 @pytest.mark.parametrize("statement", REQUIRED_STATEMENTS)
@@ -48,11 +79,12 @@ def test_instructions_contain_required_statements(statement: str) -> None:
     assert statement in SYSTEM_INSTRUCTIONS
 
 
-def test_instructions_are_fixed_text() -> None:
-    assert "{question" not in SYSTEM_INSTRUCTIONS
-    assert "%s" not in SYSTEM_INSTRUCTIONS
-    assert not looks_secret(SYSTEM_INSTRUCTIONS)
-    assert all(len(line) <= 100 for line in SYSTEM_INSTRUCTIONS.splitlines())
+@pytest.mark.parametrize("text", [SYSTEM_INSTRUCTIONS, MCP_INSTRUCTIONS], ids=["ask", "mcp"])
+def test_instructions_are_fixed_text(text: str) -> None:
+    assert "{question" not in text
+    assert "%s" not in text
+    assert not looks_secret(text)
+    assert all(len(line) <= 100 for line in text.splitlines())
 
 
 @pytest.mark.parametrize(
