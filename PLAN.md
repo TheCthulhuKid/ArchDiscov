@@ -1,6 +1,6 @@
 # Archdiscov implementation plan
 
-This plan follows the four delivery increments in [README.md](README.md) and adds a fifth and a sixth. Phases 1–4 and the cloud-platform foundation bridge 22.1–22.4 are complete. Phase 5, an MCP server over the phase 4 assistant tools (steps 45–48), and phase 6, which completes the AWS network paths (steps 49–56), are planned below.
+This plan follows the four delivery increments in [README.md](README.md) and adds a fifth and a sixth. Phases 1–5 and the cloud-platform foundation bridge 22.1–22.4 are complete, and phase 6, which completes the AWS network paths (steps 49–56), is planned below.
 
 The completed first milestone is a complete offline workflow:
 
@@ -3244,9 +3244,9 @@ Diagnostics name files and kinds, never values.
 **Advice:** Let validated findings determine factual output. Keep provider configuration, tool limits, and error handling outside analysis logic.
 
 **Open questions (settle before the named step):**
-- Which provider receives the first real integration? The plan assumes the API-key Anthropic adapter (step 40), then OpenAI-compatible (step 41), then Bedrock (step 42); API-key adapters need no AWS setup, and Bedrock remains for users who must stay inside their AWS account. The adapters may be built in any order after step 39.
-- What request, latency, token, and tool-call limits are acceptable by default (step 36)?
-- Should arbitrary narrative text be constrained to predefined answer fields (step 37)? The plan assumes yes: narrative is bounded, labelled as explanation, and never carries facts. Step 37's breakdown adopts this; reopen it there if a different policy is wanted.
+- Settled (step 40): the first real integration is the API-key Anthropic adapter, then OpenAI-compatible (step 41), then Bedrock (step 42), built in that order; API-key adapters need no AWS setup, and Bedrock remains for users who must stay inside their AWS account.
+- Settled (step 36): a run makes at most 8 provider requests and 32 tool calls (1 per turn), with 4,096 output tokens per request, 60 seconds per request and 300 overall, all raisable within documented bounds ([the limits table](docs/assistant-orchestration.md)).
+- Settled (step 37): narrative text is constrained. It is limited to two bounded fields, `summary` and `explanation`, shown only as explanation marked as the model's, may not repeat imported text or name a recorded ID that no conclusion cites, and never carries facts; conclusions are rendered from records.
 - Is the existing `mcp` dependency still wanted as a later tool interface over step 35's tools, or should it be removed? Settled: it stays, as the phase 5 MCP server.
 
 ## 5. MCP server over the assistant tools
@@ -3255,7 +3255,7 @@ Diagnostics name files and kinds, never values.
 
 The server lets a user's own MCP client be the model, so it needs no provider configuration, credentials, or network. It reuses the phase 4 tool registry, `ToolSession`, run record, answer validation, and rendering unchanged, and adds no analyzer, collector, or cloud platform; AWS stays the primary platform. The server is local and read-only: stdio transport only, snapshots selected when it starts, no tool that opens files, changes data, or reaches a network. Its limit is honest: an MCP client writes its own text to the user, so the server can validate and render what the client submits, and mark everything it returns as data, but cannot stop a client from stating unvalidated claims outside a submitted answer. The documentation says so.
 
-Implement steps 45–48 in order, verifying each before the next. Keep this phase planned until step 48 passes. The phase 4 open question on the `mcp` dependency is settled: it stays, as this phase's server.
+Implement steps 45–48 in order, verifying each before the next. Step 48 passed, so this phase is complete. The phase 4 open question on the `mcp` dependency is settled: it stays, as this phase's server.
 
 **Where things go:**
 - The server lives in `src/archdiscov/assistant/mcp_server.py`, the only module that imports `mcp`, and only when the server is built.
@@ -3477,7 +3477,7 @@ Implement and verify substeps 47.1–47.4 in order. Keep the parent planned unti
 **Acceptance check:** The documented command, options, exit codes, and prompts match the code, checked by drift tests; every `archdiscov mcp` invocation in the docs uses only real options; the client examples name absolute snapshot paths and no credentials.
 
 ### Step 48: Close phase 5 with acceptance and documentation
-**Status:** Planned.
+**Status:** Implemented. Substeps 48.1–48.4 pass their acceptance checks: an MCP client answers every README example question offline through the installed server with answers equal to `ask`'s, unsupported claims are rejected and corrected, the server opens only the files it was given and makes no network connection, the README and docs describe the server, and the whole suite passes on the host and in Docker without a network.
 **Prerequisite:** Step 47.
 
 - Add an installed acceptance test, outside the checkout with the offline guard allowing no connection at all, through both entry points: an MCP stdio client starts `archdiscov mcp` over the checked-in README fixtures, lists the tools and prompts, answers each README example question, started from its prompt, through its tool calls and `submit_answer`, inspects cited evidence through a tool, and is refused for a fabricated citation; a missing snapshot fails before serving.
@@ -3501,7 +3501,7 @@ Implement and verify substeps 48.1–48.4 in order. Keep the parent planned unti
 - `README_QUESTIONS` from `assistant/questions.py`, and the `ask --json` answer for the same files and transcript as the parity reference.
 
 #### Step 48.1: Answer the README questions through the installed server
-**Status:** Planned.
+**Status:** Implemented. `tests/acceptance/test_phase_five_acceptance.py` runs one journey per entry point outside the checkout, each on its own xdist worker, with the offline guard as the whole `PYTHONPATH`: every case of the README suite is ingested byte for byte, then `archdiscov mcp` serves the ingested files over stdio while a real-process client lists the tools (the registry's, then `submit_answer`) and the five prompts in README order, gets the case's question from its prompt, makes the transcript's tool calls, submits its proposal, and retrieves the first cited evidence ID with `get_evidence`. Every submission is accepted; the readable answer equals what `ask` prints after its run summary and a blank line, and the answer JSON equals `ask --json`'s `result`, for the same files and transcript, so no golden file exists. Cited findings are exactly the suite's expected ones, findings short of `insufficient_evidence` cite evidence, answers short of `supported` state qualifications, the server exits 0 with empty standard error and no standard output beyond its replies, no fixture changes, and the network log stays empty. `ownership_compared` (two snapshots and a saved comparison) has no prompt, since its question is not a README question, and is asked by its text. A new `StdioSession` in `tests/support/mcp_clients.py` drives the process with raw JSON-RPC lines, one reply per request (the `mcp` client cannot show an exit code or standard error), with a watchdog that kills a server that stops answering; `ingest_selection` and `suite_cases` in `tests/support/installed_cli.py` are shared with the phase 4 journey, which now uses them. Breaking the served answer data and changing a prompt's text each fail the journey.
 **Prerequisite:** Step 47.
 
 - Add `tests/acceptance/test_phase_five_acceptance.py`. For each entry point, in a workspace outside the checkout with the offline guard allowing no port: ingest each README fixture snapshot with the installed `ingest` command, then start `archdiscov mcp` on it through the `mcp` stdio client.
@@ -3514,7 +3514,7 @@ Implement and verify substeps 48.1–48.4 in order. Keep the parent planned unti
 **Acceptance check:** Through both entry points, every README example question is answered from its prompt with an accepted answer equal to `ask`'s, cited evidence is retrieved through `get_evidence`, limitations are stated, and no connection is attempted.
 
 #### Step 48.2: Prove the refusals and the file boundary
-**Status:** Planned.
+**Status:** Implemented. A second journey in `tests/acceptance/test_phase_five_acceptance.py`, one per entry point on the same worker as 48.1's, submits the adversarial suite's four unsupported claims over the installed server: each is rejected as `answer_rejected` with its code (`answer_unknown_id`, `answer_id_not_returned`, `answer_status_upgrade`, `answer_narrative_imported_text`) and a fixed message that repeats neither the fabricated ID nor the injected text, then a corrected proposal is accepted in the same session: the real finding the session's `run_analyzer` returned, the cited evidence and resource retrieved through `get_evidence` and `inspect_resource`, a weaker status, and a plain summary. Each submission stands alone, so the original proposal is still rejected after its correction, except the one whose correction was to retrieve what it cites. The injected-text case shows imported instructions only as quoted data: every occurrence in a tool reply or the accepted answer is the value of an `untrusted_text` key, and none is in the narrative. A missing, an invalid, and an unselected snapshot exit 1, 2, and 2 with their diagnostics on standard error and nothing on standard output. The file boundary is the offline guard's new opt-in `watching(*directories)`, which installs an audit hook that logs every file the child opens under those directories, as real paths and excluding the guard's own logs (`opened_files` reads them); without it the child's environment is unchanged, and `test_installed_end_to_end.py` tests that it is opt-in, follows symbolic links, and logs nothing else. A session over a saved comparison calls every tool the registry declares (each name is checked against the registry, so a new tool must be added), then calls tools with the paths of decoys in place of IDs and with arguments no tool declares, each refused, and submits the proposal; with other cases' ingested snapshots and a snapshot, a saved comparison, and a saved analysis copied beside the selection, the files opened are exactly the three selected, and the server exits 0 with empty standard error. A tool patched to open a decoy and a server patched to skip validation each fail the journey.
 **Prerequisite:** Step 48.1.
 
 - From the adversarial suite, submit the fabricated finding, the unreturned evidence citation, the status upgrade, and the injected narrative. Each is rejected with its rejection code, and a corrected proposal is then accepted in the same session, since the server has no repair budget. Imported instructions appear in tool results and answers only as quoted data.
@@ -3526,7 +3526,7 @@ Implement and verify substeps 48.1–48.4 in order. Keep the parent planned unti
 **Acceptance check:** Each adversarial submission is rejected with its code and a corrected one is accepted; the pre-serve failures exit 1 and 2 with nothing on standard output; the file log lists only the selected files, and a test-only patch that makes a tool open the decoy makes the test fail.
 
 #### Step 48.3: Document phase 5 in the README and correct stale pages
-**Status:** Planned.
+**Status:** Implemented. The README gains a capability row and an `mcp` command row linking `docs/mcp-server.md`, a phase 5 row in the delivery table (complete, steps 45–48, linking the new acceptance section), a paragraph in "Assistant behavior" that states the server's limit (it validates what a client submits but cannot stop a client from stating unvalidated claims in its own text), a "Phase 5 offline acceptance" section with the host and Docker commands (the Docker run, the last verified test count, and the closing statement stay for step 48.4), and three acceptance-scenario rows (the README questions answered from their prompts, unsupported claims rejected and corrected, and only the selected files read with no network), with the phase 5 journey's tests added to the coverage-limitations and imported-text rows. Stale text is corrected: `docs/analyzers.md` no longer calls the assistant a later phase, `docs/assistant-answers.md` says the server returns the same forms, `docs/mcp-server.md` no longer says it describes what is implemented so far, and the README names phase 5 beside phases 3 and 4. New drift tests check that the README lists and links the command, names the acceptance test file and section, and has the delivery and capability rows, and that no page calls the assistant, the providers, or the MCP server later work; the scenario-mapping test lists the new rows, whose referenced tests must exist and assert an outcome. Reintroducing a stale phrase and renaming the `mcp` row each fail them.
 **Prerequisite:** Step 48.2.
 
 - In the README, add a capability row for the MCP server and an `mcp` row to the command table, both linking `docs/mcp-server.md`. Mark phase 5 complete (steps 45–48) in the delivery table.
@@ -3540,7 +3540,7 @@ Implement and verify substeps 48.1–48.4 in order. Keep the parent planned unti
 **Acceptance check:** The drift and link tests pass with the new rows and sections, each scenario row names existing tests, and no page calls the assistant or the MCP server later work.
 
 #### Step 48.4: Verify and close phase 5
-**Status:** Planned.
+**Status:** Implemented. The focused phase 5 and documentation tests, the full offline suite (7,062 tests, 52 skipped), the acceptance suite (491 tests), Ruff (check and format), and the whitespace check pass on the host, and `docker compose build dev` followed by the full suite in `archdiscov-dev` with `--network none` passed all 7,553 tests (52 skipped), the sum of the two host runs; the README's phase 5 section records that count. The image was rebuilt first, since `uv.lock` had gained `pytest-cov` and `pip-audit`. Steps 48 and phase 5 are marked implemented. The phase 4 open questions are closed with what settled them, and the deferred HTTP transport is carried forward as the phase 5 question for a later phase.
 **Prerequisite:** Step 48.3.
 
 - Run the focused and full offline tests, the acceptance suite, Ruff, whitespace checks, and the full suite in Docker with `--network none`. Record the test count of the last verified run in the README, as phase 4 does.
@@ -3556,9 +3556,9 @@ Implement and verify substeps 48.1–48.4 in order. Keep the parent planned unti
 **Advice:** The server is a transport for the phase 4 tools, not a second assistant: validation, rendering, and limits stay in one place.
 
 **Open questions (settle before the named step):**
-- Should the run record be session-wide or reset per question (step 46)? The plan assumes session-wide, since an MCP client has no question boundary the server can see.
+- Settled (step 46): the run record is session-wide, since an MCP client has no question boundary the server can see.
 - Settled: the five README questions are offered as MCP prompts (step 47).
-- Is a streamable HTTP transport ever wanted? Deferred until a concrete need. Stdio covers local clients (Claude Code, Claude Desktop, IDEs), including a server run in Docker with `docker run -i`. HTTP is only needed for a shared or remote server, and then brings authentication (the MCP authorization flow), TLS, origin checks against DNS rebinding, per-client sessions and limits, and server-side snapshot selection, over data that describes an architecture's attack surface. Step 45 keeps the server transport-independent so the decision stays cheap; settle it in a later phase if a shared server is wanted.
+- Carried forward to a later phase (phase 6 does not take it up): is a streamable HTTP transport ever wanted? Deferred until a concrete need. Stdio covers local clients (Claude Code, Claude Desktop, IDEs), including a server run in Docker with `docker run -i`. HTTP is only needed for a shared or remote server, and then brings authentication (the MCP authorization flow), TLS, origin checks against DNS rebinding, per-client sessions and limits, and server-side snapshot selection, over data that describes an architecture's attack surface. Step 45 keeps the server transport-independent so the decision stays cheap; settle it in a later phase if a shared server is wanted.
 
 ## 6. Complete the AWS network paths
 

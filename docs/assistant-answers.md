@@ -222,7 +222,7 @@ described above, built from the run record alone.
 
 `src/archdiscov/assistant/answer_output.py` presents a `RenderedAnswer` in the style of the
 CLI output modules; the `ask` command prints it through `cli_answer_output.py`, and the
-[MCP server](mcp-server.md) will return the same forms. Both forms come from the rendered
+[MCP server](mcp-server.md) returns the same forms. Both forms come from the rendered
 answer alone, every string is redacted of secret-looking text on the way out, and readable lines
 lose control characters such as terminal escapes.
 

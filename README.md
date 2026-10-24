@@ -36,6 +36,7 @@ evidence inspection; it does not provide live Azure collection or analysis.
 | Graph resource ownership, lookup, containment, dependencies, and evidence/coverage | [Implemented and verified together across schemas 1–3](docs/graph-index.md#composed-graph-boundary), including external/unresolved terminals and complete-context coverage |
 | Resource search, inspection, neighbours, and paths | [Implemented Python services and `archdiscov query` CLI](docs/graph-queries.md) with exact filters, bounds, detached data, citations, and coverage/provenance limitations |
 | Snapshot comparison | [Implemented](docs/comparison-results.md): `compare` and `comparison` CLI, identity matching without guessing, field-level differences with citations on both sides, lifecycle, source-kind, and coverage qualification, atomic no-overwrite results verified against both snapshots; recorded differences, not drift detection or proof of change |
+| MCP server over the assistant tools | [Implemented](docs/mcp-server.md): `archdiscov mcp` serves the same bounded, read-only tools and the five example questions (as prompts) over stdio to a client such as Claude Code or Claude Desktop, with no provider configuration, credentials, or network; a submitted answer is validated against the tools' results and rendered as `ask` does, though the client's own text is not validated |
 | LLM assistant/providers | [Provider-neutral contracts, configuration, and a scripted fake provider](docs/assistant-providers.md), [bounded typed assistant tools](docs/assistant-tools.md), the [tool-calling loop](docs/assistant-orchestration.md), and [structured answers with validation, one repair, conclusions rendered from records, failure explanations, and readable and JSON renderings](docs/assistant-answers.md) behind the [`ask` command](docs/ask-command.md), which answers one question with a configured provider, verified offline through the installed CLI with the five example questions; the fake provider, the [Anthropic adapter](docs/assistant-providers.md#anthropic-adapter), and the [OpenAI-compatible adapter](docs/assistant-providers.md#openai-compatible-adapter) (OpenAI or a compatible server, through the configured Responses or Chat Completions protocol with declared capabilities), and the [Bedrock adapter](docs/assistant-providers.md#bedrock-adapter) (Converse, from its own AWS profile and optional role, with declared capabilities) answer, each adapter also verified through the installed CLI against a loopback mock API; [evaluation](docs/assistant-evaluation.md) runs checked-in README and adversarial suites across configured providers with the `evaluate` command, scoring each answer against deterministic findings and safety checks into an immutable report that `evaluation` shows and compares, external providers only on an explicit opt-in after a stated budget |
 
 ## Installation and development
@@ -682,12 +683,14 @@ These commands read saved snapshots offline and call public application services
 | `analyze`, `findings` | Run one of the five analyzers and save an immutable result, then show it after verifying it against its snapshot ([analyzer reference](docs/analyzers.md)). |
 | `compare`, `comparison` | Compare two selected snapshots and save an immutable result, then show it after verifying it against both ([comparison results](docs/comparison-results.md)). |
 | `ask` | Answer one question from the selected snapshots with a configured provider, as a validated answer cited from tool results or an explained failure, with an optional transcript ([the ask command](docs/ask-command.md)). |
+| `mcp` | Serve the selected snapshots' read-only assistant tools over stdio to an MCP client, which submits answers for the validation and rendering `ask` applies ([the MCP server](docs/mcp-server.md)). |
 | `evaluate`, `evaluation` | Run a suite of questions with each configured provider after stating the budget, and save an immutable scored report; then show a report or compare two ([evaluation](docs/assistant-evaluation.md)). |
 
 Saved results follow the [result file contracts](docs/result-contracts.md). The
 natural-language `ask` command answers with the scripted fake provider, the Anthropic
 adapter, the OpenAI-compatible adapter through Responses or Chat Completions, or the
-Bedrock adapter through Converse from its own AWS profile (phase 4). Commands provide
+Bedrock adapter through Converse from its own AWS profile (phase 4); `mcp` lets an MCP
+client be the model instead, with no provider (phase 5). Commands provide
 readable output and machine-readable JSON, and call public application services rather
 than containing discovery or analysis logic.
 
@@ -1021,6 +1024,14 @@ with a configured provider:
 `ask` keeps no conversation memory, makes no changes, and does not evaluate effective access
 or prove reachability; see [what is not supported](docs/ask-command.md#what-is-not-supported).
 
+The [MCP server](docs/mcp-server.md) (`archdiscov mcp`) lets a user's own MCP client, such as
+Claude Code or Claude Desktop, be the model. It serves the same bounded, read-only tools over
+stdio for snapshots chosen when it starts, offers the five example questions below as prompts,
+and needs no provider configuration, credentials, or network. A client's `submit_answer` call is
+validated against the IDs the tools returned and rendered exactly as `ask` renders an answer.
+The server cannot stop a client from stating unvalidated claims in its own text: treat only the
+answer the server returned as validated.
+
 The `ask` command answers these example questions:
 
 - What receives traffic from the public internet?
@@ -1040,6 +1051,7 @@ Every factual conclusion cites discovered resources or configuration evidence an
 | Pre-phase-3 cloud boundary bridge (22.1–22.4) | Implemented foundation: scopes/identities/resources, schema `3` and conversion, offline Azure workflows, and common access/compatibility documentation; not live Azure support |
 | 3. Graph queries, deterministic findings, and snapshot comparisons | Complete (steps 23–33): result contracts and integrity, graph indexes, queries and the `query` CLI, the five analyzers with immutable result persistence, snapshot comparison, and offline [host and container acceptance](#phase-3-offline-acceptance) |
 | 4. LLM-provider adapters, orchestration, validated answers, and evaluations | Complete (steps 34–44); separate from cloud platforms: [provider contracts, configuration, and the fake provider](docs/assistant-providers.md) (step 34), [assistant tools](docs/assistant-tools.md) (step 35), the [tool-calling loop](docs/assistant-orchestration.md) (step 36), [answer validation](docs/assistant-answers.md) (step 37), [answer outcomes, repair, and renderings](docs/assistant-answers.md#outcomes-and-exit-codes) (step 38), the [`ask` command](docs/ask-command.md) (step 39), the [Anthropic adapter](docs/assistant-providers.md#anthropic-adapter) (step 40), the [OpenAI-compatible adapter](docs/assistant-providers.md#openai-compatible-adapter) (step 41), the [Bedrock adapter](docs/assistant-providers.md#bedrock-adapter) (step 42), [evaluation fixtures and commands](docs/assistant-evaluation.md) (step 43), and offline [host and container acceptance](#phase-4-offline-acceptance) (step 44) |
+| 5. MCP server over the assistant tools | Complete (steps 45–48); no provider, credential, or network: the [MCP server](docs/mcp-server.md) serves the phase 4 tools (step 45), validates and renders submitted answers as `ask` does (step 46), and runs as `archdiscov mcp` over stdio with the README questions as prompts (step 47), with offline [host and container acceptance](#phase-5-offline-acceptance) (step 48) |
 
 The bridge prepares phase 3 to build common graph/query and ownership contracts.
 Security, network, and trust analyzers are initially planned for AWS; unsupported Azure
@@ -1145,7 +1157,8 @@ Completeness remains relative to selected supported inventory and operation cove
 not all AWS services or a transactionally consistent view. IaC exports/declarations
 are not deployed observations; complex mappings, unknown expressions and unfetched
 nested templates stay explicit limitations in the linked format guides. Graph
-queries, analyzers, and comparisons are phase 3 (see [analyzers](docs/analyzers.md)); providers are phase 4.
+queries, analyzers, and comparisons are phase 3 (see [analyzers](docs/analyzers.md)); providers are phase 4;
+the MCP server is phase 5.
 
 ### Phase 3 offline acceptance
 
@@ -1205,6 +1218,41 @@ The last verified run passed all 7,030 tests (52 skipped) on the host and in Doc
 networking disabled. Real-provider checks stay opt-in: the live provider tests and the live
 evaluation run only with `-m live` and their variables, never in CI.
 
+### Phase 5 offline acceptance
+
+Phase 5 closes with offline checks that need no credentials, no provider, and no network, on
+the host with `.venv/bin/python` and in Docker with `/opt/venv/bin/python`:
+
+- `tests/acceptance/test_phase_five_acceptance.py`: two journeys per entry point outside the
+  checkout, with no connection allowed at all. In the first, the checked-in README fixtures are
+  ingested and an MCP stdio client starts `archdiscov mcp` over each, lists the tools and the five
+  prompts, answers each example question from its prompt through the tools and `submit_answer`,
+  and retrieves cited evidence through a tool; each accepted answer equals what `ask` gives for
+  the same files. In the second, the adversarial suite's unsupported claims are rejected with
+  their codes and corrected in the same session, imported instructions appear only as quoted
+  data, a missing or invalid snapshot fails before serving, and a session that calls every tool
+  opens no file beyond the three selected, with other snapshots and results beside them.
+- `tests/cli/test_mcp_cli.py`, `tests/services/test_mcp_service.py`, and
+  `tests/assistant/test_mcp_server.py`: the command's diagnostics and exit codes, a real stdio
+  session, and the server's tools, limits, prompts, and answer parity with `ask`.
+- `tests/documentation`: the documented options, exit codes, limits, tools, prompts, and the
+  scenario mapping below.
+
+```bash
+.venv/bin/python -m pytest tests/acceptance/test_phase_five_acceptance.py tests/documentation -n 8 --dist loadgroup -q
+docker compose build dev
+docker run --rm --network none \
+  --mount "type=bind,src=$PWD,dst=/workspace" \
+  archdiscov-dev /opt/venv/bin/python -m pytest -n 8 --dist loadgroup -q
+```
+
+The last verified run passed all 7,553 tests (52 skipped) on the host and in Docker with
+networking disabled.
+
+The test client is the stdio client from the `mcp` package. Real MCP clients such as Claude
+Code and Claude Desktop never run in CI, and the [client setup](docs/mcp-server.md#client-setup)
+steps cannot be exercised offline.
+
 ### Acceptance scenarios
 
 Normal tests require neither credentials nor network access. Each scenario runs offline
@@ -1227,12 +1275,15 @@ not only that a command ran:
 | CloudFormation unresolved references | `tests/ingestion/cloudformation/test_cloudformation_import.py::test_conditions_local_getatt_and_conditional_missing_target`<br>`tests/acceptance/test_readme_scenarios.py::test_cloudformation_unresolved_references_are_indeterminate_between_two_templates` |
 | Safe matching of observed and declared resources | `tests/comparison/test_matching.py::test_names_and_short_ids_never_match`<br>`tests/comparison/test_matching.py::test_logical_addresses_never_match_across_iac_contexts_or_observations`<br>`tests/acceptance/test_readme_scenarios.py::test_observed_and_declared_resources_are_matched_only_by_identity` |
 | README example questions answered from tool-returned findings and evidence | `tests/acceptance/test_phase_four_acceptance.py::test_every_readme_question_is_answered_from_tool_returned_findings`<br>`tests/acceptance/test_phase_four_acceptance.py::test_cited_evidence_is_inspected_in_the_answered_snapshot` |
-| Coverage limitations stated in answers | `tests/acceptance/test_phase_four_acceptance.py::test_answers_short_of_supported_state_their_limitations` |
+| Coverage limitations stated in answers | `tests/acceptance/test_phase_four_acceptance.py::test_answers_short_of_supported_state_their_limitations`<br>`tests/acceptance/test_phase_five_acceptance.py::test_answers_short_of_supported_state_their_limitations` |
 | Fabricated and unreturned citations rejected, and one repair | `tests/acceptance/test_phase_four_acceptance.py::test_fabricated_and_unreturned_citations_are_rejected_and_repairs_answer`<br>`tests/assistant/test_answer_suite.py::test_each_rejection_is_reached_in_isolation` |
 | Unsupported claims | `tests/services/test_evaluation_suites.py::test_the_adversarial_suite_expects_each_safe_outcome` |
-| Malicious imported text in names and tags | `tests/acceptance/test_phase_four_acceptance.py::test_imported_instructions_are_only_quoted_data`<br>`tests/services/test_evaluation_suites.py::test_injected_names_and_tags_are_only_quoted_data` |
+| Malicious imported text in names and tags | `tests/acceptance/test_phase_four_acceptance.py::test_imported_instructions_are_only_quoted_data`<br>`tests/services/test_evaluation_suites.py::test_injected_names_and_tags_are_only_quoted_data`<br>`tests/acceptance/test_phase_five_acceptance.py::test_imported_instructions_are_only_quoted_data` |
 | Provider errors and tool-call limits | `tests/acceptance/test_installed_ask.py::test_provider_errors_and_limits_are_answer_outcomes`<br>`tests/services/test_evaluation_suites.py::test_the_adversarial_suite_expects_each_safe_outcome` |
 | Provider adapters answer as the fake provider does | `tests/acceptance/test_installed_ask.py::test_each_adapter_answers_through_a_loopback_api`<br>`tests/acceptance/test_installed_evaluation.py::test_the_adapter_reaches_the_fakes_records_through_a_loopback_api` |
+| MCP client answers the README questions from their prompts | `tests/acceptance/test_phase_five_acceptance.py::test_every_readme_question_is_answered_from_its_prompt`<br>`tests/acceptance/test_phase_five_acceptance.py::test_every_accepted_answer_equals_what_ask_gives`<br>`tests/acceptance/test_phase_five_acceptance.py::test_cited_evidence_is_retrieved_through_a_tool` |
+| MCP server rejects unsupported claims and accepts the corrected proposal | `tests/acceptance/test_phase_five_acceptance.py::test_each_unsupported_claim_is_rejected_with_its_code`<br>`tests/acceptance/test_phase_five_acceptance.py::test_a_corrected_proposal_is_accepted_in_the_same_session` |
+| MCP server reads only the selected files and never the network | `tests/acceptance/test_phase_five_acceptance.py::test_the_server_opens_only_the_files_it_was_given`<br>`tests/acceptance/test_phase_five_acceptance.py::test_the_server_exits_cleanly_and_nothing_reaches_the_network` |
 
 `tests/acceptance/test_installed_ask.py` runs the installed `ask` command outside the checkout
 through both entry points, with the offline guard and no credentials: it answers the five

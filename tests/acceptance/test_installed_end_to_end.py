@@ -259,3 +259,33 @@ def test_the_offline_guard_opens_only_the_allowed_loopback_port(tmp_path):
         )
     assert result.stdout.split() == ["open", "open", "blocked", "blocked", "blocked"]
     assert len(guard.attempts) == 3
+
+
+def test_the_file_watch_logs_opens_under_watched_directories_only(tmp_path):
+    guard = OfflineGuard(tmp_path)
+    watched, other = tmp_path / "watched", tmp_path / "other"
+    for directory in (watched, other):
+        directory.mkdir()
+        (directory / "a.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "link").symlink_to(watched)
+    script = (
+        "import os, pathlib\n"
+        f"pathlib.Path({str(watched / 'a.json')!r}).read_text()\n"
+        f"open({str(other / 'a.json')!r}).close()\n"
+        f"open({str(tmp_path / 'link' / 'a.json')!r}).close()\n"
+        f"os.close(os.open({str(watched / 'b.json')!r}, os.O_WRONLY | os.O_CREAT))\n"
+        "import socket\n"
+        "try:\n    socket.create_connection(('127.0.0.1', 9))\nexcept OSError:\n    pass\n"
+    )
+
+    def run(env):
+        subprocess.run([sys.executable, "-c", script], env=env, cwd=tmp_path, check=True)
+
+    run(guard.env)
+    assert guard.opened_files == [], "the watch is opt-in"
+    run(guard.watching(watched))
+    # A file reached through a symbolic link is logged as its real path, and the guard's own
+    # logs, which record the refused connection, are not watched.
+    real = watched.resolve()
+    assert guard.opened_files == [real / "a.json", real / "b.json"]
+    assert len(guard.attempts) == 2

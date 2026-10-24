@@ -99,5 +99,6 @@ exit with code 2; an unreadable file exits 1 and an existing output path exits 3
 
 [Graph queries](graph-queries.md) return recorded structure and
 [comparisons](comparison-results.md) report recorded differences between two snapshots. Both
-have their own result contracts and are not analysis results. The question-answering assistant
-and LLM providers are a later phase.
+have their own result contracts and are not analysis results. The question-answering
+[assistant](ask-command.md) and the [MCP server](mcp-server.md) read analysis results through
+the assistant tools; they are not analyzers either.

@@ -6,6 +6,10 @@ connection, datagram send, and name lookup fail and records the attempt, so a jo
 assert both that the command succeeded and that nothing tried the network. Creating or binding
 a local socket (as urllib3 does at import to probe for IPv6) is not network use. `allowing`
 opens exactly one loopback port, such as a mock API server's, and nothing else.
+
+`watching` is an opt-in addition for boundary checks: it logs every file the child opens under
+the given directories, so a journey can assert that a command read only the files it was
+given. Without it the child's environment, and so every other journey, is unchanged.
 """
 
 import os
@@ -72,6 +76,25 @@ socket.getaddrinfo = _getaddrinfo
 socket.gethostbyname = _refuse
 socket.gethostbyname_ex = _refuse
 socket.create_connection = _create_connection
+
+_WATCHED = os.environ.get("ARCHDISCOV_WATCHED_DIRS")
+if _WATCHED:
+    import sys
+
+    _DIRECTORIES = [os.path.join(item, "") for item in _WATCHED.split(os.pathsep)]
+    _FILE_LOG = os.environ["ARCHDISCOV_FILE_LOG"]
+
+    def _audit(event, args):
+        if event != "open" or not isinstance(args[0], (str, bytes, os.PathLike)):
+            return
+        path = os.path.realpath(os.fsdecode(args[0]))
+        # The log itself lives outside the watched directories, so writing it opens nothing
+        # that is watched.
+        if path.startswith(tuple(_DIRECTORIES)):
+            with open(_FILE_LOG, "a", encoding="utf-8") as log:
+                log.write(path + "\\n")
+
+    sys.addaudithook(_audit)
 """
 _REMOVED_PREFIXES = ("AWS_", "AZURE_", "GOOGLE_", "GCLOUD_", "OPENAI_", "ANTHROPIC_", "BOTO_")
 
@@ -81,6 +104,7 @@ class OfflineGuard:
 
     def __init__(self, directory: Path) -> None:
         self.hook = directory / "offline-hook"
+        self.file_log = directory / "file-opens.log"
         self.hook.mkdir(parents=True)
         (self.hook / "sitecustomize.py").write_text(_HOOK, encoding="utf-8")
         self.log = directory / "network.log"
@@ -102,6 +126,26 @@ class OfflineGuard:
     def allowing(self, port: int, **variables: str) -> dict[str, str]:
         """The environment with one loopback port open, plus extra variables, such as a key."""
         return {**self.env, "ARCHDISCOV_ALLOWED_LOOPBACK_PORT": str(port), **variables}
+
+    def watching(self, *directories: Path, **variables: str) -> dict[str, str]:
+        """The environment, plus a log of every file opened under the directories.
+
+        The directories must not contain the guard's own directory or logs.
+        """
+        watched = [str(directory.resolve()) for directory in directories]
+        return {
+            **self.env,
+            "ARCHDISCOV_WATCHED_DIRS": os.pathsep.join(watched),
+            "ARCHDISCOV_FILE_LOG": str(self.file_log),
+            **variables,
+        }
+
+    @property
+    def opened_files(self) -> list[Path]:
+        """The distinct files opened under the watched directories, sorted."""
+        if not self.file_log.exists():
+            return []
+        return sorted({Path(line) for line in self.file_log.read_text("utf-8").splitlines()})
 
     @property
     def attempts(self) -> list[str]:
