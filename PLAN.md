@@ -3606,12 +3606,11 @@ Implement and verify substeps 49.1–49.7 in order. Keep the parent planned unti
 - The coverage key and outcome contracts in `models/coverage_key.py` and `models/coverage_outcomes.py`.
 
 #### Step 49.1: Fix the vocabulary and guard compatibility
-**Status:** Planned.
+**Status:** Implemented. `ResourceType` gains the NAT gateway, egress-only internet gateway, peering connection, transit gateway, attachment, transit gateway route table, VPC endpoint, and managed prefix list types (CloudFormation type names); `RouteTargetKind` gains `egress_only_internet_gateway`; `AttachmentKind` gains the kinds step 49.6 records (NAT gateway subnet and interface, peering requester and accepter VPC, transit gateway attachment, VPC attachment, route table association and propagation, endpoint route table, subnet, interface and security group, egress-only gateway attachment, and prefix list reference). No existing value changed and no model uses them yet. `tests/models/test_fixture_compatibility.py` pins the canonical-JSON hash of every existing snapshot fixture and both saved-result fixtures as validated by `load_snapshot` and `load_analysis`, and fails when a snapshot fixture is neither pinned nor listed in `PHASE_SIX_SNAPSHOTS`. The coverage operation names were not declared here: an absent operation already reads as unrecorded coverage by service, and the names belong with the allowlist and permissions page in step 50.
 **Prerequisite:** Step 48.
 
 - Add the `ResourceType` members: NAT gateway, VPC peering connection, transit gateway, transit gateway attachment, transit gateway route table, VPC endpoint, managed prefix list, and egress-only internet gateway. Add the `RouteTargetKind` member for an egress-only internet gateway, and `AttachmentKind` members for each typed relationship step 49.6 records.
-- Declare the coverage operation names the new reads will use (collected in step 50), so a snapshot that lacks them is read as "coverage unrecorded".
-- Before changing any model, add a compatibility guard: every file under `tests/fixtures/snapshots/` and every saved-result fixture validates, and re-serializes to the same canonical JSON, as the first test to run after each later substep.
+- Before changing any model, add a compatibility guard: every snapshot fixture and saved-result fixture validates to the same data, as the first test to run after each later substep.
 
 **Advice:** Add enum members only, with no models yet. The guard is the safety net for the remaining substeps, so it must pass here, before anything else changes.
 
