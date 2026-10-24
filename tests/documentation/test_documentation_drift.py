@@ -877,6 +877,30 @@ def test_the_readme_lists_and_links_the_ask_command():
     assert (PROJECT_ROOT / "tests/acceptance/test_installed_ask.py").is_file()
 
 
+def test_the_readme_lists_and_links_the_mcp_server():
+    text = README.read_text(encoding="utf-8")
+    assert "| `mcp` |" in text and "docs/mcp-server.md" in text
+    acceptance = "tests/acceptance/test_phase_five_acceptance.py"
+    assert acceptance in text and (PROJECT_ROOT / acceptance).is_file()
+    assert "### Phase 5 offline acceptance" in text and "(#phase-5-offline-acceptance)" in text
+    increments = [row[0] for row in table_rows(README, "| Increment")]
+    assert any(name.startswith("5. MCP server") for name in increments)
+    assert any(row[0].startswith("MCP server over") for row in table_rows(README, "| Capability"))
+
+
+@pytest.mark.parametrize("document", DOC_FILES, ids=lambda path: path.name)
+def test_no_page_calls_the_assistant_or_the_mcp_server_later_work(document):
+    text = " ".join(document.read_text(encoding="utf-8").split())
+    for stale in (
+        "LLM providers are a later phase",
+        "providers are a later phase",
+        "MCP server](mcp-server.md) will",
+        "MCP server will",
+        "what is implemented so far",
+    ):
+        assert stale not in text, stale
+
+
 # ---- commands ----------------------------------------------------------------------
 
 

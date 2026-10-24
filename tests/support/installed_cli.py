@@ -10,6 +10,7 @@ from typing import Any
 
 from tests.assistant.provider_harness import MockedHarness
 from tests.support.ask_examples import write_provider_config
+from tests.support.evaluation_suites import SUITE
 from tests.support.offline_guard import OfflineGuard
 
 ENTRY_POINTS = ["script", "module"]
@@ -102,3 +103,26 @@ def harness_config(directory: Path, harness: MockedHarness, endpoint: str | None
     if endpoint is not None:
         fields["endpoint"] = endpoint
     return write_provider_config(directory / f"{harness.label}.toml", fields)
+
+
+def suite_cases(ws: Workspace, suite: str) -> dict[str, dict]:
+    """The cases of the evaluation suite copied to the workspace's `fixtures/<suite>`."""
+    data = json.loads(ws.path("fixtures", suite, SUITE).read_text(encoding="utf-8"))
+    return {case["id"]: case for case in data["cases"]}
+
+
+def ingest_selection(ws: Workspace, suite: str, case: dict) -> list[str]:
+    """Ingest the case's snapshots, byte for byte, and return the `--snapshot`, `--compare`,
+    and `--comparison-result` options that select the ingested files."""
+    fixtures = ws.path("fixtures", suite)
+    selection = []
+    for key, option in (("snapshot", "--snapshot"), ("comparison", "--compare")):
+        if key not in case:
+            continue
+        output = ws.path("snapshots", f"{suite}-{case['id']}-{key}.json")
+        saved = ws.json("ingest", fixtures / case[key], "-o", output)
+        assert digest(output) == digest(fixtures / case[key]), saved
+        selection += [option, str(output)]
+    for path in case.get("comparison_results", ()):
+        selection += ["--comparison-result", str(fixtures / path)]
+    return selection

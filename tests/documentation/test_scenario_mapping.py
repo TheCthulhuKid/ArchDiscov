@@ -29,6 +29,9 @@ SCENARIOS = [
     "Malicious imported text",
     "Provider errors and tool-call limits",
     "Provider adapters",
+    "MCP client answers the README questions",
+    "MCP server rejects unsupported claims",
+    "MCP server reads only the selected files",
 ]
 
 

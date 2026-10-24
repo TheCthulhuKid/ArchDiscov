@@ -21,8 +21,14 @@ from archdiscov.assistant.runs import RunTranscript
 from archdiscov.services import load_snapshot
 from tests.support.answer_claims import INJECTION
 from tests.support.ask_examples import README_QUESTIONS
-from tests.support.evaluation_suites import ADVERSARIAL_SUITE, README_SUITE, SUITE
-from tests.support.installed_cli import ENTRY_POINTS, Workspace, digest
+from tests.support.evaluation_suites import ADVERSARIAL_SUITE, README_SUITE
+from tests.support.installed_cli import (
+    ENTRY_POINTS,
+    Workspace,
+    digest,
+    ingest_selection,
+    suite_cases,
+)
 
 SUITES = {"readme": README_SUITE, "adversarial": ADVERSARIAL_SUITE}
 # Adversarial cases the journey asks: (expected failure or status, exit code, rejection).
@@ -34,25 +40,10 @@ PATHS = {
 }
 
 
-def _cases(ws: Workspace, suite: str) -> dict[str, dict]:
-    data = json.loads(ws.path("fixtures", suite, SUITE).read_text(encoding="utf-8"))
-    return {case["id"]: case for case in data["cases"]}
-
-
 def _ingest(ws: Workspace, suite: str, case: dict) -> list[str]:
-    """Ingest the case's snapshots and return the `ask` selection over the ingested files."""
-    fixtures = ws.path("fixtures", suite)
-    selection = []
-    for key, option in (("snapshot", "--snapshot"), ("comparison", "--compare")):
-        if key not in case:
-            continue
-        output = ws.path("snapshots", f"{suite}-{case['id']}-{key}.json")
-        saved = ws.json("ingest", fixtures / case[key], "-o", output)
-        assert digest(output) == digest(fixtures / case[key]), saved
-        selection += [option, str(output)]
-    for path in case.get("comparison_results", ()):
-        selection += ["--comparison-result", str(fixtures / path)]
-    config = fixtures / case["id"] / "provider.toml"
+    """Ingest the case's snapshots and return the `ask` arguments over the ingested files."""
+    selection = ingest_selection(ws, suite, case)
+    config = ws.path("fixtures", suite, case["id"], "provider.toml")
     return [case["question"], *selection, "--config", str(config)]
 
 
@@ -91,12 +82,12 @@ def journey(entry_point: str, root: Path) -> dict:
         shutil.copytree(suite.parent, ws.path("fixtures", name))
     fixtures = {path: digest(path) for path in ws.path("fixtures").rglob("*") if path.is_file()}
     summary: dict = {"examples": {}, "paths": {}}
-    for case_id, case in _cases(ws, "readme").items():
+    for case_id, case in suite_cases(ws, "readme").items():
         asked = _ask(ws, "readme", case)
         answer = asked["data"]["result"]["answer"]
         asked["evidence"] = _inspected(ws, answer, asked["snapshot"])
         summary["examples"][case_id] = (case, asked)
-    adversarial = _cases(ws, "adversarial")
+    adversarial = suite_cases(ws, "adversarial")
     for case_id, (_, code, _) in PATHS.items():
         summary["paths"][case_id] = _ask(ws, "adversarial", adversarial[case_id], code)
     # Asking never changes a fixture, and nothing reaches the network.

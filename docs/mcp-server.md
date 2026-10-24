@@ -3,8 +3,7 @@
 The MCP server serves the [assistant tools](assistant-tools.md) to an MCP client, such as
 Claude Code or Claude Desktop, so that the client's own model can answer questions about
 selected snapshots with the same bounded, read-only tools the [`ask` command](ask-command.md)
-offers. It needs no provider configuration, credentials, or network. It is built in phase 5
-of the plan, and this page describes what is implemented so far:
+offers. It needs no provider configuration, credentials, or network. It is made of:
 
 - the server in `src/archdiscov/assistant/mcp_server.py`, which lists and runs the tools
   within bounds, validates submitted answers, and offers the README questions as prompts;

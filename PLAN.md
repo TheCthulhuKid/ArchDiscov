@@ -1,6 +1,6 @@
 # Archdiscov implementation plan
 
-This plan follows the four delivery increments in [README.md](README.md) and adds a fifth. Phases 1–4 and the cloud-platform foundation bridge 22.1–22.4 are complete. Phase 5, an MCP server over the phase 4 assistant tools (steps 45–48), is planned below.
+This plan follows the four delivery increments in [README.md](README.md) and adds a fifth and a sixth. Phases 1–5 and the cloud-platform foundation bridge 22.1–22.4 are complete, and phase 6, which completes the AWS network paths (steps 49–56), is planned below.
 
 The completed first milestone is a complete offline workflow:
 
@@ -3244,9 +3244,9 @@ Diagnostics name files and kinds, never values.
 **Advice:** Let validated findings determine factual output. Keep provider configuration, tool limits, and error handling outside analysis logic.
 
 **Open questions (settle before the named step):**
-- Which provider receives the first real integration? The plan assumes the API-key Anthropic adapter (step 40), then OpenAI-compatible (step 41), then Bedrock (step 42); API-key adapters need no AWS setup, and Bedrock remains for users who must stay inside their AWS account. The adapters may be built in any order after step 39.
-- What request, latency, token, and tool-call limits are acceptable by default (step 36)?
-- Should arbitrary narrative text be constrained to predefined answer fields (step 37)? The plan assumes yes: narrative is bounded, labelled as explanation, and never carries facts. Step 37's breakdown adopts this; reopen it there if a different policy is wanted.
+- Settled (step 40): the first real integration is the API-key Anthropic adapter, then OpenAI-compatible (step 41), then Bedrock (step 42), built in that order; API-key adapters need no AWS setup, and Bedrock remains for users who must stay inside their AWS account.
+- Settled (step 36): a run makes at most 8 provider requests and 32 tool calls (1 per turn), with 4,096 output tokens per request, 60 seconds per request and 300 overall, all raisable within documented bounds ([the limits table](docs/assistant-orchestration.md)).
+- Settled (step 37): narrative text is constrained. It is limited to two bounded fields, `summary` and `explanation`, shown only as explanation marked as the model's, may not repeat imported text or name a recorded ID that no conclusion cites, and never carries facts; conclusions are rendered from records.
 - Is the existing `mcp` dependency still wanted as a later tool interface over step 35's tools, or should it be removed? Settled: it stays, as the phase 5 MCP server.
 
 ## 5. MCP server over the assistant tools
@@ -3255,7 +3255,7 @@ Diagnostics name files and kinds, never values.
 
 The server lets a user's own MCP client be the model, so it needs no provider configuration, credentials, or network. It reuses the phase 4 tool registry, `ToolSession`, run record, answer validation, and rendering unchanged, and adds no analyzer, collector, or cloud platform; AWS stays the primary platform. The server is local and read-only: stdio transport only, snapshots selected when it starts, no tool that opens files, changes data, or reaches a network. Its limit is honest: an MCP client writes its own text to the user, so the server can validate and render what the client submits, and mark everything it returns as data, but cannot stop a client from stating unvalidated claims outside a submitted answer. The documentation says so.
 
-Implement steps 45–48 in order, verifying each before the next. Keep this phase planned until step 48 passes. The phase 4 open question on the `mcp` dependency is settled: it stays, as this phase's server.
+Implement steps 45–48 in order, verifying each before the next. Step 48 passed, so this phase is complete. The phase 4 open question on the `mcp` dependency is settled: it stays, as this phase's server.
 
 **Where things go:**
 - The server lives in `src/archdiscov/assistant/mcp_server.py`, the only module that imports `mcp`, and only when the server is built.
@@ -3477,22 +3477,216 @@ Implement and verify substeps 47.1–47.4 in order. Keep the parent planned unti
 **Acceptance check:** The documented command, options, exit codes, and prompts match the code, checked by drift tests; every `archdiscov mcp` invocation in the docs uses only real options; the client examples name absolute snapshot paths and no credentials.
 
 ### Step 48: Close phase 5 with acceptance and documentation
-**Status:** Planned.
+**Status:** Implemented. Substeps 48.1–48.4 pass their acceptance checks: an MCP client answers every README example question offline through the installed server with answers equal to `ask`'s, unsupported claims are rejected and corrected, the server opens only the files it was given and makes no network connection, the README and docs describe the server, and the whole suite passes on the host and in Docker without a network.
 **Prerequisite:** Step 47.
 
 - Add an installed acceptance test, outside the checkout with the offline guard allowing no connection at all, through both entry points: an MCP stdio client starts `archdiscov mcp` over the checked-in README fixtures, lists the tools and prompts, answers each README example question, started from its prompt, through its tool calls and `submit_answer`, inspects cited evidence through a tool, and is refused for a fabricated citation; a missing snapshot fails before serving.
-- Document the server in a new `docs/mcp-server.md`: what it serves (tools and the README question prompts), setup, limits, answer submission and validation, what it cannot enforce in client text, and exit codes. Link it from the README (capability table, command table, delivery table with a phase 5 row), the ask and tools pages, and extend the drift tests to its options, limits, tool list, and prompts (which must match the README questions).
+- Show that the server reads no file beyond those selected at startup, as well as making no network connection.
+- `docs/mcp-server.md` already documents the server (steps 45–47). Link it from the README (capability table, command table, delivery table with a phase 5 row, and a phase 5 acceptance section), and correct any page that still calls the assistant or the server later work.
 - Run focused and full offline tests, the acceptance suite, Ruff, whitespace checks, and the suite in Docker with networking disabled.
 
 **Advice:** Keep real MCP clients out of CI; the stdio client from the `mcp` package is the test client.
 
 **Completion criterion:** An MCP client can answer every README example question offline through the installed server; every validated answer cites tool-returned findings and evidence and states coverage limitations; fabricated or unreturned citations are always rejected; the server makes no network connection and reads no file beyond those selected at startup.
 
+Implement and verify substeps 48.1–48.4 in order. Keep the parent planned until every substep's acceptance checks pass.
+
+**Where things go:**
+- The journeys live in a new `tests/acceptance/test_phase_five_acceptance.py`, one `xdist_group` per entry point, as in phase 4.
+- Watching file opens is an opt-in addition to `tests/support/offline_guard.py`, so every installed-CLI test keeps its current environment.
+
+**What is reused:**
+- The README and adversarial suites under `tests/fixtures/evaluation/` as the fixtures: each case's snapshot, its transcript's tool calls, and its proposal, read with `tests/support/mcp_clients.py`.
+- `Workspace` and the installed-CLI harness in `tests/support/installed_cli.py`, and the `mcp` package's stdio client, as `tests/cli/test_mcp_cli.py` already drives it in a subprocess.
+- `README_QUESTIONS` from `assistant/questions.py`, and the `ask --json` answer for the same files and transcript as the parity reference.
+
+#### Step 48.1: Answer the README questions through the installed server
+**Status:** Implemented. `tests/acceptance/test_phase_five_acceptance.py` runs one journey per entry point outside the checkout, each on its own xdist worker, with the offline guard as the whole `PYTHONPATH`: every case of the README suite is ingested byte for byte, then `archdiscov mcp` serves the ingested files over stdio while a real-process client lists the tools (the registry's, then `submit_answer`) and the five prompts in README order, gets the case's question from its prompt, makes the transcript's tool calls, submits its proposal, and retrieves the first cited evidence ID with `get_evidence`. Every submission is accepted; the readable answer equals what `ask` prints after its run summary and a blank line, and the answer JSON equals `ask --json`'s `result`, for the same files and transcript, so no golden file exists. Cited findings are exactly the suite's expected ones, findings short of `insufficient_evidence` cite evidence, answers short of `supported` state qualifications, the server exits 0 with empty standard error and no standard output beyond its replies, no fixture changes, and the network log stays empty. `ownership_compared` (two snapshots and a saved comparison) has no prompt, since its question is not a README question, and is asked by its text. A new `StdioSession` in `tests/support/mcp_clients.py` drives the process with raw JSON-RPC lines, one reply per request (the `mcp` client cannot show an exit code or standard error), with a watchdog that kills a server that stops answering; `ingest_selection` and `suite_cases` in `tests/support/installed_cli.py` are shared with the phase 4 journey, which now uses them. Breaking the served answer data and changing a prompt's text each fail the journey.
+**Prerequisite:** Step 47.
+
+- Add `tests/acceptance/test_phase_five_acceptance.py`. For each entry point, in a workspace outside the checkout with the offline guard allowing no port: ingest each README fixture snapshot with the installed `ingest` command, then start `archdiscov mcp` on it through the `mcp` stdio client.
+- The client lists exactly the registry's tools plus `submit_answer`, and the five prompts in README order. For each README example, it gets the question from its prompt, makes the transcript's tool calls, calls `get_evidence` for the first evidence ID the accepted answer cites, and submits the transcript's proposal.
+- Each submission is accepted. Its answer JSON equals the installed `ask --json` answer for the same files and transcript, and it cites only findings and evidence the session's tools returned. Answers short of `supported` state their limitations (limited coverage, insufficient evidence, the Terraform plan).
+- The server exits 0 when the client disconnects, and the network log stays empty.
+
+**Advice:** Compare with `ask` rather than with a stored golden answer: parity with `ask` is the property this phase promises, and a golden file would need updating whenever a rendering changes.
+
+**Acceptance check:** Through both entry points, every README example question is answered from its prompt with an accepted answer equal to `ask`'s, cited evidence is retrieved through `get_evidence`, limitations are stated, and no connection is attempted.
+
+#### Step 48.2: Prove the refusals and the file boundary
+**Status:** Implemented. A second journey in `tests/acceptance/test_phase_five_acceptance.py`, one per entry point on the same worker as 48.1's, submits the adversarial suite's four unsupported claims over the installed server: each is rejected as `answer_rejected` with its code (`answer_unknown_id`, `answer_id_not_returned`, `answer_status_upgrade`, `answer_narrative_imported_text`) and a fixed message that repeats neither the fabricated ID nor the injected text, then a corrected proposal is accepted in the same session: the real finding the session's `run_analyzer` returned, the cited evidence and resource retrieved through `get_evidence` and `inspect_resource`, a weaker status, and a plain summary. Each submission stands alone, so the original proposal is still rejected after its correction, except the one whose correction was to retrieve what it cites. The injected-text case shows imported instructions only as quoted data: every occurrence in a tool reply or the accepted answer is the value of an `untrusted_text` key, and none is in the narrative. A missing, an invalid, and an unselected snapshot exit 1, 2, and 2 with their diagnostics on standard error and nothing on standard output. The file boundary is the offline guard's new opt-in `watching(*directories)`, which installs an audit hook that logs every file the child opens under those directories, as real paths and excluding the guard's own logs (`opened_files` reads them); without it the child's environment is unchanged, and `test_installed_end_to_end.py` tests that it is opt-in, follows symbolic links, and logs nothing else. A session over a saved comparison calls every tool the registry declares (each name is checked against the registry, so a new tool must be added), then calls tools with the paths of decoys in place of IDs and with arguments no tool declares, each refused, and submits the proposal; with other cases' ingested snapshots and a snapshot, a saved comparison, and a saved analysis copied beside the selection, the files opened are exactly the three selected, and the server exits 0 with empty standard error. A tool patched to open a decoy and a server patched to skip validation each fail the journey.
+**Prerequisite:** Step 48.1.
+
+- From the adversarial suite, submit the fabricated finding, the unreturned evidence citation, the status upgrade, and the injected narrative. Each is rejected with its rejection code, and a corrected proposal is then accepted in the same session, since the server has no repair budget. Imported instructions appear in tool results and answers only as quoted data.
+- A missing snapshot exits 1 and an invalid one exits 2, each with its diagnostic on standard error, nothing on standard output, and no server started.
+- Add an opt-in file watch to the offline guard: an audit hook in its `sitecustomize` logs every file opened under a watched directory. Put an unselected decoy snapshot and a decoy saved comparison next to the selected files, run a full session (every tool, then `submit_answer`), and assert that the only files opened under the workspace are the selected ones.
+
+**Advice:** Watch only the workspace, not the whole filesystem: Python and its libraries open their own files while running, and those are not what the boundary is about.
+
+**Acceptance check:** Each adversarial submission is rejected with its code and a corrected one is accepted; the pre-serve failures exit 1 and 2 with nothing on standard output; the file log lists only the selected files, and a test-only patch that makes a tool open the decoy makes the test fail.
+
+#### Step 48.3: Document phase 5 in the README and correct stale pages
+**Status:** Implemented. The README gains a capability row and an `mcp` command row linking `docs/mcp-server.md`, a phase 5 row in the delivery table (complete, steps 45–48, linking the new acceptance section), a paragraph in "Assistant behavior" that states the server's limit (it validates what a client submits but cannot stop a client from stating unvalidated claims in its own text), a "Phase 5 offline acceptance" section with the host and Docker commands (the Docker run, the last verified test count, and the closing statement stay for step 48.4), and three acceptance-scenario rows (the README questions answered from their prompts, unsupported claims rejected and corrected, and only the selected files read with no network), with the phase 5 journey's tests added to the coverage-limitations and imported-text rows. Stale text is corrected: `docs/analyzers.md` no longer calls the assistant a later phase, `docs/assistant-answers.md` says the server returns the same forms, `docs/mcp-server.md` no longer says it describes what is implemented so far, and the README names phase 5 beside phases 3 and 4. New drift tests check that the README lists and links the command, names the acceptance test file and section, and has the delivery and capability rows, and that no page calls the assistant, the providers, or the MCP server later work; the scenario-mapping test lists the new rows, whose referenced tests must exist and assert an outcome. Reintroducing a stale phrase and renaming the `mcp` row each fail them.
+**Prerequisite:** Step 48.2.
+
+- In the README, add a capability row for the MCP server and an `mcp` row to the command table, both linking `docs/mcp-server.md`. Mark phase 5 complete (steps 45–48) in the delivery table.
+- Mention the server in "Assistant behavior", including its honest limit: the server validates what a client submits, but cannot stop a client from stating unvalidated claims in its own text.
+- Add a "Phase 5 offline acceptance" section with the host and Docker commands, and add acceptance-scenario rows: README questions answered through an MCP client, fabricated and unreturned citations rejected over MCP, and no network connection and no unselected file read.
+- Correct stale text: `docs/analyzers.md` still calls the assistant and providers "a later phase". The plan's opening paragraph still calls phase 5 planned.
+- Extend the drift tests: the README links `docs/mcp-server.md` and names `tests/acceptance/test_phase_five_acceptance.py`, each new scenario row names tests that exist, and the stale phrases join `test_implemented_commands_are_not_listed_as_planned`.
+
+**Advice:** Link `docs/mcp-server.md` rather than repeating it in the README. The README states what the server is and where to read more, as it does for `ask`.
+
+**Acceptance check:** The drift and link tests pass with the new rows and sections, each scenario row names existing tests, and no page calls the assistant or the MCP server later work.
+
+#### Step 48.4: Verify and close phase 5
+**Status:** Implemented. The focused phase 5 and documentation tests, the full offline suite (7,062 tests, 52 skipped), the acceptance suite (491 tests), Ruff (check and format), and the whitespace check pass on the host, and `docker compose build dev` followed by the full suite in `archdiscov-dev` with `--network none` passed all 7,553 tests (52 skipped), the sum of the two host runs; the README's phase 5 section records that count. The image was rebuilt first, since `uv.lock` had gained `pytest-cov` and `pip-audit`. Steps 48 and phase 5 are marked implemented. The phase 4 open questions are closed with what settled them, and the deferred HTTP transport is carried forward as the phase 5 question for a later phase.
+**Prerequisite:** Step 48.3.
+
+- Run the focused and full offline tests, the acceptance suite, Ruff, whitespace checks, and the full suite in Docker with `--network none`. Record the test count of the last verified run in the README, as phase 4 does.
+- Mark steps 48 and phase 5 implemented, and record what the steps settled: the run record is session-wide (step 46), and the README questions are prompts (step 47). Carry the deferred HTTP transport forward as an open question for a later phase.
+- Close the phase 4 open questions that steps 36–37 settled (the default limits and narrative policy) and step 40 settled (the first provider).
+
+**Advice:** Close the phase only on a clean Docker run with networking disabled: the host run cannot show that nothing needed the network.
+
+**Acceptance check:** Every check passes on the host and in Docker without a network; the plan, the README delivery table, and the open questions agree that phase 5 is complete.
+
 ### Phase 5 decisions and open questions
 
 **Advice:** The server is a transport for the phase 4 tools, not a second assistant: validation, rendering, and limits stay in one place.
 
 **Open questions (settle before the named step):**
-- Should the run record be session-wide or reset per question (step 46)? The plan assumes session-wide, since an MCP client has no question boundary the server can see.
+- Settled (step 46): the run record is session-wide, since an MCP client has no question boundary the server can see.
 - Settled: the five README questions are offered as MCP prompts (step 47).
-- Is a streamable HTTP transport ever wanted? Deferred until a concrete need. Stdio covers local clients (Claude Code, Claude Desktop, IDEs), including a server run in Docker with `docker run -i`. HTTP is only needed for a shared or remote server, and then brings authentication (the MCP authorization flow), TLS, origin checks against DNS rebinding, per-client sessions and limits, and server-side snapshot selection, over data that describes an architecture's attack surface. Step 45 keeps the server transport-independent so the decision stays cheap; settle it in a later phase if a shared server is wanted.
+- Carried forward to a later phase (phase 6 does not take it up): is a streamable HTTP transport ever wanted? Deferred until a concrete need. Stdio covers local clients (Claude Code, Claude Desktop, IDEs), including a server run in Docker with `docker run -i`. HTTP is only needed for a shared or remote server, and then brings authentication (the MCP authorization flow), TLS, origin checks against DNS rebinding, per-client sessions and limits, and server-side snapshot selection, over data that describes an architecture's attack surface. Step 45 keeps the server transport-independent so the decision stays cheap; settle it in a later phase if a shared server is wanted.
+
+## 6. Complete the AWS network paths
+
+**Phase 6 milestone:** Collect or import a VPC whose traffic leaves through a NAT gateway, crosses a peering connection or transit gateway, uses a VPC endpoint or managed prefix list, or travels over IPv6 → the network primitives decide each element from cited configuration instead of stopping at it → `analyze` reports database access across VPCs, internet exposure over IPv6, and internet egress with the same statuses, blockers, and citations as today → `ask` and the MCP server answer questions about them unchanged.
+
+Today a route whose target is a NAT gateway, transit gateway, peering connection, VPC endpoint, or prefix list, a security-group rule that names a prefix list, and every IPv6 element are `unknown`. The route records its target kind (`RouteTargetKind`) but the target itself is never collected, so a path stops there. `docs/network-path-primitives.md` and the internet-exposure and database-access pages list these as unsupported. This phase records those elements and decides them, so the analyzers answer more questions without a new kind of claim. It stays AWS-only, read-only, and offline in tests, and adds no cloud platform, provider, or remediation.
+
+A decision still describes recorded configuration, never live connectivity. A path is decided only when every element on it, in both directions where the return path matters, is recorded and cited. Anything missing, unsupported, or outside the snapshot stays `unknown` with a blocker that names it.
+
+Implement steps 49–56 in order, verifying each before the next. Break each step into substeps when it starts, as steps 34–48 were. Keep this phase planned until step 56 passes.
+
+**Where things go:**
+- New resource models in `models/resources/network.py`, joining the supported resource union; new collection in `ingestion/network/`, with its operations in `ingestion/operations.py` and the allowlist.
+- Route, prefix-list, and address-family decisions in the existing `services/network_*` primitives; cross-VPC route composition in `services/network_composition.py`.
+- The analyzers stay in their modules; a new egress analyzer follows the `Analyzer` protocol, its results in `models/analysis/`, registered in `DEFAULT_REGISTRY`.
+
+**What is reused:**
+- `DetailRunner`, `EvidenceBuilder`, coverage and unresolved values, the SDK call budgets, and the sanitizers, as every other collector uses them.
+- `NetworkResult`, `all_of`/`any_of`, `cited_decision`, `sole_associate`, and the `missing`/`unsupported` blockers in `services/network_matching.py` and `network_decisions.py`.
+- The Terraform and CloudFormation mapping catalogs, the analyzer registry, result persistence, and the phase 3–5 acceptance harnesses.
+
+### Step 49: Settle the contracts for the new network elements
+**Status:** Planned.
+**Prerequisite:** Step 48.
+
+- Write representative snapshot fixtures first: a NAT gateway with its subnet and Elastic IP, a same-account peering connection between two VPCs, a transit gateway with VPC attachments and a route table, gateway and interface VPC endpoints, a managed prefix list referenced by a route and a security-group rule, and a dual-stack VPC.
+- Add resource models for NAT gateways, VPC peering connections, transit gateways with their attachments and route tables, VPC endpoints, and managed prefix lists, and add the IPv6 fields: VPC and subnet IPv6 CIDRs, ENI IPv6 addresses, IPv6 routes, egress-only internet gateways, and IPv6 security-group and NACL entries.
+- Record each target as a typed relationship (for example, route to NAT gateway, attachment to transit gateway, endpoint to route table), so the graph can follow it with evidence.
+- Keep schema `3` and add the new types and fields as optional, so every existing snapshot and saved result validates unchanged. A snapshot collected before this phase has no coverage for the new operations: its unknowns say coverage was unrecorded, never that the element is absent.
+
+**Advice:** Shape the models from real `Describe*` response shapes, but keep only what a decision needs (state, CIDRs, attachments, owners, and entries); keep everything else out of typed fields.
+
+**Acceptance check:** The new fixtures validate, round-trip through persistence, and keep exact citations; every existing fixture and saved result validates unchanged; model tests reject impossible states (for example, a peering connection whose two sides are the same VPC).
+
+### Step 50: Collect the new elements from AWS
+**Status:** Planned.
+**Prerequisite:** Step 49.
+
+- Collect NAT gateways, VPC peering connections, transit gateways with their attachments, route tables, associations, propagations, and routes, VPC endpoints, and managed prefix lists with their entries, through read-only `Describe*`, `Get*`, and `Search*` calls added to the allowlist and the permissions documentation.
+- Read the IPv6 fields already present in the VPC, subnet, ENI, route-table, security-group, and NACL responses, and egress-only internet gateways.
+- Bound every new call with the shared call budgets and pagination limits, sanitize values as the existing collectors do, and qualify each operation's coverage, so a denied or failed read leaves its elements `unknown` rather than absent.
+- Resolve the recorded route targets to the new resources; a target owned by another account is recorded as external, never as a resource of this snapshot.
+
+**Advice:** Transit gateway routes are the expensive read; search each route table once per collection with a bounded filter, and record when the bound is reached as incomplete coverage.
+
+**Acceptance check:** Botocore Stubber tests cover each operation's success, pagination, denial, malformed responses, and bounds; the whole-architecture collection includes the new elements with coverage; the permissions page and allowlist list exactly the new read actions; no test needs AWS.
+
+### Step 51: Import the new elements from Terraform and CloudFormation
+**Status:** Planned.
+**Prerequisite:** Step 50.
+
+- Map the Terraform resource types (`aws_nat_gateway`, `aws_vpc_peering_connection`, `aws_ec2_transit_gateway` and its attachment and route-table types, `aws_vpc_endpoint`, `aws_ec2_managed_prefix_list`, `aws_egress_only_internet_gateway`) and the matching CloudFormation types onto the new models, from state, plans, and templates, in place of today's unknown resources.
+- Keep the importers' rules: an unknown or planned value is never a decided one, and a reference that cannot be resolved is a cited unresolved dependency.
+- Extend comparison so an observed element and its declared counterpart match only by provider identity, as today.
+
+**Advice:** Add one Terraform state, one plan, and one CloudFormation fixture per new type rather than one large template, so a mapping failure points at its type.
+
+**Acceptance check:** Each type imports from each source with exact citations; unknown planned values stay indeterminate; comparison matches observed and declared elements without guessing; existing import fixtures are unchanged.
+
+### Step 52: Decide prefix lists and IPv6 in the primitives
+**Status:** Planned.
+**Prerequisite:** Step 49.
+
+- Expand a managed prefix list referenced by a security-group rule, NACL, or route into its recorded entries, citing the list. An AWS-managed list whose entries are not recorded stays `unknown`.
+- Evaluate each primitive per address family: IPv6 security-group and NACL entries, IPv6 longest-prefix routes, egress-only internet gateways (outbound only), and recorded public IPv6 addresses on ENIs.
+- Keep the existing IPv4 behaviour and results unchanged.
+
+**Advice:** Treat a dual-stack resource as two questions, one per address family, rather than one merged answer, so a denial over IPv4 never hides an allow over IPv6.
+
+**Acceptance check:** Primitive tests decide each new case from cited configuration, a partially covering prefix-list or IPv6 entry is `unknown`, unrecorded list entries are `unknown`, and every existing primitive test passes unchanged.
+
+### Step 53: Route through NAT gateways, peering, transit gateways, and endpoints
+**Status:** Planned.
+**Prerequisite:** Steps 50 and 52.
+
+- Extend `RouteReach` and route evaluation: a NAT gateway route reaches the internet outbound only, and only when the NAT gateway is available, has a public address, and its own subnet routes to an attached internet gateway; a NAT gateway never allows inbound traffic.
+- A peering route reaches the peer VPC's CIDR only when the connection is active and both sides' route tables route to each other.
+- A transit gateway route reaches a destination only when the source attachment's associated transit gateway route table routes to the destination's attachment, and the return path does too.
+- A gateway endpoint route reaches its AWS service's prefix list; an interface endpoint is an ENI with security groups.
+- Add a composed route between two subnets in `network_composition.py` that follows local, peering, and transit gateway routes in both directions, citing every hop.
+- A hop owned by another account, or outside the snapshot, is `unknown` with a blocker naming it; it is never an allow.
+
+**Advice:** Bound the hops: a path crosses at most one transit gateway, or one peering connection, plus local routes. A deeper chain is `unknown` and says so, rather than searching the graph.
+
+**Acceptance check:** Each route kind decides `allow`, `deny`, and `unknown` cases from fixtures with every hop cited; blackhole, pending, and deleted states deny or are `unknown` as recorded; a cross-account hop is `unknown`; existing local and internet-gateway route results are unchanged.
+
+### Step 54: Use the new paths in the existing analyzers
+**Status:** Planned.
+**Prerequisite:** Step 53.
+
+- Database access: sources in another VPC of the same snapshot are evaluated through peering or a transit gateway, instead of being unsupported; a source behind another account's hop stays an `unknown` candidate.
+- Internet exposure: recorded public IPv6 addresses are candidates over IPv6, and security-group rules that name prefix lists are decided from their entries.
+- Security-group impact: rules that reference a prefix list name it with its entries.
+- Update the analyzers' vocabulary, limitations, and the analyzer pages; keep each result contract additive, so saved results from earlier versions load unchanged.
+
+**Advice:** Re-run the phase 3 acceptance fixtures before changing any analyzer: results that do not involve a new element must not change, and a test should prove it.
+
+**Acceptance check:** New fixtures produce cited cross-VPC database-access findings and IPv6 exposure findings; every existing analyzer fixture gives the same result as before; the assistant tools return the new findings unchanged, since they read the analyzer results.
+
+### Step 55: Add the internet egress analyzer
+**Status:** Planned.
+**Prerequisite:** Step 54.
+
+- Add an `internet_egress` analyzer: which compute resources (EC2, ECS tasks, Lambda functions in a VPC) can open a connection to the internet, through an internet gateway with a public address, a NAT gateway, or an egress-only gateway over IPv6, composed from security groups, NACLs, and routes, with the same statuses, blockers, and citations as internet exposure.
+- Register it in `DEFAULT_REGISTRY`, add its result models, document it in `docs/analyzers.md` and its own page, and offer it to the assistant tools.
+
+**Advice:** Report destinations as the whole internet or as the recorded prefix-list or CIDR a rule allows; do not attempt per-destination reachability.
+
+**Acceptance check:** Fixtures with a public subnet, a private subnet behind a NAT gateway, a subnet with no route out, and an IPv6-only egress path each give the expected cited result; the analyzer reference, drift tests, and tool catalog include it.
+
+### Step 56: Close phase 6 with acceptance and documentation
+**Status:** Planned.
+**Prerequisite:** Step 55.
+
+- Add offline acceptance journeys through the installed CLI: collect (Stubber-backed) or import the new fixtures, analyze them, and ask about them through `ask` with fake transcripts and through the MCP server, with cited answers that state their limitations.
+- Update the README (capabilities, delivery table with a phase 6 row, permissions, acceptance scenarios), `docs/network-path-primitives.md`'s supported table, and every page that lists these elements as unsupported.
+- Run focused and full offline tests, the acceptance suite, Ruff, whitespace checks, and the suite in Docker with networking disabled.
+
+**Advice:** Keep the scenario table honest: list what is still `unknown` after this phase (another account's hops, deeper transit chains, Network Firewall, Gateway Load Balancer endpoints) next to what is now decided.
+
+**Completion criterion:** Every route target kind that `RouteTargetKind` records is either decided from cited configuration or `unknown` with a named blocker; database access across VPCs, internet exposure over IPv6, and internet egress are answered offline with citations; existing results are unchanged; no test needs AWS or the network.
+
+### Phase 6 decisions and open questions
+
+**Advice:** Decide an element only from recorded, cited configuration. Each new kind of element widens what the analyzers can say, so keep the `unknown` path the default.
+
+**Open questions (settle before the named step):**
+- Should snapshots of several accounts be composed, so a peering connection or transit gateway that crosses accounts can be decided (step 53)? Collection writes one snapshot per account. The plan assumes not in this phase: a cross-account hop stays `unknown`. Composing snapshots would need a multi-snapshot graph and its own phase.
+- Is the internet egress question added to the README example questions, the assistant prompts, and the evaluation suites (step 55)? Adding it changes the phase 4 and 5 fixtures; the plan assumes the analyzer is available to the tools without becoming a sixth README question.
+- Are AWS Network Firewall and Gateway Load Balancer endpoints in scope (step 53)? The plan assumes not: a route to either stays `unknown`.
+- How many transit gateway routes may one collection read before coverage is marked incomplete (step 50)?
