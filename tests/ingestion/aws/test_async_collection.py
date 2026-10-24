@@ -2,45 +2,19 @@ import asyncio
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
-from datetime import UTC, datetime
 from threading import Barrier, Event, Lock
-from uuid import UUID
 
 import pytest
 
 from archdiscov.ingestion import aws
-from archdiscov.ingestion.adapter import AdapterContext, IngestionError
+from archdiscov.ingestion.adapter import IngestionError
 from archdiscov.ingestion.async_collection import AsyncCollectionCoordinator
-from archdiscov.ingestion.collection_jobs import CollectedJob
-from archdiscov.ingestion.configuration_common import ServiceCollection
 from archdiscov.ingestion.detail_execution import DetailCall, DetailRunner
-from archdiscov.ingestion.requests import AwsAccountConfig, AwsCollectionRequest
+from archdiscov.ingestion.requests import AwsCollectionRequest
 from archdiscov.models.enums import AwsService
+from tests.support.account_assembly import Session as ArchitectureSession
+from tests.support.async_collection import ACCOUNT, OTHER, account, context, empty_job
 from tests.support.aws_fakes import Session
-
-from .test_account_assembly import Session as ArchitectureSession
-
-ACCOUNT = "123456789012"
-OTHER = "999999999999"
-NOW = datetime(2026, 1, 1, tzinfo=UTC)
-
-
-def account(account_id=ACCOUNT, **kwargs):
-    return AwsAccountConfig(
-        profile=account_id, expected_account_id=account_id, regions=("us-east-1",), **kwargs
-    )
-
-
-def context(factory=None):
-    return AdapterContext(
-        clock=lambda: NOW,
-        uuid_factory=lambda: UUID(int=175),
-        session_factory=factory or (lambda **kw: Session(kw["profile_name"])),
-    )
-
-
-def empty_job(job, *args):
-    return CollectedJob(job, ServiceCollection([], {}, []))
 
 
 def test_account_and_job_workflows_overlap_without_changing_request_order(monkeypatch):
@@ -214,8 +188,8 @@ def test_cross_account_session_reuse_is_rejected(monkeypatch):
 
 
 def test_scheduled_nested_detail_pools_share_sdk_budget(monkeypatch):
-    from .test_sdk_call_budgets import Calls, Client, ObservedBudget
-    from .test_sdk_call_budgets import Session as BudgetSession
+    from tests.support.call_budgets import Calls, Client, ObservedBudget
+    from tests.support.call_budgets import Session as BudgetSession
 
     calls = Calls()
     budget = ObservedBudget(2, attempts=4)
@@ -253,25 +227,28 @@ def test_scheduled_nested_detail_pools_share_sdk_budget(monkeypatch):
     assert not calls.active.total()
 
 
+def _collect_all_services(monkeypatch, real_collect, limit):
+    barrier = Barrier(2)
+
+    def collect(job, *args):
+        if limit > 1 and job.service in {AwsService.EC2, AwsService.ELASTIC_LOAD_BALANCING}:
+            barrier.wait(5)
+        return real_collect(job, *args)
+
+    monkeypatch.setattr(aws, "collect_job", collect)
+    session = ArchitectureSession(partial=True)
+    request = AwsCollectionRequest(accounts=(account(all_services=True),), max_collector_jobs=limit)
+    (snapshot,) = aws.AwsAdapter().collect(request, context=context(lambda **kw: session))
+    assert sum(method == "list_roles" for method, _ in session.iam.calls) == 1
+    return snapshot.model_dump(mode="json")
+
+
 def test_all_service_results_identical_with_sequential_and_parallel_job_limits(monkeypatch):
-    cfg = account(all_services=True)
-    snapshots = []
     real_collect = aws.collect_job
-    for limit in (1, 8):
-        barrier = Barrier(2)
-
-        def collect(job, *args):
-            if limit > 1 and job.service in {AwsService.EC2, AwsService.ELASTIC_LOAD_BALANCING}:
-                barrier.wait(5)
-            return real_collect(job, *args)
-
-        monkeypatch.setattr(aws, "collect_job", collect)
-        session = ArchitectureSession(partial=True)
-        request = AwsCollectionRequest(accounts=(cfg,), max_collector_jobs=limit)
-        (snapshot,) = aws.AwsAdapter().collect(request, context=context(lambda **kw: session))
-        snapshots.append(snapshot.model_dump(mode="json"))
-        assert sum(method == "list_roles" for method, _ in session.iam.calls) == 1
-    assert snapshots[0] == snapshots[1]
+    sequential, parallel = [
+        _collect_all_services(monkeypatch, real_collect, limit) for limit in (1, 8)
+    ]
+    assert sequential == parallel
 
 
 def test_sync_adapter_rejects_nested_loop_without_creating_coroutine():

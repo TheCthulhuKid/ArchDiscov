@@ -10,9 +10,8 @@ from archdiscov.ingestion.concurrency import SdkCallBudget
 from archdiscov.ingestion.detail_execution import DetailCall, DetailRunner
 from archdiscov.ingestion.requests import AwsCollectionRequest
 from archdiscov.models.enums import AwsRegion, AwsService
+from tests.support.async_collection import ACCOUNT, OTHER, account, context, empty_job
 from tests.support.aws_fakes import Session
-
-from .test_async_collection import ACCOUNT, OTHER, account, context, empty_job
 
 
 async def heartbeat():

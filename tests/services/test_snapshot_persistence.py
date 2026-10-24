@@ -18,6 +18,7 @@ from archdiscov.services import (
     save_snapshot,
     validate_snapshot,
 )
+from archdiscov.services.publication import read_json
 from tests.paths import FIXTURES_ROOT
 
 FIXTURES = FIXTURES_ROOT / "snapshots"
@@ -116,6 +117,30 @@ def test_load_format_errors(tmp_path: Path, content: bytes) -> None:
     if content.startswith(b"{"):
         assert error.value.line == 2
         assert error.value.column == 19
+
+
+def test_a_snapshot_with_duplicate_keys_is_refused(tmp_path: Path) -> None:
+    """A duplicate key would make the file mean something other than it appears to, so it
+    is refused as every other reader refuses it, without naming the key or its values."""
+    source = (FIXTURES_ROOT / "evaluation" / "readme" / "ownership" / "snapshot.json").read_text()
+    path = tmp_path / "snapshot.json"
+    duplicate = '"snapshot_id": "00000000-0000-4000-8000-0000000000ff",'
+    path.write_text(source.replace("{", "{" + duplicate, 1), encoding="utf-8")
+    with pytest.raises(SnapshotJSONError) as error:
+        load_snapshot(path)
+    assert (error.value.code, error.value.path) == ("invalid_json", path)
+    assert str(error.value) == "JSON contains duplicate object keys."
+    assert "0000000000ff" not in str(error.value)
+
+
+def test_an_oversized_json_file_is_refused_unread(tmp_path: Path) -> None:
+    path = tmp_path / "snapshot.json"
+    path.write_text("[" + "0," * 600 + "0]", encoding="utf-8")
+    with pytest.raises(SnapshotJSONError) as error:
+        read_json(path, subject="snapshot", limit=1_000)
+    assert (error.value.code, error.value.path) == ("json_too_large", path)
+    assert str(error.value) == "Snapshot JSON exceeds 1000 bytes."
+    assert read_json(path, subject="snapshot", limit=path.stat().st_size)[0] == 0
 
 
 @pytest.mark.parametrize("kind", ["missing", "directory", "read_failure"])

@@ -1,5 +1,7 @@
 import copy
+import functools
 import json
+import operator
 
 import pytest
 from pydantic import ValidationError
@@ -53,7 +55,7 @@ def test_offline_fixture_has_typed_hierarchy_and_explicit_facts(azure_data: dict
     assert unavailable.value is None
     assert unavailable.value_status == "unresolved"
     assert unavailable.limitation == "Offline fixture does not provide this fact"
-    assert "vm-unavailable" not in sum(vm.fact_evidence.values(), [])
+    assert "vm-unavailable" not in functools.reduce(operator.iadd, vm.fact_evidence.values(), [])
     dependency = snapshot.dependencies[0]
     assert dependency.source_id == vm.id
     assert dependency.target.resource_id == subnet.id

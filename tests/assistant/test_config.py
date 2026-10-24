@@ -18,22 +18,9 @@ from archdiscov.assistant.config import (
 )
 from archdiscov.assistant.provider import ProviderCapability, RequestLimits
 from archdiscov.models.enums import AwsRegion
+from tests.support.provider_data import ANTHROPIC, BEDROCK, OPENAI
 
 SECRET = "sk-ant-api03-SECRETvalue0123456789abcdefXYZ"
-ANTHROPIC = {"kind": "anthropic", "model": "claude-sonnet-5-5", "api_key_env": "ANTHROPIC_API_KEY"}
-OPENAI = {
-    "kind": "openai_compatible",
-    "model": "gpt-5",
-    "api_key_env": "OPENAI_API_KEY",
-    "endpoint": "https://api.openai.com/v1",
-    "protocol": "responses",
-}
-BEDROCK = {
-    "kind": "bedrock",
-    "model": "anthropic.claude-3-5-sonnet-20240620-v1:0",
-    "profile": "assistant",
-    "region": "eu-west-1",
-}
 
 
 def _write(tmp_path: Path, text: str | bytes) -> Path:
@@ -180,8 +167,13 @@ def test_real_model_names_are_not_mistaken_for_secrets(model: str) -> None:
         ({k: v for k, v in OPENAI.items() if k != "endpoint"}, "missing"),
         ({k: v for k, v in ANTHROPIC.items() if k != "api_key_env"}, "missing"),
         ({**OPENAI, "endpoint": "http://api.example.com/v1"}, "provider_config_endpoint_invalid"),
+        # A password in the URL is a secret-looking value, refused before the endpoint check.
         (
             {**OPENAI, "endpoint": "https://user:pw@api.example.com/v1"},
+            "provider_config_secret_value",
+        ),
+        (
+            {**OPENAI, "endpoint": "https://user@api.example.com/v1"},
             "provider_config_endpoint_invalid",
         ),
         (

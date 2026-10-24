@@ -3,10 +3,10 @@ from unittest.mock import patch
 
 import pytest
 
+from archdiscov.models import snapshot_access
 from archdiscov.models.architecture import ArchitectureSnapshot
 from archdiscov.models.cloud.snapshot import CloudSnapshot
 from archdiscov.models.resource_base import Resource
-from archdiscov.services import snapshot_access
 from archdiscov.services.evidence import get_evidence
 from archdiscov.services.snapshots import SnapshotValidationError, validate_snapshot
 from tests.paths import FIXTURES_ROOT

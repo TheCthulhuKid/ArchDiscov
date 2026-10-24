@@ -7,9 +7,8 @@ from tests.support.network_data import SUBNET, VPC
 from tests.support.network_snapshot import build_network, resource_id  # noqa: F401
 
 PUBLIC, PRIVATE = "subnet-pub", "subnet-priv"
-ALL_COVERED = {
-    operation: "success"
-    for operation in (
+ALL_COVERED = dict.fromkeys(
+    (
         "DescribeRouteTables",
         "DescribeInternetGateways",
         "DescribeNetworkAcls",
@@ -17,8 +16,9 @@ ALL_COVERED = {
         "DescribeSecurityGroupRules",
         "DescribeNetworkInterfaces",
         "DescribeInstances",
-    )
-}
+    ),
+    "success",
+)
 
 
 def sg_rule(group, port=443, *, to_port=None, protocol="tcp", cidr="0.0.0.0/0", **fields):

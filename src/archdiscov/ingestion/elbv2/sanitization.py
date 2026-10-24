@@ -27,7 +27,7 @@ def sanitize_source(value: Any) -> tuple[Any, list[str]]:
                 out[key] = REDACTED
                 paths.append(pointer)
             elif key == "AuthenticationRequestExtraParams" and isinstance(child, dict):
-                out[key] = {name: REDACTED for name in child}
+                out[key] = dict.fromkeys(child, REDACTED)
                 paths.extend(f"{pointer}/{escape_pointer_token(name)}" for name in child)
             elif key == "Certificates":
                 # TLS certificate configuration is outside this collection boundary.

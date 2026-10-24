@@ -166,7 +166,8 @@ request_timeout_seconds = 30
 
 Numbers are strictly typed: `"5"` or `true` is not a number. Endpoints may use HTTP only
 for loopback hosts (`localhost`, `127.0.0.1`, `::1`), and never carry user info, a query,
-or a fragment. `request_limits()` turns a configuration into the per-request limits
+or a fragment; a password in an endpoint is refused as a secret-looking value
+(`provider_config_secret_value`) before the endpoint is checked. `request_limits()` turns a configuration into the per-request limits
 above; the remaining fields bound the whole run.
 
 ### Building providers
@@ -512,7 +513,8 @@ ARCHDISCOV_LIVE_OPENAI_PROTOCOLS=responses,chat_completions \
 `assistant/bedrock_provider.py` is the only assistant module that imports `boto3` or
 `botocore`, and `ADAPTERS` imports it only when a `bedrock` configuration is built. Building
 it makes no request; each `complete` then makes one Converse request. Botocore is
-synchronous, so `complete_async` runs the request in a thread.
+synchronous, so `complete_async` runs the request in a daemon thread. An interrupt (Ctrl-C)
+therefore ends the command at once instead of waiting out the request's read timeout.
 
 ```toml
 kind = "bedrock"
@@ -723,8 +725,9 @@ ARCHDISCOV_LIVE_BEDROCK_MODEL=eu.anthropic.claude-sonnet-5-5-v1:0 \
   process listings, or as configuration values.
 - Before field validation, the whole file is scanned: credential-like field names
   (such as `api_key`, `password`, `token`, or `authorization`, at any depth) and
-  secret-looking values (API-key prefixes, AWS access key IDs, bearer tokens, private
-  keys, and long mixed-case opaque tokens) are rejected.
+  secret-looking values (API-key prefixes, AWS access key IDs and secret access keys,
+  bearer tokens, JSON web tokens, Slack tokens, private keys, passwords in URLs and
+  connection strings, and long mixed-case opaque tokens) are rejected.
 - `resolve_api_key(config)` reads the variable only when a provider is constructed, and
   fails with `provider_credential_missing` or `provider_credential_empty` before any
   request. It returns a `SecretStr`, which `repr`, `str`, and JSON dumps mask;

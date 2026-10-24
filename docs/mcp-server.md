@@ -162,12 +162,17 @@ submission:
 |---|---|---|
 | unreadable | yes | one JSON object: `error` (`proposal_malformed` or `proposal_invalid`), `message`, `next` |
 | rejected | yes | one JSON object: `error` (`answer_rejected`), `rejections` (each with `code`, `location`, and `message`, at most 40), `unlisted`, `next` |
-| accepted | no | three: the line "The answer was accepted. Present it to the user as it is returned below, without adding conclusions to it.", the readable answer, and the answer JSON |
+| accepted | no | three: the line "The answer was accepted. Present it to the user as it is returned below, without adding conclusions to it.", the readable answer, and the answer JSON, compact |
 
 The error objects have the same form as `ask`'s repair prompt, with `next` set to "Correct
 the answer and submit it again." An accepted answer is rendered as in `ask`, with the
 outcome `answered`: the readable answer is exactly what `ask` prints, and the answer JSON is
-what `ask --json` reports as its `result`. Tests submit every rejection scenario of the
+the same data that `ask --json` reports as its `result`, without indentation, since the
+readable answer beside it is the form a person reads. Claude Code moves a tool result over
+50,000 characters out of the conversation into a file unless the tool declares a larger
+limit, so `submit_answer` declares `"_meta": {"anthropic/maxResultSizeChars": 500000}`,
+Claude Code's ceiling, and other clients ignore it; every README example's accepted answer
+also fits under 50,000 characters without it. Tests submit every rejection scenario of the
 answer suite and the adversarial suite's proposals through the server and compare them with
 `validate_proposal`, and render every README example and the injected-text case through
 both and compare them, readable and JSON.

@@ -50,6 +50,11 @@ limits. Call budgets and account/job scheduling limits are enforced now:
 | `AwsCollectionRequest` | `max_collector_jobs` | `--max-collector-jobs` | 8 | 64 | Active service/region jobs across the run |
 | `AwsAccountConfig` | `max_concurrency` | `--max-concurrency` | 4 | 16 | Each runner's local worker pool |
 
+The `collect` help shows each range, read from these fields. A value outside it, like any
+other unusable request, is refused before collection with `invalid_request` (exit 2): the
+message names the option at fault (for example `--region`), or the details name the request
+field that failed (for example `max_concurrency`), and never the value given.
+
 Both call budgets apply simultaneously. An account budget may exceed the
 run budget; the run budget remains the ceiling. Existing `max_concurrency` still
 controls each runner's local worker pool independently and is unchanged.

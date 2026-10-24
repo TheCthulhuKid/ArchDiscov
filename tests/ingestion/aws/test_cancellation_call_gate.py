@@ -6,8 +6,7 @@ import pytest
 from archdiscov.ingestion.async_collection import AsyncCollectionCoordinator
 from archdiscov.ingestion.concurrency import SdkCallBudget
 from archdiscov.ingestion.requests import AwsCollectionRequest
-
-from .test_async_collection import account, context
+from tests.support.async_collection import account, context
 
 
 def test_cancelled_collector_cannot_start_next_sdk_call_and_budget_is_reusable():

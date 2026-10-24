@@ -1,4 +1,3 @@
-from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import UUID
 
@@ -12,41 +11,22 @@ from archdiscov.ingestion.functions.collector import _Normalizer as LambdaNormal
 from archdiscov.ingestion.iam.normalization import _Normalizer as IamNormalizer
 from archdiscov.ingestion.queues.collector import _Collector as SqsCollector
 from archdiscov.models.architecture import (
-    CollectionFailure,
     Coverage,
     ResourceIdentity,
     UnresolvedValue,
 )
 from archdiscov.models.enums import AwsRegion, AwsService, CoverageStatus, EvidenceValueStatus
 from archdiscov.models.resources.queues import SqsQueue
+from tests.support.coverage_data import COVERAGE_OPERATION, coverage
 
 CALLERS = [LambdaNormalizer, RdsNormalizer, SqsCollector, IamNormalizer, Elbv2Normalizer]
 DEDUPLICATING = [IamNormalizer, Elbv2Normalizer]
-OP = "ReadConfiguration"
 PATH = "Result.Value"
-
-
-def coverage(status=CoverageStatus.SUCCESS):
-    now = datetime(2026, 1, 1, tzinfo=UTC)
-    return Coverage(
-        account_id="123456789012",
-        region=AwsRegion.US_EAST_1,
-        service=AwsService.SQS,
-        operation=OP,
-        status=status,
-        started_at=now,
-        completed_at=now,
-        result_count=2 if status in (CoverageStatus.SUCCESS, CoverageStatus.INCOMPLETE) else None,
-        failures=[CollectionFailure(code="Denied", message="Unavailable")]
-        if status == CoverageStatus.FAILED
-        else [],
-        reason="Existing limitation" if status != CoverageStatus.SUCCESS else None,
-    )
 
 
 def state(outcome):
     return SimpleNamespace(
-        coverage={OP: outcome},
+        coverage={COVERAGE_OPERATION: outcome},
         evidence={},
         region=AwsRegion.US_EAST_1,
         snapshot_id=UUID(int=1),
@@ -55,9 +35,9 @@ def state(outcome):
 
 def issue(caller, target, resource=None, path=PATH):
     if caller in DEDUPLICATING:
-        caller.issue(target, OP, path, "Service-specific limitation", resource)
+        caller.issue(target, COVERAGE_OPERATION, path, "Service-specific limitation", resource)
     else:
-        caller.issue(target, OP, path, resource)
+        caller.issue(target, COVERAGE_OPERATION, path, resource)
 
 
 @pytest.mark.parametrize("caller", CALLERS)
@@ -70,7 +50,7 @@ def test_caller_status_counts_metadata_and_duplicate_policy(caller, status):
     target = state(original)
     issue(caller, target)
     issue(caller, target)
-    updated = target.coverage[OP]
+    updated = target.coverage[COVERAGE_OPERATION]
     assert updated.status == (
         CoverageStatus.INCOMPLETE if status == CoverageStatus.SUCCESS else status
     )
@@ -94,7 +74,7 @@ def test_caller_unavailable_status_policy(caller, status):
     else:
         with pytest.raises(ValidationError):
             issue(caller, target)
-    assert target.coverage[OP] is original
+    assert target.coverage[COVERAGE_OPERATION] is original
     assert original.unresolved_values == []
 
 
@@ -150,4 +130,7 @@ def test_sqs_retains_local_omitted_evidence_and_repeated_limitations():
     assert evidence.resource_id == resource.id
     assert evidence.configuration_path == PATH
     assert evidence.limitation == "Configuration value unavailable or malformed"
-    assert all(item.resource_id == resource.id for item in target.coverage[OP].unresolved_values)
+    assert all(
+        item.resource_id == resource.id
+        for item in target.coverage[COVERAGE_OPERATION].unresolved_values
+    )

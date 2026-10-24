@@ -16,6 +16,7 @@ from typing import Any
 from pydantic import ValidationError
 from pydantic_core import PydanticSerializationError
 
+from archdiscov.graph import GraphIndex
 from archdiscov.models.analysis.references import CoverageReference, ResourceReference
 from archdiscov.models.cloud.scope import AwsScope, AzureScope
 from archdiscov.models.comparison.entries import (
@@ -31,6 +32,7 @@ from archdiscov.models.comparison.results import (
     ComparisonSnapshot,
 )
 from archdiscov.models.resource_base import ResourceLifecycle
+from archdiscov.models.snapshot_access import SupportedSnapshot
 
 from .analysis_diagnostics import (
     AnalysisValidationError,
@@ -40,7 +42,6 @@ from .analysis_diagnostics import (
 )
 from .comparison import compare_indexes
 from .publication import SERIALIZATION_ERRORS, publish_text, read_json, render_json
-from .snapshot_access import SupportedSnapshot
 from .validation_data import detach_data
 
 _SUBJECT = "comparison result"
@@ -96,8 +97,6 @@ def validate_comparison_result(
 ) -> ComparisonResult:
     """Revalidate detached data and verify it against the two snapshots it names."""
     result = parse_comparison_result(data)
-    from archdiscov.graph import GraphIndex  # the graph package imports the services package
-
     left_index, right_index = GraphIndex(left), GraphIndex(right)
     for side, saved, index in (
         ("left", result.left, left_index),

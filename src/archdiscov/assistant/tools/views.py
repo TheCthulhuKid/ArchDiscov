@@ -14,8 +14,7 @@ from typing import Literal, Self
 from pydantic import JsonValue, NonNegativeInt, model_validator
 
 from archdiscov.graph import GraphIndex
-from archdiscov.graph.containment import ContainmentEdge
-from archdiscov.graph.dependencies import DependencyEdge, TerminalTarget
+from archdiscov.graph.dependencies import TerminalTarget
 from archdiscov.graph.identity import native_resource_type
 from archdiscov.models.analysis.database_access import DatabaseAccess
 from archdiscov.models.analysis.exposure import InternetExposure
@@ -32,6 +31,7 @@ from archdiscov.models.cloud.contracts import (
     CloudTarget,
 )
 from archdiscov.models.cloud.scope import AzureScope
+from archdiscov.models.edges import ContainmentEdge, DependencyEdge
 from archdiscov.models.enums import (
     AnalysisStatus,
     AttachmentKind,
@@ -346,12 +346,14 @@ def edge_view(index: GraphIndex, step: QueryTraversalStep) -> EdgeView:
             source=NodeRef(resource_id=edge.source_id),
             target=NodeRef(resource_id=edge.target_id),
         )
-    assert isinstance(edge, DependencyEdge)
+    if not isinstance(edge, DependencyEdge):
+        raise TypeError("an edge is a containment or a dependency edge")
     if isinstance(edge.target, LocalTarget):
         target = NodeRef(resource_id=edge.target.resource_id)
     else:
         terminal = index.get_terminal(edge.target_id)
-        assert terminal is not None
+        if terminal is None:
+            raise ValueError("a nonlocal edge target is a recorded terminal")
         target = NodeRef(terminal=terminal_view(terminal))
     return EdgeView(
         kind="dependency",

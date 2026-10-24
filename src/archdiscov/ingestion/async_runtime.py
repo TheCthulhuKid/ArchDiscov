@@ -3,6 +3,8 @@
 import asyncio
 from collections.abc import Awaitable, Callable
 
+from ..core.async_bridge import run_sync as core_run_sync
+from ..core.async_bridge import wait_until_done
 from .adapter import IngestionError
 
 
@@ -16,23 +18,14 @@ async def await_settled[T](
         if on_cancel is not None:
             on_cancel()
         # Repeated cancellation must not release ownership of a still-running thread.
-        while not future.done():
-            try:
-                await asyncio.shield(future)
-            except asyncio.CancelledError:
-                continue
-            except BaseException:
-                break
-        if not future.cancelled():
-            future.exception()
+        await wait_until_done(future)
         raise
 
 
 def run_sync[T](workflow: Callable[[], Awaitable[T]]) -> T:
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(workflow())
-    raise IngestionError(
-        "invalid_request", "use the async collection API inside a running event loop"
+    return core_run_sync(
+        workflow,
+        lambda: IngestionError(
+            "invalid_request", "use the async collection API inside a running event loop"
+        ),
     )

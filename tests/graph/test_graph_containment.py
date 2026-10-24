@@ -4,7 +4,7 @@ import pytest
 
 from archdiscov.graph import ContainmentEdge, GraphIndex
 from archdiscov.models.architecture import LocalTarget
-from archdiscov.services.snapshot_access import upgrade_snapshot
+from archdiscov.models.snapshot_access import upgrade_snapshot
 from archdiscov.services.snapshots import load_snapshot
 from tests.paths import FIXTURES_ROOT
 

@@ -127,6 +127,9 @@ class TargetWalk:
     require_health: bool = True
 
 
+_DEFAULT_WALK = TargetWalk()
+
+
 def _registered_target_result(
     index: GraphIndex,
     group: TargetGroup,
@@ -325,7 +328,7 @@ def evaluate_load_balancer_forwarding(
     *,
     protocol: str,
     port: int,
-    walk: TargetWalk = TargetWalk(),
+    walk: TargetWalk = _DEFAULT_WALK,
 ) -> NetworkResult:
     """Decide whether a listener accepts the traffic and forwards it to recorded targets.
 

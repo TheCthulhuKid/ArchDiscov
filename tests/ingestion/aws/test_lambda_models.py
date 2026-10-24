@@ -2,8 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from archdiscov.models.resources.functions import LambdaFunction, safe_configuration
-
-from .test_lambda_collection import ARN, SECRET, configuration
+from tests.support.lambda_data import ARN, SECRET, configuration
 
 
 def function(**fields):

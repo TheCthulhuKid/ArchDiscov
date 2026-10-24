@@ -32,12 +32,20 @@ from archdiscov.assistant.provider import ProviderErrorCode
 from archdiscov.assistant.runs import MalformedOutputReason, RunLimitKind, RunLimits
 from archdiscov.assistant.tools.session import ToolSession
 from tests.assistant.provider_harness import HARNESSES, FakeHarness, ProviderHarness
-from tests.assistant.test_answer_service import PLAIN_TEXT, _proposal, _rejected, _submit
-from tests.assistant.test_orchestration_suite import CASES as LOOP_CASES
-from tests.assistant.test_orchestration_suite import QUESTION, SEARCH, SECRET, capabilities
-from tests.assistant.test_orchestrator import SNAPSHOT, _calls, _text
-from tests.assistant.test_orchestrator_async import _HangingProvider
-from tests.assistant.test_secret_leaks import _renderings
+from tests.support.orchestration_cases import (
+    LOOP_CASES,
+    LOOP_QUESTION,
+    SECRET_SEARCH,
+    case_capabilities,
+)
+from tests.support.scripted_answers import (
+    PLAIN_TEXT,
+    answer_proposal,
+    rejected_proposal,
+    submit_turn,
+)
+from tests.support.scripted_turns import SNAPSHOT, HangingProvider, calls_turn, text_turn
+from tests.support.secrets import SECRET, secret_renderings
 
 FABRICATED = "Every database in the network is publicly reachable and unencrypted."
 # `submit_answer` is always offered by the answer service, so a run never has no tools.
@@ -86,12 +94,12 @@ def _identity(outcome: AnswerOutcome) -> Identity:
 
 
 def _fabricated(session: ToolSession) -> dict:
-    return _proposal(session, summary=f"{FABRICATED} {SECRET}", explanation=FABRICATED)
+    return answer_proposal(session, summary=f"{FABRICATED} {SECRET}", explanation=FABRICATED)
 
 
 def _mixed(call_id: str, session: ToolSession) -> dict:
     search = (f"s{call_id}", "search_resources", {"name": SECRET})
-    return _calls(
+    return calls_turn(
         (call_id, "submit_answer", _fabricated(session)), search, ignore_request_limits=True
     )
 
@@ -106,24 +114,27 @@ def _twice(attempt) -> dict:
 
 SCRIPTED: dict[Identity, dict] = {
     ("answered", "", ""): _case(
-        lambda session: [_calls(SEARCH), _submit("a", _fabricated(session))]
+        lambda session: [calls_turn(SECRET_SEARCH), submit_turn("a", _fabricated(session))]
     ),
     ("answered_after_repair", "", ""): _case(
-        lambda session: [_submit("a", _rejected(session)), _submit("b", _fabricated(session))]
+        lambda session: [
+            submit_turn("a", rejected_proposal(session)),
+            submit_turn("b", _fabricated(session)),
+        ]
     ),
     ("failed", "rejected_after_repair", ""): _twice(
-        lambda call, session: _submit(call, _rejected(session))
+        lambda call, session: submit_turn(call, rejected_proposal(session))
     ),
-    ("failed", "no_proposal_after_repair", ""): _twice(lambda call, _: _text(PLAIN_TEXT)),
+    ("failed", "no_proposal_after_repair", ""): _twice(lambda call, _: text_turn(PLAIN_TEXT)),
     ("failed", "malformed_output", "proposal_malformed"): _twice(
-        lambda call, _: _submit(call, None)
+        lambda call, _: submit_turn(call, None)
     ),
     ("failed", "malformed_output", "proposal_invalid"): _twice(
-        lambda call, _: _submit(call, {"status": "supported", "summary": SECRET})
+        lambda call, _: submit_turn(call, {"status": "supported", "summary": SECRET})
     ),
     ("failed", "malformed_output", "proposal_mixed"): _twice(_mixed),
     ("failed", "malformed_output", "tool_not_offered"): _case(
-        lambda _: [_text(PLAIN_TEXT), _calls(SEARCH)]
+        lambda _: [text_turn(PLAIN_TEXT), calls_turn(SECRET_SEARCH)]
     ),
 }
 
@@ -152,10 +163,12 @@ CASES = {**SCRIPTED, **FROM_LOOP}
 def _run(case: dict, harness: ProviderHarness) -> tuple[AnswerResult, int]:
     session = ToolSession.from_paths(SNAPSHOT)
     clock = FakeClock()
-    provider = harness.build(case["turns"](session), capabilities=capabilities(case), clock=clock)
+    provider = harness.build(
+        case["turns"](session), capabilities=case_capabilities(case), clock=clock
+    )
     result = asyncio.run(
         answer_question_async(
-            QUESTION,
+            LOOP_QUESTION,
             provider=provider,
             session=session,
             provider_kind=harness.name,
@@ -168,12 +181,12 @@ def _run(case: dict, harness: ProviderHarness) -> tuple[AnswerResult, int]:
 
 
 def _cancelled() -> tuple[AnswerResult, int]:
-    provider = _HangingProvider(answer_first=True)
+    provider = HangingProvider(answer_first=True)
 
     async def scenario() -> AnswerResult:
         task = asyncio.create_task(
             answer_question_async(
-                QUESTION,
+                LOOP_QUESTION,
                 provider=provider,
                 session=ToolSession.from_paths(SNAPSHOT),
                 provider_kind="fake",
@@ -206,7 +219,7 @@ def _result(identity: Identity, harness: ProviderHarness = FAKE) -> tuple[Answer
 
 def test_every_answer_outcome_is_covered() -> None:
     assert set(CASES) | {("failed", "cancelled", "")} == _expected()
-    assert REPAIRED <= _expected()
+    assert _expected() >= REPAIRED
 
 
 @pytest.mark.parametrize(
@@ -246,7 +259,7 @@ def test_no_secret_or_fabricated_claim_leaks(identity: Identity, harness) -> Non
     result, _ = _result(identity, harness)
     text = answer_text(result.rendered)
     data = json.dumps(answer_data(result.rendered))
-    for rendering in [*_renderings(result), text, data]:
+    for rendering in [*secret_renderings(result), text, data]:
         assert SECRET not in rendering and SECRET[:20] not in rendering
     narrative = [line for line in text.splitlines() if line.startswith("  |")]
     outside_narrative = [line for line in text.splitlines() if not line.startswith("  |")]

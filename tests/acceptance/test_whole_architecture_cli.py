@@ -8,7 +8,7 @@ import pytest
 from click import unstyle
 from typer.testing import CliRunner
 
-from archdiscov import cli
+from archdiscov import cli, cli_collection
 from archdiscov.ingestion.requests import COLLECTABLE_SERVICES, RegionScope
 
 ACCOUNT = "123456789012"
@@ -37,7 +37,9 @@ def test_cli_selects_scope_without_changing_selective_defaults(
     monkeypatch, tmp_path, flags, services, scope, regions
 ):
     seen = []
-    monkeypatch.setattr(cli, "collect_and_save", lambda request, paths: seen.append(request) or [])
+    monkeypatch.setattr(
+        cli_collection, "collect_and_save", lambda request, paths: seen.append(request) or []
+    )
     result = CliRunner().invoke(cli.app, [*arguments(tmp_path / "snapshot.json"), *flags])
     assert result.exit_code == 0, result.output
     (request,) = seen
@@ -57,7 +59,7 @@ def test_cli_forwards_execution_and_bootstrap_controls(monkeypatch, tmp_path):
         paths.extend(outputs)
         return []
 
-    monkeypatch.setattr(cli, "collect_and_save", collect)
+    monkeypatch.setattr(cli_collection, "collect_and_save", collect)
     output = tmp_path / "snapshot.json"
     result = CliRunner().invoke(
         cli.app,
@@ -112,13 +114,35 @@ def test_invalid_scope_and_limits_are_rejected_before_collection(monkeypatch, tm
     def unexpected(*args):
         pytest.fail("invalid CLI request reached collection")
 
-    monkeypatch.setattr(cli, "collect_and_save", unexpected)
+    monkeypatch.setattr(cli_collection, "collect_and_save", unexpected)
     output = tmp_path / "not-created.json"
     result = CliRunner().invoke(cli.app, [*arguments(output), *flags])
     assert result.exit_code == 2, result.output
     assert json.loads(result.output)["error"]["code"] == "invalid_request"
     assert "invalid-private-value" not in result.output
     assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    ("flags", "named"),
+    [
+        (["--all-services", "--max-concurrency", "0"], "max_concurrency"),
+        (["--all-services", "--max-collector-jobs", "65"], "max_collector_jobs"),
+        (["--region", "invalid-private-value"], "--region"),
+        (["--service", "invalid-private-value"], "--service"),
+        (["--all-services", "--service", "ec2"], "--all-services"),
+    ],
+)
+def test_a_rejected_request_names_what_is_wrong_without_its_value(
+    monkeypatch, tmp_path, flags, named
+):
+    monkeypatch.setattr(cli_collection, "collect_and_save", lambda *args: [])
+    result = CliRunner().invoke(cli.app, [*arguments(tmp_path / "x.json"), *flags])
+    assert result.exit_code == 2, result.output
+    error = json.loads(result.output)["error"]
+    locations = [part for issue in error.get("details", []) for part in issue["location"]]
+    assert named in error["message"] or named in locations
+    assert "invalid-private-value" not in result.output
 
 
 @pytest.mark.parametrize("entry_point", ["script", "module"])

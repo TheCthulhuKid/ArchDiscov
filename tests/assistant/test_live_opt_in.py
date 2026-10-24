@@ -61,7 +61,7 @@ def test_an_opted_in_run_without_its_variables_skips_with_a_reason() -> None:
     assert f"set {live.ANTHROPIC_KEY_ENV}, {live.ANTHROPIC_MODEL} to run" in output
     assert f"set {', '.join(OPENAI_REQUIRED)} to run" in output
     assert f"set {live.BEDROCK_PROFILE}, {live.BEDROCK_REGION}, {live.BEDROCK_MODEL}" in output
-    assert test_evaluation_live.NO_PROVIDER in output
+    assert live.NO_PROVIDER in output
 
 
 def test_an_openai_run_skips_the_protocols_it_does_not_list(monkeypatch) -> None:

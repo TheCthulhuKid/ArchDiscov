@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
-from archdiscov.graph.dependencies import DependencyEdge
 from archdiscov.models.analysis.references import (
     UNSUPPORTED_PLATFORM_CODE,
     AnalysisLimitation,
@@ -15,6 +14,7 @@ from archdiscov.models.analysis.references import (
 from archdiscov.models.analysis.results import AnalysisFinding
 from archdiscov.models.architecture import LocalTarget, UnresolvedTarget
 from archdiscov.models.cloud.context import canonical_service_key
+from archdiscov.models.edges import DependencyEdge
 from archdiscov.models.enums import AnalysisStatus, AwsService, CoverageStatus
 from archdiscov.models.network_path import NetworkBlocker
 

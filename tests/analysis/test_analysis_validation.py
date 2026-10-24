@@ -4,11 +4,11 @@ from copy import deepcopy
 import pytest
 
 from archdiscov.models.analysis.results import AnalysisResult
+from archdiscov.models.snapshot_access import SnapshotAccess, upgrade_snapshot
 from archdiscov.services.analysis_validation import (
     AnalysisValidationError,
     validate_analysis_result,
 )
-from archdiscov.services.snapshot_access import SnapshotAccess, upgrade_snapshot
 from archdiscov.services.snapshots import load_snapshot
 from tests.paths import FIXTURES_ROOT
 

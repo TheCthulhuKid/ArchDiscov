@@ -6,7 +6,7 @@ from archdiscov.graph import CoverageKey, GraphIndex
 from archdiscov.models.cloud.contracts import CloudOperationCoverage
 from archdiscov.models.cloud.scope import AwsScope, AzureScope
 from archdiscov.models.enums import AwsPartition, CloudPlatform, CoverageStatus
-from archdiscov.services.snapshot_access import SnapshotAccess, upgrade_snapshot
+from archdiscov.models.snapshot_access import SnapshotAccess, upgrade_snapshot
 from archdiscov.services.snapshots import load_snapshot
 from tests.paths import FIXTURES_ROOT
 

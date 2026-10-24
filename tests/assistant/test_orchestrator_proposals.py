@@ -14,7 +14,7 @@ from archdiscov.assistant.runs import (
 )
 from archdiscov.assistant.tools.contracts import IdKind
 from archdiscov.assistant.tools.record import ReturnedIds
-from tests.assistant.test_orchestrator import _calls, _run, _text
+from tests.support.scripted_turns import calls_turn, run_turns, text_turn
 
 SECRET = "sk-ant-api03-SECRETvalue0123456789abcdefXYZ"
 
@@ -34,8 +34,8 @@ def _submit(arguments: dict | None, call_id: str = "answer") -> tuple[str, str, 
 
 
 def test_a_proposal_after_tool_use_ends_the_run() -> None:
-    result, provider, session = _run(
-        [_calls(("c1", "search_resources", {})), _calls(_submit(_proposal()))]
+    result, provider, session = run_turns(
+        [calls_turn(("c1", "search_resources", {})), calls_turn(_submit(_proposal()))]
     )
     assert result.outcome == Proposed(proposal=AnswerProposal.model_validate(_proposal()))
     messages = result.conversation.messages
@@ -48,7 +48,7 @@ def test_a_proposal_after_tool_use_ends_the_run() -> None:
 
 
 def test_a_proposal_without_tool_use_ends_the_run() -> None:
-    result, _, session = _run([_calls(_submit(_proposal()))])
+    result, _, session = run_turns([calls_turn(_submit(_proposal()))])
     assert isinstance(result.outcome, Proposed)
     assert session.record.returned() == ReturnedIds()
 
@@ -65,7 +65,7 @@ def test_submit_answer_is_never_dispatched_as_a_tool() -> None:
             }
         ],
     )
-    result, _, session = _run([_calls(_submit(proposal))])
+    result, _, session = run_turns([calls_turn(_submit(proposal))])
     assert result.outcome.proposal.conclusions[0].citations[0].resource_ids == (resource,)
     assert not session.record.returned().contains(
         IdKind.RESOURCE, session.index.snapshot_id, resource
@@ -75,11 +75,11 @@ def test_submit_answer_is_never_dispatched_as_a_tool() -> None:
 @pytest.mark.parametrize(
     "turn,reason",
     [
-        (_calls(_submit(None)), MalformedOutputReason.PROPOSAL_MALFORMED),
-        (_calls(_submit({"status": "supported"})), MalformedOutputReason.PROPOSAL_INVALID),
-        (_calls(_submit(_proposal(confidence=1))), MalformedOutputReason.PROPOSAL_INVALID),
+        (calls_turn(_submit(None)), MalformedOutputReason.PROPOSAL_MALFORMED),
+        (calls_turn(_submit({"status": "supported"})), MalformedOutputReason.PROPOSAL_INVALID),
+        (calls_turn(_submit(_proposal(confidence=1))), MalformedOutputReason.PROPOSAL_INVALID),
         (
-            _calls(
+            calls_turn(
                 _submit(_proposal()), ("c2", "search_resources", {}), ignore_request_limits=True
             ),
             MalformedOutputReason.PROPOSAL_MIXED,
@@ -88,36 +88,38 @@ def test_submit_answer_is_never_dispatched_as_a_tool() -> None:
     ids=["malformed", "missing-fields", "unknown-field", "mixed"],
 )
 def test_unusable_proposals_are_malformed_output(turn: dict, reason: MalformedOutputReason) -> None:
-    result, _, session = _run([turn])
+    result, _, session = run_turns([turn])
     assert result.outcome == MalformedOutput(reason=reason)
     assert session.record.returned() == ReturnedIds()
     assert result.transcript.turns[0].tool_calls == ()
 
 
 def test_a_reused_call_id_on_submit_is_an_invalid_conversation() -> None:
-    result, _, _ = _run(
-        [_calls(("c1", "search_resources", {})), _calls(_submit(_proposal(), "c1"))]
+    result, _, _ = run_turns(
+        [calls_turn(("c1", "search_resources", {})), calls_turn(_submit(_proposal(), "c1"))]
     )
     assert result.outcome == MalformedOutput(reason=MalformedOutputReason.CONVERSATION_INVALID)
 
 
 def test_text_answers_are_still_answers_not_proposals() -> None:
-    result, _, _ = _run([_text("Plain text.")])
+    result, _, _ = run_turns([text_turn("Plain text.")])
     assert result.outcome == Answered(
         message=AssistantMessage(text="Plain text."), stop_reason="end"
     )
 
 
 def test_submitting_does_not_count_against_the_tool_call_limit() -> None:
-    result, _, _ = _run(
-        [_calls(("c1", "search_resources", {})), _calls(_submit(_proposal()))],
+    result, _, _ = run_turns(
+        [calls_turn(("c1", "search_resources", {})), calls_turn(_submit(_proposal()))],
         limits=RunLimits(max_tool_calls=1),
     )
     assert isinstance(result.outcome, Proposed)
 
 
 def test_without_the_answer_tool_submit_answer_is_an_unknown_tool() -> None:
-    result, provider, _ = _run([_calls(_submit(_proposal())), _text()], offer_answer_tool=False)
+    result, provider, _ = run_turns(
+        [calls_turn(_submit(_proposal())), text_turn()], offer_answer_tool=False
+    )
     assert "submit_answer" not in [tool.name for tool in provider.requests[0].request.tools]
     assert isinstance(result.outcome, Answered)
     error = provider.requests[1].request.conversation.messages[-1].results[0]
@@ -133,7 +135,7 @@ def test_proposal_transcripts_never_contain_secrets() -> None:
         summary=f"Mentions {SECRET}.",
         explanation=f"Authorization: Bearer {SECRET}",
     )
-    result, _, _ = _run([_calls(_submit(proposal), text=f"Submitting {SECRET}")])
+    result, _, _ = run_turns([calls_turn(_submit(proposal), text=f"Submitting {SECRET}")])
     assert SECRET not in result.transcript.model_dump_json()
     assert result.outcome.proposal.summary == f"Mentions {SECRET}."
 
@@ -144,8 +146,8 @@ def test_a_registered_tool_named_submit_answer_is_refused_before_any_request() -
 
     clash = ToolDefinition("submit_answer", "Clashes.", ALL_TOOLS[0].input_model, ALL_TOOLS[0].run)
     with pytest.raises(ValueError, match="submit_answer"):
-        _run([_text()], registry=ToolRegistry([clash]))
-    result, _, _ = _run([_text()], registry=ToolRegistry([clash]), offer_answer_tool=False)
+        run_turns([text_turn()], registry=ToolRegistry([clash]))
+    result, _, _ = run_turns([text_turn()], registry=ToolRegistry([clash]), offer_answer_tool=False)
     assert isinstance(result.outcome, Answered)
 
 
@@ -169,14 +171,18 @@ def test_answer_contracts_do_not_load_the_tool_session() -> None:
 
 @pytest.mark.parametrize("arguments", [None, {"status": "supported"}], ids=["malformed", "invalid"])
 def test_an_unusable_proposal_stays_in_the_conversation_for_repair(arguments) -> None:
-    result, _, _ = _run([_calls(_submit(arguments))])
+    result, _, _ = run_turns([calls_turn(_submit(arguments))])
     assert isinstance(result.outcome, MalformedOutput)
     assert result.conversation.messages[-1].tool_calls[0].name == "submit_answer"
 
 
 def test_a_mixed_proposal_is_not_added_to_the_conversation() -> None:
-    result, _, _ = _run(
-        [_calls(_submit(_proposal()), ("c2", "search_resources", {}), ignore_request_limits=True)]
+    result, _, _ = run_turns(
+        [
+            calls_turn(
+                _submit(_proposal()), ("c2", "search_resources", {}), ignore_request_limits=True
+            )
+        ]
     )
     assert result.outcome == MalformedOutput(reason=MalformedOutputReason.PROPOSAL_MIXED)
     assert [message.role for message in result.conversation.messages] == ["system", "user"]

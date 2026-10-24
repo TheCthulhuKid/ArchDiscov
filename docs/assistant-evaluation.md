@@ -146,7 +146,7 @@ if every check does:
 |---|---|
 | `cited` | every conclusion has citations and cites each finding it shows |
 | `qualified` | a `supported` answer rests only on supported findings and no recorded differences, and any weaker status shows qualifications |
-| `quoted` | no imported text the answer quotes (quoted data, finding summaries, limitation messages) of at least 16 characters appears, ignoring case and spacing, in its statements, qualifications, failure explanation, or narrative |
+| `quoted` | no imported text the answer quotes (quoted data, finding summaries, limitation messages) appears, ignoring case and spacing, in its statements, qualifications, failure explanation, or narrative: no whole value of at least 16 characters, and no stretch of a longer value that the narrative check finds (any 31 characters of a value of at least 24) |
 
 `citations_valid` is true for an answer, false for an answer rejected for an ID it may not
 cite (`answer_side_unavailable`, `answer_unknown_id`, `answer_other_snapshot_id`,

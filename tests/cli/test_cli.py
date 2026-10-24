@@ -167,6 +167,7 @@ def test_readable_file_evidence_without_operation_coverage(tmp_path: Path) -> No
     "kind,code,exit_code",
     [
         ("json", "invalid_json", 2),
+        ("duplicate", "invalid_json", 2),
         ("encoding", "invalid_encoding", 2),
         ("version", "unsupported_schema_version", 2),
         ("reference", "invalid_snapshot", 2),
@@ -183,6 +184,8 @@ def test_commands_report_safe_input_errors(
     source = tmp_path / "bad.json"
     if kind == "json":
         source.write_text('{"secret":"never-disclose",')
+    elif kind == "duplicate":
+        source.write_text('{"secret":"never-disclose","secret":"never-disclose"}')
     elif kind == "encoding":
         source.write_bytes(b"\xff")
     elif kind == "directory":

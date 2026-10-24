@@ -1,4 +1,3 @@
-from copy import deepcopy
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -12,32 +11,12 @@ from archdiscov.ingestion.configuration_common import ServiceCollection
 from archdiscov.ingestion.functions import collect_lambda
 from archdiscov.ingestion.requests import AwsAccountConfig
 from archdiscov.models.architecture import ArchitectureSnapshot
-from archdiscov.models.enums import AwsRegion, CoverageStatus, EvidenceValueStatus
+from archdiscov.models.enums import CoverageStatus, EvidenceValueStatus
 from archdiscov.models.resources.functions import LambdaFunction
 from archdiscov.services import load_snapshot, save_snapshot
+from tests.support.lambda_data import ACCOUNT, ARN, REGION, ROLE, SECRET, Client, configuration
 
-ACCOUNT = "123456789012"
-REGION = AwsRegion.US_EAST_1
-ARN = f"arn:aws:lambda:{REGION}:{ACCOUNT}:function:worker"
-ROLE = f"arn:aws:iam::{ACCOUNT}:role/worker"
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
-SECRET = "injected-private-value"
-
-
-def configuration(arn=ARN):
-    return {
-        "FunctionArn": arn,
-        "FunctionName": arn.rsplit(":", 1)[-1],
-        "Role": ROLE,
-        "Runtime": "python3.13",
-        "PackageType": "Zip",
-        "State": "Active",
-        "LastUpdateStatus": "Successful",
-        "MemorySize": 256,
-        "Timeout": 30,
-        "Architectures": ["arm64"],
-        "VpcConfig": {"VpcId": "vpc-a", "SubnetIds": ["subnet-a"], "SecurityGroupIds": ["sg-a"]},
-    }
 
 
 class Session:
@@ -48,26 +27,6 @@ class Session:
         assert name == "lambda"
         assert kwargs["region_name"] == REGION
         return self.api
-
-
-class Client:
-    def __init__(self, pages=None, detail=None):
-        self.pages = [{"Functions": [configuration()]}] if pages is None else pages
-        self.detail = configuration() if detail is None else detail
-        self.calls = []
-
-    def list_functions(self, **params):
-        self.calls.append(("list_functions", params))
-        value = self.pages.pop(0)
-        if isinstance(value, Exception):
-            raise value
-        return deepcopy(value)
-
-    def get_function_configuration(self, **params):
-        self.calls.append(("get_function_configuration", params))
-        if isinstance(self.detail, Exception):
-            raise self.detail
-        return deepcopy(self.detail)
 
 
 def collect(client):

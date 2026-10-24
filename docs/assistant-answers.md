@@ -86,9 +86,14 @@ otherwise. Without cited findings, recorded differences allow at most `partial`,
 configuration alone only `insufficient_evidence`. Every limitation of a cited finding must
 be acknowledged. A cited finding may not leave out a returned finding from the same result,
 about the same primary resource, that reaches a different status or network decision.
-Narrative may not repeat imported text of at least `MIN_REPEATED_TEXT_CHARS` characters
-(compared case-folded with whitespace collapsed, by fingerprint) or name a recorded ID of
-at least `MIN_NAMED_ID_CHARS` characters that no conclusion cites.
+Narrative may not repeat imported text, whole or in part, or name a recorded ID of at least
+`MIN_NAMED_ID_CHARS` characters that no conclusion cites. Imported text is compared
+case-folded with whitespace collapsed, by fingerprints of windows of
+`MIN_REPEATED_TEXT_CHARS` characters taken every `FINGERPRINT_STRIDE` (8) characters of each
+value at least that long. So a narrative is rejected when it repeats a whole such value, or
+any stretch of 31 characters of one; a stretch as short as 24 characters is found when it
+lines up with a recorded window. Values shorter than a window, such as a resource named
+`web`, may be named freely.
 
 | Code | Check | Message |
 |---|---|---|
@@ -257,7 +262,8 @@ comparison_result_paths=)` in `services/ask.py` (with `ask_question_async`) is w
 `invalid_question` (2) before anything else, then builds the provider from the
 configuration before reading any snapshot, loads the snapshots and any saved comparisons
 of them into a tool session, takes the run limits from the configuration, and runs the
-answer service. Its `AskResult` holds the `AnswerResult` and a `RunSummary`: each
+answer service. Its `AskResult` (in `assistant/ask_results.py`, beside the answer
+contracts) holds the `AnswerResult` and a `RunSummary`: each
 snapshot as rendered, the provider kind and model, the limits, and the tool usage from the
 transcript (provider requests, tool calls by name, whether the repair was requested, and
 token usage). Cancelling raises `AskCancelled`, whose `result` explains the cancelled run;

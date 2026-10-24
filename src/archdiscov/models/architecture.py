@@ -266,9 +266,9 @@ class Evidence(Model):
     def require_present_value(cls, data: Any) -> Any:
         if isinstance(data, dict):
             status = data.get("value_status", EvidenceValueStatus.PRESENT)
-            if status in (EvidenceValueStatus.PRESENT, EvidenceValueStatus.REDACTED):
-                if "value" not in data:
-                    raise ValueError("present or redacted evidence requires an explicit value")
+            present = status in (EvidenceValueStatus.PRESENT, EvidenceValueStatus.REDACTED)
+            if present and "value" not in data:
+                raise ValueError("present or redacted evidence requires an explicit value")
         return data
 
     @model_validator(mode="after")

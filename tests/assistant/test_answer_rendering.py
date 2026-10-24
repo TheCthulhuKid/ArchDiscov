@@ -39,18 +39,19 @@ from archdiscov.assistant.tools.session import ToolSession
 from archdiscov.assistant.tools.views import FindingView, evidence_view
 from archdiscov.models.enums import AnalyzerKind, SnapshotSourceKind
 from archdiscov.services.comparison import compare_snapshots
-from archdiscov.services.snapshots import load_snapshot, validate_snapshot
-from tests.assistant.test_answer_claims import (
-    INJECTION,
-    _analysis,
-    _call,
-    _expected_status,
-    _proposal,
-)
-from tests.assistant.test_answer_validation import SECRET
-from tests.ingestion.terraform.test_terraform_plan import FIXTURE as PLAN
-from tests.ingestion.terraform.test_terraform_plan import collect
+from archdiscov.services.snapshots import load_snapshot
 from tests.paths import FIXTURES_ROOT
+from tests.support.answer_claims import (
+    INJECTION,
+    analyzed_findings,
+    cited_proposal,
+    dispatch_tool,
+    expected_status,
+)
+from tests.support.ask_examples import renamed_snapshots
+from tests.support.secrets import SECRET
+from tests.support.terraform_data import FIXTURE as PLAN
+from tests.support.terraform_data import collect
 
 SNAPSHOTS = FIXTURES_ROOT / "snapshots"
 OWNERSHIP_SNAPSHOT = FIXTURES_ROOT / "analysis" / "ownership-snapshot.json"
@@ -75,7 +76,7 @@ def _quoted(rendered: RenderedAnswer) -> list[str]:
 
 def _configuration(session: ToolSession, resource: str) -> dict:
     """A configuration conclusion citing every evidence item an inspection returned."""
-    inspected = _call(session, "inspect_resource", resource_id=resource)
+    inspected = dispatch_tool(session, "inspect_resource", resource_id=resource)
     evidence = [item["evidence_id"] for item in inspected["evidence"]["items"]]
     return {
         "kind": "recorded_configuration",
@@ -91,9 +92,9 @@ def _configuration(session: ToolSession, resource: str) -> dict:
 def test_every_analyzer_renders_the_views_it_delivered(
     kind: AnalyzerKind, coverage: str | None
 ) -> None:
-    session, delivered = _analysis(kind, coverage)
-    status = _expected_status(delivered)
-    rendered = _render(_proposal(session, delivered, status=status), session)
+    session, delivered = analyzed_findings(kind, coverage)
+    status = expected_status(delivered)
+    rendered = _render(cited_proposal(session, delivered, status=status), session)
     (conclusion,) = rendered.conclusions
     views = tuple(FindingView.model_validate(item) for item in delivered)
     assert conclusion.findings == views
@@ -118,15 +119,15 @@ def test_every_analyzer_renders_the_views_it_delivered(
 
 
 def test_failed_coverage_qualifies_the_answer() -> None:
-    session, delivered = _analysis(AnalyzerKind.OWNERSHIP, "failed")
-    rendered = _render(_proposal(session, delivered, status="partial"), session)
+    session, delivered = analyzed_findings(AnalyzerKind.OWNERSHIP, "failed")
+    rendered = _render(cited_proposal(session, delivered, status="partial"), session)
     for qualification in (PARTIAL_ANSWER, QUALIFIED_FINDING, LIMITED_COVERAGE):
         assert qualification in rendered.qualifications
 
 
 def test_insufficient_findings_are_worded_as_what_was_checked() -> None:
-    session, delivered = _analysis(AnalyzerKind.DATABASE_ACCESS, "failed")
-    rendered = _render(_proposal(session, delivered, status="insufficient_evidence"), session)
+    session, delivered = analyzed_findings(AnalyzerKind.DATABASE_ACCESS, "failed")
+    rendered = _render(cited_proposal(session, delivered, status="insufficient_evidence"), session)
     statements = rendered.conclusions[0].statements
     assert all("found insufficient evidence to conclude" in item for item in statements)
     reason = INSUFFICIENT_REASONS[InsufficientReason.NO_APPLICABLE_FINDINGS]
@@ -139,11 +140,11 @@ def test_insufficient_findings_are_worded_as_what_was_checked() -> None:
 @pytest.mark.parametrize("reason", list(InsufficientReason))
 def test_insufficient_answers_say_what_was_checked(reason: InsufficientReason) -> None:
     session = ToolSession.from_paths(OWNERSHIP_SNAPSHOT)
-    empty = _proposal(session, [], status="insufficient_evidence", insufficient_reason=reason)
+    empty = cited_proposal(session, [], status="insufficient_evidence", insufficient_reason=reason)
     rendered = _render(empty, session)
     assert rendered.conclusions == ()
     assert "The run retrieved no analyzer findings." in rendered.qualifications
-    _call(session, "run_analyzer", kind="ownership")
+    dispatch_tool(session, "run_analyzer", kind="ownership")
     rendered = _render(empty, session)
     assert rendered.qualifications == (
         INSUFFICIENT_REASONS[reason],
@@ -158,7 +159,7 @@ def test_configuration_renders_cited_evidence_and_resources() -> None:
     session = ToolSession.from_paths(OWNERSHIP_SNAPSHOT)
     resource = session.index.resource_ids[0]
     conclusion = _configuration(session, resource)
-    proposal = _proposal(session, [], status="insufficient_evidence", conclusions=[conclusion])
+    proposal = cited_proposal(session, [], status="insufficient_evidence", conclusions=[conclusion])
     (rendered,) = _render(proposal, session).conclusions
     evidence = conclusion["citations"][0]["evidence_ids"]
     assert rendered.findings == () and rendered.status is None
@@ -180,7 +181,7 @@ def test_planned_resources_and_declared_snapshots_are_shown_as_such() -> None:
         for resource in session.index.resource_ids
         if session.index.get_resource(resource).lifecycle is not None
     )
-    proposal = _proposal(
+    proposal = cited_proposal(
         session,
         [],
         status="insufficient_evidence",
@@ -205,7 +206,7 @@ def test_planned_resources_and_declared_snapshots_are_shown_as_such() -> None:
 def test_every_declared_source_kind_qualifies_the_answer(kind: SnapshotSourceKind) -> None:
     session = ToolSession.from_paths(OWNERSHIP_SNAPSHOT)
     session.record.record_snapshot(session.index.snapshot_id, kind, session.index.collection_window)
-    proposal = _proposal(
+    proposal = cited_proposal(
         session,
         [],
         status="insufficient_evidence",
@@ -220,17 +221,6 @@ def test_every_declared_source_kind_qualifies_the_answer(kind: SnapshotSourceKin
 # ---- differences -------------------------------------------------------------------
 
 
-def _renamed() -> tuple:
-    """The ownership snapshot, and a copy whose first resource has a new name."""
-    left = load_snapshot(OWNERSHIP_SNAPSHOT)
-    data = left.model_dump(mode="json")
-    data["snapshot_id"] = "00000000-0000-4000-8000-0000000000cc"
-    for evidence in data["evidence"].values():
-        evidence["snapshot_id"] = data["snapshot_id"]
-    next(iter(data["regions"].values()))["resources"][0]["name"] = "renamed"
-    return left, validate_snapshot(data)
-
-
 def _difference(session: ToolSession) -> AnswerProposal:
     """A difference citing every resource on each side, as if both had been returned."""
     citations = []
@@ -241,7 +231,7 @@ def _difference(session: ToolSession) -> AnswerProposal:
         {"side": "primary", "source_kind": session.index.source_kind.value},
         {"side": "comparison", "source_kind": session.comparison_index.source_kind.value},
     ]
-    return _proposal(
+    return cited_proposal(
         session,
         [],
         status="partial",
@@ -251,7 +241,7 @@ def _difference(session: ToolSession) -> AnswerProposal:
 
 
 def test_differences_render_the_saved_comparison_entries() -> None:
-    left, right = _renamed()
+    left, right = renamed_snapshots()
     comparison = compare_snapshots(left, right)
     session = ToolSession(left, comparison=right, comparisons=[comparison])
     rendered = _render(_difference(session), session)
@@ -287,7 +277,7 @@ def test_a_snapshot_compared_with_itself_keeps_both_sides() -> None:
 
 
 def test_differences_without_a_saved_entry_say_so() -> None:
-    left, right = _renamed()
+    left, right = renamed_snapshots()
     session = ToolSession(left, comparison=right)
     rendered = _render(_difference(session), session)
     assert NO_COMPARISON_ENTRY in rendered.conclusions[0].statements
@@ -295,7 +285,7 @@ def test_differences_without_a_saved_entry_say_so() -> None:
 
 
 def test_comparison_entries_and_differences_are_bounded(monkeypatch) -> None:
-    left, right = _renamed()
+    left, right = renamed_snapshots()
     comparison = compare_snapshots(left, right)
     (pair,) = comparison.matched
     many = pair.model_copy(update={"differences": pair.differences * (MAX_RENDERED_ENTRIES + 3)})
@@ -314,11 +304,11 @@ def test_comparison_entries_and_differences_are_bounded(monkeypatch) -> None:
 
 
 def test_fabricated_narrative_never_becomes_a_conclusion() -> None:
-    session, delivered = _analysis(AnalyzerKind.OWNERSHIP)
-    proposal = _proposal(
+    session, delivered = analyzed_findings(AnalyzerKind.OWNERSHIP)
+    proposal = cited_proposal(
         session,
         delivered,
-        status=_expected_status(delivered),
+        status=expected_status(delivered),
         summary=FABRICATED,
         explanation=f"{FABRICATED} Every other resource is also exposed.",
     )
@@ -331,7 +321,7 @@ def test_fabricated_narrative_never_becomes_a_conclusion() -> None:
 
 def test_secrets_in_the_narrative_are_redacted() -> None:
     session = ToolSession.from_paths(OWNERSHIP_SNAPSHOT)
-    proposal = _proposal(
+    proposal = cited_proposal(
         session,
         [],
         status="insufficient_evidence",
@@ -370,7 +360,7 @@ def test_injected_imported_text_appears_only_as_quoted_data(injected: ToolSessio
         if injected.index.get_resource(resource).name == INJECTION
         and injected.index.resource_evidence_ids(resource)
     )
-    proposal = _proposal(
+    proposal = cited_proposal(
         injected,
         [],
         status="insufficient_evidence",
@@ -386,8 +376,8 @@ def test_injected_imported_text_appears_only_as_quoted_data(injected: ToolSessio
 
 
 def test_failed_runs_and_undelivered_findings_are_not_rendered_as_answers() -> None:
-    session, delivered = _analysis(AnalyzerKind.OWNERSHIP)
-    proposal = _proposal(session, delivered, status=_expected_status(delivered))
+    session, delivered = analyzed_findings(AnalyzerKind.OWNERSHIP)
+    proposal = cited_proposal(session, delivered, status=expected_status(delivered))
     with pytest.raises(ValueError, match="failure"):
         render_answer(proposal, session, AnswerOutcome(status="failed", failure="cancelled"))
     fresh = ToolSession(session.snapshot(session.index.snapshot_id))
@@ -396,9 +386,9 @@ def test_failed_runs_and_undelivered_findings_are_not_rendered_as_answers() -> N
 
 
 def test_rendering_does_not_change_the_run_record() -> None:
-    session, delivered = _analysis(AnalyzerKind.OWNERSHIP)
+    session, delivered = analyzed_findings(AnalyzerKind.OWNERSHIP)
     before = session.record.context()
     render_answer(
-        _proposal(session, delivered, status=_expected_status(delivered)), session, ANSWERED
+        cited_proposal(session, delivered, status=expected_status(delivered)), session, ANSWERED
     )
     assert session.record.context() == before

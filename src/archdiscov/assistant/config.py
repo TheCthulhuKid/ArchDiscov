@@ -26,6 +26,7 @@ from pydantic import (
     model_validator,
 )
 
+from archdiscov.core.strict_json import FileTooLargeError, read_bounded
 from archdiscov.models.enums import AwsRegion
 from archdiscov.models.resource_base import NonEmptyString
 from archdiscov.models.sanitization import is_sensitive_path
@@ -298,12 +299,11 @@ def parse_provider_config(data: Mapping[str, Any]) -> ProviderConfig:
 def load_provider_config(path: Path) -> ProviderConfig:
     """Read a bounded TOML file and validate it."""
     try:
-        with path.open("rb") as file:
-            content = file.read(MAX_CONFIG_BYTES + 1)
+        content = read_bounded(path, MAX_CONFIG_BYTES)
+    except FileTooLargeError as exc:
+        raise ProviderConfigError(ProviderConfigErrorCode.TOO_LARGE, path=path) from exc
     except OSError as exc:
         raise ProviderConfigError(ProviderConfigErrorCode.UNREADABLE, path=path) from exc
-    if len(content) > MAX_CONFIG_BYTES:
-        raise ProviderConfigError(ProviderConfigErrorCode.TOO_LARGE, path=path)
     try:
         data = tomllib.loads(content.decode())
     except (UnicodeDecodeError, tomllib.TOMLDecodeError, RecursionError) as exc:

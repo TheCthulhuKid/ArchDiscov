@@ -12,9 +12,9 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from archdiscov.graph.dependencies import DependencyEdge
 from archdiscov.models.analysis.references import AnalysisLimitation
 from archdiscov.models.architecture import Vpc
+from archdiscov.models.edges import DependencyEdge
 from archdiscov.models.enums import AnalyzerErrorCode, AttachmentKind
 from archdiscov.models.resources.database import DbCluster, DbInstance, DbSubnetGroup
 

@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from copy import deepcopy
 
 import pytest
@@ -7,8 +8,8 @@ from pydantic_core import PydanticCustomError
 
 from archdiscov.models.architecture import ArchitectureSnapshot
 from archdiscov.models.cloud.snapshot import CloudSnapshot
+from archdiscov.models.snapshot_access import upgrade_snapshot
 from archdiscov.models.validation_errors import SAFE_VALIDATION_MESSAGES, validation_error
-from archdiscov.services.snapshot_access import upgrade_snapshot
 from archdiscov.services.snapshots import (
     SnapshotValidationError,
     _safe_validation_message,
@@ -158,76 +159,92 @@ def test_shared_checks_keep_private_details_but_publish_only_codes(
     assert isinstance(public.value.__cause__, ValidationError)
 
 
-@pytest.mark.parametrize(
-    "defect,code",
-    [
-        ("source_platform", "cloud_snapshot_source_platform_mismatch"),
-        ("coverage_scope", "cloud_snapshot_coverage_scope_mismatch"),
-        ("uncovered_location", "cloud_snapshot_locations_uncovered"),
-        ("scope_coverage", "cloud_snapshot_scope_coverage_required"),
-        ("placement", "cloud_snapshot_resource_location_mismatch"),
-        ("evidence_context", "cloud_snapshot_evidence_context_mismatch"),
-        ("aws_evidence", "cloud_snapshot_aws_evidence_scope_required"),
-        ("lifecycle", "cloud_snapshot_lifecycle_source_invalid"),
-        ("dependency_source", "cloud_snapshot_dependency_source_unknown"),
-        ("dependency_target", "cloud_snapshot_dependency_target_unknown"),
-        ("dependency_location", "cloud_snapshot_dependency_location_mismatch"),
-        ("native_type", "azure_resource_native_type_mismatch"),
-        ("duplicate", "snapshot_duplicate_resource"),
-        ("evidence_snapshot", "snapshot_evidence_snapshot_mismatch"),
-        ("evidence_owner", "snapshot_evidence_owner_unknown"),
-        ("citation_owner", "snapshot_evidence_citation_owner_mismatch"),
-        ("unresolved_owner", "snapshot_unresolved_resource_unknown"),
-        ("collection_window", "snapshot_collection_window_invalid"),
-        ("operation_window", "snapshot_operation_window_invalid"),
-    ],
-)
-def test_cloud_and_azure_validators_emit_registered_codes(defect: str, code: str) -> None:
+ROOT = ("regions", "eastus", "resources", 0)
+ADDRESS = ("evidence", "network-address")
+OTHER_ID = "22222222-2222-2222-2222-222222222222"
+
+
+def _set(*path: str | int, value: object) -> Callable[[dict], None]:
+    """A defect that sets the value at `path` in the snapshot data."""
+
+    def apply(data: dict) -> None:
+        *parents, last = path
+        for key in parents:
+            data = data[key]
+        data[last] = value
+
+    return apply
+
+
+def _other_subscription(data: dict) -> None:
+    data["coverage"]["scope"]["subscription_id"] = OTHER_ID
+    for operation in data["coverage"]["operations"]:
+        operation["scope"] = deepcopy(data["coverage"]["scope"])
+
+
+def _scope_resource(data: dict) -> None:
+    data["scope_resources"] = [deepcopy(data["regions"]["eastus"]["resources"][0])]
+
+
+def _other_native_type(data: dict) -> None:
+    identity = data["regions"]["eastus"]["resources"][0]["identity"]
+    identity["native_type"] = "Microsoft.Network/other"
+    identity["physical_id"] = identity["physical_id"].replace(
+        "/virtualNetworks/network", "/other/network"
+    )
+
+
+def _duplicate(data: dict) -> None:
+    resources = data["regions"]["eastus"]["resources"]
+    resources.append(deepcopy(resources[0]))
+
+
+# One defect of the Azure fixture per validation code it must raise.
+DEFECTS: dict[str, Callable[[dict], None]] = {
+    "cloud_snapshot_source_platform_mismatch": _set(
+        "source", value={"platform": "aws", "provenance": {"kind": "aws"}}
+    ),
+    "cloud_snapshot_coverage_scope_mismatch": _other_subscription,
+    "cloud_snapshot_locations_uncovered": _set("regions", "westus", value={"resources": []}),
+    "cloud_snapshot_scope_coverage_required": _scope_resource,
+    "cloud_snapshot_resource_location_mismatch": _set(
+        *ROOT, "identity", "location", value="westus"
+    ),
+    "cloud_snapshot_evidence_context_mismatch": _set(
+        *ADDRESS, "service", value="Microsoft.Compute"
+    ),
+    "cloud_snapshot_aws_evidence_scope_required": _set(*ADDRESS, "source", value="aws"),
+    "cloud_snapshot_lifecycle_source_invalid": _set(
+        *ROOT, "lifecycle", value={"actions": ["create"]}
+    ),
+    "cloud_snapshot_dependency_source_unknown": _set("dependencies", 0, "source_id", value=SECRET),
+    "cloud_snapshot_dependency_target_unknown": _set(
+        "dependencies", 0, "target", "resource_id", value=SECRET
+    ),
+    "cloud_snapshot_dependency_location_mismatch": _set(
+        "dependencies", 0, "location", value="westus"
+    ),
+    "azure_resource_native_type_mismatch": _other_native_type,
+    "snapshot_duplicate_resource": _duplicate,
+    "snapshot_evidence_snapshot_mismatch": _set(*ADDRESS, "snapshot_id", value=OTHER_ID),
+    "snapshot_evidence_owner_unknown": _set(*ADDRESS, "resource_id", value=SECRET),
+    "snapshot_evidence_citation_owner_mismatch": _set(*ROOT, "evidence_ids", value=["vm-size"]),
+    "snapshot_unresolved_resource_unknown": _set(
+        "coverage", "operations", 1, "unresolved_values", 0, "resource_id", value=SECRET
+    ),
+    "snapshot_collection_window_invalid": _set(
+        "collection_completed_at", value="2020-01-01T00:00:00Z"
+    ),
+    "snapshot_operation_window_invalid": _set(
+        "collection_started_at", value="2026-10-13T08:00:01Z"
+    ),
+}
+
+
+@pytest.mark.parametrize("code", list(DEFECTS))
+def test_cloud_and_azure_validators_emit_registered_codes(code: str) -> None:
     data = json.loads((FIXTURES / "azure.json").read_text())
-    root = data["regions"]["eastus"]["resources"][0]
-    if defect == "source_platform":
-        data["source"] = {"platform": "aws", "provenance": {"kind": "aws"}}
-    elif defect == "coverage_scope":
-        data["coverage"]["scope"]["subscription_id"] = "22222222-2222-2222-2222-222222222222"
-        for operation in data["coverage"]["operations"]:
-            operation["scope"] = deepcopy(data["coverage"]["scope"])
-    elif defect == "uncovered_location":
-        data["regions"]["westus"] = {"resources": []}
-    elif defect == "scope_coverage":
-        data["scope_resources"] = [deepcopy(root)]
-    elif defect == "placement":
-        root["identity"]["location"] = "westus"
-    elif defect == "evidence_context":
-        data["evidence"]["network-address"]["service"] = "Microsoft.Compute"
-    elif defect == "aws_evidence":
-        data["evidence"]["network-address"]["source"] = "aws"
-    elif defect == "lifecycle":
-        root["lifecycle"] = {"actions": ["create"]}
-    elif defect == "dependency_source":
-        data["dependencies"][0]["source_id"] = SECRET
-    elif defect == "dependency_target":
-        data["dependencies"][0]["target"]["resource_id"] = SECRET
-    elif defect == "dependency_location":
-        data["dependencies"][0]["location"] = "westus"
-    elif defect == "native_type":
-        root["identity"]["native_type"] = "Microsoft.Network/other"
-        root["identity"]["physical_id"] = root["identity"]["physical_id"].replace(
-            "/virtualNetworks/network", "/other/network"
-        )
-    elif defect == "duplicate":
-        data["regions"]["eastus"]["resources"].append(deepcopy(root))
-    elif defect == "evidence_snapshot":
-        data["evidence"]["network-address"]["snapshot_id"] = "22222222-2222-2222-2222-222222222222"
-    elif defect == "evidence_owner":
-        data["evidence"]["network-address"]["resource_id"] = SECRET
-    elif defect == "citation_owner":
-        root["evidence_ids"] = ["vm-size"]
-    elif defect == "unresolved_owner":
-        data["coverage"]["operations"][1]["unresolved_values"][0]["resource_id"] = SECRET
-    elif defect == "collection_window":
-        data["collection_completed_at"] = "2020-01-01T00:00:00Z"
-    else:
-        data["collection_started_at"] = "2026-10-13T08:00:01Z"
+    DEFECTS[code](data)
     with pytest.raises(ValidationError) as direct:
         CloudSnapshot.model_validate(data)
     assert direct.value.errors()[0]["type"] == code

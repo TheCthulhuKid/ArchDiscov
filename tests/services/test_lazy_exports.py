@@ -9,7 +9,8 @@ from tests.paths import PROJECT_ROOT
 def test_every_export_resolves_from_its_module() -> None:
     assert sorted(services.__all__) == sorted(services._EXPORTS)
     for name, module in services._EXPORTS.items():
-        expected = getattr(importlib.import_module(f"archdiscov.services.{module}"), name)
+        path = module if "." in module else f"archdiscov.services.{module}"
+        expected = getattr(importlib.import_module(path), name)
         assert getattr(services, name) is expected, name
     assert set(services.__all__) <= set(dir(services))
 

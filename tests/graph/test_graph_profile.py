@@ -1,3 +1,4 @@
+import itertools
 import runpy
 
 import pytest
@@ -21,7 +22,7 @@ def test_profile_selects_leaf_by_containment_not_identifier_order(monkeypatch, s
         if shape == "wide":
             nodes[0].children = nodes[1:]
         else:
-            for parent, child in zip(nodes, nodes[1:]):
+            for parent, child in itertools.pairwise(nodes):
                 parent.children = [child]
         region.resources = [nodes[0]]
         return snapshot

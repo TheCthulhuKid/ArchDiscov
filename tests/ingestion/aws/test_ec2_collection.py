@@ -1,5 +1,4 @@
 import json
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -18,67 +17,14 @@ from archdiscov.services import (
 )
 from tests.support import aws_fakes as fakes
 from tests.support.aws_fakes import Clock, Session, request
+from tests.support.ec2_data import SUBNETS, VPC, default_pages, ec2_context
 
 ACCOUNT = "123456789012"
 OTHER = "210987654321"
-VPC = "vpc-1"
-SUBNET = "subnet-1"
-INSTANCE = "i-1"
-
-VPCS = [
-    {
-        "VpcId": VPC,
-        "CidrBlock": "10.0.0.0/16",
-        "CidrBlockAssociationSet": [{"CidrBlock": "10.0.0.0/16"}, {"CidrBlock": "10.1.0.0/16"}],
-        "State": "available",
-        "IsDefault": False,
-        "Tags": [{"Key": "Name", "Value": "main"}],
-    }
-]
-SUBNETS = [
-    {
-        "SubnetId": SUBNET,
-        "VpcId": VPC,
-        "CidrBlock": "10.0.1.0/24",
-        "AvailabilityZone": "us-east-1a",
-        "State": "available",
-    },
-    {"SubnetId": "subnet-orphan", "VpcId": "vpc-missing", "CidrBlock": "10.9.0.0/24"},
-]
-RESERVATIONS = [
-    {
-        "Instances": [
-            {
-                "InstanceId": INSTANCE,
-                "InstanceType": "t3.micro",
-                "SubnetId": SUBNET,
-                "VpcId": VPC,
-                "State": {"Name": "running"},
-                "LaunchTime": datetime(2025, 1, 1, tzinfo=UTC),
-                "SecurityGroups": [{"GroupId": "sg-1", "GroupName": "web"}],
-                "Tags": [{"Key": "Name", "Value": "web"}, {"Key": "password", "Value": "hunter2"}],
-            },
-            {"InstanceId": "i-nosubnet", "InstanceType": "t3.nano", "SubnetId": "subnet-gone"},
-        ]
-    }
-]
-
-
-def default_pages(region):
-    return {
-        "describe_vpcs": [{"Vpcs": VPCS}],
-        "describe_subnets": [{"Subnets": SUBNETS[:1]}, {"Subnets": SUBNETS[1:]}],
-        "describe_instances": [{"Reservations": RESERVATIONS}],
-        **fakes.empty_network_pages(),
-    }
-
-
-def make_context(pages=default_pages, account=ACCOUNT):
-    return fakes.make_context(pages, account)
 
 
 def collect(**kwargs):
-    (snapshot,) = collect_snapshots(request(ACCOUNT), context=make_context(**kwargs))
+    (snapshot,) = collect_snapshots(request(ACCOUNT), context=ec2_context(**kwargs))
     return snapshot
 
 
@@ -164,13 +110,13 @@ def test_mid_collection_failure_is_distinct_and_keeps_partial_results():
 
 def test_identity_mismatch_collects_nothing():
     with pytest.raises(IngestionError) as exc:
-        collect_snapshots(request(ACCOUNT), context=make_context(account=OTHER))
+        collect_snapshots(request(ACCOUNT), context=ec2_context(account=OTHER))
     assert exc.value.code == "account_mismatch"
 
 
 def test_multi_region_collection_has_separate_scopes():
     (snapshot,) = collect_snapshots(
-        request(ACCOUNT, regions=("us-east-1", "eu-west-1")), context=make_context()
+        request(ACCOUNT, regions=("us-east-1", "eu-west-1")), context=ec2_context()
     )
     assert set(snapshot.regions) == {"us-east-1", "eu-west-1"}
     assert len(snapshot.coverage.operations) == 2 * len(aws_module.EC2_OPERATIONS)
@@ -214,7 +160,7 @@ def test_partial_outcome_is_not_complete(tmp_path):
         return {**default_pages(region), "describe_vpcs": [denied]}
 
     (outcome,) = collect_and_save(
-        request(ACCOUNT), [tmp_path / "s.json"], context=make_context(pages=pages)
+        request(ACCOUNT), [tmp_path / "s.json"], context=ec2_context(pages=pages)
     )
     assert outcome.path is not None and not outcome.complete
 

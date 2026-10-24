@@ -31,21 +31,19 @@ from archdiscov.assistant.provider import (
     StopReason,
 )
 from archdiscov.assistant.tools.session import ToolSession
-from tests.assistant.test_anthropic_provider import EXCHANGE
-from tests.assistant.test_continuations import SIGNATURE, THINKING
-from tests.assistant.test_openai_provider import (
+from tests.support.openai_exchanges import (
     ENDPOINT,
     PARALLEL,
     QUESTION,
-    _api,
-    _provider,
-    _request,
-    _send,
-    _sent,
+    openai_adapter,
+    openai_request,
+    responding_api,
+    send_request,
+    sent_body,
 )
-from tests.assistant.test_orchestrator import SNAPSHOT
-from tests.assistant.test_provider_contract import INSPECT, SEARCH
-from tests.assistant.test_secret_leaks import SECRET, _renderings
+from tests.support.provider_data import EXCHANGE, INSPECT_TOOL, SEARCH_TOOL, SIGNATURE, THINKING
+from tests.support.scripted_turns import SNAPSHOT
+from tests.support.secrets import SECRET, secret_renderings
 
 TEXT = {
     "type": "message",
@@ -103,14 +101,14 @@ def _body(
 
 
 def _responses(api, **fields: Any) -> OpenAIProvider:
-    return _provider(api, OpenAIProtocol.RESPONSES, **fields)
+    return openai_adapter(api, OpenAIProtocol.RESPONSES, **fields)
 
 
 # ---- requests ----------------------------------------------------------------------
 
 
 def test_a_responses_request_maps_every_message_tool_and_limit() -> None:
-    api = _api(_body(TEXT))
+    api = responding_api(_body(TEXT))
     request = CompletionRequest(
         conversation=Conversation.model_validate(
             {
@@ -121,12 +119,12 @@ def test_a_responses_request_maps_every_message_tool_and_limit() -> None:
                 ]
             }
         ),
-        tools=(SEARCH, INSPECT),
+        tools=(SEARCH_TOOL, INSPECT_TOOL),
         limits=RequestLimits(max_output_tokens=512, max_tool_calls_per_turn=4),
     )
-    _send(_responses(api, capabilities=PARALLEL), request=request)
+    send_request(_responses(api, capabilities=PARALLEL), request=request)
     assert str(api.requests[0].url) == f"{ENDPOINT}/responses"
-    assert _sent(api) == {
+    assert sent_body(api) == {
         "model": "gpt-5",
         "input": [
             {"type": "message", "role": "system", "content": "Answer only from tool results."},
@@ -164,7 +162,7 @@ def test_a_responses_request_maps_every_message_tool_and_limit() -> None:
                 "parameters": tool.input_schema,
                 "strict": False,
             }
-            for tool in (SEARCH, INSPECT)
+            for tool in (SEARCH_TOOL, INSPECT_TOOL)
         ],
         "tool_choice": "auto",
         "parallel_tool_calls": True,
@@ -177,22 +175,25 @@ def test_a_responses_request_maps_every_message_tool_and_limit() -> None:
     ids=["declared-many", "declared-one", "undeclared"],
 )
 def test_parallel_tool_calls_is_sent_only_when_declared(declared, limit, expected) -> None:
-    api = _api(_body(TEXT))
-    _send(_responses(api, capabilities=declared), request=_request(max_tool_calls_per_turn=limit))
-    assert _sent(api).get("parallel_tool_calls") is expected
+    api = responding_api(_body(TEXT))
+    send_request(
+        _responses(api, capabilities=declared),
+        request=openai_request(max_tool_calls_per_turn=limit),
+    )
+    assert sent_body(api).get("parallel_tool_calls") is expected
 
 
 def test_encrypted_reasoning_is_requested_only_when_declared() -> None:
-    api = _api(_body(TEXT), _body(TEXT))
-    _send(_responses(api, encrypted_reasoning=True))
-    _send(_responses(api))
-    assert _sent(api, 0)["include"] == ["reasoning.encrypted_content"]
-    assert "include" not in _sent(api, 1)
+    api = responding_api(_body(TEXT), _body(TEXT))
+    send_request(_responses(api, encrypted_reasoning=True))
+    send_request(_responses(api))
+    assert sent_body(api, 0)["include"] == ["reasoning.encrypted_content"]
+    assert "include" not in sent_body(api, 1)
 
 
 def test_a_request_without_tools_sends_no_tool_fields_and_no_secret() -> None:
-    api = _api(_body(TEXT))
-    _send(_responses(api, capabilities=PARALLEL), request=_request(tools=()))
+    api = responding_api(_body(TEXT))
+    send_request(_responses(api, capabilities=PARALLEL), request=openai_request(tools=()))
     body = api.requests[0].content.decode()
     assert SECRET not in body
     assert set(json.loads(body)) == {"model", "input", "store", "max_output_tokens"}
@@ -202,14 +203,16 @@ def test_a_request_without_tools_sends_no_tool_fields_and_no_secret() -> None:
 def test_another_providers_continuation_is_refused_before_any_request(
     provider_kind: str,
 ) -> None:
-    api = _api(_body(TEXT))
+    api = responding_api(_body(TEXT))
     message = {
         "role": "assistant",
         "text": "Thinking.",
         "continuation": {"provider_kind": provider_kind, "blocks": [THINKING]},
     }
     with pytest.raises(ProviderInvalidRequestError):
-        _send(_responses(api), request=_request(message, {"role": "user", "text": "Go on."}))
+        send_request(
+            _responses(api), request=openai_request(message, {"role": "user", "text": "Go on."})
+        )
     assert api.requests == []
 
 
@@ -280,7 +283,7 @@ def _malformed(reason: MalformedArgumentsReason) -> MalformedToolArguments:
 )
 @pytest.mark.parametrize("mode", ["sync", "async"])
 def test_responses_map_to_the_shared_contracts(body, message, stop, mode: str) -> None:
-    response = _send(_responses(_api(body)), mode)
+    response = send_request(_responses(responding_api(body)), mode)
     assert response == CompletionResponse(
         message=message, stop_reason=stop, usage=TokenUsage(input_tokens=3, output_tokens=1)
     )
@@ -356,9 +359,9 @@ def test_responses_map_to_the_shared_contracts(body, message, stop, mode: str) -
 )
 def test_unusable_responses_are_typed_errors_without_provider_text(body, error) -> None:
     with pytest.raises(error) as raised:
-        _send(_responses(_api(body)))
+        send_request(_responses(responding_api(body)))
     assert str(raised.value) == error.message
-    assert "None of them" not in "".join(_renderings(raised.value))
+    assert "None of them" not in "".join(secret_renderings(raised.value))
 
 
 @pytest.mark.parametrize(
@@ -382,14 +385,14 @@ def test_unusable_responses_are_typed_errors_without_provider_text(body, error) 
     ids=["with-cache", "without-cache"],
 )
 def test_usage_maps_cached_tokens(usage, expected) -> None:
-    assert _send(_responses(_api(_body(TEXT, usage=usage)))).usage == expected
+    assert send_request(_responses(responding_api(_body(TEXT, usage=usage)))).usage == expected
 
 
 # ---- continuations -----------------------------------------------------------------
 
 
 def test_a_response_without_reasoning_has_no_continuation() -> None:
-    assert _send(_responses(_api(_body(TEXT)))).message.continuation is None
+    assert send_request(_responses(responding_api(_body(TEXT)))).message.continuation is None
 
 
 def test_reasoning_is_replayed_verbatim_and_in_order_on_the_next_request() -> None:
@@ -399,7 +402,7 @@ def test_reasoning_is_replayed_verbatim_and_in_order_on_the_next_request() -> No
         {**REASONING, "id": "rs_2", "summary": [{"type": "summary_text", "text": "Plan."}]},
         {**LOOKUP, "arguments": "{}"},
     )
-    api = _api(first, _body(TEXT))
+    api = responding_api(first, _body(TEXT))
     result = run_assistant(
         QUESTION,
         provider=_responses(api, encrypted_reasoning=True),
@@ -408,7 +411,7 @@ def test_reasoning_is_replayed_verbatim_and_in_order_on_the_next_request() -> No
         model="gpt-5",
     )
     assert result.outcome.kind == "answered"
-    replayed = _sent(api, 1)["input"]
+    replayed = sent_body(api, 1)["input"]
     # The instructions and question, the whole first output unchanged, then the tool result.
     assert [item["role"] for item in replayed[:2]] == ["system", "user"]
     assert replayed[2:-1] == first["output"]

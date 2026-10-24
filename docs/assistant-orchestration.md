@@ -131,8 +131,9 @@ calls that ran, with their arguments and results), total usage, total latency, a
 outcome. When a repair was offered, it also records the outcome repaired (recorded as
 outcomes are) and the repair prompt, and marks the repair request's turn with `repair`; the
 repair turn is the last and the only one beyond `max_provider_requests`. Text is bounded to 4,000 characters (`MAX_TRANSCRIPT_TEXT_CHARS`) after sensitive
-keys and secret-looking values (API keys, AWS access key IDs, bearer tokens, private keys,
-and long opaque tokens) are redacted. An answer is recorded redacted as well, and a
+keys and secret-looking values (API keys, AWS access key IDs and secret access keys,
+bearer tokens, JSON web tokens, Slack tokens, private keys, passwords in URLs and connection
+strings, and long opaque tokens) are redacted. An answer is recorded redacted as well, and a
 proposal with its narrative redacted and any secret-looking cited ID replaced by a unique
 placeholder, while the `RunResult` keeps the raw answer or proposal for validation. A
 provider continuation is never recorded: a turn holds only its size in `continuation_bytes`.

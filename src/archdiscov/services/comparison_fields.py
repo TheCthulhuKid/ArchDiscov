@@ -23,10 +23,10 @@ from typing import TYPE_CHECKING
 
 from pydantic import JsonValue
 
-from archdiscov.graph.dependencies import DependencyEdge
 from archdiscov.models.architecture import LocalTarget, UnresolvedTarget
 from archdiscov.models.canonical import canonical_json
 from archdiscov.models.comparison.entries import FieldDifference, Qualification
+from archdiscov.models.edges import DependencyEdge
 from archdiscov.models.enums import (
     ComparisonSide,
     DifferenceKind,
@@ -165,7 +165,8 @@ class FieldComparer:
 
     def _document(self, side: ComparisonSide, resource_id: str) -> dict[str, JsonValue]:
         resource = self._index[side].get_resource(resource_id)
-        assert resource is not None, "matched IDs come from the same indexes"
+        if resource is None:
+            raise ValueError("matched IDs come from the same indexes")
         return resource.model_dump(mode="json", exclude=_NOT_COMPARED)
 
     def _fields(self, ids: dict[ComparisonSide, str]) -> list[FieldDifference]:

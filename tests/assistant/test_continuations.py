@@ -22,13 +22,10 @@ from archdiscov.assistant.runs import (
     RunLimitKind,
     RunLimits,
 )
-from tests.assistant.test_answer_service import SEARCH, _answer, _proposal, _submit
-from tests.assistant.test_orchestrator import _calls, _continued, _run, _text
 from tests.paths import TESTS_ROOT
-
-# Long and opaque, as real signatures are: the secret checks would reject it as text.
-SIGNATURE = "EqQBCkgIBhABGAIiQL" + "x7Kp2QmZ9vR4tW8yB1nC6dF3gH5jL0aS" * 12
-THINKING = {"type": "thinking", "thinking": "", "signature": SIGNATURE}
+from tests.support.provider_data import SIGNATURE, THINKING
+from tests.support.scripted_answers import SEARCH, answer_proposal, answer_turns, submit_turn
+from tests.support.scripted_turns import calls_turn, continued_turn, run_turns, text_turn
 
 
 def _continuation(provider_kind: str = "fake", **block) -> dict:
@@ -76,8 +73,8 @@ def test_a_continuation_alone_is_not_a_message() -> None:
 
 
 def test_the_fake_returns_it_and_the_next_request_replays_it_unchanged() -> None:
-    turn = _continued(_calls(SEARCH), "fake", THINKING)
-    result, provider, _ = _run([turn, _text()])
+    turn = continued_turn(calls_turn(SEARCH), "fake", THINKING)
+    result, provider, _ = run_turns([turn, text_turn()])
     assert result.outcome.kind == "answered"
     scripted = AssistantMessage.model_validate(turn["response"]["message"])
     replayed = provider.requests[1].request.conversation.messages
@@ -87,22 +84,22 @@ def test_the_fake_returns_it_and_the_next_request_replays_it_unchanged() -> None
 
 
 def test_another_providers_continuation_ends_the_run_unreplayed() -> None:
-    result, provider, _ = _run([_continued(_calls(SEARCH), "anthropic", THINKING)])
+    result, provider, _ = run_turns([continued_turn(calls_turn(SEARCH), "anthropic", THINKING)])
     assert result.outcome == MalformedOutput(reason=MalformedOutputReason.CONTINUATION_FOREIGN)
     assert len(provider.requests) == 1
 
 
 def test_a_continuation_counts_toward_total_output() -> None:
-    large = _continued(_text(), "fake", {**THINKING, "thinking": "t" * 2_000})
-    result, _, _ = _run([large], limits=RunLimits(max_total_output_chars=1_000))
+    large = continued_turn(text_turn(), "fake", {**THINKING, "thinking": "t" * 2_000})
+    result, _, _ = run_turns([large], limits=RunLimits(max_total_output_chars=1_000))
     assert result.outcome == LimitReached(limit=RunLimitKind.TOTAL_OUTPUT)
 
 
 def test_transcripts_and_renderings_hold_no_continuation_content() -> None:
-    result, provider, _ = _answer(
+    result, provider, _ = answer_turns(
         lambda session: [
-            _continued(_calls(SEARCH), "fake", THINKING),
-            _continued(_submit("a", _proposal(session)), "fake", THINKING),
+            continued_turn(calls_turn(SEARCH), "fake", THINKING),
+            continued_turn(submit_turn("a", answer_proposal(session)), "fake", THINKING),
         ]
     )
     assert result.outcome.status == "answered"

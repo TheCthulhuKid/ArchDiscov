@@ -10,7 +10,6 @@ import asyncio
 import json
 import time
 from importlib.metadata import version
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -25,6 +24,7 @@ from archdiscov.assistant.conversation import ParsedToolArguments as Parsed
 from archdiscov.assistant.instructions import MCP_INSTRUCTIONS
 from archdiscov.assistant.mcp_limits import ServerLimits
 from archdiscov.assistant.mcp_server import (
+    ANSWER_RESULT_META,
     PRESENT_ANSWER,
     SERVER_NAME,
     SUBMIT_FOLLOW_UP,
@@ -38,19 +38,18 @@ from archdiscov.assistant.tools.contracts import IdKind, ToolLimits
 from archdiscov.assistant.tools.registry import ToolRegistry
 from archdiscov.assistant.tools.session import ToolSession
 from archdiscov.services.evaluation import prepare_evaluation
-from tests.assistant.test_answer_claims import INJECTION
 from tests.paths import FIXTURES_ROOT
+from tests.support.answer_claims import INJECTION
 from tests.support.evaluation_suites import (
     ADVERSARIAL_SUITE,
     README_SUITE,
     write_fake_config,
 )
+from tests.support.mcp_clients import Call, mcp_replies, readme_example, transcript_calls
 
 SNAPSHOT = FIXTURES_ROOT / "snapshots" / "aws.json"
 # A snapshot whose resource carries evidence, for the tools that need an evidence ID.
 OWNED = README_SUITE.parent / "ownership" / "snapshot.json"
-
-type Call = tuple[str, dict[str, Any] | None]
 
 
 def _connected(session: ToolSession) -> dict:
@@ -83,6 +82,9 @@ def test_the_server_lists_the_registry_tools_then_submit_answer() -> None:
     # The proposal schema is `ask`'s; only the description differs.
     assert submit.input_schema == submit_answer_declaration().input_schema
     assert "exactly once" not in tools[-1].description
+    # Only `submit_answer` declares a larger result, so an accepted answer stays inline.
+    assert tools[-1].meta == ANSWER_RESULT_META
+    assert all(tool.meta is None for tool in tools[:-1])
 
 
 def test_the_server_names_itself_and_gives_the_mcp_instructions() -> None:
@@ -166,20 +168,10 @@ def _direct(session: ToolSession, calls: list[Call]) -> tuple[list[tuple[bool, s
     return results, fresh.record.returned()
 
 
-def _transcript_calls(path: Path) -> list[Call]:
-    turns = json.loads(path.read_text(encoding="utf-8"))["turns"]
-    return [
-        (call["name"], call["arguments"]["value"])
-        for turn in turns
-        for call in turn["response"]["message"]["tool_calls"]
-        if call["name"] != "submit_answer"
-    ]
-
-
 def test_the_readme_examples_calls_match_a_direct_dispatch(tmp_path, connections) -> None:
     prepared = prepare_evaluation(README_SUITE, [write_fake_config(tmp_path / "fake.toml")])
     for case, session in zip(prepared.suite.cases, prepared.sessions, strict=True):
-        calls = _transcript_calls(README_SUITE.parent / case.fake_transcript)
+        calls = transcript_calls(README_SUITE.parent / case.fake_transcript)
         connections.clear()
         served = _results(session, calls)
         expected, returned = _direct(session, calls)
@@ -342,31 +334,6 @@ def test_per_call_limits_truncate_as_in_ask() -> None:
 OWNERSHIP_CASE = README_SUITE.parent / "ownership"
 
 
-def _replies(session: ToolSession, calls: list[Call]) -> list[tuple[bool, list[str]]]:
-    """Each call's error flag and every text item, through one connection, in order."""
-
-    async def run() -> list[tuple[bool, list[str]]]:
-        async with Client(build_server(session)) as client:
-            results = [await client.call_tool(name, arguments) for name, arguments in calls]
-        return [(result.is_error, [item.text for item in result.content]) for result in results]
-
-    return asyncio.run(run())
-
-
-def _example(directory: Path) -> tuple[ToolSession, list[Call], dict]:
-    """A README example's session, its tool calls, and the proposal it submits."""
-    transcript = directory / "transcript.json"
-    turns = json.loads(transcript.read_text(encoding="utf-8"))["turns"]
-    [proposal] = [
-        call["arguments"]["value"]
-        for turn in turns
-        for call in turn["response"]["message"]["tool_calls"]
-        if call["name"] == "submit_answer"
-    ]
-    session = ToolSession.from_paths(directory / "snapshot.json")
-    return session, _transcript_calls(transcript), proposal
-
-
 def _submission(texts: list[str]) -> dict:
     [text] = texts
     data = json.loads(text)
@@ -375,8 +342,8 @@ def _submission(texts: list[str]) -> dict:
 
 
 def test_an_accepted_proposal_returns_the_readable_and_json_answer() -> None:
-    session, calls, proposal = _example(OWNERSHIP_CASE)
-    *_, (is_error, texts) = _replies(session, [*calls, ("submit_answer", proposal)])
+    session, calls, proposal = readme_example(OWNERSHIP_CASE)
+    *_, (is_error, texts) = mcp_replies(session, [*calls, ("submit_answer", proposal)])
     assert not is_error
     present, readable, data = texts
     assert present == PRESENT_ANSWER
@@ -394,8 +361,8 @@ def test_an_accepted_proposal_returns_the_readable_and_json_answer() -> None:
 
 
 def test_a_proposal_citing_unreturned_ids_is_rejected() -> None:
-    session, _, proposal = _example(OWNERSHIP_CASE)
-    [(is_error, texts)] = _replies(session, [("submit_answer", proposal)])
+    session, _, proposal = readme_example(OWNERSHIP_CASE)
+    [(is_error, texts)] = mcp_replies(session, [("submit_answer", proposal)])
     assert is_error
     data = _submission(texts)
     assert data["error"] == "answer_rejected"
@@ -403,10 +370,10 @@ def test_a_proposal_citing_unreturned_ids_is_rejected() -> None:
 
 
 def test_unreadable_proposals_return_their_reasons() -> None:
-    session, _, proposal = _example(OWNERSHIP_CASE)
+    session, _, proposal = readme_example(OWNERSHIP_CASE)
     oversized = {**proposal, "summary": "x" * MAX_TOOL_ARGUMENT_BYTES}
     invalid = {key: value for key, value in proposal.items() if key != "contexts"}
-    replies = _replies(session, [("submit_answer", oversized), ("submit_answer", invalid)])
+    replies = mcp_replies(session, [("submit_answer", oversized), ("submit_answer", invalid)])
     assert [is_error for is_error, _ in replies] == [True, True]
     assert [_submission(texts)["error"] for _, texts in replies] == [
         "proposal_malformed",
@@ -415,7 +382,7 @@ def test_unreadable_proposals_return_their_reasons() -> None:
 
 
 def test_a_rejected_then_accepted_submission_is_answered() -> None:
-    session, calls, proposal = _example(OWNERSHIP_CASE)
+    session, calls, proposal = readme_example(OWNERSHIP_CASE)
     fabricated = {
         **proposal,
         "conclusions": [
@@ -423,7 +390,7 @@ def test_a_rejected_then_accepted_submission_is_answered() -> None:
         ],
         "limitations": [],
     }
-    *_, rejected, accepted = _replies(
+    *_, rejected, accepted = mcp_replies(
         session, [*calls, ("submit_answer", fabricated), ("submit_answer", proposal)]
     )
     assert rejected[0] and _submission(rejected[1])["error"] == "answer_rejected"
@@ -432,7 +399,7 @@ def test_a_rejected_then_accepted_submission_is_answered() -> None:
 
 
 def test_submissions_count_toward_the_cap(connections) -> None:
-    session, calls, proposal = _example(OWNERSHIP_CASE)
+    session, calls, proposal = readme_example(OWNERSHIP_CASE)
     limits = ServerLimits(max_tool_calls=len(calls) + 1)
     submissions: list[Call] = [("submit_answer", proposal)] * 2
     results = _results(session, [*calls, *submissions], limits=limits)
@@ -441,7 +408,7 @@ def test_submissions_count_toward_the_cap(connections) -> None:
 
 
 def test_submitting_does_not_change_the_run_record(connections) -> None:
-    session, calls, proposal = _example(OWNERSHIP_CASE)
+    session, calls, proposal = readme_example(OWNERSHIP_CASE)
     _results(session, calls, [*calls, ("submit_answer", proposal), ("submit_answer", {})])
     called, submitted = connections
     assert called.record.returned() == submitted.record.returned()

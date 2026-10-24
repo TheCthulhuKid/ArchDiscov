@@ -258,7 +258,7 @@ def test_downstream_chains_are_potential_cited_and_separate_from_observed():
     assert downstream
     assert all(f.impact.label == ImpactLabel.POTENTIAL for f in downstream)
     observed = [f for f in result.findings if f.impact and f.impact.label == ImpactLabel.OBSERVED]
-    assert observed and not set(f.id for f in observed) & set(f.id for f in downstream)
+    assert observed and not {f.id for f in observed} & {f.id for f in downstream}
     one = next(
         f
         for f in downstream

@@ -9,14 +9,14 @@ same run; a case marked `fake_only` describes behaviour only the fake can script
 
 import asyncio
 import json
-from typing import Any, get_args
+from typing import get_args
 
 import pytest
 
 from archdiscov.assistant.conversation import AssistantMessage, UserMessage
 from archdiscov.assistant.fake import FakeClock
 from archdiscov.assistant.orchestrator import RunCancelled, RunResult, run_assistant_async
-from archdiscov.assistant.provider import ProviderCapabilities, ProviderErrorCode
+from archdiscov.assistant.provider import ProviderErrorCode
 from archdiscov.assistant.runs import (
     Answered,
     MalformedOutputReason,
@@ -28,11 +28,12 @@ from archdiscov.assistant.runs import (
 from archdiscov.assistant.tools.registry import ToolRegistry
 from archdiscov.assistant.tools.session import ToolSession
 from tests.assistant.provider_harness import HARNESSES, FakeHarness, ProviderHarness
-from tests.assistant.test_orchestrator import SNAPSHOT, _calls, _continued, _fail, _text
-from tests.assistant.test_orchestrator_async import _HangingProvider
-
-SECRET = "sk-ant-api03-SECRETvalue0123456789abcdefXYZ"
-QUESTION = f"Which resources are reachable? (token {SECRET})"
+from tests.support.orchestration_cases import LOOP_CASES, LOOP_QUESTION, case_capabilities
+from tests.support.scripted_turns import (
+    SNAPSHOT,
+    HangingProvider,
+)
+from tests.support.secrets import SECRET
 
 
 def _outcome_kinds() -> set[str]:
@@ -68,97 +69,14 @@ def _identity(result: RunResult) -> tuple[str, str]:
     return outcome.kind, value
 
 
-SEARCH = ("c1", "search_resources", {"name": SECRET})
-PROPOSAL = {
-    "status": "insufficient_evidence",
-    "contexts": [{"side": "primary", "source_kind": "aws"}],
-    "insufficient_reason": "no_applicable_findings",
-    "conclusions": [{"kind": "recorded_configuration", "citations": [{"evidence_ids": [SECRET]}]}],
-    "summary": f"Nothing applicable; the token {SECRET} is not evidence.",
-}
-
-
-def _case(turns: list[dict], limits: dict | None = None, **options: Any) -> dict:
-    return {"turns": turns, "limits": limits or {}, **options}
-
-
-CASES: dict[tuple[str, str], dict] = {
-    ("answered", "end"): _case([_calls(SEARCH, text=f"Looking {SECRET}"), _text(f"Done {SECRET}")]),
-    ("answered", "length"): _case([_text("Partial", stop="length")]),
-    ("answered", "refusal"): _case([_text("No.", stop="refusal")]),
-    ("limit_reached", "provider_requests"): _case(
-        [_calls(SEARCH), _calls(("c2", "list_analyzers", {}))], {"max_provider_requests": 2}
-    ),
-    ("limit_reached", "tool_calls_per_turn"): _case(
-        [_calls(SEARCH, ("c2", "list_analyzers", {}), ignore_request_limits=True)]
-    ),
-    ("limit_reached", "tool_calls"): _case(
-        [_calls(SEARCH, ("c2", "list_analyzers", {})), _calls(("c3", "inspect_coverage", {}))],
-        {"max_tool_calls": 2, "max_tool_calls_per_turn": 2},
-    ),
-    ("limit_reached", "total_output"): _case(
-        [_calls(("c1", "search_resources", {}))], {"max_total_output_chars": 1_000}
-    ),
-    ("limit_reached", "request_deadline"): _case(
-        [_calls(SEARCH, delay_seconds=20, ignore_request_limits=True)],
-        {"request_timeout_seconds": 10},
-        fake_only="an HTTP client cannot receive a response after its own read timeout",
-    ),
-    ("limit_reached", "overall_deadline"): _case(
-        [_calls(SEARCH, delay_seconds=10), {**_text(), "delay_seconds": 8}],
-        {"request_timeout_seconds": 10, "overall_timeout_seconds": 15},
-    ),
-    ("malformed_output", "provider_reported"): _case([_fail("provider_malformed_output")]),
-    ("malformed_output", "conversation_invalid"): _case(
-        [_calls(SEARCH), _calls(("c1", "list_analyzers", {}))]
-    ),
-    ("malformed_output", "tool_calls_without_tools"): _case(
-        [_calls(SEARCH)], registry=(), offer_answer_tool=False
-    ),
-    ("malformed_output", "proposal_malformed"): _case([_calls(("a", "submit_answer", None))]),
-    ("malformed_output", "proposal_invalid"): _case(
-        [_calls(("a", "submit_answer", {"status": "supported", "summary": SECRET}))]
-    ),
-    ("malformed_output", "proposal_mixed"): _case(
-        [_calls(("a", "submit_answer", PROPOSAL), SEARCH, ignore_request_limits=True)]
-    ),
-    ("malformed_output", "tool_not_offered"): _case([_text(), _calls(SEARCH)], repair=True),
-    ("malformed_output", "continuation_foreign"): _case(
-        [_continued(_calls(SEARCH), "other"), _text()],
-        fake_only="an adapter marks every continuation with its own kind",
-    ),
-    ("proposed", ""): _case([_calls(SEARCH), _calls(("a", "submit_answer", PROPOSAL))]),
-    ("provider_error", "provider_unsupported_capability"): _case([_text()], capabilities=[]),
-    **{
-        ("provider_error", code.value): _case([_calls(SEARCH), _fail(code.value)])
-        for code in ProviderErrorCode
-        if code
-        not in {
-            ProviderErrorCode.MALFORMED_OUTPUT,
-            ProviderErrorCode.UNSUPPORTED_CAPABILITY,
-            ProviderErrorCode.TIMEOUT,
-        }
-    },
-    ("provider_error", "provider_timeout"): _case(
-        [{**_text(), "delay_seconds": 20}], {"request_timeout_seconds": 10}
-    ),
-}
-
-
-def capabilities(case: dict) -> ProviderCapabilities | None:
-    if "capabilities" not in case:
-        return None
-    return ProviderCapabilities.model_validate({"capabilities": case["capabilities"]})
-
-
 def _run_case(case: dict, harness: ProviderHarness) -> RunResult:
     clock = FakeClock()
-    provider = harness.build(case["turns"], capabilities=capabilities(case), clock=clock)
+    provider = harness.build(case["turns"], capabilities=case_capabilities(case), clock=clock)
     registry = ToolRegistry(case["registry"]) if "registry" in case else None
     offer_answer_tool = case.get("offer_answer_tool", True)
     return asyncio.run(
         run_assistant_async(
-            QUESTION,
+            LOOP_QUESTION,
             provider=provider,
             session=ToolSession.from_paths(SNAPSHOT),
             provider_kind=harness.name,
@@ -177,12 +95,12 @@ def _repair(outcome: RunOutcome, message: AssistantMessage) -> tuple[UserMessage
 
 
 def _run_cancelled() -> RunResult:
-    provider = _HangingProvider(answer_first=True)
+    provider = HangingProvider(answer_first=True)
 
     async def scenario() -> RunResult:
         task = asyncio.create_task(
             run_assistant_async(
-                QUESTION,
+                LOOP_QUESTION,
                 provider=provider,
                 session=ToolSession.from_paths(SNAPSHOT),
                 provider_kind="fake",
@@ -209,7 +127,7 @@ def _result(identity: tuple[str, str], harness: ProviderHarness = FAKE) -> RunRe
         if harness.name != FAKE.name:
             pytest.skip("cancellation is scripted by its own hanging provider")
         return _run_cancelled()
-    case = CASES[identity]
+    case = LOOP_CASES[identity]
     if "fake_only" in case and harness.name != FAKE.name:
         pytest.skip(case["fake_only"])
     return _run_case(case, harness)
@@ -222,7 +140,7 @@ def _comparable(result: RunResult) -> RunResult:
 
 
 def test_every_outcome_is_covered() -> None:
-    assert set(CASES) | {("cancelled", "")} == _expected()
+    assert set(LOOP_CASES) | {("cancelled", "")} == _expected()
 
 
 @pytest.mark.parametrize(
@@ -253,10 +171,12 @@ def test_no_transcript_leaks_a_secret(identity: tuple[str, str], harness) -> Non
         assert SECRET[:20] not in text
 
 
-@pytest.mark.parametrize("identity", sorted(CASES), ids=lambda item: "-".join(filter(None, item)))
+@pytest.mark.parametrize(
+    "identity", sorted(LOOP_CASES), ids=lambda item: "-".join(filter(None, item))
+)
 def test_every_harness_reaches_the_same_run(identity: tuple[str, str]) -> None:
-    if "fake_only" in CASES[identity]:
-        pytest.skip(CASES[identity]["fake_only"])
+    if "fake_only" in LOOP_CASES[identity]:
+        pytest.skip(LOOP_CASES[identity]["fake_only"])
     fake, *adapters = (_comparable(_result(identity, harness)) for harness in HARNESSES)
     for result in adapters:
         assert result == fake

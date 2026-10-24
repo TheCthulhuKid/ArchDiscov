@@ -9,7 +9,7 @@ from archdiscov.models.architecture import Ec2Instance, Subnet, Vpc
 from archdiscov.models.cloud.scope import AwsScope, AzureScope
 from archdiscov.models.enums import AwsPartition, ResourceType
 from archdiscov.models.resources.azure import AzureSubnet, AzureVirtualMachine, AzureVirtualNetwork
-from archdiscov.services.snapshot_access import SnapshotAccess, upgrade_snapshot
+from archdiscov.models.snapshot_access import SnapshotAccess, upgrade_snapshot
 from archdiscov.services.snapshots import load_snapshot, validate_snapshot
 from tests.paths import FIXTURES_ROOT
 
@@ -236,7 +236,7 @@ def test_lookup_never_revalidates_or_rebuilds_access(monkeypatch):
             index.get_resource(resource_id)
             index.find_physical(index.physical_key(resource_id))
         index.resources()
-        index.scope
+        _ = index.scope
     assert calls == [snapshot.snapshot_id]
 
 

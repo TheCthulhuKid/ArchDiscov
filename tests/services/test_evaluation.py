@@ -13,7 +13,6 @@ from typing import Any
 
 import pytest
 
-from archdiscov.assistant import providers
 from archdiscov.assistant.config import ProviderConfigError, ProviderConfigErrorCode
 from archdiscov.assistant.evaluation import (
     MAX_PROVIDERS,
@@ -40,12 +39,17 @@ from archdiscov.services.evaluation import (
 )
 from archdiscov.services.snapshot_errors import SnapshotIOError
 from tests.assistant.provider_harness import AnthropicHarness
-from tests.assistant.test_orchestrator import SNAPSHOT
-from tests.support.ask_examples import write_provider_config
-from tests.support.evaluation_suites import SUITE, write_fake_config, write_readme_suite
+from tests.support.evaluation_suites import (
+    EVALUATION_KEY_VARIABLE,
+    SUITE,
+    anthropic_config,
+    serve_suite,
+    write_fake_config,
+    write_readme_suite,
+)
+from tests.support.scripted_turns import SNAPSHOT
 
 NAMES = ["internet_exposure", "ownership", "ownership_compared"]
-KEY_VARIABLE = "EVALUATION_KEY"
 NOW = datetime(2026, 10, 23, tzinfo=UTC)
 
 
@@ -142,35 +146,16 @@ def test_the_budget_matches_each_configuration(suite: Path, tmp_path: Path) -> N
     assert tuple(run.budget for run in report.providers) == prepared.budgets
 
 
-def _through(harness: AnthropicHarness, suite: Path, monkeypatch) -> Any:
-    """The harness's adapter serving every case's turns, in suite order."""
-    data = json.loads(suite.read_text(encoding="utf-8"))
-    turns = [
-        turn
-        for case in data["cases"]
-        for turn in json.loads((suite.parent / case["fake_transcript"]).read_text())["turns"]
-    ]
-    api = harness.api(turns)
-    monkeypatch.setitem(
-        providers.ADAPTERS, harness.name, lambda config, key, _: harness.construct(config, key, api)
-    )
-    return api
-
-
-def _adapter_config(directory: Path, harness: AnthropicHarness) -> Path:
-    return write_provider_config(directory / "anthropic.toml", harness.configuration(KEY_VARIABLE))
-
-
 def test_an_adapter_reaches_the_same_records_as_the_fake(
     suite: Path, tmp_path: Path, monkeypatch
 ) -> None:
     harness = AnthropicHarness()
-    api = _through(harness, suite, monkeypatch)
+    api = serve_suite(harness, suite, monkeypatch)
     report = evaluate_suite(
         suite,
-        [_fake(tmp_path), _adapter_config(tmp_path, harness)],
+        [_fake(tmp_path), anthropic_config(tmp_path, harness)],
         allow_external=True,
-        environ={KEY_VARIABLE: "sk-ant-api03-EVALUATIONkey0123456789abcdef"},
+        environ={EVALUATION_KEY_VARIABLE: "sk-ant-api03-EVALUATIONkey0123456789abcdef"},
     )
     fake, adapter = report.providers
     assert adapter.provider_kind == "anthropic"
@@ -185,14 +170,14 @@ def test_an_external_provider_needs_the_opt_in_before_anything_is_read(
     suite: Path, tmp_path: Path, monkeypatch
 ) -> None:
     harness = AnthropicHarness()
-    api = _through(harness, suite, monkeypatch)
+    api = serve_suite(harness, suite, monkeypatch)
 
     def unreadable(data: dict) -> None:
         for case in data["cases"]:
             case["snapshot"] = "missing/snapshot.json"
 
     edited = _edited_suite(suite, "unreadable", unreadable)
-    config = _adapter_config(tmp_path, harness)
+    config = anthropic_config(tmp_path, harness)
     with pytest.raises(EvaluationSetupError) as raised:
         prepare_evaluation(edited, [_fake(tmp_path), config])
     assert raised.value.code == EvaluationSetupCode.EXTERNAL_NOT_ALLOWED
@@ -203,13 +188,13 @@ def test_an_external_provider_needs_the_opt_in_before_anything_is_read(
             edited,
             [config],
             allow_external=True,
-            environ={KEY_VARIABLE: "sk-ant-api03-EVALUATIONkey0123456789abcdef"},
+            environ={EVALUATION_KEY_VARIABLE: "sk-ant-api03-EVALUATIONkey0123456789abcdef"},
         )
     assert api.requests == []
 
 
 def test_an_external_provider_without_its_key_names_its_file(suite: Path, tmp_path: Path) -> None:
-    config = _adapter_config(tmp_path, AnthropicHarness())
+    config = anthropic_config(tmp_path, AnthropicHarness())
     with pytest.raises(ProviderConfigError) as raised:
         prepare_evaluation(suite, [config], allow_external=True, environ={})
     assert raised.value.code == ProviderConfigErrorCode.CREDENTIAL_MISSING

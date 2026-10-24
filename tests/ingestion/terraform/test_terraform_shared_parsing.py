@@ -5,8 +5,7 @@ import pytest
 from archdiscov.ingestion.adapter import IngestionError
 from archdiscov.ingestion.terraform.parsing import parse_export
 from archdiscov.ingestion.terraform.plan_parsing import parse_plan
-
-from .test_terraform_parsing import resource
+from tests.support.terraform_data import resource
 
 
 @pytest.fixture(params=["values", "planned_values"])

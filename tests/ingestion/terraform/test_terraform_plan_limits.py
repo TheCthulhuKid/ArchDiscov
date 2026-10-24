@@ -2,8 +2,7 @@ import pytest
 
 from archdiscov.ingestion.adapter import IngestionError
 from archdiscov.ingestion.terraform.sensitivity import read_pointer
-
-from .test_terraform_plan import change, collect, resources, write_plan
+from tests.support.terraform_data import change, collect, resources, write_plan
 
 
 def test_inventory_only_noop_has_no_invented_actions_source(tmp_path):
@@ -68,7 +67,7 @@ def test_partial_plan_status_cannot_be_successful_absence(tmp_path, extra, path,
     [{"errored": True}, {"errored": "secret-error"}, {"complete": 0}, {"deferred_changes": {}}],
 )
 def test_invalid_or_errored_plan_status_rejected_safely(tmp_path, extra):
-    with pytest.raises(IngestionError, match="plan|deferred_changes") as caught:
+    with pytest.raises(IngestionError, match=r"plan|deferred_changes") as caught:
         collect(write_plan(tmp_path, [change()], **extra))
     assert "secret-error" not in str(caught.value)
 

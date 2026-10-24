@@ -22,9 +22,9 @@ from archdiscov.assistant.mcp_server import PRESENT_ANSWER
 from archdiscov.assistant.questions import README_QUESTIONS
 from archdiscov.cli import app
 from archdiscov.services import mcp as mcp_service
-from tests.assistant.test_mcp_server import _example
 from tests.support.evaluation_suites import README_SUITE
 from tests.support.installed_cli import cli_command
+from tests.support.mcp_clients import readme_example
 
 runner = CliRunner()
 README = README_SUITE.parent
@@ -124,7 +124,7 @@ def _command(*options: object) -> list[str]:
 
 
 def test_a_stdio_client_lists_prompts_and_answers_a_readme_example(tmp_path: Path) -> None:
-    _, calls, proposal = _example(OWNERSHIP)
+    _, calls, proposal = readme_example(OWNERSHIP)
     command, *arguments = _command()
     parameters = StdioServerParameters(command=command, args=arguments, cwd=str(tmp_path))
 

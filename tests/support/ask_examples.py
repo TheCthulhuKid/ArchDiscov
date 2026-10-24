@@ -14,16 +14,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from archdiscov.assistant.conversation import ParsedToolArguments, ToolCall
 from archdiscov.assistant.questions import README_QUESTIONS as QUESTIONS
-from archdiscov.assistant.tools.catalog import default_registry
 from archdiscov.assistant.tools.session import ToolSession
 from archdiscov.models.enums import AnalyzerKind
 from archdiscov.services import SupportedSnapshot, compare_snapshots, save_comparison
-from archdiscov.services.snapshots import load_snapshot, save_snapshot
-from tests.assistant.test_answer_rendering import _renamed
-from tests.assistant.test_answer_suite import _tool
+from archdiscov.services.snapshots import load_snapshot, save_snapshot, validate_snapshot
 from tests.paths import FIXTURES_ROOT
+from tests.support.answer_claims import dispatch_tool
+from tests.support.answer_scenarios import OWNERSHIP_SNAPSHOT, tool_turn
 from tests.support.audit_scenarios import SCENARIOS, with_coverage
 
 INTERNET = QUESTIONS[AnalyzerKind.INTERNET_EXPOSURE]
@@ -33,11 +31,9 @@ TRUST = QUESTIONS[AnalyzerKind.CROSS_ACCOUNT_TRUST]
 OWNERSHIP = QUESTIONS[AnalyzerKind.OWNERSHIP]
 README_QUESTIONS = tuple(QUESTIONS.values())
 CHANGED = "What changed in ownership between the two snapshots?"
-
 SUMMARY = "The conclusions above are rendered from the cited records."
 # The saved comparison's creation time, fixed so the written files are reproducible.
 COMPARED_AT = datetime(2026, 1, 1, tzinfo=UTC)
-_REGISTRY = default_registry()
 
 type Call = tuple[str, dict[str, Any]]
 # The turns of a transcript, from the example's tool-call turns and its honest proposal.
@@ -86,7 +82,6 @@ def _planned() -> SupportedSnapshot:
 
 
 _SAVED_COMPARISON = (("list_saved_results", {}), ("get_saved_comparison", {"number": 1}))
-
 EXAMPLES = {
     "internet_exposure": _analysis(AnalyzerKind.INTERNET_EXPOSURE, INTERNET, "supported"),
     "database_access": _analysis(AnalyzerKind.DATABASE_ACCESS, DATABASE, "partial"),
@@ -115,9 +110,9 @@ EXAMPLES = {
     "ownership_compared": Example(
         CHANGED,
         "partial",
-        lambda: _renamed()[0],
+        lambda: renamed_snapshots()[0],
         _SAVED_COMPARISON,
-        comparison=lambda: _renamed()[1],
+        comparison=lambda: renamed_snapshots()[1],
     ),
 }
 
@@ -131,7 +126,7 @@ def write_provider_config(path: Path, fields: dict[str, Any]) -> Path:
 
 
 def submit(proposal: dict, call_id: str = "answer") -> dict:
-    return _tool("submit_answer", proposal, call_id)
+    return tool_turn("submit_answer", proposal, call_id)
 
 
 def answered(calls: list[dict], proposal: dict) -> list[dict]:
@@ -167,7 +162,9 @@ def write_example(example: Example, directory: Path, script: Script = answered) 
     )
     outputs = [_dry_run(session, name, call) for name, call in example.calls]
     proposal = _proposal(example, session, outputs)
-    calls = [_tool(name, call, f"c{number}") for number, (name, call) in enumerate(example.calls)]
+    calls = [
+        tool_turn(name, call, f"c{number}") for number, (name, call) in enumerate(example.calls)
+    ]
     transcript = {"turns": script(calls, proposal)}
     text = json.dumps(transcript, indent=2) + "\n"
     (directory / "transcript.json").write_text(text, encoding="utf-8")
@@ -181,8 +178,7 @@ def write_example(example: Example, directory: Path, script: Script = answered) 
 
 
 def _dry_run(session: ToolSession, name: str, arguments: dict) -> dict:
-    call = ToolCall(id="dry", name=name, arguments=ParsedToolArguments(value=arguments))
-    output = json.loads(_REGISTRY.dispatch(session, call).content)
+    output = dispatch_tool(session, name, **arguments)
     assert output["status"] == "ok", output
     return output
 
@@ -248,3 +244,14 @@ def _proposal(example: Example, session: ToolSession, outputs: list[dict]) -> di
     if example.insufficient_reason is not None:
         proposal["insufficient_reason"] = example.insufficient_reason
     return proposal
+
+
+def renamed_snapshots() -> tuple:
+    """The ownership snapshot, and a copy whose first resource has a new name."""
+    left = load_snapshot(OWNERSHIP_SNAPSHOT)
+    data = left.model_dump(mode="json")
+    data["snapshot_id"] = "00000000-0000-4000-8000-0000000000cc"
+    for evidence in data["evidence"].values():
+        evidence["snapshot_id"] = data["snapshot_id"]
+    next(iter(data["regions"].values()))["resources"][0]["name"] = "renamed"
+    return left, validate_snapshot(data)

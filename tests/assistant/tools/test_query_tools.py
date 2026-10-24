@@ -143,7 +143,7 @@ def test_inspect_returns_exact_citations_evidence_and_coverage(snapshot: str) ->
         assert {
             item["fact_path"]["untrusted_text"]: item["evidence_ids"]
             for item in data["facts"]["items"]
-        } == {path: ids for path, ids in service.resource.fact_evidence.items()}
+        } == dict(service.resource.fact_evidence.items())
         assert _ids(data["evidence"]["items"], "evidence_id") == sorted(service.evidence)
         assert len(data["coverage"]["items"]) == len(service.coverage)
         assert [item["kind"] for item in data["limitations"]["items"]] == [

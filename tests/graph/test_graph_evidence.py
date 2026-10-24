@@ -2,7 +2,7 @@ import pytest
 
 from archdiscov.graph import GraphIndex
 from archdiscov.models.enums import EvidenceValueStatus
-from archdiscov.services.snapshot_access import SnapshotAccess, upgrade_snapshot
+from archdiscov.models.snapshot_access import SnapshotAccess, upgrade_snapshot
 from archdiscov.services.snapshots import load_snapshot, validate_snapshot
 from tests.paths import FIXTURES_ROOT
 

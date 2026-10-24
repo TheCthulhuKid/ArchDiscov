@@ -24,7 +24,6 @@ import pytest
 from archdiscov.assistant.fake import FakeTranscript
 from archdiscov.assistant.runs import RunTranscript
 from archdiscov.models.enums import AnalyzerKind
-from tests.acceptance.test_installed_end_to_end import Workspace
 from tests.assistant.provider_harness import (
     HARNESS_PROFILE,
     AnthropicHarness,
@@ -33,18 +32,24 @@ from tests.assistant.provider_harness import (
     MockedHarness,
     ResponsesHarness,
 )
-from tests.assistant.test_answer_service import SEARCH
-from tests.assistant.test_orchestrator import _calls, _fail
-from tests.assistant.test_providers import MISSING_PROFILE, missing_profile_config
-from tests.services.test_ask import _fake
 from tests.support.ask_examples import (
     EXAMPLES,
     README_QUESTIONS,
     write_example,
-    write_provider_config,
 )
-from tests.support.installed_cli import ENTRY_POINTS, run_installed
+from tests.support.ask_runs import fake_config
+from tests.support.installed_cli import (
+    DUMMY_KEY,
+    ENTRY_POINTS,
+    INSTALLED_KEY_VARIABLE,
+    Workspace,
+    harness_config,
+    run_installed,
+)
 from tests.support.mock_api import mock_api_server
+from tests.support.provider_data import MISSING_PROFILE, missing_profile_config
+from tests.support.scripted_answers import SEARCH
+from tests.support.scripted_turns import calls_turn, fail_turn
 
 # Each entry point runs every case once per module: keep them on one xdist worker.
 pytestmark = pytest.mark.xdist_group("installed-ask")
@@ -56,8 +61,6 @@ SNAPSHOT = "internet_exposure"
 # The example each adapter answers through a mock API.
 ADAPTED = "ownership"
 ADAPTERS = [AnthropicHarness(), ChatCompletionsHarness(), ResponsesHarness(), BedrockHarness()]
-KEY_VARIABLE = "ASK_INSTALLED_PROVIDER_KEY"
-DUMMY_KEY = "sk-proj-INSTALLEDdummy0123456789abcdefXYZ"
 BEARER = re.escape(f"Bearer {DUMMY_KEY}")
 # The harness profile's key, which signs each Converse request with SigV4.
 AWS_KEY = "AKIAHARNESSKEY000000"
@@ -106,19 +109,11 @@ def _existing_transcript(ws: Workspace, snapshot: Path) -> tuple[list, int, str]
     return options, 3, "snapshot_conflict"
 
 
-def _adapter_config(directory: Path, harness: MockedHarness, endpoint: str | None = None) -> Path:
-    """The harness's configuration, its key in `KEY_VARIABLE`, at `endpoint` when given."""
-    fields = harness.configuration(KEY_VARIABLE)
-    if endpoint is not None:
-        fields["endpoint"] = endpoint
-    return write_provider_config(directory / f"{harness.label}.toml", fields)
-
-
 def _missing_key(harness: MockedHarness) -> Callable[[Workspace, Path], tuple[list, int, str]]:
     def case(ws: Workspace, snapshot: Path) -> tuple[list, int, str]:
         directory = ws.path("cases", f"missing-{harness.label}-key")
         directory.mkdir(parents=True)
-        options = ["--snapshot", snapshot, "--config", _adapter_config(directory, harness)]
+        options = ["--snapshot", snapshot, "--config", harness_config(directory, harness)]
         return options, 2, "provider_credential_missing"
 
     case.__name__ = f"_missing_{harness.name}_key"
@@ -135,8 +130,8 @@ REFUSALS = [
 ]
 # Scripted runs that start and fail: (turns, extra configuration, exit code, failure reason).
 FAILED_RUNS = {
-    "provider-error": ([_fail("provider_unavailable")], "", 6, "provider_error"),
-    "limit": ([_calls(SEARCH)], "max_requests = 1\n", 6, "limit_reached"),
+    "provider-error": ([fail_turn("provider_unavailable")], "", 6, "provider_error"),
+    "limit": ([calls_turn(SEARCH)], "max_requests = 1\n", 6, "limit_reached"),
 }
 
 
@@ -177,7 +172,7 @@ def _failed_runs(ws: Workspace) -> dict:
         directory = ws.path("cases", name)
         directory.mkdir(parents=True)
         question = (README_QUESTIONS[0], "--snapshot", snapshot)
-        options = (*question, "--config", _fake(directory, turns, config))
+        options = (*question, "--config", fake_config(directory, turns, config))
         transcript = directory / "transcript.json"
         data = ws.json("ask", *options, "--transcript", transcript, expect=code)
         readable = ws.run("ask", *options, expect=code).stdout
@@ -191,7 +186,7 @@ def _credentials(directory: Path, harness: MockedHarness) -> dict[str, str]:
     """The variables that give only this adapter's run its credential: the dummy key, or for
     Bedrock the harness's AWS profile, copied into the workspace."""
     if harness.name != "bedrock":
-        return {KEY_VARIABLE: DUMMY_KEY}
+        return {INSTALLED_KEY_VARIABLE: DUMMY_KEY}
     files = {}
     for variable, source in (
         ("AWS_CONFIG_FILE", HARNESS_PROFILE.config_file),
@@ -218,7 +213,7 @@ def _through_the_adapters(ws: Workspace) -> dict[str, tuple[dict, str, list]]:
         bodies = [harness.body(turn.response) for turn in FakeTranscript(turns=turns).turns]
         with mock_api_server(bodies * 2) as api:
             root, _, _ = ROUTES[harness.label]
-            config = _adapter_config(directory, harness, f"http://127.0.0.1:{api.port}{root}")
+            config = harness_config(directory, harness, f"http://127.0.0.1:{api.port}{root}")
             env = ws.guard.allowing(api.port, **_credentials(directory, harness))
             command = ["ask", *map(str, arguments), "--config", str(config)]
             data = json.loads(
@@ -284,7 +279,7 @@ def test_errors_before_the_run_fail_safely(summaries, entry_point):
     assert refused["missing_config"]["path"].endswith("missing.toml")
     # A missing key names its variable, never a value, and stops the run before any request.
     for kind in ("anthropic", "openai_compatible"):
-        assert refused[f"missing_{kind}_key"]["variable"] == KEY_VARIABLE
+        assert refused[f"missing_{kind}_key"]["variable"] == INSTALLED_KEY_VARIABLE
 
 
 @pytest.mark.parametrize("entry_point", ENTRY_POINTS)
@@ -306,7 +301,7 @@ def test_answers_do_not_depend_on_the_entry_point(summaries):
 def test_each_adapter_answers_through_a_loopback_api(summaries, entry_point, harness):
     data, readable, requests = summaries[entry_point]["adapters"][harness.label]
     _, fake, _ = summaries[entry_point]["examples"][ADAPTED]
-    model = harness.configuration(KEY_VARIABLE)["model"]
+    model = harness.configuration(INSTALLED_KEY_VARIABLE)["model"]
     assert data["summary"]["provider_kind"] == harness.name
     assert data["result"] == fake["result"]
     assert data["result"]["answer"]["status"] == EXAMPLES[ADAPTED].status

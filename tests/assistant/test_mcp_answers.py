@@ -23,10 +23,10 @@ from archdiscov.assistant.rejections import RejectionCode
 from archdiscov.assistant.tools.catalog import default_registry
 from archdiscov.assistant.tools.session import ToolSession
 from archdiscov.services.evaluation import prepare_evaluation
-from tests.assistant.test_answer_claims import INJECTION
-from tests.assistant.test_answer_suite import REJECTIONS
-from tests.assistant.test_mcp_server import Call, _replies, _transcript_calls
+from tests.support.answer_claims import INJECTION
+from tests.support.answer_scenarios import REJECTION_SCENARIOS
 from tests.support.evaluation_suites import ADVERSARIAL_SUITE, README_SUITE, write_fake_config
+from tests.support.mcp_clients import Call, mcp_replies, transcript_calls
 
 # The adversarial cases whose proposal is rejected, and the code each must include.
 ADVERSARIAL = {
@@ -48,7 +48,7 @@ def _expected_rejections(session: ToolSession, calls: list[Call], proposal: dict
 
 
 def _rejected(session: ToolSession, calls: list[Call], proposal: dict) -> list:
-    *_, (is_error, texts) = _replies(session, [*calls, ("submit_answer", proposal)])
+    *_, (is_error, texts) = mcp_replies(session, [*calls, ("submit_answer", proposal)])
     assert is_error, texts
     [text] = texts
     data = json.loads(text)
@@ -58,7 +58,7 @@ def _rejected(session: ToolSession, calls: list[Call], proposal: dict) -> list:
 
 @pytest.mark.parametrize("code", list(RejectionCode), ids=lambda code: code.value)
 def test_each_rejection_scenario_is_rejected_as_in_ask(code: RejectionCode, tmp_path) -> None:
-    session, calls, proposal = REJECTIONS[code](tmp_path)
+    session, calls, proposal = REJECTION_SCENARIOS[code](tmp_path)
     served = _rejected(session, calls, proposal)
     assert served == _expected_rejections(session, calls, proposal)
     assert {served_code for served_code, _ in served} == {code.value}
@@ -80,7 +80,7 @@ def _cases(suite: Path, tmp_path: Path, ids: set[str] | None = None) -> dict[str
             for call in turn["response"]["message"]["tool_calls"]
             if call["name"] == "submit_answer"
         ]
-        cases[case.id] = (case, session, _transcript_calls(path), proposals, path)
+        cases[case.id] = (case, session, transcript_calls(path), proposals, path)
     return cases
 
 
@@ -103,7 +103,7 @@ def test_every_accepted_rendering_equals_asks(tmp_path) -> None:
     (tmp_path / "readme").mkdir()
     (tmp_path / "adversarial").mkdir()
     for case, session, calls, [proposal], path in _accepted_cases(tmp_path):
-        *_, (is_error, texts) = _replies(session, [*calls, ("submit_answer", proposal)])
+        *_, (is_error, texts) = mcp_replies(session, [*calls, ("submit_answer", proposal)])
         assert not is_error, (case.id, texts)
         asked = answer_question(
             case.question,
@@ -122,7 +122,9 @@ def test_every_accepted_rendering_equals_asks(tmp_path) -> None:
 def test_imported_text_is_only_quoted_data_in_an_accepted_answer(tmp_path) -> None:
     cases = _cases(ADVERSARIAL_SUITE, tmp_path, {"injected_text"})
     _, session, calls, [proposal], _ = cases["injected_text"]
-    *_, (is_error, [_, readable, data]) = _replies(session, [*calls, ("submit_answer", proposal)])
+    *_, (is_error, [_, readable, data]) = mcp_replies(
+        session, [*calls, ("submit_answer", proposal)]
+    )
     assert not is_error
     answer = json.loads(data)["answer"]
     quoted = [item["untrusted_text"] for c in answer["conclusions"] for item in c["data"]]
@@ -131,3 +133,16 @@ def test_imported_text_is_only_quoted_data_in_an_accepted_answer(tmp_path) -> No
     assert not any(INJECTION in text for text in [*statements, *answer["qualifications"]])
     lines = [line for line in readable.splitlines() if INJECTION in line]
     assert lines and all("imported: " in line for line in lines)
+
+
+# Claude Code moves a longer tool result out of the conversation into a file by default.
+INLINE_RESULT_CHARS = 50_000
+
+
+def test_every_readme_answer_fits_inline_without_a_declared_limit(tmp_path) -> None:
+    for case, session, calls, [proposal], _ in _cases(README_SUITE, tmp_path).values():
+        *_, (is_error, texts) = mcp_replies(session, [*calls, ("submit_answer", proposal)])
+        assert not is_error, case.id
+        assert sum(len(text) for text in texts) < INLINE_RESULT_CHARS, case.id
+        # The JSON is compact: the readable answer beside it is the form a person reads.
+        assert "\n" not in texts[2], case.id

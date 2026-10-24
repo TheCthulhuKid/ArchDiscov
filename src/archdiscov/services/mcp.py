@@ -109,6 +109,8 @@ async def serve_session(
     server = build_server(session, limits)
     quiet_loggers(_MCP_LOGGERS)
     # Standard output is still claimed and diverted by `stdio_server`; only input is ours.
+    # `stdio_server` only iterates its input with `async for`, which `_StdinLines` supports;
+    # `mcp` is pinned below 3, and the CLI's interrupt test fails if that changes.
     stdio = transport or (lambda: stdio_server(stdin=_StdinLines()))
     async with stdio() as (read_stream, write_stream):
         await server.run(read_stream, write_stream, server.create_initialization_options())

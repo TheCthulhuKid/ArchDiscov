@@ -33,7 +33,12 @@ from pydantic import (
 )
 from pydantic_core import PydanticSerializationError
 
-from archdiscov.ingestion.strict_json import reject_constant, unique_object
+from archdiscov.core.strict_json import (
+    FileTooLargeError,
+    read_bounded,
+    reject_constant,
+    unique_object,
+)
 from archdiscov.models.canonical import sha256_json
 from archdiscov.models.enums import AnalysisStatus, AnalyzerKind
 from archdiscov.models.resource_base import NonEmptyString
@@ -43,16 +48,16 @@ from archdiscov.models.validation_errors import (
     serialization_issue,
     validation_error,
 )
-from archdiscov.services.ask import AskResult, ToolUsage
 
 from .answer_results import AnswerOutcome, AnswerStatus, FailureReason, RenderedAnswer
 from .answer_service import AnswerResult
 from .answers import ConclusionKind
+from .ask_results import AskResult, ToolUsage
 from .conversation import Contract, MessageText, ProviderKindName, TokenUsage
 from .redaction import looks_secret
 from .rejections import RejectionCode
 from .runs import RunLimits, RunTranscript
-from .tools.record import normalize_text
+from .tools.record import fingerprints, normalize_text, repeats_recorded_text
 from .tools.views import FindingView
 
 SCHEMA_VERSION = "1"
@@ -566,12 +571,11 @@ def parse_report(data: EvaluationReport | Mapping[str, Any]) -> EvaluationReport
 def load_suite(path: Path) -> EvaluationSuite:
     """Read a bounded, strict JSON suite file (no duplicate keys or constants) and validate it."""
     try:
-        with path.open("rb") as file:
-            content = file.read(MAX_SUITE_BYTES + 1)
+        content = read_bounded(path, MAX_SUITE_BYTES)
+    except FileTooLargeError as exc:
+        raise EvaluationValidationError(EvaluationErrorCode.SUITE_TOO_LARGE, path=path) from exc
     except OSError as exc:
         raise EvaluationValidationError(EvaluationErrorCode.SUITE_UNREADABLE, path=path) from exc
-    if len(content) > MAX_SUITE_BYTES:
-        raise EvaluationValidationError(EvaluationErrorCode.SUITE_TOO_LARGE, path=path)
     try:
         data = json.loads(content, object_pairs_hook=unique_object, parse_constant=reject_constant)
     except (ValueError, RecursionError) as exc:
@@ -655,7 +659,9 @@ def _qualified(rendered: RenderedAnswer) -> bool:
 
 
 def _quoted(rendered: RenderedAnswer) -> bool:
-    """No imported text that the answer quotes appears in its prose."""
+    """No imported text that the answer quotes appears in its prose: no whole value of at
+    least `MIN_QUOTED_CHARS` characters, and no stretch of a long value that the narrative
+    check would find (see `repeats_recorded_text`)."""
     conclusions = [
         *rendered.conclusions,
         *(() if rendered.failure is None else rendered.failure.retrieved),
@@ -680,12 +686,14 @@ def _quoted(rendered: RenderedAnswer) -> bool:
         ),
     ]
     written = [normalize_text(text) for text in prose]
-    return not any(
+    whole = any(
         text in sentence
         for text in imported
         if len(text) >= MIN_QUOTED_CHARS
         for sentence in written
     )
+    recorded = frozenset().union(*(fingerprints(text) for text in imported))
+    return not whole and not any(repeats_recorded_text(sentence, recorded) for sentence in written)
 
 
 def _contains(required: Iterable[Any], actual: Iterable[Any]) -> bool:

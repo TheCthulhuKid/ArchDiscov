@@ -12,12 +12,11 @@ from archdiscov.ingestion.operations import Ec2Operation as Op
 from archdiscov.models.architecture import UnresolvedTarget
 from archdiscov.models.enums import AwsRegion, AwsService
 from archdiscov.services import collect_and_save, collect_snapshots, load_snapshot
-from tests.ingestion.aws.test_network_relationships import ATTACHED_ENI, INSTANCE
 from tests.support import aws_fakes
 from tests.support.aws_fakes import ACCOUNT, Session, make_context, request
-from tests.support.network_data import FULL
+from tests.support.network_data import ATTACHED_ENI, FULL, INSTANCE
 
-KEYS = {operation: key for operation, key in EC2_OPERATIONS}
+KEYS = dict(EC2_OPERATIONS)
 ITEMS = {
     **FULL,
     Op.DESCRIBE_INSTANCES: [{"Instances": [INSTANCE]}],

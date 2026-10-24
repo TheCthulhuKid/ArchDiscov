@@ -5,8 +5,8 @@ from pathlib import Path
 
 import typer
 
-from .graph.dependencies import DependencyEdge
 from .graph.identity import native_resource_type
+from .models.edges import DependencyEdge
 from .models.enums import QueryDirection
 from .models.query.edges import QueryTraversalStep
 from .models.query.limitations import (

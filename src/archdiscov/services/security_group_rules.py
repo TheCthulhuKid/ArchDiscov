@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from archdiscov.graph.dependencies import DependencyEdge
 from archdiscov.models.analysis.impact import SecurityGroupImpact
 from archdiscov.models.analysis.references import (
     AnalysisLimitation,
 )
 from archdiscov.models.analysis.results import AnalysisFinding
 from archdiscov.models.architecture import LocalTarget
+from archdiscov.models.edges import DependencyEdge
 from archdiscov.models.enums import (
     AttachmentKind,
     ImpactKind,

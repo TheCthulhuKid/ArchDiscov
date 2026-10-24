@@ -19,11 +19,10 @@ import pytest
 
 from archdiscov.assistant.runs import RunTranscript
 from archdiscov.services import load_snapshot
-from tests.acceptance.test_installed_end_to_end import Workspace, digest
-from tests.assistant.test_answer_claims import INJECTION
+from tests.support.answer_claims import INJECTION
 from tests.support.ask_examples import README_QUESTIONS
 from tests.support.evaluation_suites import ADVERSARIAL_SUITE, README_SUITE, SUITE
-from tests.support.installed_cli import ENTRY_POINTS
+from tests.support.installed_cli import ENTRY_POINTS, Workspace, digest
 
 SUITES = {"readme": README_SUITE, "adversarial": ADVERSARIAL_SUITE}
 # Adversarial cases the journey asks: (expected failure or status, exit code, rejection).

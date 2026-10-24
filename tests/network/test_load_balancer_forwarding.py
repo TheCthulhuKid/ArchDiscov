@@ -176,7 +176,7 @@ def test_a_forward_action_to_a_zero_weight_group_forwards_nothing():
 
 def test_a_target_group_without_registered_targets_denies():
     value = data(describe_target_health={"TargetHealthDescriptions": []}, describe_rules=NO_RULES)
-    index, result = forwarding(value)
+    _index, result = forwarding(value)
     assert result.decision == D.DENY
     assert result.blockers[0].resource_id == resource_id(GROUP)
 

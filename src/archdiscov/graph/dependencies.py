@@ -4,40 +4,10 @@ from collections.abc import Iterable
 from copy import deepcopy
 from dataclasses import dataclass
 
-from pydantic import JsonValue
-
 from archdiscov.models.architecture import LocalTarget, UnresolvedTarget
-from archdiscov.models.cloud.contracts import CloudDependency, CloudExternalTarget, CloudTarget
+from archdiscov.models.cloud.contracts import CloudDependency, CloudExternalTarget
+from archdiscov.models.edges import DependencyEdge
 from archdiscov.models.enums import AttachmentKind, DependencyRelationship
-
-
-@dataclass(frozen=True)
-class DependencyEdge:
-    """A stored directed dependency; nested values returned publicly are detached."""
-
-    id: str
-    source_id: str
-    target: CloudTarget
-    location: str | None
-    relationship: DependencyRelationship
-    attributes: dict[str, JsonValue]
-    evidence_ids: tuple[str, ...]
-
-    @property
-    def target_id(self) -> str:
-        if isinstance(self.target, LocalTarget):
-            return self.target.resource_id
-        return f"terminal/{self.id}"
-
-    @property
-    def attachment_kind(self) -> AttachmentKind | None:
-        kind = self.attributes.get("kind")
-        if not isinstance(kind, str):
-            return None
-        try:
-            return AttachmentKind(kind)
-        except ValueError:
-            return None
 
 
 @dataclass(frozen=True)

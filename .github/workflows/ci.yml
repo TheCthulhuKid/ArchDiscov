@@ -37,8 +37,10 @@ jobs:
           cache-dependency-glob: uv.lock
       - name: Install locked dependencies
         run: uv sync --locked --group dev --python 3.13
-      - name: Run offline tests
-        run: .venv/bin/python -m pytest -n 8 --dist worksteal --ignore=tests/acceptance
+      - name: Run offline tests with a coverage report
+        run: >-
+          .venv/bin/python -m pytest -n 8 --dist worksteal --ignore=tests/acceptance
+          --cov --cov-report=term:skip-covered
 
   acceptance:
     name: Acceptance tests
@@ -89,3 +91,8 @@ jobs:
         run: .venv/bin/python -m ruff check .
       - name: Check formatting
         run: .venv/bin/python -m ruff format --check .
+      - name: Audit locked dependencies for known vulnerabilities
+        run: |
+          uv export --locked --format requirements-txt --no-emit-project --group dev \
+            -o "$RUNNER_TEMP/requirements.txt"
+          .venv/bin/python -m pip_audit --disable-pip --strict -r "$RUNNER_TEMP/requirements.txt"

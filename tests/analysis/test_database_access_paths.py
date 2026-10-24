@@ -55,7 +55,7 @@ def decisions(evaluation):
 
 
 def test_an_instance_in_the_database_subnet_is_allowed_through_a_group_reference():
-    index, found = evaluate()
+    _index, found = evaluate()
     path = found["i-plain"]
     assert path.decision == D.ALLOW
     assert decisions(path) == {

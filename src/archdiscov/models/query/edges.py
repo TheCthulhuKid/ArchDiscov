@@ -2,8 +2,7 @@ from typing import Annotated, Literal
 
 from pydantic import Field
 
-from archdiscov.graph.containment import ContainmentEdge
-from archdiscov.graph.dependencies import DependencyEdge
+from archdiscov.models.edges import ContainmentEdge, DependencyEdge
 from archdiscov.models.enums import QueryDirection
 from archdiscov.models.resource_base import Model
 

@@ -9,7 +9,6 @@ proposal, and a fixed message that never repeats proposal or tool text, so one r
 request can address them all.
 """
 
-import hashlib
 from collections.abc import Iterator
 
 from archdiscov.graph import GraphIndex
@@ -25,12 +24,18 @@ from .answers import (
 )
 from .rejections import Rejection, RejectionCode, reject
 from .tools.contracts import IdKind
-from .tools.record import RecordedFinding, RunContext, normalize_text
+from .tools.record import (
+    FINGERPRINT_WINDOW,
+    RecordedFinding,
+    RunContext,
+    repeats_recorded_text,
+)
 from .tools.session import ToolSession
 
-# Narrative is compared only with imported values and IDs at least this long, so short
-# words such as a resource called "web" are not mistaken for repeated text.
-MIN_REPEATED_TEXT_CHARS = 24
+# Narrative is compared only with imported values at least this long (the fingerprint
+# window), and with IDs at least `MIN_NAMED_ID_CHARS` long, so short words such as a
+# resource called "web" are not mistaken for repeated text.
+MIN_REPEATED_TEXT_CHARS = FINGERPRINT_WINDOW
 MIN_NAMED_ID_CHARS = 12
 
 _STATUS_RANK = {
@@ -279,31 +284,13 @@ def _narrative(proposal: AnswerProposal) -> Iterator[tuple[str, str]]:
 
 
 def _check_narrative(proposal: AnswerProposal, checker: _Checker) -> Iterator[Rejection]:
-    repeated = _fingerprints_by_length(checker.context)
+    repeated = frozenset(checker.context.fingerprints)
     named = _uncited_ids(proposal, checker)
     for location, text in _narrative(proposal):
-        if _repeats_imported_text(text, repeated):
+        if repeats_recorded_text(text, repeated):
             yield reject(RejectionCode.NARRATIVE_IMPORTED_TEXT, location)
         if any(value in text for value in named):
             yield reject(RejectionCode.NARRATIVE_UNCITED_ID, location)
-
-
-def _fingerprints_by_length(context: RunContext) -> dict[int, set[str]]:
-    lengths: dict[int, set[str]] = {}
-    for item in context.fingerprints:
-        if item.length >= MIN_REPEATED_TEXT_CHARS:
-            lengths.setdefault(item.length, set()).add(item.digest)
-    return lengths
-
-
-def _repeats_imported_text(text: str, lengths: dict[int, set[str]]) -> bool:
-    """Whether any window of the normalized text has a delivered value's fingerprint."""
-    normalized = normalize_text(text)
-    return any(
-        hashlib.sha256(normalized[start : start + length].encode()).hexdigest() in digests
-        for length, digests in lengths.items()
-        for start in range(len(normalized) - length + 1)
-    )
 
 
 def _uncited_ids(proposal: AnswerProposal, checker: _Checker) -> set[str]:

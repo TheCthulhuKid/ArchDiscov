@@ -29,6 +29,7 @@ from archdiscov.assistant import fake as assistant_fake
 from archdiscov.assistant import instructions as assistant_instructions
 from archdiscov.assistant import rejections as assistant_rejections
 from archdiscov.assistant import runs as assistant_runs
+from archdiscov.assistant.ask_results import RunSummary
 from archdiscov.assistant.config import ProviderConfigError, ProviderConfigErrorCode
 from archdiscov.assistant.fake import FakeScriptError, FakeScriptErrorCode
 from archdiscov.assistant.provider import (
@@ -41,6 +42,7 @@ from archdiscov.assistant.provider import (
 from archdiscov.assistant.questions import README_QUESTIONS
 from archdiscov.assistant.repair import submission_text
 from archdiscov.assistant.tools import contracts as tool_contracts
+from archdiscov.assistant.tools import record as tool_record
 from archdiscov.assistant.tools.catalog import default_registry
 from archdiscov.assistant.tools.session import ToolSessionError
 from archdiscov.cli import app
@@ -52,11 +54,10 @@ from archdiscov.models.query.parameters import QueryPathLimits
 from archdiscov.models.query.requests import QueryNeighboursRequest, QuerySearchRequest
 from archdiscov.services import DEFAULT_REGISTRY
 from archdiscov.services import evaluation as evaluation_service
-from archdiscov.services.ask import RunSummary
 from archdiscov.services.snapshot_errors import SnapshotIOError
-from tests.cli.test_ask_cli import ENVELOPE, PRE_RUN_ERRORS
 from tests.documentation.markdown import DOC_FILES, code_blocks, table_rows
 from tests.paths import FIXTURES_ROOT, PROJECT_ROOT
+from tests.support.ask_cli_cases import ENVELOPE, PRE_RUN_ERRORS
 
 DOCS = PROJECT_ROOT / "docs"
 README = PROJECT_ROOT / "README.md"
@@ -158,7 +159,7 @@ def test_documented_query_limits_match_the_query_models():
         "--depth": [path_limits["depth"]],
         "--work-limit": [path_limits["work_limit"]],
     }
-    seen = {option: 0 for option in expected}
+    seen = dict.fromkeys(expected, 0)
     for _query, _limit, option, default, allowed in (row[:5] for row in rows):
         option = option.strip("`")
         field = expected[option][seen[option]]
@@ -525,6 +526,18 @@ def test_documented_answer_bounds_match_the_constants():
     assert {row[0].strip("`"): number(row[1]) for row in rows} == expected
 
 
+def test_documented_fingerprint_windows_match_the_record():
+    window, stride = tool_record.FINGERPRINT_WINDOW, tool_record.FINGERPRINT_STRIDE
+    assert window == answer_validation.MIN_REPEATED_TEXT_CHARS
+    answers = " ".join(ANSWERS_DOC.read_text(encoding="utf-8").split())
+    assert f"every `FINGERPRINT_STRIDE` ({stride}) characters" in answers
+    assert f"any stretch of {window + stride - 1} characters" in answers
+    assert f"as short as {window} characters" in answers
+    tools = " ".join(TOOLS_DOC.read_text(encoding="utf-8").split())
+    assert f"at least {window} characters (`FINGERPRINT_WINDOW`)" in tools
+    assert f"every {stride} characters (`FINGERPRINT_STRIDE`)" in tools
+
+
 def test_documented_rendering_bound_matches_the_constant():
     text = " ".join(ANSWERS_DOC.read_text(encoding="utf-8").split())
     assert f"`MAX_RENDERED_ENTRIES` ({answer_results.MAX_RENDERED_ENTRIES})" in text
@@ -800,6 +813,8 @@ def test_documented_mcp_answers_match_the_code():
         assert rows[name][1] == "yes"
     assert f"at most {assistant_rejections.MAX_LISTED_REJECTIONS}" in rows["rejected"][2]
     assert rows["accepted"][1] == "no" and rows["accepted"][2].startswith("three:")
+    [(key, limit)] = mcp_server.ANSWER_RESULT_META.items()
+    assert f'`"_meta": {{"{key}": {limit}}}`' in text
 
 
 # ---- ask command -------------------------------------------------------------------
@@ -817,7 +832,7 @@ def test_documented_ask_json_matches_the_envelope():
     rows = table_rows(ASK_DOC, "| Envelope key | Holds")
     assert [row[0].strip("`") for row in rows] == ENVELOPE
     assert f"`{cli_ask_output.ASK_JSON_VERSION}`" in rows[0][1]
-    summary = dict((row[0].strip("`"), row[1]) for row in rows)["summary"]
+    summary = {row[0].strip("`"): row[1] for row in rows}["summary"]
     for field in RunSummary.model_fields:
         assert f"`{field}`" in summary, field
 
@@ -886,7 +901,7 @@ def documented_invocations(path: Path):
     names = command_options()
     for block in code_blocks(path):
         invocation = None
-        for line in block.splitlines() + [""]:
+        for line in [*block.splitlines(), ""]:
             if invocation is not None and (line.startswith((" ", "\t")) and line.strip()):
                 invocation += " " + line.strip()
                 continue

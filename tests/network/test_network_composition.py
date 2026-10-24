@@ -34,17 +34,17 @@ B = NetworkBlockerCode
 INGRESS, EGRESS = RuleDirection.INGRESS, RuleDirection.EGRESS
 CLIENT = "203.0.113.9"
 EPHEMERAL = 49152
-ALL_COVERED = {
-    operation: "success"
-    for operation in (
+ALL_COVERED = dict.fromkeys(
+    (
         "DescribeRouteTables",
         "DescribeInternetGateways",
         "DescribeNetworkAcls",
         "DescribeSecurityGroups",
         "DescribeSecurityGroupRules",
         "DescribeNetworkInterfaces",
-    )
-}
+    ),
+    "success",
+)
 OPEN_ACL = acl(
     "acl-1",
     [entry(100, ports=(443, 443)), entry(100, egress=True, ports=(1024, 65535))],

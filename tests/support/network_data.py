@@ -68,6 +68,13 @@ ENI = {
     "PrivateIpAddresses": [{"PrivateIpAddress": "10.0.1.5", "Primary": True}],
     "Groups": [{"GroupId": "sg-1"}],
 }
+INSTANCE = {
+    "InstanceId": "i-1",
+    "SubnetId": "subnet-1",
+    "VpcId": "vpc-1",
+    "SecurityGroups": [{"GroupId": "sg-1"}, {"GroupId": "sg-gone"}],
+}
+ATTACHED_ENI = {**ENI, "Attachment": {"InstanceId": "i-1", "DeviceIndex": 0, "Status": "attached"}}
 
 
 def region(items, unavailable=None) -> RegionResult:

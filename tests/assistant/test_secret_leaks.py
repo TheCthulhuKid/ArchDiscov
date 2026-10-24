@@ -1,7 +1,6 @@
 """A credential never appears in a repr, JSON dump, or exception from the assistant modules."""
 
 import json
-import traceback
 from collections.abc import Callable
 from pathlib import Path
 
@@ -19,27 +18,15 @@ from archdiscov.assistant.provider import (
     ProviderError,
     ProviderTransportError,
 )
+from tests.support.secrets import SECRET, secret_renderings
 
-SECRET = "sk-ant-api03-SECRETvalue0123456789abcdefXYZ"
 ANTHROPIC = {"kind": "anthropic", "model": "claude-sonnet-5-5", "api_key_env": "ARCHDISCOV_KEY"}
-
-
-def _renderings(value: object) -> list[str]:
-    rendered = [repr(value), str(value)]
-    if hasattr(value, "model_dump_json"):
-        rendered += [value.model_dump_json(), json.dumps(value.model_dump(mode="json"))]
-    if isinstance(value, BaseException):
-        rendered.append("".join(traceback.format_exception_only(value)))
-        rendered += [repr(getattr(value, name, None)) for name in ("details", "args")]
-        if isinstance(value, ProviderError):
-            rendered.append(json.dumps(value.diagnostic()))
-    return rendered
 
 
 def _raised(action: Callable[[], object]) -> BaseException:
     try:
         action()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - the test inspects whatever is raised
         return exc
     raise AssertionError("expected an exception")
 
@@ -118,5 +105,5 @@ def test_secret_never_rendered(scenario, monkeypatch: pytest.MonkeyPatch, tmp_pa
     values = scenario(monkeypatch, tmp_path)
     assert values
     for value in values:
-        for rendered in _renderings(value):
+        for rendered in secret_renderings(value):
             assert SECRET not in rendered, (scenario.__name__, type(value).__name__)

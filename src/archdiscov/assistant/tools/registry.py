@@ -74,7 +74,7 @@ class ToolRegistry:
         if isinstance(delivered, ToolOutput):
             try:
                 session.record.record_output(delivered)
-            except Exception:
+            except Exception:  # noqa: BLE001 - an unrecordable output is an internal error
                 result, _ = render(
                     call.id, tool_error(ToolErrorCode.INTERNAL_ERROR), session.limits
                 )
@@ -97,7 +97,7 @@ class ToolRegistry:
             return tool_error(ToolErrorCode.INVALID_ARGUMENTS, sorted(set(locations))[:20])
         try:
             output = tool.run(session, arguments)
-        except Exception:
+        except Exception:  # noqa: BLE001 - a failing tool is an internal error, not a crash
             return tool_error(ToolErrorCode.INTERNAL_ERROR)
         if not isinstance(output, (ToolOutput, ToolError)):
             return tool_error(ToolErrorCode.INTERNAL_ERROR)
@@ -113,7 +113,9 @@ def _input_field_names(model: type[ToolInput]) -> set[str]:
         for name, field in current.model_fields.items():
             names.add(name)
             annotation = field.annotation
-            for candidate in (annotation, *getattr(annotation, "__args__", ())):
-                if isinstance(candidate, type) and issubclass(candidate, Contract):
-                    pending.append(candidate)
+            pending.extend(
+                candidate
+                for candidate in (annotation, *getattr(annotation, "__args__", ()))
+                if isinstance(candidate, type) and issubclass(candidate, Contract)
+            )
     return names

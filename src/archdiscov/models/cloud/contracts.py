@@ -53,9 +53,9 @@ class CloudSource(Model):
 
     @model_validator(mode="after")
     def validate_platform(self) -> Self:
-        if isinstance(self.provenance, (AwsSource, CloudFormationSource)):
-            if self.platform != CloudPlatform.AWS:
-                raise ValueError("AWS provenance requires AWS platform")
+        aws = isinstance(self.provenance, (AwsSource, CloudFormationSource))
+        if aws and self.platform != CloudPlatform.AWS:
+            raise ValueError("AWS provenance requires AWS platform")
         if isinstance(self.provenance, AzureFixtureSource) and self.platform != CloudPlatform.AZURE:
             raise ValueError("Azure fixture provenance requires Azure platform")
         return self

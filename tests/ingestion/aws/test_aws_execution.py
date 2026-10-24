@@ -1,5 +1,4 @@
 import threading
-import time
 from datetime import UTC, datetime, timedelta
 
 import boto3
@@ -10,23 +9,21 @@ from botocore.stub import Stubber
 from archdiscov.ingestion.adapter import AdapterContext, IngestionError
 from archdiscov.ingestion.aws import (
     ALLOWED_OPERATIONS,
-    OperationRunner,
-    OperationTask,
     create_session,
     sanitize_failure,
     verify_identity,
 )
-from archdiscov.ingestion.requests import AwsAccountConfig
 from archdiscov.models.enums import AwsRegion, AwsService, CoverageStatus
+from tests.support.aws_execution import (
+    ACCOUNT,
+    FakeClient,
+    FakeSession,
+    account,
+    operation_runner,
+    task,
+)
 
-ACCOUNT = "123456789012"
 SECRET = "AKIASECRETVALUE/very-secret"
-
-
-def account(**overrides):
-    data = {"profile": "dev", "expected_account_id": ACCOUNT, "regions": ["us-east-1"]}
-    data.update(overrides)
-    return AwsAccountConfig.model_validate(data)
 
 
 class Clock:
@@ -36,49 +33,6 @@ class Clock:
     def __call__(self):
         self.now += timedelta(seconds=1)
         return self.now
-
-
-class FakePaginator:
-    def __init__(self, pages):
-        self.pages = pages
-
-    def paginate(self, **params):
-        for page in self.pages:
-            if isinstance(page, Exception):
-                raise page
-            yield page
-
-
-class FakeClient:
-    def __init__(self, pages=None, error=None, delay=0.0, tracker=None):
-        self.pages = pages
-        self.error = error
-        self.delay = delay
-        self.tracker = tracker
-        self.calls = 0
-
-    def can_paginate(self, method):
-        return self.pages is not None
-
-    def get_paginator(self, method):
-        self.calls += 1
-        return FakePaginator(self.pages)
-
-    def describe_vpcs(self, **params):
-        self.calls += 1
-        if self.tracker:
-            self.tracker.enter()
-            time.sleep(self.delay)
-            self.tracker.exit()
-        if self.error:
-            raise self.error
-        return {"Vpcs": [{"VpcId": "vpc-1"}]}
-
-    def get_caller_identity(self):
-        self.calls += 1
-        if self.error:
-            raise self.error
-        return {"Account": ACCOUNT}
 
 
 class Tracker:
@@ -95,34 +49,6 @@ class Tracker:
     def exit(self):
         with self.lock:
             self.current -= 1
-
-
-class FakeSession:
-    def __init__(self, client=None, clients=None, kwargs=None):
-        self.client_obj = client
-        self.clients = clients or {}
-        self.kwargs = kwargs or {}
-        self.client_calls = []
-
-    def client(self, name, **kwargs):
-        self.client_calls.append((name, kwargs))
-        return self.clients.get(name, self.client_obj)
-
-
-def runner(client, **cfg):
-    session = FakeSession(client)
-    return OperationRunner(session, account(**cfg), AdapterContext(clock=Clock())), session
-
-
-def task(**overrides):
-    data = {
-        "region": AwsRegion.US_EAST_1,
-        "service": AwsService.EC2,
-        "operation": "DescribeVpcs",
-        "result_key": "Vpcs",
-    }
-    data.update(overrides)
-    return OperationTask(**data)
 
 
 def client_error(code="Throttling", message=SECRET):
@@ -252,7 +178,7 @@ def test_assume_role_failure_is_identity_failed():
 
 def test_disallowed_operation_rejected_before_any_client_call():
     client = FakeClient(pages=[])
-    run, session = runner(client)
+    run, session = operation_runner(client)
     with pytest.raises(IngestionError) as exc:
         run.run(task(operation="DeleteVpc"))
     assert exc.value.code == "operation_not_allowed"
@@ -262,7 +188,7 @@ def test_disallowed_operation_rejected_before_any_client_call():
 
 def test_run_many_rejects_disallowed_before_running_any_task():
     client = FakeClient(pages=[{"Vpcs": []}])
-    run, session = runner(client)
+    run, session = operation_runner(client)
     with pytest.raises(IngestionError):
         run.run_many([task(), task(region=AwsRegion.US_WEST_2, operation="TerminateInstances")])
     assert session.client_calls == []
@@ -286,7 +212,7 @@ def test_multi_page_success():
     client = FakeClient(
         pages=[{"Vpcs": [{"VpcId": "a"}]}, {"Vpcs": [{"VpcId": "b"}, {"VpcId": "c"}]}]
     )
-    run, _ = runner(client)
+    run, _ = operation_runner(client)
     result = run.run(task())
     assert [i["VpcId"] for i in result.items] == ["a", "b", "c"]
     assert result.coverage.status == CoverageStatus.SUCCESS
@@ -294,14 +220,14 @@ def test_multi_page_success():
 
 
 def test_success_with_zero_results():
-    run, _ = runner(FakeClient(pages=[{"Vpcs": []}]))
+    run, _ = operation_runner(FakeClient(pages=[{"Vpcs": []}]))
     result = run.run(task())
     assert result.coverage.status == CoverageStatus.SUCCESS
     assert result.coverage.result_count == 0
 
 
 def test_first_call_failure_is_failed_and_sanitized():
-    run, _ = runner(FakeClient(pages=[client_error()]))
+    run, _ = operation_runner(FakeClient(pages=[client_error()]))
     result = run.run(task())
     assert result.items == []
     assert result.coverage.status == CoverageStatus.FAILED
@@ -312,7 +238,7 @@ def test_first_call_failure_is_failed_and_sanitized():
 
 
 def test_failure_after_first_page_is_incomplete_with_retained_items():
-    run, _ = runner(FakeClient(pages=[{"Vpcs": [{"VpcId": "a"}]}, client_error()]))
+    run, _ = operation_runner(FakeClient(pages=[{"Vpcs": [{"VpcId": "a"}]}, client_error()]))
     result = run.run(task())
     assert [i["VpcId"] for i in result.items] == ["a"]
     assert result.coverage.status == CoverageStatus.INCOMPLETE
@@ -321,7 +247,7 @@ def test_failure_after_first_page_is_incomplete_with_retained_items():
 
 
 def test_non_paginated_call_and_exhausted_retries():
-    run, _ = runner(FakeClient(error=EndpointConnectionError(endpoint_url=SECRET)))
+    run, _ = operation_runner(FakeClient(error=EndpointConnectionError(endpoint_url=SECRET)))
     result = run.run(task())
     assert result.coverage.status == CoverageStatus.FAILED
     assert result.coverage.failures[0].code == "EndpointConnectionError"
@@ -335,18 +261,18 @@ def test_unknown_exception_text_not_leaked():
 
 
 def test_unsafe_client_error_code_is_replaced():
-    run, _ = runner(FakeClient(pages=[client_error(code=f"Bad {SECRET}")]))
+    run, _ = operation_runner(FakeClient(pages=[client_error(code=f"Bad {SECRET}")]))
     assert run.run(task()).coverage.failures[0].code == "ClientError"
 
 
 def test_non_paginated_success_uses_single_call():
-    run, _ = runner(FakeClient())
+    run, _ = operation_runner(FakeClient())
     result = run.run(task())
     assert result.coverage.result_count == 1
 
 
 def test_skipped_and_unsupported_outcomes():
-    run, _ = runner(FakeClient())
+    run, _ = operation_runner(FakeClient())
     skipped = run.skip(task(), "service not selected")
     unsupported = run.unsupported(task(operation="DescribeSubnets"), "not in region")
     assert skipped.coverage.status == CoverageStatus.SKIPPED
@@ -355,7 +281,7 @@ def test_skipped_and_unsupported_outcomes():
 
 
 def test_duplicate_coverage_record_rejected():
-    run, _ = runner(FakeClient(pages=[{"Vpcs": []}]))
+    run, _ = operation_runner(FakeClient(pages=[{"Vpcs": []}]))
     run.run(task())
     with pytest.raises(IngestionError) as exc:
         run.run(task())
@@ -364,7 +290,7 @@ def test_duplicate_coverage_record_rejected():
 
 def test_bounded_concurrency_and_deterministic_order():
     tracker = Tracker()
-    run, _ = runner(FakeClient(delay=0.02, tracker=tracker), max_concurrency=2)
+    run, _ = operation_runner(FakeClient(delay=0.02, tracker=tracker), max_concurrency=2)
     regions = [AwsRegion.US_WEST_2, AwsRegion.EU_WEST_1, AwsRegion.US_EAST_1, AwsRegion.AP_SOUTH_1]
     results = run.run_many(
         task(region=r, params={}, paginate=False, result_key="Vpcs") for r in regions
@@ -376,7 +302,7 @@ def test_bounded_concurrency_and_deterministic_order():
 
 def test_concurrency_of_one_is_serial():
     tracker = Tracker()
-    run, _ = runner(FakeClient(delay=0.01, tracker=tracker), max_concurrency=1)
+    run, _ = operation_runner(FakeClient(delay=0.01, tracker=tracker), max_concurrency=1)
     run.run_many(task(region=r, paginate=False) for r in (AwsRegion.US_WEST_2, AwsRegion.US_EAST_1))
     assert tracker.max == 1
 
@@ -388,7 +314,7 @@ def test_stubber_paginated_describe_vpcs():
     with Stubber(ec2) as stub:
         stub.add_response("describe_vpcs", {"Vpcs": [{"VpcId": "vpc-1"}], "NextToken": "n"})
         stub.add_response("describe_vpcs", {"Vpcs": [{"VpcId": "vpc-2"}]})
-        run, _ = runner(ec2)
+        run, _ = operation_runner(ec2)
         result = run.run(task())
     assert [v["VpcId"] for v in result.items] == ["vpc-1", "vpc-2"]
     assert result.coverage.result_count == 2
@@ -401,7 +327,7 @@ def test_stubber_failure_after_first_page_is_incomplete():
     with Stubber(ec2) as stub:
         stub.add_response("describe_vpcs", {"Vpcs": [{"VpcId": "vpc-1"}], "NextToken": "n"})
         stub.add_client_error("describe_vpcs", "RequestLimitExceeded", SECRET)
-        run, _ = runner(ec2)
+        run, _ = operation_runner(ec2)
         result = run.run(task())
     assert result.coverage.status == CoverageStatus.INCOMPLETE
     assert [v["VpcId"] for v in result.items] == ["vpc-1"]

@@ -34,14 +34,15 @@ from archdiscov.assistant.evaluation import (
 from archdiscov.assistant.rejections import RejectionCode
 from archdiscov.assistant.runs import RunLimits
 from archdiscov.assistant.tools.contracts import untrusted
+from archdiscov.assistant.tools.record import FINGERPRINT_STRIDE, FINGERPRINT_WINDOW
 from archdiscov.assistant.tools.session import ToolSession
 from archdiscov.models.enums import AnalysisStatus
 from archdiscov.services.ask import AskResult, ask_question
-from tests.assistant.test_answer_service import _rejected, _submit
-from tests.assistant.test_orchestrator import SNAPSHOT, _calls, _fail
-from tests.services.test_ask import _fake
 from tests.support.ask_examples import EXAMPLES, SUMMARY, ExampleRun, write_example
+from tests.support.ask_runs import fake_config
 from tests.support.evaluation_suites import example_analyzers, example_expectations
+from tests.support.scripted_answers import rejected_proposal, submit_turn
+from tests.support.scripted_turns import SNAPSHOT, calls_turn, fail_turn
 
 QUESTION = "Which resources are in the network?"
 SECRET_PATH = "SECRETvalue0123456789abcdef"
@@ -95,7 +96,7 @@ def _example(name: str, directory: Path, step: float = 0.25) -> tuple[ExampleRun
 def _scripted(directory: Path, turns: list[dict], config: str = "") -> AskResult:
     directory.mkdir(parents=True, exist_ok=True)
     return ask_question(
-        QUESTION, snapshot_path=SNAPSHOT, config_path=_fake(directory, turns, config)
+        QUESTION, snapshot_path=SNAPSHOT, config_path=fake_config(directory, turns, config)
     )
 
 
@@ -266,7 +267,7 @@ def test_each_unmet_expectation_fails_only_its_check(tmp_path: Path, expect, fai
 
 
 def test_required_limitations_are_read_from_the_cited_findings(tmp_path: Path) -> None:
-    run, result = _example("trust_limited_coverage", tmp_path)
+    _run, result = _example("trust_limited_coverage", tmp_path)
     record = score_case(_case(), result)
     assert record.limitation_codes
     case = _case({"limitations": list(record.limitation_codes)})
@@ -274,7 +275,7 @@ def test_required_limitations_are_read_from_the_cited_findings(tmp_path: Path) -
 
 
 def test_a_failed_run_checks_only_its_outcome_and_safety(tmp_path: Path) -> None:
-    result = _scripted(tmp_path, [_fail("provider_unavailable")])
+    result = _scripted(tmp_path, [fail_turn("provider_unavailable")])
     case = _case(
         {
             "outcomes": ["provider_error", "answered"],
@@ -297,8 +298,8 @@ def test_a_failed_run_checks_only_its_outcome_and_safety(tmp_path: Path) -> None
 
 def _rejected_run(tmp_path: Path) -> AskResult:
     session = ToolSession.from_paths(SNAPSHOT)
-    proposal = _rejected(session)
-    turns = [_submit("a1", proposal), _submit("a2", proposal)]
+    proposal = rejected_proposal(session)
+    turns = [submit_turn("a1", proposal), submit_turn("a2", proposal)]
     return _scripted(tmp_path, turns)
 
 
@@ -336,7 +337,7 @@ def test_a_rejection_without_citation_codes_keeps_valid_citations(tmp_path: Path
 
 
 def test_a_limit_is_scored_as_its_outcome(tmp_path: Path) -> None:
-    result = _scripted(tmp_path, [_calls(("c1", "search_resources", {}))], "max_requests = 1\n")
+    result = _scripted(tmp_path, [calls_turn(("c1", "search_resources", {}))], "max_requests = 1\n")
     record = score_case(_case({"outcomes": ["limit_reached"]}), result)
     assert record.passed and record.outcome.failure == FailureReason.LIMIT_REACHED
 
@@ -385,6 +386,23 @@ def test_unsafe_answers_fail_their_safety_check_whatever_the_expectations(
     narrated = _with_rendered(
         supported,
         narrative=supported.answer.rendered.narrative.model_copy(update={"summary": summary}),
+    )
+    assert _failed_checks(narrated) == {CheckName.QUOTED}
+
+
+def test_a_narrative_repeating_part_of_a_long_imported_value_fails_quoted(
+    tmp_path: Path,
+) -> None:
+    _, result = _example("ownership", tmp_path)
+    summary = result.answer.rendered.conclusions[0].findings[0].summary.untrusted_text
+    # A middle stretch, as long as the narrative check always finds, but not the whole value.
+    part = summary[20 : 20 + FINGERPRINT_WINDOW + FINGERPRINT_STRIDE - 1]
+    assert part != summary
+    narrated = _with_rendered(
+        result,
+        narrative=result.answer.rendered.narrative.model_copy(
+            update={"summary": f"In short, {part} and so on."}
+        ),
     )
     assert _failed_checks(narrated) == {CheckName.QUOTED}
 

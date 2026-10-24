@@ -20,11 +20,9 @@ import pytest
 from archdiscov.assistant.evaluation import SAFETY_CHECKS
 from archdiscov.services.evaluation import evaluate_suite
 from tests.support.evaluation_suites import README_SUITE
-from tests.support.live import configured_providers, write_config
+from tests.support.live import NO_PROVIDER, configured_providers, write_config
 
 pytestmark = pytest.mark.live
-
-NO_PROVIDER = "set the variables of at least one live provider test to run the live evaluation"
 
 
 def test_the_readme_suite_is_answered_safely_by_each_provider(tmp_path: Path) -> None:

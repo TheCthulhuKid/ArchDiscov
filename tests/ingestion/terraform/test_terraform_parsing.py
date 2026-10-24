@@ -4,25 +4,14 @@ from dataclasses import asdict
 
 import pytest
 
+from archdiscov.core.strict_json import MAX_JSON_FILE_BYTES, FileTooLargeError
 from archdiscov.ingestion.adapter import IngestionError
+from archdiscov.ingestion.terraform import parsing
 from archdiscov.ingestion.terraform.parsing import load_export, parse_export
 from archdiscov.ingestion.terraform.sensitivity import REDACTED, read_pointer, sanitize_values
+from tests.support.terraform_data import resource
 
 RAW_SECRET = "do-not-expose-terraform-value"
-AWS_PROVIDER = "registry.terraform.io/hashicorp/aws"
-
-
-def resource(address="aws_vpc.main", **overrides):
-    result = {
-        "address": address,
-        "mode": "managed",
-        "type": "aws_vpc",
-        "provider_name": AWS_PROVIDER,
-        "values": {"id": "vpc-123", "tags": {"Name": "main"}},
-        "sensitive_values": {},
-    }
-    result.update(overrides)
-    return result
 
 
 def export(module=None, **overrides):
@@ -139,7 +128,7 @@ def test_rejects_missing_or_wrong_top_level_shape(document):
 
 @pytest.mark.parametrize("values", [None, [], RAW_SECRET, {}, {"root_module": []}])
 def test_requires_values_root_module_object(values):
-    with pytest.raises(IngestionError, match="values.root_module") as exc:
+    with pytest.raises(IngestionError, match=r"values\.root_module") as exc:
         parse_export(export(values=values))
     assert_safe_error(exc.value)
 
@@ -292,6 +281,19 @@ def test_load_export_rejects_duplicate_object_keys(tmp_path, nested):
     path.write_text(content, encoding="utf-8")
     with pytest.raises(IngestionError, match="duplicate object keys") as exc:
         load_export(path)
+    assert_safe_error(exc.value)
+
+
+def test_load_export_refuses_an_oversized_export(tmp_path, monkeypatch):
+    def too_large(path):
+        raise FileTooLargeError
+
+    monkeypatch.setattr(parsing, "read_bounded", too_large)
+    path = tmp_path / "state.json"
+    path.write_text("{}", encoding="utf-8")
+    with pytest.raises(IngestionError, match="Terraform export exceeds") as exc:
+        load_export(path)
+    assert str(MAX_JSON_FILE_BYTES) in str(exc.value)
     assert_safe_error(exc.value)
 
 

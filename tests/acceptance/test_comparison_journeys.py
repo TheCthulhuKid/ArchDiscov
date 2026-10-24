@@ -8,37 +8,13 @@ from archdiscov.services import (
     load_comparison,
     load_snapshot,
     save_snapshot,
-    upgrade_snapshot,
-    validate_snapshot,
 )
-from tests.comparison.snapshots import aws_resource, aws_snapshot, coverage
-from tests.comparison.test_field_comparison import evidence, rid
+from tests.comparison.snapshots import coverage
 from tests.paths import FIXTURES_ROOT
+from tests.support.comparison_data import journey_snapshot, rid
 from tests.support.installed_cli import ENTRY_POINTS, run_installed_json
 
 DELETE = {"actions": ["delete"], "value_scope": "before"}
-
-
-def cited_vpc(physical, value, *, seed, **extra):
-    """A VPC whose `a` attribute is cited, so a difference has evidence on its side."""
-    resource = {
-        **aws_resource(physical=physical, **extra.pop("identity", {})),
-        "attributes": {"a": value},
-        "evidence_ids": ["cite"],
-        "fact_evidence": {"/attributes/a": ["cite"]},
-        **extra,
-    }
-    return resource, {"cite": evidence(seed, physical, "a")}
-
-
-def build(source, value, *, seed, schema="2", **options):
-    resource, cited = cited_vpc("vpc-1", value, seed=seed, **options.pop("resource", {}))
-    snapshot = aws_snapshot([resource], source, seed=seed, evidence=cited, **options)
-    if schema == "3":
-        return upgrade_snapshot(snapshot)
-    if schema == "1":
-        return validate_snapshot({**snapshot.model_dump(mode="json"), "schema_version": "1"})
-    return snapshot
 
 
 def journey(entry_point, tmp_path, left, right):
@@ -72,8 +48,8 @@ def test_installed_observed_pair_journey_cites_evidence_on_both_sides(
     shown, result, left_path, right_path = journey(
         entry_point,
         tmp_path,
-        build("aws", 1, seed=1, schema=schema),
-        build("aws", 2, seed=2, schema=schema),
+        journey_snapshot("aws", 1, seed=1, schema=schema),
+        journey_snapshot("aws", 2, seed=2, schema=schema),
     )
     [pair] = result.matched
     [difference] = pair.differences
@@ -94,8 +70,8 @@ def test_installed_observed_pair_journey_cites_evidence_on_both_sides(
 
 @pytest.mark.parametrize("entry_point", ENTRY_POINTS)
 def test_installed_observed_against_terraform_plan_reports_planned_lifecycle(tmp_path, entry_point):
-    plan = build("terraform_plan", 2, seed=2, resource={"lifecycle": DELETE})
-    shown, result, *_ = journey(entry_point, tmp_path, build("aws", 1, seed=1), plan)
+    plan = journey_snapshot("terraform_plan", 2, seed=2, resource={"lifecycle": DELETE})
+    shown, result, *_ = journey(entry_point, tmp_path, journey_snapshot("aws", 1, seed=1), plan)
     [pair] = result.matched
     assert [str(q.kind) for q in pair.qualifications] == ["planned_lifecycle"]
     assert result.unmatched == []
@@ -107,8 +83,10 @@ def test_installed_observed_against_state_and_cloudformation(tmp_path, entry_poi
     for source in ("terraform_state", "cloudformation"):
         directory = tmp_path / source
         directory.mkdir()
-        right = build(source, 2, seed=2, operations=[coverage("failed")])
-        shown, result, *_ = journey(entry_point, directory, build("aws", 1, seed=1), right)
+        right = journey_snapshot(source, 2, seed=2, operations=[coverage("failed")])
+        _shown, result, *_ = journey(
+            entry_point, directory, journey_snapshot("aws", 1, seed=1), right
+        )
         assert str(result.right.source_kind) == source
         [pair] = result.matched
         assert any(str(q.kind) == "limited_coverage" for q in pair.differences[0].qualifications)

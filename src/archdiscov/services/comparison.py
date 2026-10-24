@@ -9,8 +9,8 @@ snapshot is changed, and the result describes recorded data only.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
 
+from archdiscov.graph import GraphIndex
 from archdiscov.models.comparison.entries import (
     AmbiguousMatch,
     MatchedPair,
@@ -22,14 +22,11 @@ from archdiscov.models.comparison.results import (
     ComparisonResult,
 )
 from archdiscov.models.enums import ComparisonLimitationKind, ComparisonSide
+from archdiscov.models.snapshot_access import SupportedSnapshot
 
 from .comparison_fields import FieldComparer
 from .comparison_matching import match_resources
 from .comparison_qualification import EntryBuilder, comparison_snapshot, snapshot_limitations
-from .snapshot_access import SupportedSnapshot
-
-if TYPE_CHECKING:
-    from archdiscov.graph import GraphIndex
 
 
 def compare_indexes(
@@ -88,8 +85,6 @@ def compare_snapshots(
     now: datetime | None = None,
 ) -> ComparisonResult:
     """Compare two validated snapshots through one read-only index each."""
-    from archdiscov.graph import GraphIndex  # the graph package imports the services package
-
     return compare_indexes(GraphIndex(left), GraphIndex(right), result_limit=result_limit, now=now)
 
 

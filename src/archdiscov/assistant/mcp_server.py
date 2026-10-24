@@ -47,6 +47,10 @@ from .tools.registry import ToolRegistry
 from .tools.session import ToolSession
 
 SERVER_NAME = "archdiscov"
+# Claude Code moves a tool result over 50,000 characters out of the conversation into a file
+# unless the tool declares a larger limit; an accepted answer must reach the model inline,
+# so `submit_answer` declares Claude Code's ceiling. Other clients ignore the key.
+ANSWER_RESULT_META = {"anthropic/maxResultSizeChars": 500_000}
 # What a client is told after a submission is not accepted, and before an accepted answer.
 SUBMIT_FOLLOW_UP = "Correct the answer and submit it again."
 # Fixed, so an invalid prompt request is never echoed back.
@@ -84,15 +88,22 @@ class _Reply:
 
 
 def _tools(registry: ToolRegistry) -> list[types.Tool]:
-    declarations = (*registry.declarations(), submit_answer_declaration(MCP_SUBMIT_DESCRIPTION))
-    return [
+    submit = submit_answer_declaration(MCP_SUBMIT_DESCRIPTION)
+    tools = [
         types.Tool(
             name=declaration.name,
             description=declaration.description,
             input_schema=dict(declaration.input_schema),
         )
-        for declaration in declarations
+        for declaration in registry.declarations()
     ]
+    answer = types.Tool(
+        name=submit.name,
+        description=submit.description,
+        input_schema=dict(submit.input_schema),
+        meta=ANSWER_RESULT_META,
+    )
+    return [*tools, answer]
 
 
 def _prompts() -> list[types.Prompt]:
@@ -130,7 +141,10 @@ def _submit(arguments: ToolArguments, connection: Connection) -> _Reply:
     rendered = render_answer(
         outcome.proposal, connection.session, AnswerOutcome(status=AnswerStatus.ANSWERED)
     )
-    data = json.dumps(answer_data(rendered), indent=2, ensure_ascii=False, allow_nan=False)
+    # Compact, since the readable answer beside it is the form a person reads.
+    data = json.dumps(
+        answer_data(rendered), ensure_ascii=False, allow_nan=False, separators=(",", ":")
+    )
     return _Reply((PRESENT_ANSWER, answer_text(rendered), data))
 
 
@@ -187,7 +201,7 @@ def build_server(session: ToolSession, limits: ServerLimits | None = None) -> Se
         # and the run record sees them in the order they arrived.
         try:
             reply = _dispatch(registry, state, params)
-        except Exception:
+        except Exception:  # noqa: BLE001 - any failure is a tool error, never a protocol one
             reply = _error(f"mcp-{state.calls}", ToolErrorCode.INTERNAL_ERROR, state)
         return types.CallToolResult(
             content=[types.TextContent(type="text", text=text) for text in reply.texts],

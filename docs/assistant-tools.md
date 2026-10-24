@@ -131,6 +131,8 @@ writes conclusions from, in the same frozen, sorted, detached form:
 - each delivered finding's `FindingView` exactly as the model was shown it, the first one
   delivered when a finding is delivered again, so a rendered finding never differs from
   what the model read;
-- a fingerprint of every delivered `untrusted_text` value: the length and SHA-256 of the
-  text case-folded with whitespace collapsed, so narrative can be checked for repeated
-  imported text without keeping that text.
+- fingerprints of every delivered `untrusted_text` value of at least 24 characters
+  (`FINGERPRINT_WINDOW`): the first 64 bits of the SHA-256 of each 24-character window of
+  the text, case-folded with whitespace collapsed, taken every 8 characters
+  (`FINGERPRINT_STRIDE`) and at the end, so narrative can be checked for repeating any part
+  of imported text without keeping that text.

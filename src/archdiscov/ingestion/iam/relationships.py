@@ -105,8 +105,13 @@ def resolve_relationships(
             evidence[citations[0]] if citations else None,
             builder,
             groups,
+            # Called synchronously inside this iteration, so binding `resource` late is safe.
             lambda target, ids, **attrs: emit(
-                resource, AttachmentKind.TRUST_PRINCIPAL, target, ids, **attrs
+                resource,  # noqa: B023
+                AttachmentKind.TRUST_PRINCIPAL,
+                target,
+                ids,
+                **attrs,
             ),
         )
     evidence.update(builder.evidence)

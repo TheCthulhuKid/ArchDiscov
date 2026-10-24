@@ -17,9 +17,9 @@ def test_relative_links_and_anchors_resolve(document):
             continue
         path_part, _, fragment = target.partition("#")
         destination = (document.parent / path_part).resolve() if path_part else document
-        if not destination.exists():
-            broken.append(target)
-        elif fragment and destination.suffix == ".md" and fragment not in anchors(destination):
+        if not destination.exists() or (
+            fragment and destination.suffix == ".md" and fragment not in anchors(destination)
+        ):
             broken.append(target)
     assert broken == []
 

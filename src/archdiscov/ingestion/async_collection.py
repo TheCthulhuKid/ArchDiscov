@@ -53,7 +53,7 @@ async def ordered_workers[T, R](
         for index, item in pending:
             try:
                 results[index] = await work(item)
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - re-raised in input order below
                 results[index] = error
 
     workers = [asyncio.create_task(worker()) for _ in range(min(limit, len(items)))]

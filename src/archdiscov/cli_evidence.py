@@ -1,11 +1,15 @@
-"""Evidence presentation, separate from command routing and cloud contracts."""
+"""The `evidence` command and evidence presentation, separate from cloud contracts."""
 
 import json
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
+from .cli_diagnostics import emit_model, fail_snapshot_error
+from .cli_options import JsonOption
 from .models.cloud.contracts import CloudEvidence
+from .services import SnapshotError, get_evidence, load_snapshot
 from .services.evidence import EvidenceInspection
 
 
@@ -49,3 +53,23 @@ def print_evidence(result: EvidenceInspection, path: Path) -> None:
             typer.echo(
                 f"    Unresolved {owner} {unresolved.configuration_path}: {unresolved.reason}"
             )
+
+
+def evidence(
+    evidence_id: Annotated[str, typer.Argument(help="Evidence-map ID in the selected snapshot.")],
+    snapshot_path: Annotated[
+        Path, typer.Option("--snapshot", help="Snapshot JSON path to inspect.")
+    ],
+    json_output: JsonOption = False,
+) -> None:
+    """Inspect one sanitized evidence record and its collection limitations."""
+    try:
+        result = get_evidence(load_snapshot(snapshot_path), evidence_id)
+    except SnapshotError as error:
+        if error.path is None:
+            error.path = snapshot_path
+        fail_snapshot_error(error, json_output)
+    if json_output:
+        emit_model(result, snapshot_path=str(snapshot_path))
+    else:
+        print_evidence(result, snapshot_path)

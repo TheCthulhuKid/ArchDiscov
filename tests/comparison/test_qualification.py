@@ -11,7 +11,7 @@ from archdiscov.services.comparison_qualification import (
     snapshot_limitations,
 )
 from tests.comparison.snapshots import REGION, aws_resource, azure_snapshot, coverage, index
-from tests.comparison.test_field_comparison import evidence, rid, vpc
+from tests.support.comparison_data import evidence, rid, vpc
 
 LEFT, RIGHT = ComparisonSide.LEFT, ComparisonSide.RIGHT
 DELETE = {"actions": ["delete"], "value_scope": "before"}
@@ -88,7 +88,7 @@ def test_cross_cloud_pairs_carry_their_limitation_in_canonical_order():
 
 def test_a_planned_deletion_qualifies_the_pair_and_is_not_an_observed_absence():
     right = planned(cited=True, evidence=["plan"])
-    left_index, right_index, outcome, qualifier = qualify(
+    _left_index, _right_index, outcome, qualifier = qualify(
         [vpc()],
         [right],
         sources=("aws", "terraform_plan"),
