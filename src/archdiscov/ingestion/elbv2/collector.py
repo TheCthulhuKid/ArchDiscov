@@ -75,23 +75,129 @@ class _InventoryRunner(DetailRunner):
         return result
 
 
-def collect_inventory(
-    session: Any, account: AwsAccountConfig, context: AdapterContext, region: AwsRegion
-) -> Elbv2Inventory:
-    runner = _InventoryRunner(
-        session,
-        account,
-        context,
-        service=AwsService.ELASTIC_LOAD_BALANCING,
-        region=region,
-        client_name="elbv2",
-        pagination="elbv2",
-    )
-    results: dict[Op, DetailResult] = {}
+# The stages whose resources are modelled for some types only: the type field, and those types.
+_SUPPORTED = {
+    Op.DESCRIBE_LOAD_BALANCERS: ("Type", ("application", "network")),
+    Op.DESCRIBE_TARGET_GROUPS: ("TargetType", ("instance", "ip", "alb", "lambda")),
+}
+_LOAD_BALANCER_KINDS = {"application": "app", "network": "net", "gateway": "gwy"}
+_TAG_BATCH = 20
 
-    def run(op: Op, calls: list[DetailCall], *upstream: DetailResult) -> DetailResult:
+
+def _resource_path(arn: str) -> str:
+    return arn.split(":", 5)[5]
+
+
+def _load_balancer_matches(response: DetailResponse, arn: str) -> bool:
+    lb_type = response.value.get("Type")
+    kind = _LOAD_BALANCER_KINDS.get(lb_type if isinstance(lb_type, str) else None)
+    return kind is None or _resource_path(arn).startswith(f"loadbalancer/{kind}/")
+
+
+def _listener_matches(response: DetailResponse, arn: str) -> bool:
+    parent = response.call.params["LoadBalancerArn"]
+    listener = _resource_path(arn).removeprefix("listener/").rsplit("/", 1)[0]
+    load_balancer = _resource_path(parent).removeprefix("loadbalancer/")
+    return response.value.get("LoadBalancerArn", parent) == parent and listener == load_balancer
+
+
+def _rule_matches(response: DetailResponse, arn: str) -> bool:
+    parent = response.call.params["ListenerArn"]
+    rule = _resource_path(arn).removeprefix("listener-rule/").rsplit("/", 1)[0]
+    return rule == _resource_path(parent).removeprefix("listener/")
+
+
+# Checks that a well-formed ARN agrees with its reply's type or the parent it was read under.
+_MATCHES = {
+    "LoadBalancerArn": _load_balancer_matches,
+    "ListenerArn": _listener_matches,
+    "RuleArn": _rule_matches,
+}
+
+
+def _recounted(coverage: Coverage, responses: list[DetailResponse]) -> DetailResult:
+    """The responses, with the coverage's result count, when it has one, set to their number."""
+    fields = coverage.model_dump()
+    if fields["result_count"] is not None:
+        fields["result_count"] = len(responses)
+    return DetailResult(responses, Coverage(**fields))
+
+
+def _unconflicted(
+    candidates: dict[str, list[DetailResponse]], tainted: set[str], field: str
+) -> tuple[dict[str, DetailResponse], set[str], list[UnresolvedValue]]:
+    """The ARNs whose replies all agree, the conflicting ARNs, and a problem per conflict."""
+    safe = {}
+    conflicts = set()
+    problems = []
+    for arn, entries in candidates.items():
+        first = entries[0]
+        if arn in tainted or any(
+            entry.value != first.value or entry.call.params != first.call.params
+            for entry in entries[1:]
+        ):
+            conflicts.add(arn)
+            problems.extend(
+                _problem(f"{entry.path}.{field}", "Conflicting resource identity")
+                for entry in entries
+            )
+        else:
+            safe[arn] = first
+    return safe, conflicts, problems
+
+
+def _well_formed_tags(tags: Any) -> bool:
+    return isinstance(tags, list) and all(
+        isinstance(tag, dict)
+        and isinstance(tag.get("Key"), str)
+        and isinstance(tag.get("Value"), str)
+        for tag in tags
+    )
+
+
+def _checked_tags(
+    responses: list[DetailResponse],
+) -> tuple[list[DetailResponse], dict[tuple[str, ...], set[str]], list[UnresolvedValue]]:
+    """The well-formed, consistent tag replies, the ARNs each request was answered for, and
+    the problems found."""
+    problems = []
+    returned: dict[tuple[str, ...], set[str]] = {}
+    entries: dict[str, list[DetailResponse]] = {}
+    for response in responses:
+        requested = tuple(response.call.params["ResourceArns"])
+        value = response.value
+        arn = value.get("ResourceArn") if isinstance(value, dict) else None
+        if not isinstance(arn, str) or arn not in requested:
+            problems.append(_problem(f"{response.path}.ResourceArn", "Unexpected tag identity"))
+            continue
+        returned.setdefault(requested, set()).add(arn)
+        if not _well_formed_tags(value.get("Tags")):
+            problems.append(_problem(f"{response.path}.Tags", "Tag collection is unavailable"))
+            continue
+        entries.setdefault(arn, []).append(response)
+    retained = []
+    for group in entries.values():
+        if any(entry.value != group[0].value for entry in group[1:]):
+            problems.extend(
+                _problem(f"{entry.path}.Tags", "Conflicting tag replies") for entry in group
+            )
+        else:
+            retained.extend(group)
+    return retained, returned, problems
+
+
+class _Stages:
+    """Each stage's result so far, read through one runner for one account and region."""
+
+    def __init__(self, runner: _InventoryRunner, account_id: str, region: AwsRegion) -> None:
+        self.runner = runner
+        self.account_id = account_id
+        self.region = region
+        self.results: dict[Op, DetailResult] = {}
+
+    def run(self, op: Op, calls: list[DetailCall], *upstream: DetailResult) -> DetailResult:
         # Keep whole pages until shape validation: absent keys are not empty inventories.
-        raw = runner.run(op, calls, prerequisite=_prerequisite(*upstream))
+        raw = self.runner.run(op, calls, prerequisite=_prerequisite(*upstream))
         responses = []
         problems = []
         key = _KEYS[op]
@@ -105,15 +211,14 @@ def collect_inventory(
                 DetailResponse(replace(response.call, result_key=key), item, f"{path}[{index}]")
                 for index, item in enumerate(value[key])
             )
-        fields = raw.coverage.model_dump()
-        if fields["result_count"] is not None:
-            fields["result_count"] = len(responses)
-        result = _limited(DetailResult(responses, Coverage(**fields)), problems)
-        results[op] = result
+        result = _limited(_recounted(raw.coverage, responses), problems)
+        self.results[op] = result
         return result
 
-    def inventory(op: Op, field: str) -> dict[str, DetailResponse]:
-        result = results[op]
+    def identities(self, op: Op, field: str) -> dict[str, DetailResponse]:
+        """The stage's replies with a valid, unconflicted identity, by ARN; the others are
+        dropped from the stage's result as problems."""
+        result = self.results[op]
         problems = []
         candidates: dict[str, list[DetailResponse]] = {}
         unsafe: set[int] = set()
@@ -121,197 +226,151 @@ def collect_inventory(
         for index, response in enumerate(result.responses):
             value = response.value
             arn = value.get(field) if isinstance(value, dict) else None
-            valid = valid_arn(arn, field, account.expected_account_id, region)
-            if valid and field == "LoadBalancerArn":
-                lb_type = value.get("Type")
-                kind = {"application": "app", "network": "net", "gateway": "gwy"}.get(
-                    lb_type if isinstance(lb_type, str) else None
-                )
-                valid = kind is None or arn.split(":", 5)[5].startswith(f"loadbalancer/{kind}/")
-            if valid and field == "ListenerArn":
-                parent = response.call.params["LoadBalancerArn"]
-                valid = value.get("LoadBalancerArn", parent) == parent and arn.split(":", 5)[
-                    5
-                ].removeprefix("listener/").rsplit("/", 1)[0] == parent.split(":", 5)[
-                    5
-                ].removeprefix("loadbalancer/")
-            if valid and field == "RuleArn":
-                parent = response.call.params["ListenerArn"]
-                valid = arn.split(":", 5)[5].removeprefix("listener-rule/").rsplit("/", 1)[
-                    0
-                ] == parent.split(":", 5)[5].removeprefix("listener/")
-            if not valid:
-                unsafe.add(index)
-                if valid_arn(arn, field, account.expected_account_id, region):
-                    tainted.add(arn)
-                problems.append(_problem(f"{response.path}.{field}", "Invalid resource identity"))
-            else:
+            if self._valid(response, arn, field):
                 candidates.setdefault(arn, []).append(response)
-        safe = {}
-        conflicts = set()
-        for arn, entries in candidates.items():
-            first = entries[0]
-            if arn in tainted or any(
-                entry.value != first.value or entry.call.params != first.call.params
-                for entry in entries[1:]
-            ):
-                conflicts.add(arn)
-                problems.extend(
-                    _problem(f"{entry.path}.{field}", "Conflicting resource identity")
-                    for entry in entries
-                )
-            else:
-                safe[arn] = first
+                continue
+            unsafe.add(index)
+            if valid_arn(arn, field, self.account_id, self.region):
+                tainted.add(arn)
+            problems.append(_problem(f"{response.path}.{field}", "Invalid resource identity"))
+        safe, conflicts, conflicting = _unconflicted(candidates, tainted, field)
         retained = [
             response
             for index, response in enumerate(result.responses)
             if index not in unsafe and response.value[field] not in conflicts
         ]
-        fields = result.coverage.model_dump()
-        if fields["result_count"] is not None:
-            fields["result_count"] = len(retained)
-        results[op] = _limited(DetailResult(retained, Coverage(**fields)), problems)
+        self.results[op] = _limited(
+            _recounted(result.coverage, retained), [*problems, *conflicting]
+        )
         return safe
 
-    run(Op.DESCRIBE_LOAD_BALANCERS, [DetailCall(Op.DESCRIBE_LOAD_BALANCERS, paginate=True)])
-    run(Op.DESCRIBE_TARGET_GROUPS, [DetailCall(Op.DESCRIBE_TARGET_GROUPS, paginate=True)])
-    lbs = inventory(Op.DESCRIBE_LOAD_BALANCERS, "LoadBalancerArn")
-    groups = inventory(Op.DESCRIBE_TARGET_GROUPS, "TargetGroupArn")
-    supported_lbs = {
-        arn: response
-        for arn, response in lbs.items()
-        if response.value.get("Type") in ("application", "network")
-    }
-    supported_groups = {
-        arn: response
-        for arn, response in groups.items()
-        if response.value.get("TargetType") in ("instance", "ip", "alb", "lambda")
-    }
-    for op, items, supported, field in (
-        (Op.DESCRIBE_LOAD_BALANCERS, lbs, supported_lbs, "Type"),
-        (Op.DESCRIBE_TARGET_GROUPS, groups, supported_groups, "TargetType"),
-    ):
-        results[op] = _limited(
-            results[op],
+    def _valid(self, response: DetailResponse, arn: Any, field: str) -> bool:
+        if not valid_arn(arn, field, self.account_id, self.region):
+            return False
+        matches = _MATCHES.get(field)
+        return matches is None or matches(response, arn)
+
+    def supported(self, op: Op, items: dict[str, DetailResponse]) -> dict[str, DetailResponse]:
+        """The items of a modelled type; the others keep their summary, with a problem."""
+        field, types = _SUPPORTED[op]
+        supported = {arn: item for arn, item in items.items() if item.value.get(field) in types}
+        self.results[op] = _limited(
+            self.results[op],
             [
-                _problem(f"{response.path}.{field}", "Unsupported resource type; summary retained")
-                for arn, response in items.items()
+                _problem(f"{item.path}.{field}", "Unsupported resource type; summary retained")
+                for arn, item in items.items()
                 if arn not in supported
             ],
         )
-    run(
+        return supported
+
+    def rule_upstream(self, alb_arns: set[str]) -> list[DetailResult]:
+        """The stages reading rules depends on: the listeners too, unless every application
+        load balancer's listeners were read."""
+        upstream = [self.results[Op.DESCRIBE_LOAD_BALANCERS]]
+        listeners = self.results[Op.DESCRIBE_LISTENERS]
+        if alb_arns and (
+            self._alb_listeners_unread(alb_arns)
+            or listeners.coverage.status == CoverageStatus.FAILED
+        ):
+            upstream.append(listeners)
+        return upstream
+
+    def _alb_listeners_unread(self, alb_arns: set[str]) -> bool:
+        # NLB listeners legitimately have no rules, even if their listener reads failed.
+        problems = self.results[Op.DESCRIBE_LISTENERS].coverage.unresolved_values
+        return any(
+            f'"LoadBalancerArn":"{arn}"' in problem.configuration_path
+            for problem in problems
+            for arn in alb_arns
+        ) or any(
+            call.operation == Op.DESCRIBE_LISTENERS and call.params["LoadBalancerArn"] in alb_arns
+            for call in self.runner.failed_calls
+        )
+
+    def tags(self, arns: list[str]) -> None:
+        batches = [arns[index : index + _TAG_BATCH] for index in range(0, len(arns), _TAG_BATCH)]
+        tags = self.run(
+            Op.DESCRIBE_TAGS,
+            [DetailCall(Op.DESCRIBE_TAGS, {"ResourceArns": batch}) for batch in batches],
+            *(
+                self.results[op]
+                for op in (
+                    Op.DESCRIBE_LOAD_BALANCERS,
+                    Op.DESCRIBE_TARGET_GROUPS,
+                    Op.DESCRIBE_LISTENERS,
+                    Op.DESCRIBE_RULES,
+                )
+            ),
+        )
+        retained, returned, problems = _checked_tags(tags.responses)
+        # Missing replies are source-local limitations, never fabricated empty tag sets.
+        for batch in batches:
+            canonical = json.dumps({"ResourceArns": batch}, sort_keys=True, separators=(",", ":"))
+            problems.extend(
+                _problem(
+                    f"Request[{canonical}].Page[0].TagDescriptions[ResourceArn={arn}]",
+                    "Requested resource tag reply is unavailable",
+                )
+                for arn in sorted(set(batch) - returned.get(tuple(batch), set()))
+            )
+        result = _recounted(tags.coverage, retained)
+        # A failed batch has no successful reads; preserve FAILED rather than claiming a
+        # partial read.
+        if tags.coverage.status == CoverageStatus.FAILED:
+            fields = result.coverage.model_dump()
+            fields["unresolved_values"] = [*tags.coverage.unresolved_values, *problems]
+            self.results[Op.DESCRIBE_TAGS] = DetailResult(retained, Coverage(**fields))
+        else:
+            self.results[Op.DESCRIBE_TAGS] = _limited(result, problems)
+
+
+def collect_inventory(
+    session: Any, account: AwsAccountConfig, context: AdapterContext, region: AwsRegion
+) -> Elbv2Inventory:
+    runner = _InventoryRunner(
+        session,
+        account,
+        context,
+        service=AwsService.ELASTIC_LOAD_BALANCING,
+        region=region,
+        client_name="elbv2",
+        pagination="elbv2",
+    )
+    stages = _Stages(runner, account.expected_account_id, region)
+    stages.run(Op.DESCRIBE_LOAD_BALANCERS, [DetailCall(Op.DESCRIBE_LOAD_BALANCERS, paginate=True)])
+    stages.run(Op.DESCRIBE_TARGET_GROUPS, [DetailCall(Op.DESCRIBE_TARGET_GROUPS, paginate=True)])
+    lbs = stages.supported(
+        Op.DESCRIBE_LOAD_BALANCERS,
+        stages.identities(Op.DESCRIBE_LOAD_BALANCERS, "LoadBalancerArn"),
+    )
+    groups = stages.supported(
+        Op.DESCRIBE_TARGET_GROUPS, stages.identities(Op.DESCRIBE_TARGET_GROUPS, "TargetGroupArn")
+    )
+    stages.run(
         Op.DESCRIBE_LISTENERS,
         [
             DetailCall(Op.DESCRIBE_LISTENERS, {"LoadBalancerArn": arn}, paginate=True)
-            for arn in sorted(supported_lbs)
+            for arn in sorted(lbs)
         ],
-        results[Op.DESCRIBE_LOAD_BALANCERS],
+        stages.results[Op.DESCRIBE_LOAD_BALANCERS],
     )
-    listeners = inventory(Op.DESCRIBE_LISTENERS, "ListenerArn")
-    alb_arns = {
-        arn for arn, response in supported_lbs.items() if response.value["Type"] == "application"
-    }
-    rule_upstream = [results[Op.DESCRIBE_LOAD_BALANCERS]]
-    listener_result = results[Op.DESCRIBE_LISTENERS]
-    # NLB listeners legitimately have no rules, even if their listener reads failed.
-    relevant_problems = [
-        problem
-        for problem in listener_result.coverage.unresolved_values
-        if any(f'"LoadBalancerArn":"{arn}"' in problem.configuration_path for arn in alb_arns)
-    ]
-    relevant_failures = any(
-        call.operation == Op.DESCRIBE_LISTENERS and call.params["LoadBalancerArn"] in alb_arns
-        for call in runner.failed_calls
-    )
-    if alb_arns and (
-        relevant_problems
-        or relevant_failures
-        or listener_result.coverage.status == CoverageStatus.FAILED
-    ):
-        rule_upstream.append(listener_result)
-    run(
+    listeners = stages.identities(Op.DESCRIBE_LISTENERS, "ListenerArn")
+    alb_arns = {arn for arn, response in lbs.items() if response.value["Type"] == "application"}
+    stages.run(
         Op.DESCRIBE_RULES,
         [
             DetailCall(Op.DESCRIBE_RULES, {"ListenerArn": arn}, paginate=True)
             for arn, response in sorted(listeners.items())
             if response.call.params["LoadBalancerArn"] in alb_arns
         ],
-        *rule_upstream,
+        *stages.rule_upstream(alb_arns),
     )
-    rules = inventory(Op.DESCRIBE_RULES, "RuleArn")
-    run(
+    rules = stages.identities(Op.DESCRIBE_RULES, "RuleArn")
+    stages.run(
         Op.DESCRIBE_TARGET_HEALTH,
-        [
-            DetailCall(Op.DESCRIBE_TARGET_HEALTH, {"TargetGroupArn": arn})
-            for arn in sorted(supported_groups)
-        ],
-        results[Op.DESCRIBE_TARGET_GROUPS],
+        [DetailCall(Op.DESCRIBE_TARGET_HEALTH, {"TargetGroupArn": arn}) for arn in sorted(groups)],
+        stages.results[Op.DESCRIBE_TARGET_GROUPS],
     )
-    arns = sorted(set(supported_lbs) | set(listeners) | set(rules) | set(supported_groups))
-    tags = run(
-        Op.DESCRIBE_TAGS,
-        [
-            DetailCall(Op.DESCRIBE_TAGS, {"ResourceArns": arns[index : index + 20]})
-            for index in range(0, len(arns), 20)
-        ],
-        *(
-            results[op]
-            for op in (
-                Op.DESCRIBE_LOAD_BALANCERS,
-                Op.DESCRIBE_TARGET_GROUPS,
-                Op.DESCRIBE_LISTENERS,
-                Op.DESCRIBE_RULES,
-            )
-        ),
-    )
-    problems = []
-    retained = []
-    returned: dict[tuple[str, ...], set[str]] = {}
-    tag_entries: dict[str, list[DetailResponse]] = {}
-    for response in tags.responses:
-        requested = tuple(response.call.params["ResourceArns"])
-        value = response.value
-        arn = value.get("ResourceArn") if isinstance(value, dict) else None
-        if not isinstance(arn, str) or arn not in requested:
-            problems.append(_problem(f"{response.path}.ResourceArn", "Unexpected tag identity"))
-            continue
-        returned.setdefault(requested, set()).add(arn)
-        if not isinstance(value.get("Tags"), list) or any(
-            not isinstance(tag, dict)
-            or not isinstance(tag.get("Key"), str)
-            or not isinstance(tag.get("Value"), str)
-            for tag in value["Tags"]
-        ):
-            problems.append(_problem(f"{response.path}.Tags", "Tag collection is unavailable"))
-            continue
-        tag_entries.setdefault(arn, []).append(response)
-    for entries in tag_entries.values():
-        if any(entry.value != entries[0].value for entry in entries[1:]):
-            problems.extend(
-                _problem(f"{entry.path}.Tags", "Conflicting tag replies") for entry in entries
-            )
-        else:
-            retained.extend(entries)
-    # Missing replies are source-local limitations, never fabricated empty tag sets.
-    for index in range(0, len(arns), 20):
-        requested = tuple(arns[index : index + 20])
-        canonical = json.dumps(
-            {"ResourceArns": list(requested)}, sort_keys=True, separators=(",", ":")
-        )
-        for arn in sorted(set(requested) - returned.get(requested, set())):
-            problems.append(
-                _problem(
-                    f"Request[{canonical}].Page[0].TagDescriptions[ResourceArn={arn}]",
-                    "Requested resource tag reply is unavailable",
-                )
-            )
-    fields = tags.coverage.model_dump()
-    if fields["result_count"] is not None:
-        fields["result_count"] = len(retained)
-    # A failed batch has no successful reads; preserve FAILED rather than claiming a partial read.
-    if tags.coverage.status == CoverageStatus.FAILED:
-        fields["unresolved_values"] = [*tags.coverage.unresolved_values, *problems]
-        results[Op.DESCRIBE_TAGS] = DetailResult(retained, Coverage(**fields))
-    else:
-        results[Op.DESCRIBE_TAGS] = _limited(DetailResult(retained, Coverage(**fields)), problems)
-    return Elbv2Inventory(results)
+    stages.tags(sorted(set(lbs) | set(listeners) | set(rules) | set(groups)))
+    return Elbv2Inventory(stages.results)

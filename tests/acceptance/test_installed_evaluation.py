@@ -24,8 +24,6 @@ from archdiscov.assistant.evaluation import (
     parse_report,
 )
 from archdiscov.assistant.fake import FakeTranscript
-from tests.acceptance.test_installed_ask import DUMMY_KEY, KEY_VARIABLE, _adapter_config
-from tests.acceptance.test_installed_end_to_end import Workspace
 from tests.assistant.provider_harness import AnthropicHarness
 from tests.support.evaluation_suites import (
     ADVERSARIAL_SUITE,
@@ -33,7 +31,14 @@ from tests.support.evaluation_suites import (
     SUITE,
     write_fake_config,
 )
-from tests.support.installed_cli import ENTRY_POINTS, run_installed
+from tests.support.installed_cli import (
+    DUMMY_KEY,
+    ENTRY_POINTS,
+    INSTALLED_KEY_VARIABLE,
+    Workspace,
+    harness_config,
+    run_installed,
+)
 from tests.support.mock_api import mock_api_server
 
 # Each entry point runs every suite once per module: keep them on one xdist worker.
@@ -84,9 +89,9 @@ def _through_the_adapter(ws: Workspace) -> tuple[dict, list]:
         ).turns
     ]
     with mock_api_server(bodies) as api:
-        config = _adapter_config(ws.root, HARNESS, f"http://127.0.0.1:{api.port}")
+        config = harness_config(ws.root, HARNESS, f"http://127.0.0.1:{api.port}")
         output = ws.path("results", "readme-anthropic.json")
-        env = ws.guard.allowing(api.port, **{KEY_VARIABLE: DUMMY_KEY})
+        env = ws.guard.allowing(api.port, **{INSTALLED_KEY_VARIABLE: DUMMY_KEY})
         command = ["evaluate", suite, "--config", config, "--output", output, "--allow-external"]
         result = run_installed(ws.entry_point, ws.root, *map(str, command), "--json", env=env)
     assert api.bodies == []
@@ -96,7 +101,7 @@ def _through_the_adapter(ws: Workspace) -> tuple[dict, list]:
 def _refusals(ws: Workspace) -> dict[str, dict]:
     suite = ws.path("suites", "readme", SUITE)
     existing = ws.path("results", "readme.json")
-    external = _adapter_config(ws.path("suites"), HARNESS)
+    external = harness_config(ws.path("suites"), HARNESS)
     cases = {
         "existing_output": (["--config", ws.path("fake.toml"), "--output", existing], 3),
         "external": (["--config", external, "--output", ws.path("results", "refused.json")], 2),

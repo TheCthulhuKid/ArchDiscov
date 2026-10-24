@@ -10,18 +10,18 @@ from archdiscov.assistant.tools.contracts import ToolErrorCode, ToolLimits
 from archdiscov.assistant.tools.record import ReturnedIds
 from archdiscov.assistant.tools.registry import ToolRegistry
 from archdiscov.assistant.tools.session import ToolSession, ToolSessionError
-from archdiscov.graph import GraphIndex
 from archdiscov.models.analysis.results import AnalysisResult
 from archdiscov.models.architecture import LocalTarget
 from archdiscov.models.enums import AnalyzerKind
 from archdiscov.services import publication
 from archdiscov.services.analyses import load_analysis
-from archdiscov.services.analysis_execution import DEFAULT_REGISTRY, run_analyzer
+from archdiscov.services.analysis_execution import DEFAULT_REGISTRY
 from archdiscov.services.analysis_validation import AnalysisValidationError
 from archdiscov.services.comparison import compare_snapshots
 from archdiscov.services.comparison_results import ComparisonValidationError, save_comparison
 from archdiscov.services.snapshots import load_snapshot, validate_snapshot
 from tests.paths import FIXTURES_ROOT
+from tests.support.answer_claims import service_result
 from tests.support.audit_scenarios import SCENARIOS, with_coverage
 
 REGISTRY = ToolRegistry(ANALYSIS_TOOLS)
@@ -37,15 +37,6 @@ def _run(session: ToolSession, tool: str, **arguments: Any) -> dict:
     data = json.loads(result.content)
     assert result.is_error is (data["status"] == "error")
     return data
-
-
-def _service_result(snapshot, kind: AnalyzerKind, parameters: dict, depth: int) -> AnalysisResult:
-    full = {"kind": kind, **parameters}
-    if "result_limit" in PARAMETER_MODELS[kind].model_fields:
-        full["result_limit"] = 10_000
-    if "max_depth" in PARAMETER_MODELS[kind].model_fields:
-        full["max_depth"] = min(full.get("max_depth", 3), depth)
-    return run_analyzer(GraphIndex(snapshot), full)
 
 
 def _expected_ids(result: AnalysisResult, findings: int) -> ReturnedIds:
@@ -125,7 +116,7 @@ def test_each_analyzer_runs_with_exact_results_and_recorded_ids(kind: AnalyzerKi
     snapshot = scenario.build()
     session = ToolSession(snapshot, limits=ToolLimits(result_limit=100))
     data = _run(session, "run_analyzer", kind=kind.value, limit=100, **scenario.parameters)
-    expected = _service_result(snapshot, kind, scenario.parameters, session.limits.depth)
+    expected = service_result(snapshot, kind, scenario.parameters, session.limits.depth)
     assert data["saved"] is False
     assert data["analyzer"] == kind.value
     assert data["analyzer_version"] == expected.analyzer_version
@@ -152,7 +143,7 @@ def test_analysis_truncation_reports_the_dropped_findings() -> None:
     scenario = SCENARIOS[AnalyzerKind.CROSS_ACCOUNT_TRUST]
     snapshot = scenario.build()
     session = ToolSession(snapshot)
-    total = len(_service_result(snapshot, scenario.kind, {}, 3).findings)
+    total = len(service_result(snapshot, scenario.kind, {}, 3).findings)
     assert total > 1
     data = _run(session, "run_analyzer", kind="cross_account_trust", limit=1)
     assert len(data["findings"]["items"]) == 1
@@ -162,7 +153,7 @@ def test_analysis_truncation_reports_the_dropped_findings() -> None:
         "available": total,
     }
     assert session.record.returned() == _expected_ids(
-        _service_result(snapshot, scenario.kind, {}, 3), 1
+        service_result(snapshot, scenario.kind, {}, 3), 1
     )
 
 
@@ -173,7 +164,7 @@ def test_partial_coverage_is_qualified(kind: AnalyzerKind, status: str | None) -
     snapshot = with_coverage(scenario.build(), status)
     session = ToolSession(snapshot, limits=ToolLimits(result_limit=100))
     data = _run(session, "run_analyzer", kind=kind.value, limit=100, **scenario.parameters)
-    expected = _service_result(snapshot, kind, scenario.parameters, 3)
+    expected = service_result(snapshot, kind, scenario.parameters, 3)
     assert [
         (item["status"], [limitation["code"] for limitation in item["limitations"]])
         for item in data["findings"]["items"]

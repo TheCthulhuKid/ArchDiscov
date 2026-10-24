@@ -11,12 +11,12 @@ from archdiscov.ingestion.requests import COLLECTABLE_SERVICES
 from archdiscov.models.enums import AttachmentKind, AwsRegion, AwsService, CoverageStatus
 from archdiscov.models.resources.load_balancing import Listener
 from archdiscov.services import load_snapshot
-from tests.ingestion.aws.test_account_assembly import Session as AssemblySession
-from tests.ingestion.aws.test_account_assembly import denied, in_region
-from tests.ingestion.aws.test_sqs_collection import Client as SqsClient
+from tests.support.account_assembly import Session as AssemblySession
+from tests.support.account_assembly import denied, in_region
 from tests.support.aws_fakes import Client as Ec2Client
 from tests.support.elbv2_data import LB
 from tests.support.iam_data import ACCOUNT
+from tests.support.sqs_data import Client as SqsClient
 
 ACCOUNTS = {"second": "222222222222", "first": "111111111111"}
 REGIONS = (AwsRegion.US_EAST_1, AwsRegion.US_WEST_2)

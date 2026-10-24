@@ -21,7 +21,7 @@ from archdiscov.models.enums import AwsRegion, AwsService
 def test_catalog_scope_and_operations_agree_with_security_allowlist():
     account = AwsAccountConfig(profile="dev", expected_account_id="123456789012", all_services=True)
     assert set(account.services) == COLLECTABLE_SERVICES
-    assert ACCOUNT_WIDE_SERVICES == {AwsService.IAM}
+    assert {AwsService.IAM} == ACCOUNT_WIDE_SERVICES
     assert set(REGIONAL_OPERATIONS) == COLLECTABLE_SERVICES - ACCOUNT_WIDE_SERVICES
     allowed_collection_reads = {
         (service, operation)

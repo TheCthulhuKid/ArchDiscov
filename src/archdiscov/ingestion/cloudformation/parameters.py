@@ -3,20 +3,16 @@
 import json
 from pathlib import Path
 
+from ...core.strict_json import read_bounded, reject_constant, unique_object
 from ..adapter import IngestionError
-from ..strict_json import reject_constant, unique_object
 from .evaluation_limits import MAX_BYTES, validate_json
 
 
 def load_parameters(path: Path) -> dict:
     """Read a JSON name-to-value object, not a CloudFormation API parameter list."""
     try:
-        with path.open("rb") as stream:
-            content = stream.read(MAX_BYTES + 1)
-        if len(content) > MAX_BYTES:
-            raise ValueError
         result = json.loads(
-            content.decode("utf-8"),
+            read_bounded(path, MAX_BYTES).decode("utf-8"),
             object_pairs_hook=unique_object,
             parse_constant=reject_constant,
         )

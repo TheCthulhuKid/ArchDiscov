@@ -6,7 +6,6 @@ output at each stage. The child sees no credentials and no checkout: its whole `
 the offline guard, which fails and records any network use.
 """
 
-import hashlib
 import json
 import shutil
 import socket
@@ -23,10 +22,10 @@ from archdiscov.services import (
     load_snapshot,
     save_snapshot,
 )
-from tests.acceptance.test_comparison_journeys import build
 from tests.paths import FIXTURES_ROOT, PROJECT_ROOT
 from tests.support.audit_scenarios import SCENARIOS
-from tests.support.installed_cli import ENTRY_POINTS, run_installed
+from tests.support.comparison_data import journey_snapshot
+from tests.support.installed_cli import ENTRY_POINTS, Workspace, digest
 from tests.support.offline_guard import OfflineGuard
 from tests.support.security_group_data import IDS
 
@@ -36,41 +35,6 @@ pytestmark = pytest.mark.xdist_group("installed-journey")
 CONTEXT = ("--account-id", "123456789012", "--region", "eu-west-1")
 OPTIONS = {"resource_id": "--resource-id", "port": "--port", "max_depth": "--max-depth"}
 GROUP = IDS["sg-app"]
-
-
-def digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-class Workspace:
-    """A directory outside the checkout and an installed CLI that cannot reach the network."""
-
-    def __init__(self, entry_point: str, root: Path) -> None:
-        self.entry_point = entry_point
-        self.root = root
-        self.guard = OfflineGuard(root)
-        for name in ("fixtures", "snapshots", "results", "comparisons"):
-            (root / name).mkdir()
-
-    def path(self, *parts: str) -> Path:
-        return self.root.joinpath(*parts)
-
-    def run(self, *arguments: object, expect: int = 0):
-        return run_installed(
-            self.entry_point,
-            self.root,
-            *map(str, arguments),
-            expect=expect,
-            env=self.guard.env,
-        )
-
-    def json(self, *arguments: object, expect: int = 0):
-        data = json.loads(self.run(*arguments, "--json", expect=expect).stdout)
-        return data
-
-    def both(self, *arguments: object) -> tuple[dict, str]:
-        """The JSON result and the readable output of one read-only command."""
-        return self.json(*arguments), self.run(*arguments).stdout
 
 
 def journey(entry_point: str, root: Path) -> dict:
@@ -83,7 +47,7 @@ def journey(entry_point: str, root: Path) -> dict:
         save_snapshot(scenario.build(), ws.path("fixtures", f"{kind.value}.json"))
     shutil.copy(FIXTURES_ROOT / "terraform" / "plan.json", ws.path("fixtures", "plan.json"))
     shutil.copy(FIXTURES_ROOT / "cloudformation" / "template.yaml", ws.path("fixtures", "t.yaml"))
-    left, right = build("aws", 1, seed=1), build("aws", 2, seed=2)
+    left, right = journey_snapshot("aws", 1, seed=1), journey_snapshot("aws", 2, seed=2)
     save_snapshot(left, ws.path("fixtures", "left.json"))
     save_snapshot(right, ws.path("fixtures", "right.json"))
     inputs = {path: digest(path) for path in ws.path("fixtures").iterdir()}

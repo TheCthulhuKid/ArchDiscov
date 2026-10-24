@@ -7,7 +7,7 @@ from archdiscov.ingestion.requests import AwsCollectionRequest
 from archdiscov.models.enums import AwsService
 from archdiscov.models.resources.load_balancing import Listener, TargetGroup
 from archdiscov.services import collect_and_save, collect_snapshots, load_snapshot
-from tests.support.aws_fakes import Session, empty_network_pages
+from tests.support.aws_fakes import Session
 from tests.support.elbv2_data import (
     LB,
     LISTENER,
@@ -16,29 +16,10 @@ from tests.support.elbv2_data import (
     Elbv2Session,
     config,
     context,
+    ec2_pages,
     responses,
 )
 from tests.support.iam_data import IamClient
-
-
-def ec2_pages(region):
-    return {
-        **empty_network_pages(),
-        "describe_vpcs": [{"Vpcs": [{"VpcId": "vpc-a"}]}],
-        "describe_subnets": [{"Subnets": [{"SubnetId": "subnet-a", "VpcId": "vpc-a"}]}],
-        "describe_instances": [
-            {
-                "Reservations": [
-                    {
-                        "Instances": [
-                            {"InstanceId": "i-web", "SubnetId": "subnet-a", "VpcId": "vpc-a"}
-                        ]
-                    }
-                ]
-            }
-        ],
-        "describe_security_groups": [{"SecurityGroups": [{"GroupId": "sg-a", "VpcId": "vpc-a"}]}],
-    }
 
 
 def test_combined_services_keep_regional_ec2_and_global_iam_intact(tmp_path):

@@ -19,10 +19,7 @@ from archdiscov.assistant.answer_results import (
     final_outcome,
     needs_repair,
 )
-from archdiscov.assistant.answers import DECLARED_SOURCE_KINDS, AnswerProposal, Citation
-from archdiscov.assistant.conversation import AssistantMessage
-from archdiscov.assistant.provider import ProviderErrorCode, StopReason
-from archdiscov.assistant.rejections import RejectionCode, reject
+from archdiscov.assistant.answers import DECLARED_SOURCE_KINDS, Citation
 from archdiscov.assistant.runs import (
     Answered,
     Cancelled,
@@ -31,22 +28,13 @@ from archdiscov.assistant.runs import (
     MalformedOutputReason,
     Proposed,
     ProviderFailed,
-    RunLimitKind,
     RunOutcome,
 )
 from archdiscov.assistant.tools.contracts import untrusted
 from archdiscov.assistant.tools.views import AnalysisLimitationView, FindingView
 from archdiscov.models.enums import AnalysisStatus, SnapshotSourceKind
+from tests.support.run_outcomes import PROPOSAL, UNKNOWN_ID_REJECTIONS, every_run_outcome
 
-REJECTIONS = (reject(RejectionCode.UNKNOWN_ID, "conclusions[0].citations[0].finding_ids[0]"),)
-PROPOSAL = AnswerProposal.model_validate(
-    {
-        "status": "insufficient_evidence",
-        "contexts": [{"side": "primary", "source_kind": "aws"}],
-        "insufficient_reason": "no_applicable_findings",
-        "summary": "Nothing applicable.",
-    }
-)
 PROPOSAL_REASONS = {
     MalformedOutputReason.PROPOSAL_MALFORMED,
     MalformedOutputReason.PROPOSAL_INVALID,
@@ -54,21 +42,9 @@ PROPOSAL_REASONS = {
 }
 
 
-def _run_outcomes() -> list[RunOutcome]:
-    """One example of every run outcome, every malformed reason, and every limit."""
-    return [
-        Proposed(proposal=PROPOSAL),
-        Answered(message=AssistantMessage(text="Plain text."), stop_reason=StopReason.END),
-        *(MalformedOutput(reason=reason) for reason in MalformedOutputReason),
-        *(LimitReached(limit=limit) for limit in RunLimitKind),
-        ProviderFailed(code=ProviderErrorCode.TIMEOUT, retryable=False, message="m"),
-        Cancelled(),
-    ]
-
-
 def test_examples_cover_every_run_outcome_kind() -> None:
     members = get_args(get_args(RunOutcome)[0])
-    assert {type(item) for item in _run_outcomes()} == set(members)
+    assert {type(item) for item in every_run_outcome()} == set(members)
 
 
 # ---- the outcome contract ----------------------------------------------------------
@@ -79,7 +55,7 @@ VALID = [
     {
         "status": "failed",
         "failure": "rejected_after_repair",
-        "rejections": [item.model_dump(mode="json") for item in REJECTIONS],
+        "rejections": [item.model_dump(mode="json") for item in UNKNOWN_ID_REJECTIONS],
     },
     {"status": "failed", "failure": "no_proposal_after_repair"},
     {"status": "failed", "failure": "malformed_output", "malformed": "provider_reported"},
@@ -152,7 +128,7 @@ def test_exit_codes_avoid_the_existing_cli_codes() -> None:
 
 @pytest.mark.parametrize(
     "outcome",
-    _run_outcomes(),
+    every_run_outcome(),
     ids=lambda item: f"{item.kind}-{getattr(item, 'reason', getattr(item, 'limit', ''))}",
 )
 def test_repair_is_offered_only_for_what_a_model_can_fix(outcome: RunOutcome) -> None:
@@ -160,26 +136,26 @@ def test_repair_is_offered_only_for_what_a_model_can_fix(outcome: RunOutcome) ->
         isinstance(outcome, MalformedOutput) and outcome.reason in PROPOSAL_REASONS
     )
     if isinstance(outcome, Proposed):
-        assert needs_repair(outcome, REJECTIONS) is True
+        assert needs_repair(outcome, UNKNOWN_ID_REJECTIONS) is True
         assert needs_repair(outcome, ()) is False
     else:
         assert needs_repair(outcome, ()) is repairable
-        assert needs_repair(outcome, REJECTIONS) is repairable
+        assert needs_repair(outcome, UNKNOWN_ID_REJECTIONS) is repairable
 
 
 @pytest.mark.parametrize(
     "outcome",
-    _run_outcomes(),
+    every_run_outcome(),
     ids=lambda item: f"{item.kind}-{getattr(item, 'reason', getattr(item, 'limit', ''))}",
 )
 def test_every_run_outcome_maps_to_one_answer_outcome(outcome: RunOutcome) -> None:
-    rejections = REJECTIONS if isinstance(outcome, Proposed) else ()
+    rejections = UNKNOWN_ID_REJECTIONS if isinstance(outcome, Proposed) else ()
     if needs_repair(outcome, rejections):
         with pytest.raises(ValueError, match="only after its repair"):
             final_outcome(outcome, rejections, repaired=False)
     mapped = final_outcome(outcome, rejections, repaired=True)
     expected = {
-        Proposed: (FailureReason.REJECTED_AFTER_REPAIR, "rejections", REJECTIONS),
+        Proposed: (FailureReason.REJECTED_AFTER_REPAIR, "rejections", UNKNOWN_ID_REJECTIONS),
         Answered: (FailureReason.NO_PROPOSAL_AFTER_REPAIR, None, None),
         MalformedOutput: (
             FailureReason.MALFORMED_OUTPUT,
@@ -211,7 +187,7 @@ def test_valid_proposals_answer_before_or_after_repair() -> None:
 
 
 def test_unrepairable_outcomes_fail_without_repair() -> None:
-    for outcome in _run_outcomes():
+    for outcome in every_run_outcome():
         if not needs_repair(outcome, ()) and not isinstance(outcome, Proposed):
             assert final_outcome(outcome, (), repaired=False).status == AnswerStatus.FAILED
 
@@ -387,7 +363,7 @@ def test_details_are_checked_by_presence_not_truthiness() -> None:
     with pytest.raises(ValidationError):
         AnswerOutcome(status="failed", failure="rejected_after_repair", rejections=())
     with pytest.raises(ValidationError):
-        AnswerOutcome(status="answered", rejections=REJECTIONS)
+        AnswerOutcome(status="answered", rejections=UNKNOWN_ID_REJECTIONS)
 
 
 @pytest.mark.parametrize(

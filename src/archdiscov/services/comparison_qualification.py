@@ -148,7 +148,8 @@ class EntryBuilder:
 
     def _resource(self, side: ComparisonSide, resource_id: str) -> Resource:
         resource = self._index[side].get_resource(resource_id)
-        assert resource is not None, "entries are built from the same indexes"
+        if resource is None:
+            raise ValueError("entries are built from the same indexes")
         return resource
 
     def _reference(self, side: ComparisonSide, resource_id: str) -> ResourceReference:

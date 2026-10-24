@@ -9,7 +9,7 @@ dependencies = [
     "boto3>=1.43.108",
     "botocore>=1.43.108",
     "httpx2>=2.13.1",
-    "mcp>=2.3.0",
+    "mcp>=2.3.0,<3",
     "openai>=3.26.1",
     "pydantic>=2.13.5",
     "pydantic-core>=2.46.5",
@@ -29,7 +29,9 @@ packages = ["src/archdiscov"]
 
 [dependency-groups]
 dev = [
+    "pip-audit>=2.10,<3",
     "pytest>=9.1.1",
+    "pytest-cov>=7.1,<8",
     "pytest-xdist>=3.8,<4",
     "ruff>=0.16.10",
 ]
@@ -40,10 +42,23 @@ testpaths = ["tests"]
 addopts = '--import-mode=importlib -ra -m "not live"'
 markers = ["live: calls a real provider API; opt-in only, never in CI"]
 
+[tool.coverage.run]
+source = ["archdiscov"]
+
 [tool.ruff]
 target-version = "py313"
 line-length = 100
 src = ["src"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
+# Style (E, I, UP), errors (F), likely bugs (B, BLE, RUF), and needless complexity (SIM, C4,
+# PIE, PERF, C90). A broad `except` needs a justified `noqa: BLE001`.
+select = ["E", "F", "I", "UP", "B", "BLE", "RUF", "SIM", "C4", "PIE", "PERF", "C90"]
+
+[tool.ruff.lint.mccabe]
+# The most complex function today; lower it as functions are split, never raise it.
+max-complexity = 18
+
+[tool.ruff.lint.per-file-ignores]
+# Tests use ambiguous characters on purpose: documented ranges and sanitization inputs.
+"tests/**" = ["RUF001", "RUF002"]

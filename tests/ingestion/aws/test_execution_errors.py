@@ -3,10 +3,9 @@ from botocore.exceptions import EndpointConnectionError
 
 from archdiscov.ingestion.detail_execution import DetailCall
 from archdiscov.models.enums import CoverageStatus
-
-from .test_aws_execution import FakeClient, task
-from .test_aws_execution import runner as operation_runner
-from .test_detail_execution import runner as detail_runner
+from tests.support.aws_execution import FakeClient, task
+from tests.support.aws_execution import detail_runner as detail_runner
+from tests.support.aws_execution import operation_runner as operation_runner
 
 
 @pytest.mark.parametrize("error_type", [TypeError, ValueError, RuntimeError])

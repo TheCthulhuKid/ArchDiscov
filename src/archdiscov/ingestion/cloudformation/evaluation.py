@@ -53,8 +53,7 @@ def _pointer(path: str, key: str | int) -> str:
 def _is_intrinsic(value: Any) -> bool:
     return isinstance(value, dict) and (
         any(key == "Ref" or key.startswith("Fn::") for key in value)
-        or len(value) == 1
-        and "Condition" in value
+        or (len(value) == 1 and "Condition" in value)
     )
 
 

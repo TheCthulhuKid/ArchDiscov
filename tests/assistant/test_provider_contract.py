@@ -13,7 +13,6 @@ from archdiscov.assistant.conversation import (
     SystemMessage,
     TokenUsage,
     ToolCall,
-    ToolDeclaration,
     ToolResult,
     ToolResultMessage,
     UserMessage,
@@ -33,16 +32,9 @@ from archdiscov.assistant.provider import (
     complete_async,
 )
 from tests.assistant.provider_harness import ProviderHarness
+from tests.support.provider_data import INSPECT_TOOL, SEARCH_TOOL
 
 SECRET = "sk-ant-api03-SECRETvalue0123456789abcdefXYZ"
-SEARCH = ToolDeclaration(
-    name="search_resources",
-    description="Search recorded resources.",
-    input_schema={"type": "object", "properties": {"type": {"type": "string"}}},
-)
-INSPECT = ToolDeclaration(
-    name="inspect_resource", description="Inspect one resource.", input_schema={"type": "object"}
-)
 TEXT_ONLY = ProviderCapabilities()
 SCRIPTABLE_ERRORS = [
     code for code in ProviderErrorCode if code != ProviderErrorCode.UNSUPPORTED_CAPABILITY
@@ -61,9 +53,10 @@ def send(request):
     return run
 
 
-def _request(
-    *messages, tools=(SEARCH, INSPECT), limits=RequestLimits(max_tool_calls_per_turn=4)
-) -> CompletionRequest:
+_LIMITS = RequestLimits(max_tool_calls_per_turn=4)
+
+
+def _request(*messages, tools=(SEARCH_TOOL, INSPECT_TOOL), limits=_LIMITS) -> CompletionRequest:
     return CompletionRequest(
         conversation=Conversation(
             messages=(

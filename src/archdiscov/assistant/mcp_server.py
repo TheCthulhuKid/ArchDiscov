@@ -201,7 +201,7 @@ def build_server(session: ToolSession, limits: ServerLimits | None = None) -> Se
         # and the run record sees them in the order they arrived.
         try:
             reply = _dispatch(registry, state, params)
-        except Exception:
+        except Exception:  # noqa: BLE001 - any failure is a tool error, never a protocol one
             reply = _error(f"mcp-{state.calls}", ToolErrorCode.INTERNAL_ERROR, state)
         return types.CallToolResult(
             content=[types.TextContent(type="text", text=text) for text in reply.texts],

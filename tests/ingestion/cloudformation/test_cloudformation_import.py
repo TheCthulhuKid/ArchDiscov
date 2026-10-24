@@ -219,7 +219,7 @@ def test_nested_stack_and_transform_never_fetch_or_deploy(tmp_path, monkeypatch)
     ],
 )
 def test_request_rejects_invalid_context(change):
-    data = dict(path=FIXTURE, account_id=ACCOUNT, region="eu-west-1") | change
+    data = {"path": FIXTURE, "account_id": ACCOUNT, "region": "eu-west-1"} | change
     with pytest.raises(ValidationError):
         CloudFormationRequest(**data)
 

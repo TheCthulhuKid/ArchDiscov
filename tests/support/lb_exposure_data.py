@@ -27,8 +27,8 @@ __all__ = [
     "RULE",
     "build",
     "ec2_items",
-    "rid",
     "responses",
+    "rid",
 ]
 
 

@@ -4,13 +4,13 @@ from uuid import UUID
 from archdiscov.models.cloud.contracts import CloudEvidence, CloudOperationCoverage
 from archdiscov.models.cloud.scope import SupportedScope
 from archdiscov.models.coverage_key import CoverageKey
+from archdiscov.models.edges import ContainmentEdge, DependencyEdge
 from archdiscov.models.enums import AttachmentKind, DependencyRelationship, SnapshotSourceKind
 from archdiscov.models.resource_base import Resource
-from archdiscov.services.snapshot_access import SnapshotAccess, SupportedSnapshot
+from archdiscov.models.snapshot_access import SnapshotAccess, SupportedSnapshot
 
-from .containment import ContainmentEdge
 from .coverage import CoverageIndex
-from .dependencies import DependencyEdge, DependencyIndex, TerminalTarget
+from .dependencies import DependencyIndex, TerminalTarget
 from .evidence import EvidenceIndex
 from .identity import PhysicalResourceKey
 

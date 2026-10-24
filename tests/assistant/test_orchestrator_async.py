@@ -11,10 +11,6 @@ from archdiscov.assistant.orchestrator import (
     run_assistant_async,
 )
 from archdiscov.assistant.provider import (
-    CompletionRequest,
-    CompletionResponse,
-    ProviderCapabilities,
-    ProviderCapability,
     ProviderErrorCode,
 )
 from archdiscov.assistant.runs import (
@@ -27,7 +23,7 @@ from archdiscov.assistant.runs import (
 )
 from archdiscov.assistant.tools.record import ReturnedIds
 from archdiscov.assistant.tools.session import ToolSession
-from tests.assistant.test_orchestrator import SNAPSHOT, _calls, _fail, _text
+from tests.support.scripted_turns import SNAPSHOT, HangingProvider, calls_turn, fail_turn, text_turn
 
 QUESTION = "Which resources are in the network?"
 
@@ -59,18 +55,18 @@ def _async(turns: list[dict], limits: RunLimits | None = None):
 # ---- sync and async agree ----------------------------------------------------------
 
 CASES = {
-    "answer": ([_text()], None),
-    "tools": ([_calls(("c1", "search_resources", {})), _text()], None),
+    "answer": ([text_turn()], None),
+    "tools": ([calls_turn(("c1", "search_resources", {})), text_turn()], None),
     "parallel": (
-        [_calls(("c1", "search_resources", {}), ("c2", "list_analyzers", {})), _text()],
+        [calls_turn(("c1", "search_resources", {}), ("c2", "list_analyzers", {})), text_turn()],
         RunLimits(max_tool_calls_per_turn=2),
     ),
     "request-limit": (
-        [_calls(("c1", "search_resources", {})), _calls(("c2", "search_resources", {}))],
+        [calls_turn(("c1", "search_resources", {})), calls_turn(("c2", "search_resources", {}))],
         RunLimits(max_provider_requests=2),
     ),
-    "provider-error": ([_fail("provider_refusal")], None),
-    "provider-timeout": ([{**_text(), "delay_seconds": 70}], None),
+    "provider-error": ([fail_turn("provider_refusal")], None),
+    "provider-timeout": ([{**text_turn(), "delay_seconds": 70}], None),
 }
 
 
@@ -87,7 +83,9 @@ def test_sync_and_async_entry_points_agree(case: str) -> None:
 
 
 def test_provider_timeouts_are_provider_errors() -> None:
-    result, _ = _async([{**_text(), "delay_seconds": 20}], RunLimits(request_timeout_seconds=10))
+    result, _ = _async(
+        [{**text_turn(), "delay_seconds": 20}], RunLimits(request_timeout_seconds=10)
+    )
     assert isinstance(result.outcome, ProviderFailed)
     assert result.outcome.code == ProviderErrorCode.TIMEOUT
     assert result.transcript.turns[0].latency_seconds == 10
@@ -95,7 +93,7 @@ def test_provider_timeouts_are_provider_errors() -> None:
 
 def test_a_late_response_past_the_request_deadline_is_discarded() -> None:
     result, _ = _async(
-        [_calls(("c1", "search_resources", {}), delay_seconds=20, ignore_request_limits=True)],
+        [calls_turn(("c1", "search_resources", {}), delay_seconds=20, ignore_request_limits=True)],
         RunLimits(request_timeout_seconds=10),
     )
     assert result.outcome == LimitReached(limit=RunLimitKind.REQUEST_DEADLINE)
@@ -106,7 +104,7 @@ def test_a_late_response_past_the_request_deadline_is_discarded() -> None:
 
 def test_the_overall_deadline_stops_further_requests() -> None:
     result, provider = _async(
-        [_calls(("c1", "search_resources", {}), delay_seconds=10)],
+        [calls_turn(("c1", "search_resources", {}), delay_seconds=10)],
         RunLimits(request_timeout_seconds=10, overall_timeout_seconds=10),
     )
     assert result.outcome == LimitReached(limit=RunLimitKind.OVERALL_DEADLINE)
@@ -117,8 +115,8 @@ def test_the_overall_deadline_stops_further_requests() -> None:
 def test_the_overall_deadline_shortens_the_last_request() -> None:
     result, provider = _async(
         [
-            _calls(("c1", "search_resources", {}), delay_seconds=10),
-            {**_text(), "delay_seconds": 8},
+            calls_turn(("c1", "search_resources", {}), delay_seconds=10),
+            {**text_turn(), "delay_seconds": 8},
         ],
         RunLimits(request_timeout_seconds=10, overall_timeout_seconds=15),
     )
@@ -130,47 +128,18 @@ def test_the_overall_deadline_shortens_the_last_request() -> None:
 
 def test_responses_within_the_deadlines_are_kept() -> None:
     result, _ = _async(
-        [_calls(("c1", "search_resources", {}), delay_seconds=9), {**_text(), "delay_seconds": 9}],
+        [
+            calls_turn(("c1", "search_resources", {}), delay_seconds=9),
+            {**text_turn(), "delay_seconds": 9},
+        ],
         RunLimits(request_timeout_seconds=10, overall_timeout_seconds=20),
     )
     assert isinstance(result.outcome, Answered)
     assert result.transcript.latency_seconds == 18
 
 
-class _HangingProvider:
-    """Never answers in time; resists the first cancellation, like a call in a thread."""
-
-    def __init__(self, *, answer_first: bool = False) -> None:
-        self.answer_first = answer_first
-        self.calls = 0
-        self.entered = asyncio.Event()
-        self.settled = False
-
-    @property
-    def capabilities(self) -> ProviderCapabilities:
-        return ProviderCapabilities(capabilities={ProviderCapability.TOOL_CALLING})
-
-    def complete(self, request: CompletionRequest) -> CompletionResponse:
-        raise AssertionError("the loop calls providers asynchronously")
-
-    async def complete_async(self, request: CompletionRequest) -> CompletionResponse:
-        self.calls += 1
-        if self.answer_first and self.calls == 1:
-            return CompletionResponse.model_validate(
-                _calls(("c1", "search_resources", {}))["response"]
-            )
-        self.entered.set()
-        try:
-            await asyncio.Event().wait()
-        except asyncio.CancelledError:
-            await asyncio.sleep(0.01)  # finish the work in progress, then stop
-            self.settled = True
-            raise
-        raise AssertionError("unreachable")
-
-
 def test_a_hanging_provider_is_cut_off_and_settled() -> None:
-    provider = _HangingProvider()
+    provider = HangingProvider()
     limits = RunLimits(request_timeout_seconds=0.05, overall_timeout_seconds=1)
     result = asyncio.run(
         run_assistant_async(
@@ -191,7 +160,7 @@ def test_a_hanging_provider_is_cut_off_and_settled() -> None:
 
 
 def test_cancellation_ends_the_run_with_a_partial_transcript() -> None:
-    provider = _HangingProvider(answer_first=True)
+    provider = HangingProvider(answer_first=True)
     session = ToolSession.from_paths(SNAPSHOT)
 
     async def scenario() -> RunCancelled:
@@ -223,7 +192,7 @@ def test_cancellation_ends_the_run_with_a_partial_transcript() -> None:
 
 
 def test_the_sync_wrapper_refuses_a_running_event_loop() -> None:
-    provider, clock = _fake([_text()])
+    provider, clock = _fake([text_turn()])
 
     async def inside_a_loop() -> None:
         with pytest.raises(RunInEventLoopError, match="await run_assistant_async"):
@@ -234,7 +203,7 @@ def test_the_sync_wrapper_refuses_a_running_event_loop() -> None:
 
 
 def test_the_sync_wrapper_returns_the_async_result() -> None:
-    provider, clock = _fake([_text("Done.")])
+    provider, clock = _fake([text_turn("Done.")])
     result = run_assistant(QUESTION, **_kwargs(provider, clock.monotonic))
     assert isinstance(result.outcome, Answered)
     assert result.outcome.message.text == "Done."

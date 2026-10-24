@@ -7,7 +7,7 @@ from archdiscov.models.architecture import LocalTarget, UnresolvedTarget
 from archdiscov.models.cloud.contracts import CloudDependency, CloudEvidence, CloudExternalTarget
 from archdiscov.models.cloud.scope import AzureScope
 from archdiscov.models.enums import AttachmentKind, DependencyRelationship, ResourceType
-from archdiscov.services.snapshot_access import SnapshotAccess, upgrade_snapshot
+from archdiscov.models.snapshot_access import SnapshotAccess, upgrade_snapshot
 from archdiscov.services.snapshots import load_snapshot
 from tests.paths import FIXTURES_ROOT
 

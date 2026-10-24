@@ -1,6 +1,6 @@
 import json
 import threading
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import boto3
 import pytest
@@ -12,34 +12,10 @@ from archdiscov.ingestion.iam.execution import IamCall, IamRunner
 from archdiscov.ingestion.operations import IamOperation
 from archdiscov.ingestion.requests import AwsAccountConfig
 from archdiscov.models.enums import AwsRegion, AwsService, CoverageStatus
+from tests.support.aws_execution import Clock, Session
 
 ACCOUNT = "123456789012"
 SECRET = "AKIASECRETVALUE/very-secret"
-
-
-class Clock:
-    def __init__(self):
-        self.now = datetime(2025, 1, 1, tzinfo=UTC)
-        self.values = []
-        self.lock = threading.Lock()
-
-    def __call__(self):
-        with self.lock:
-            self.now += timedelta(seconds=1)
-            self.values.append(self.now)
-            return self.now
-
-
-class Session:
-    def __init__(self, client):
-        self.client_obj = client
-        self.calls = []
-
-    def client(self, name, **kwargs):
-        self.calls.append((name, kwargs))
-        if isinstance(self.client_obj, Exception):
-            raise self.client_obj
-        return self.client_obj
 
 
 def runner(client, **overrides):

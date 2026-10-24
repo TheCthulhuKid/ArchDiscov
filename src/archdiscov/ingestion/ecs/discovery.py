@@ -62,6 +62,118 @@ def _prerequisite(results: tuple[DetailResult, ...]) -> str | None:
     )
 
 
+_LIST_KINDS = {Op.LIST_CLUSTERS: "cluster", Op.LIST_SERVICES: "service", Op.LIST_TASKS: "task"}
+
+
+def _unresolved(path: str, reason: str) -> UnresolvedValue:
+    return UnresolvedValue(configuration_path=path, reason=reason)
+
+
+def _requested(response: DetailResponse, op: Op) -> list:
+    param, _ = _IDENTITIES[op]
+    expected = response.call.params[param]
+    return [expected] if isinstance(expected, str) else expected
+
+
+def _identity(
+    op: Op, response: DetailResponse, item: Any, account_id: str, region: AwsRegion
+) -> tuple[Any, str | None]:
+    """The item's ARN, and why the item cannot be retained, or None when it can."""
+    if op not in _IDENTITIES:
+        if not valid_arn(item, _LIST_KINDS[op], account_id, region):
+            return item, "Discovery identity is unavailable or malformed"
+        return item, None
+    _, identity_key = _IDENTITIES[op]
+    arn = item.get(identity_key) if isinstance(item, dict) else None
+    if arn not in _requested(response, op):
+        return arn, "Detail identity is missing or outside the requested scope"
+    return arn, None
+
+
+def _failure_problems(page: dict, path: str) -> list[UnresolvedValue]:
+    failures = page.get("failures", [])
+    if not isinstance(failures, list):
+        return [_unresolved(f"{path}.failures", "Malformed ECS failure collection")]
+    # API reasons/details may contain arbitrary text; do not retain them.
+    return [
+        _unresolved(f"{path}.failures[{index}]", "ECS reported a resource failure")
+        for index in range(len(failures))
+    ]
+
+
+def _page_items(
+    op: Op, response: DetailResponse, account_id: str, region: AwsRegion
+) -> tuple[list[DetailResponse], list[UnresolvedValue]]:
+    """The page's items that have a valid identity, and the page's problems."""
+    key = _KEYS[op]
+    page = response.value
+    path = f"{response.path}.{key}"
+    if not isinstance(page, dict):
+        return [], [_unresolved(path, "Required result is unavailable")]
+    problems = _failure_problems(page, response.path)
+    single = op == Op.DESCRIBE_TASK_DEFINITION
+    value = page.get(key)
+    if not isinstance(value, dict if single else list):
+        return [], [*problems, _unresolved(path, "Required result is unavailable")]
+    items = []
+    retained = set()
+    for index, item in enumerate([value] if single else value):
+        item_path = path if single else f"{path}[{index}]"
+        arn, reason = _identity(op, response, item, account_id, region)
+        if reason is not None:
+            problems.append(_unresolved(item_path, reason))
+            continue
+        retained.add(arn)
+        items.append(DetailResponse(response.call, item, item_path))
+    if op in _IDENTITIES:
+        # One unresolved value per requested detail that was not returned.
+        problems += [
+            _unresolved(path, "A requested resource detail was not returned")
+            for _ in set(_requested(response, op)) - retained
+        ]
+    return items, problems
+
+
+def _stage_result(
+    coverage: Coverage, responses: list[DetailResponse], problems: list[UnresolvedValue]
+) -> DetailResult:
+    fields = coverage.model_dump()
+    if problems:
+        fields.update(status=CoverageStatus.INCOMPLETE, unresolved_values=problems)
+    if fields["status"] in {CoverageStatus.SUCCESS, CoverageStatus.INCOMPLETE}:
+        fields["result_count"] = len(responses)
+    return DetailResult(responses, Coverage(**fields))
+
+
+def _per_cluster(
+    op: Op, listed: DetailResult, cluster_arns: list[str], param: str, size: int
+) -> list[DetailCall]:
+    """Calls describing each cluster's listed ARNs, `size` at a time."""
+    calls = []
+    for cluster in cluster_arns:
+        arns = sorted({r.value for r in listed.responses if r.call.params["cluster"] == cluster})
+        calls.extend(
+            DetailCall(op, {"cluster": cluster, param: arns[index : index + size]})
+            for index in range(0, len(arns), size)
+        )
+    return calls
+
+
+def _definition_candidates(item: dict) -> list[Any]:
+    # Include deployment revisions as well as the service's primary revision.
+    deployments = item.get("deployments", [])
+    if not isinstance(deployments, list):
+        return [item.get("taskDefinition")]
+    return [
+        item.get("taskDefinition"),
+        *(
+            deployment.get("taskDefinition")
+            for deployment in deployments
+            if isinstance(deployment, dict)
+        ),
+    ]
+
+
 def collect_inventory(
     session: Any,
     account: AwsAccountConfig,
@@ -84,69 +196,12 @@ def collect_inventory(
         raw = runner.run(op, calls, prerequisite=_prerequisite(upstream))
         responses = []
         problems = []
-        key = _KEYS[op]
-
-        def problem(path: str, reason: str) -> None:
-            problems.append(UnresolvedValue(configuration_path=path, reason=reason))
-
         for response in raw.responses:
-            page = response.value
-            path = f"{response.path}.{key}"
-            if not isinstance(page, dict):
-                problem(path, "Required result is unavailable")
-                continue
-            failures = page.get("failures", [])
-            if not isinstance(failures, list):
-                problem(f"{response.path}.failures", "Malformed ECS failure collection")
-            elif failures:
-                for index in range(len(failures)):
-                    # API reasons/details may contain arbitrary text; do not retain them.
-                    problem(f"{response.path}.failures[{index}]", "ECS reported a resource failure")
-            value = page.get(key)
-            single = op == Op.DESCRIBE_TASK_DEFINITION
-            if not isinstance(value, dict if single else list):
-                problem(path, "Required result is unavailable")
-                continue
-            values = [value] if single else value
-            retained = set()
-            for index, item in enumerate(values):
-                item_path = path if single else f"{path}[{index}]"
-                if op in _IDENTITIES:
-                    param, identity_key = _IDENTITIES[op]
-                    arn = item.get(identity_key) if isinstance(item, dict) else None
-                    expected = response.call.params[param]
-                    expected = [expected] if isinstance(expected, str) else expected
-                    if arn not in expected:
-                        problem(
-                            item_path, "Detail identity is missing or outside the requested scope"
-                        )
-                        continue
-                else:
-                    arn = item
-                    kind = {
-                        Op.LIST_CLUSTERS: "cluster",
-                        Op.LIST_SERVICES: "service",
-                        Op.LIST_TASKS: "task",
-                    }[op]
-                    if not valid_arn(arn, kind, account_id, region):
-                        problem(item_path, "Discovery identity is unavailable or malformed")
-                        continue
-                retained.add(arn)
-                responses.append(DetailResponse(response.call, item, item_path))
-            if op in _IDENTITIES:
-                param, _ = _IDENTITIES[op]
-                expected = response.call.params[param]
-                expected = [expected] if isinstance(expected, str) else expected
-                for arn in sorted(set(expected) - retained):
-                    problem(path, "A requested resource detail was not returned")
-        fields = raw.coverage.model_dump()
-        if problems:
-            fields.update(status=CoverageStatus.INCOMPLETE, unresolved_values=problems)
-        if fields["status"] in {CoverageStatus.SUCCESS, CoverageStatus.INCOMPLETE}:
-            fields["result_count"] = len(responses)
-        result = DetailResult(responses, Coverage(**fields))
-        results[op] = result
-        return result
+            items, found = _page_items(op, response, account_id, region)
+            responses += items
+            problems += found
+        results[op] = _stage_result(raw.coverage, responses, problems)
+        return results[op]
 
     clusters = run(Op.LIST_CLUSTERS, [DetailCall(Op.LIST_CLUSTERS, paginate=True)])
     cluster_arns = sorted({response.value for response in clusters.responses})
@@ -163,14 +218,11 @@ def collect_inventory(
         [DetailCall(Op.LIST_SERVICES, {"cluster": arn}, paginate=True) for arn in cluster_arns],
         clusters,
     )
-    service_details = []
-    for cluster in cluster_arns:
-        arns = sorted({r.value for r in services.responses if r.call.params["cluster"] == cluster})
-        service_details.extend(
-            DetailCall(Op.DESCRIBE_SERVICES, {"cluster": cluster, "services": arns[i : i + 10]})
-            for i in range(0, len(arns), 10)
-        )
-    described_services = run(Op.DESCRIBE_SERVICES, service_details, services)
+    described_services = run(
+        Op.DESCRIBE_SERVICES,
+        _per_cluster(Op.DESCRIBE_SERVICES, services, cluster_arns, "services", 10),
+        services,
+    )
     tasks = run(
         Op.LIST_TASKS,
         [
@@ -179,34 +231,16 @@ def collect_inventory(
         ],
         clusters,
     )
-    task_details = []
-    for cluster in cluster_arns:
-        arns = sorted({r.value for r in tasks.responses if r.call.params["cluster"] == cluster})
-        task_details.extend(
-            DetailCall(Op.DESCRIBE_TASKS, {"cluster": cluster, "tasks": arns[i : i + 100]})
-            for i in range(0, len(arns), 100)
-        )
-    described_tasks = run(Op.DESCRIBE_TASKS, task_details, tasks)
-    definitions = set()
-    for result in (described_services, described_tasks):
-        for response in result.responses:
-            item = response.value
-            # Include deployment revisions as well as the service's primary revision.
-            candidates = (
-                [
-                    item.get("taskDefinition"),
-                    *[
-                        deployment.get("taskDefinition")
-                        for deployment in item.get("deployments", [])
-                        if isinstance(deployment, dict)
-                    ],
-                ]
-                if isinstance(item.get("deployments", []), list)
-                else [item.get("taskDefinition")]
-            )
-            definitions.update(
-                arn for arn in candidates if valid_arn(arn, "task-definition", account_id, region)
-            )
+    described_tasks = run(
+        Op.DESCRIBE_TASKS, _per_cluster(Op.DESCRIBE_TASKS, tasks, cluster_arns, "tasks", 100), tasks
+    )
+    definitions = {
+        arn
+        for result in (described_services, described_tasks)
+        for response in result.responses
+        for arn in _definition_candidates(response.value)
+        if valid_arn(arn, "task-definition", account_id, region)
+    }
     run(
         Op.DESCRIBE_TASK_DEFINITION,
         [

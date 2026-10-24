@@ -205,7 +205,6 @@ def instance_placement(
 
 
 def _subnet_interfaces(
-    index: GraphIndex,
     owner: ComputeSource,
     collector: PlacementCollector,
     addresses_by_subnet: dict[str, tuple[IPv4Address, ...]],
@@ -249,7 +248,7 @@ def _task_interfaces(
             by_subnet[subnet] = tuple(
                 sorted({*by_subnet.get(subnet, ()), *_addresses([eni], collector)})
             )
-    return _subnet_interfaces(index, task, collector, by_subnet)
+    return _subnet_interfaces(task, collector, by_subnet)
 
 
 def _describe(index: GraphIndex, resource: ComputeSource) -> CandidateSource:
@@ -259,7 +258,7 @@ def _describe(index: GraphIndex, resource: ComputeSource) -> CandidateSource:
     elif isinstance(resource, EcsTask):
         interfaces = _task_interfaces(index, resource, collector)
     else:
-        interfaces = _subnet_interfaces(index, resource, collector, {})
+        interfaces = _subnet_interfaces(resource, collector, {})
     return CandidateSource(
         resource=resource,
         kind=_KINDS[type(resource)],

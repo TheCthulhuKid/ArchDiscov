@@ -37,7 +37,7 @@ def emit_model(model: BaseModel, **context: str) -> None:
     json_output({**context, **model.model_dump(mode="json")})
 
 
-def _diagnostic(
+def diagnostic_data(
     code: str, message: str, path: Path | None = None, issues: Iterable[Any] | None = None
 ) -> dict[str, Any]:
     diagnostic: dict[str, Any] = {"code": code, "message": message}
@@ -74,7 +74,7 @@ def snapshot_exit_code(error: SnapshotError) -> int:
 def fail_snapshot_error(error: SnapshotError, as_json: bool) -> NoReturn:
     """Print a safe snapshot diagnostic and exit with its stable code."""
     issues = error.details if isinstance(error, SnapshotValidationError) else None
-    diagnostic = _diagnostic(error.code, str(error), error.path, issues)
+    diagnostic = diagnostic_data(error.code, str(error), error.path, issues)
     if isinstance(error, SnapshotJSONError):
         diagnostic.update(line=error.line, column=error.column)
     print_error(diagnostic, as_json=as_json)
@@ -84,9 +84,9 @@ def fail_snapshot_error(error: SnapshotError, as_json: bool) -> NoReturn:
 def fail_analysis_error(error: AnalysisValidationError | AnalyzerError, as_json: bool) -> NoReturn:
     """Print a safe analysis diagnostic; both kinds are request/data errors (exit 2)."""
     if isinstance(error, AnalyzerError):
-        diagnostic = _diagnostic(error.code.value, error.message)
+        diagnostic = diagnostic_data(error.code.value, error.message)
     else:
-        diagnostic = _diagnostic(error.code, str(error), error.path, error.details)
+        diagnostic = diagnostic_data(error.code, str(error), error.path, error.details)
     print_error(diagnostic, as_json=as_json)
     raise typer.Exit(2)
 
@@ -117,7 +117,7 @@ def assistant_exit_code(error: ProviderConfigError | FakeScriptError) -> int:
 
 def fail_assistant_error(error: ProviderConfigError | FakeScriptError, as_json: bool) -> NoReturn:
     """Print a safe provider-configuration or fake-script diagnostic and exit."""
-    diagnostic = _diagnostic(error.code.value, str(error), error.path, error.details or None)
+    diagnostic = diagnostic_data(error.code.value, str(error), error.path, error.details or None)
     for name in ("variable", "profile", "kind"):
         if (value := getattr(error, name, None)) is not None:
             diagnostic[name] = str(value)
@@ -134,9 +134,8 @@ def safe_assistant_failures(snapshot_path: Path, as_json: bool) -> Iterator[None
         except (ProviderConfigError, FakeScriptError) as error:
             fail_assistant_error(error, as_json)
         except (InvalidQuestionError, ToolSessionError) as error:
-            print_error(
-                _diagnostic(error.code, str(error), getattr(error, "path", None)), as_json=as_json
-            )
+            diagnostic = diagnostic_data(error.code, str(error), getattr(error, "path", None))
+            print_error(diagnostic, as_json=as_json)
             raise typer.Exit(2) from None
 
 
@@ -148,7 +147,7 @@ def fail_evaluation_error(
     An unreadable suite is an I/O error (1); everything else is invalid input (2).
     """
     details = getattr(error, "details", None) or None
-    diagnostic = _diagnostic(error.code.value, str(error), error.path, details)
+    diagnostic = diagnostic_data(error.code.value, str(error), error.path, details)
     if (case_id := getattr(error, "case_id", None)) is not None:
         diagnostic["case_id"] = case_id
     print_error(diagnostic, as_json=as_json)

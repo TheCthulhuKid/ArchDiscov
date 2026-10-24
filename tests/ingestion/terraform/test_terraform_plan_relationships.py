@@ -2,8 +2,7 @@ import pytest
 
 from archdiscov.ingestion.adapter import IngestionError
 from archdiscov.ingestion.terraform import plan_relationships
-
-from .test_terraform_plan import change, collect, resources, write_plan
+from tests.support.terraform_data import change, collect, resources, write_plan
 
 
 def configuration(reference, address="aws_instance.example"):
@@ -115,7 +114,7 @@ def test_deleted_parent_cannot_contain_or_resolve_planned_after_child(tmp_path):
     [None, {"root_module": []}, {"root_module": {"resources": "invalid"}}, configuration(42)],
 )
 def test_malformed_configuration_fails_safely(tmp_path, config):
-    with pytest.raises(IngestionError, match="configuration|references"):
+    with pytest.raises(IngestionError, match=r"configuration|references"):
         collect(write_plan(tmp_path, [change()], configuration=config))
 
 

@@ -18,13 +18,13 @@ class CloudFormationAdapter:
         template = prepare_template(load_template(request.path), request)
         builder = SnapshotBuilder(request, context)
         parameters = parameters_for(template, request)
-        options = dict(
-            parameters=parameters,
-            resources=set(template["Resources"]),
-            pseudo=pseudo_parameters(request),
-            mappings=safe_properties(template.get("Mappings", {}))[0],
-            conditions=template.get("Conditions", {}),
-        )
+        options = {
+            "parameters": parameters,
+            "resources": set(template["Resources"]),
+            "pseudo": pseudo_parameters(request),
+            "mappings": safe_properties(template.get("Mappings", {}))[0],
+            "conditions": template.get("Conditions", {}),
+        }
         references = {}
         for logical_id, entry in template["Resources"].items():
             path = f"/Resources/{escape_pointer_token(logical_id)}"

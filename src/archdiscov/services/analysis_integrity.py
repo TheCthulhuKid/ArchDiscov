@@ -22,9 +22,9 @@ from archdiscov.models.resources.iam import IamRole
 from archdiscov.models.resources.load_balancing import LoadBalancer
 from archdiscov.models.resources.network import NetworkInterface, SecurityGroup
 from archdiscov.models.resources.queues import SqsQueue
+from archdiscov.models.snapshot_access import SnapshotAccess, _resources_from_validated_snapshot
 
 from .analysis_diagnostics import reject
-from .snapshot_access import SnapshotAccess, _resources_from_validated_snapshot
 
 Location = tuple[str | int, ...]
 

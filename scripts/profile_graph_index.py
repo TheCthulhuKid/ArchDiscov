@@ -2,6 +2,7 @@
 
 import argparse
 import gc
+import itertools
 import json
 import platform
 import statistics
@@ -62,7 +63,7 @@ def synthetic_snapshot(shape: str, size: int) -> CloudSnapshot:
     if shape == "wide":
         nodes[0].children = nodes[1:]
     else:
-        for parent, child in zip(nodes, nodes[1:]):
+        for parent, child in itertools.pairwise(nodes):
             parent.children = [child]
     evidence = {
         f"e-{i:06d}": CloudEvidence(
@@ -89,39 +90,40 @@ def synthetic_snapshot(shape: str, size: int) -> CloudSnapshot:
         )
         for i, node in enumerate(nodes)
     ]
-    for target in (
-        CloudExternalTarget(scope=AwsTargetScope(), identifier="external-synthetic", service="ec2"),
-        UnresolvedTarget(reason="Offline unknown target", source_path="Nodes[0].target"),
-    ):
-        dependencies.append(
-            CloudDependency(
-                source_id=nodes[0].id,
-                target=target,
-                location=LOCATION,
-                relationship=DependencyRelationship.ATTACHED_TO,
-                evidence_ids=nodes[0].evidence_ids,
-            )
+    dependencies.extend(
+        CloudDependency(
+            source_id=nodes[0].id,
+            target=target,
+            location=LOCATION,
+            relationship=DependencyRelationship.ATTACHED_TO,
+            evidence_ids=nodes[0].evidence_ids,
         )
-    operations = []
-    for status in ("success", "incomplete", "failed", "skipped", "unsupported"):
-        operations.append(
-            CloudOperationCoverage(
-                scope=scope,
-                location=LOCATION,
-                service="ec2",
-                operation=f"Synthetic-{status}",
-                status=status,
-                started_at=STAMP,
-                completed_at=STAMP,
-                result_count=size if status in ("success", "incomplete") else None,
-                reason="Offline synthetic limitation" if status != "success" else None,
-                failures=(
-                    [CollectionFailure(code="SyntheticFailure", message="Offline failure")]
-                    if status == "failed"
-                    else []
-                ),
-            )
+        for target in (
+            CloudExternalTarget(
+                scope=AwsTargetScope(), identifier="external-synthetic", service="ec2"
+            ),
+            UnresolvedTarget(reason="Offline unknown target", source_path="Nodes[0].target"),
         )
+    )
+    operations = [
+        CloudOperationCoverage(
+            scope=scope,
+            location=LOCATION,
+            service="ec2",
+            operation=f"Synthetic-{status}",
+            status=status,
+            started_at=STAMP,
+            completed_at=STAMP,
+            result_count=size if status in ("success", "incomplete") else None,
+            reason="Offline synthetic limitation" if status != "success" else None,
+            failures=(
+                [CollectionFailure(code="SyntheticFailure", message="Offline failure")]
+                if status == "failed"
+                else []
+            ),
+        )
+        for status in ("success", "incomplete", "failed", "skipped", "unsupported")
+    ]
     return CloudSnapshot(
         snapshot_id=SNAPSHOT_ID,
         scope=scope,

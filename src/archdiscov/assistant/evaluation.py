@@ -33,7 +33,12 @@ from pydantic import (
 )
 from pydantic_core import PydanticSerializationError
 
-from archdiscov.ingestion.strict_json import reject_constant, unique_object
+from archdiscov.core.strict_json import (
+    FileTooLargeError,
+    read_bounded,
+    reject_constant,
+    unique_object,
+)
 from archdiscov.models.canonical import sha256_json
 from archdiscov.models.enums import AnalysisStatus, AnalyzerKind
 from archdiscov.models.resource_base import NonEmptyString
@@ -43,11 +48,11 @@ from archdiscov.models.validation_errors import (
     serialization_issue,
     validation_error,
 )
-from archdiscov.services.ask import AskResult, ToolUsage
 
 from .answer_results import AnswerOutcome, AnswerStatus, FailureReason, RenderedAnswer
 from .answer_service import AnswerResult
 from .answers import ConclusionKind
+from .ask_results import AskResult, ToolUsage
 from .conversation import Contract, MessageText, ProviderKindName, TokenUsage
 from .redaction import looks_secret
 from .rejections import RejectionCode
@@ -566,12 +571,11 @@ def parse_report(data: EvaluationReport | Mapping[str, Any]) -> EvaluationReport
 def load_suite(path: Path) -> EvaluationSuite:
     """Read a bounded, strict JSON suite file (no duplicate keys or constants) and validate it."""
     try:
-        with path.open("rb") as file:
-            content = file.read(MAX_SUITE_BYTES + 1)
+        content = read_bounded(path, MAX_SUITE_BYTES)
+    except FileTooLargeError as exc:
+        raise EvaluationValidationError(EvaluationErrorCode.SUITE_TOO_LARGE, path=path) from exc
     except OSError as exc:
         raise EvaluationValidationError(EvaluationErrorCode.SUITE_UNREADABLE, path=path) from exc
-    if len(content) > MAX_SUITE_BYTES:
-        raise EvaluationValidationError(EvaluationErrorCode.SUITE_TOO_LARGE, path=path)
     try:
         data = json.loads(content, object_pairs_hook=unique_object, parse_constant=reject_constant)
     except (ValueError, RecursionError) as exc:

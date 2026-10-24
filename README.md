@@ -78,7 +78,9 @@ Ruff lint/format checks in separate jobs on every push and pull request, with ma
 runs available too. CI uses Python 3.13, uv 0.5.29, and locked development dependencies;
 the test jobs use eight pytest-xdist workers (`--dist worksteal`, and `--dist loadgroup` for
 acceptance so the installed-CLI journey stays on one worker) to limit nested
-concurrency. It requires no AWS/provider secrets. Superseded runs are cancelled automatically.
+concurrency. The unit-test job reports line coverage of `archdiscov` without gating on it,
+and the quality job audits the locked dependencies for known vulnerabilities with
+`pip-audit`. It requires no AWS/provider secrets. Superseded runs are cancelled automatically.
 
 The source package separates shared models, ingestion adapters, public application services, and CLI presentation:
 
@@ -977,26 +979,10 @@ Do not attempt comprehensive IAM policy evaluation, organization-policy evaluati
 
 ## Assistant and evidence contract
 
-### Minimal result models (implemented)
+### Analysis statuses
 
-`Finding` and `Answer` in `archdiscov.models.results` are separate result contracts,
-not new fields in snapshot schema `1`. Both require an explicit `snapshot_id` UUID and
-`status` (`AnalysisStatus` from `archdiscov.models.enums`), and retain nonblank
-`evidence_ids` and `limitations` lists. Evidence IDs are keys in that snapshot's evidence
-map, not globally unique identifiers.
-
-| Contract | Additional fields | Citation requirements |
-| --- | --- | --- |
-| `Finding` | Nonblank `id`, nonblank `summary`, optional `resource_ids` list | `supported` and `partial` require at least one evidence ID |
-| `Answer` | `finding_ids` list | `supported` and `partial` require at least one finding ID; direct evidence IDs are optional because findings carry citations |
-
-Finding IDs are scoped to the selected snapshot's analysis results; resource IDs use the
-existing stable identity contract. An answer references findings rather than embedding
-provider-authored factual prose. These legacy contracts remain unchanged; the `ask`
-command renders conclusions from validated findings through its own answer contracts. Separate analysis contracts now
-describe analyzer kinds, typed parameters, paths and structured limitations, and the
-[`ask` command](docs/ask-command.md) uses its own answer contracts; there are no severity
-scores.
+Findings and answers share one status vocabulary (`AnalysisStatus` in
+`archdiscov.models.enums`); there are no severity scores:
 
 | Status | Meaning and required limitations |
 | --- | --- |
@@ -1004,39 +990,10 @@ scores.
 | `partial` | Some supported conclusions are available, but a nonempty limitations list must explain the gaps |
 | `insufficient_evidence` | No definitive conclusion is justified; a nonempty limitations list explains why, and citations may be empty |
 
-For example, represent the recorded ingress fact without claiming end-to-end internet access:
-
-```python
-from archdiscov.models.results import Answer, Finding
-from archdiscov.services import load_snapshot
-
-snapshot = load_snapshot("tests/fixtures/snapshots/partial-coverage.json")
-finding = Finding(
-    id="recorded-ingress",
-    snapshot_id=snapshot.snapshot_id,
-    status="partial",
-    summary="The recorded ingress rule permits TCP port 443 from 0.0.0.0/0.",
-    resource_ids=[snapshot.evidence["sg-rule"].resource_id],
-    evidence_ids=["sg-rule"],
-    limitations=["Route-table collection failed; end-to-end reachability is not established."],
-)
-answer = Answer(
-    snapshot_id=snapshot.snapshot_id,
-    status="partial",
-    finding_ids=[finding.id],
-    evidence_ids=finding.evidence_ids,
-    limitations=finding.limitations,
-)
-assert Answer.model_validate_json(answer.model_dump_json()) == answer
-```
-
-These models validate **shape and status consistency only**: construction does not prove
-that IDs resolve, that a conclusion is true, that coverage is sufficient, or that citations
-were returned by tools. Analyzers preserve relevant evidence/coverage limitations, and
-[answer validation](docs/assistant-answers.md) checks the selected snapshot, findings,
-resource/evidence references, and the tool-returned allowlist, and rejects unsupported claims. Results remain
-mutable and are not persisted by the snapshot service. Free-form summaries and limitations
-must not contain secrets; these are not automatically sanitized or treated as instructions.
+Analyzers produce [analysis results](docs/analysis-results.md) with these statuses, and the
+[`ask` command](docs/ask-command.md) uses its own [answer contracts](docs/assistant-answers.md),
+whose validation checks the selected snapshot, findings, resource and evidence references,
+and the tool-returned allowlist, and rejects unsupported claims.
 
 ### Analysis result contracts (implemented)
 

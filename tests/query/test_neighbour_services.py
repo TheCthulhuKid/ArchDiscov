@@ -3,7 +3,7 @@ from copy import deepcopy
 import pytest
 
 from archdiscov.graph import GraphIndex
-from archdiscov.graph.dependencies import DependencyEdge
+from archdiscov.models.edges import DependencyEdge
 from archdiscov.models.enums import (
     AttachmentKind,
     DependencyRelationship,

@@ -51,9 +51,9 @@ _EXPORTS = {
     "search_resources": "queries",
     "QueryError": "query_errors",
     "SecurityGroupImpactAnalyzer": "security_group_impact",
-    "SnapshotAccess": "snapshot_access",
-    "SupportedSnapshot": "snapshot_access",
-    "upgrade_snapshot": "snapshot_access",
+    "SnapshotAccess": "archdiscov.models.snapshot_access",
+    "SupportedSnapshot": "archdiscov.models.snapshot_access",
+    "upgrade_snapshot": "archdiscov.models.snapshot_access",
     "SnapshotConflictError": "snapshots",
     "SnapshotError": "snapshots",
     "SnapshotIOError": "snapshots",
@@ -67,6 +67,7 @@ _EXPORTS = {
 }
 
 __all__ = [
+    "DEFAULT_REGISTRY",
     "AccountOutcome",
     "AnalysisValidationError",
     "AnalysisValidationIssue",
@@ -77,7 +78,6 @@ __all__ = [
     "AskResult",
     "ComparisonValidationError",
     "CrossAccountTrustAnalyzer",
-    "DEFAULT_REGISTRY",
     "EvidenceInspection",
     "EvidenceNotFoundError",
     "IngestFormat",
@@ -130,7 +130,9 @@ def __getattr__(name: str) -> Any:
     module = _EXPORTS.get(name)
     if module is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    value = getattr(import_module(f".{module}", __name__), name)
+    # A dotted path names a module outside this package that services re-export.
+    path = module if "." in module else f".{module}"
+    value = getattr(import_module(path, __name__), name)
     globals()[name] = value
     return value
 
@@ -140,6 +142,12 @@ def __dir__() -> list[str]:
 
 
 if TYPE_CHECKING:
+    from archdiscov.models.snapshot_access import (
+        SnapshotAccess,
+        SupportedSnapshot,
+        upgrade_snapshot,
+    )
+
     from .analyses import load_analysis, save_analysis
     from .analysis_execution import DEFAULT_REGISTRY, run_analyzer
     from .analysis_qualification import Qualification, qualify_status
@@ -175,7 +183,6 @@ if TYPE_CHECKING:
     from .queries import inspect_resource, search_resources
     from .query_errors import QueryError
     from .security_group_impact import SecurityGroupImpactAnalyzer
-    from .snapshot_access import SnapshotAccess, SupportedSnapshot, upgrade_snapshot
     from .snapshots import (
         SnapshotConflictError,
         SnapshotError,

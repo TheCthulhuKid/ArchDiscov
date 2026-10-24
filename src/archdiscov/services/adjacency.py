@@ -5,10 +5,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
-from archdiscov.graph.containment import ContainmentEdge
-from archdiscov.graph.dependencies import DependencyEdge
 from archdiscov.models.architecture import LocalTarget, UnresolvedTarget
 from archdiscov.models.cloud.contracts import CloudEvidence
+from archdiscov.models.edges import ContainmentEdge, DependencyEdge
 from archdiscov.models.enums import QueryDirection, QueryEdgeSelection
 from archdiscov.models.query.edges import (
     QueryContainmentEdge,

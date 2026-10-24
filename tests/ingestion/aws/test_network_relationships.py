@@ -4,8 +4,9 @@ from archdiscov.models.enums import AttachmentKind as Kind
 from archdiscov.models.enums import DependencyRelationship
 from tests.support.network_data import (
     ACCOUNT,
-    ENI,
+    ATTACHED_ENI,
     FULL,
+    INSTANCE,
     SG,
     SUBNET,
     VPC,
@@ -14,13 +15,6 @@ from tests.support.network_data import (
     snapshot_of,
 )
 
-INSTANCE = {
-    "InstanceId": "i-1",
-    "SubnetId": "subnet-1",
-    "VpcId": "vpc-1",
-    "SecurityGroups": [{"GroupId": "sg-1"}, {"GroupId": "sg-gone"}],
-}
-ATTACHED_ENI = {**ENI, "Attachment": {"InstanceId": "i-1", "DeviceIndex": 0, "Status": "attached"}}
 ITEMS = {
     **FULL,
     Op.DESCRIBE_INSTANCES: [{"Instances": [INSTANCE]}],

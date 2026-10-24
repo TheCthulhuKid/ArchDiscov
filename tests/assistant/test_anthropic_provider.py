@@ -52,12 +52,10 @@ from archdiscov.assistant.provider import (
 )
 from archdiscov.assistant.providers import load_provider
 from archdiscov.assistant.tools.session import ToolSession
-from tests.assistant.test_config import ANTHROPIC
-from tests.assistant.test_continuations import THINKING
-from tests.assistant.test_orchestrator import SNAPSHOT
-from tests.assistant.test_provider_contract import INSPECT, SEARCH
-from tests.assistant.test_secret_leaks import SECRET, _renderings
 from tests.support.mock_api import MockApi, Waits
+from tests.support.provider_data import ANTHROPIC, EXCHANGE, INSPECT_TOOL, SEARCH_TOOL, THINKING
+from tests.support.scripted_turns import SNAPSHOT
+from tests.support.secrets import SECRET, secret_renderings
 
 ENDPOINT = "https://gateway.example.com/anthropic"
 QUESTION = "Which databases are reachable?"
@@ -127,7 +125,9 @@ def _provider(
     )
 
 
-def _request(*messages: dict, tools=(SEARCH, INSPECT), **limits: Any) -> CompletionRequest:
+def _request(
+    *messages: dict, tools=(SEARCH_TOOL, INSPECT_TOOL), **limits: Any
+) -> CompletionRequest:
     return CompletionRequest(
         conversation=Conversation.model_validate(
             {"messages": [{"role": "user", "text": QUESTION}, *messages]}
@@ -231,38 +231,11 @@ def test_no_key_or_request_body_reaches_a_rendering_or_log(caplog) -> None:
         _send(provider)
     for name in anthropic_provider._SDK_LOGGERS:
         assert logging.getLogger(name).getEffectiveLevel() == logging.WARNING
-    for rendering in (*_renderings(provider), *_renderings(raised.value), caplog.text):
+    for rendering in (*secret_renderings(provider), *secret_renderings(raised.value), caplog.text):
         assert SECRET not in rendering and QUESTION not in rendering
 
 
 # ---- requests ----------------------------------------------------------------------
-
-EXCHANGE = (
-    {
-        "role": "assistant",
-        "text": "Searching.",
-        "tool_calls": [
-            {
-                "id": "call_0",
-                "name": "search_resources",
-                "arguments": {"kind": "parsed", "value": {"type": "rds_instance"}},
-            },
-            {
-                "id": "call_1",
-                "name": "inspect_resource",
-                "arguments": {"kind": "malformed", "reason": "invalid_json"},
-            },
-        ],
-    },
-    {
-        "role": "tool",
-        "results": [
-            {"call_id": "call_0", "content": "[]"},
-            {"call_id": "call_1", "content": "Arguments were not JSON.", "is_error": True},
-        ],
-    },
-    {"role": "user", "text": "Submit your answer now."},
-)
 
 
 def test_a_request_maps_every_message_tool_and_limit() -> None:
@@ -277,7 +250,7 @@ def test_a_request_maps_every_message_tool_and_limit() -> None:
                 ]
             }
         ),
-        tools=(SEARCH, INSPECT),
+        tools=(SEARCH_TOOL, INSPECT_TOOL),
         limits=RequestLimits(max_output_tokens=512, max_tool_calls_per_turn=4),
     )
     _send(_provider(api), request=request)
@@ -323,7 +296,7 @@ def test_a_request_maps_every_message_tool_and_limit() -> None:
         ],
         "tools": [
             {"name": tool.name, "description": tool.description, "input_schema": tool.input_schema}
-            for tool in (SEARCH, INSPECT)
+            for tool in (SEARCH_TOOL, INSPECT_TOOL)
         ],
         "tool_choice": {"type": "auto", "disable_parallel_tool_use": False},
     }
@@ -469,7 +442,7 @@ def test_unusable_responses_are_typed_errors_without_provider_text(body, error) 
     with pytest.raises(error) as raised:
         _send(_provider(_api(body)))
     assert str(raised.value) == error.message
-    assert "None of them" not in "".join(_renderings(raised.value))
+    assert "None of them" not in "".join(secret_renderings(raised.value))
 
 
 @pytest.mark.parametrize(
@@ -573,7 +546,7 @@ def test_statuses_map_to_fixed_safe_errors(caplog, status: int, error) -> None:
         _send(_provider(MockApi([_error(status)])))
     assert type(raised.value) is error
     assert raised.value.retryable is (error is ProviderRateLimitError)
-    rendered = "".join(_renderings(raised.value)) + caplog.text
+    rendered = "".join(secret_renderings(raised.value)) + caplog.text
     for leaked in (SECRET, QUESTION, "db-a reachable"):
         assert leaked not in rendered
 

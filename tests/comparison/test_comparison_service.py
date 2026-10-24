@@ -14,7 +14,7 @@ from archdiscov.services import (
     validate_comparison_result,
 )
 from tests.comparison.snapshots import aws_resource, aws_snapshot, coverage
-from tests.comparison.test_field_comparison import rid, vpc
+from tests.support.comparison_data import rid, vpc
 
 NOW = datetime(2026, 2, 1, tzinfo=UTC)
 DELETE = {"actions": ["delete"], "value_scope": "before"}
@@ -161,7 +161,7 @@ def test_an_existing_destination_is_never_overwritten(tmp_path):
 
 
 def test_swapped_or_wrong_snapshots_are_rejected(tmp_path):
-    result, first, second, path = saved(tmp_path)
+    _result, first, second, path = saved(tmp_path)
     with pytest.raises(ComparisonValidationError) as swapped:
         load_comparison(path, left=second, right=first)
     assert [issue.type for issue in swapped.value.details] == ["snapshot_mismatch"]
@@ -172,7 +172,7 @@ def test_swapped_or_wrong_snapshots_are_rejected(tmp_path):
 
 
 def test_a_changed_snapshot_with_the_same_id_fails_verification(tmp_path):
-    result, first, second, path = saved(tmp_path)
+    _result, first, _second, path = saved(tmp_path)
     changed = aws_snapshot([vpc("vpc-1", attributes={"a": 5})], seed=2)
     with pytest.raises(ComparisonValidationError) as error:
         load_comparison(path, left=first, right=changed)

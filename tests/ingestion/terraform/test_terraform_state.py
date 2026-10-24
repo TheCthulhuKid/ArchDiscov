@@ -1,8 +1,6 @@
 import asyncio
 import json
 from copy import deepcopy
-from datetime import UTC, datetime
-from uuid import UUID
 
 import pytest
 from pydantic import ValidationError
@@ -20,10 +18,10 @@ from archdiscov.services import (
     save_snapshot,
 )
 from tests.paths import FIXTURES_ROOT
+from tests.support.network_data import flatten
+from tests.support.terraform_data import CONTEXT, NOW
 
 FIXTURE = FIXTURES_ROOT / "terraform" / "state.json"
-NOW = datetime(2026, 1, 1, tzinfo=UTC)
-CONTEXT = AdapterContext(clock=lambda: NOW, uuid_factory=lambda: UUID(int=18))
 
 
 def export_resource(resource_type="aws_instance", **values):
@@ -49,12 +47,6 @@ def write_export(tmp_path, resources, **extra):
 
 def collect(path, **kwargs):
     return collect_snapshots(TerraformStateRequest(path=path, **kwargs), context=CONTEXT)[0]
-
-
-def flatten(resources):
-    for resource in resources:
-        yield resource
-        yield from flatten(resource.children)
 
 
 def test_nested_export_to_persistence_and_exact_evidence(tmp_path):

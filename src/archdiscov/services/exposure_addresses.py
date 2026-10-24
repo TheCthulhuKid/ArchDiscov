@@ -204,19 +204,17 @@ def evaluate_public_entry(index: GraphIndex, entry: Entry) -> list[ExposureEvalu
     if not opened.ranges:
         return [_without_ports(index, entry, address, groups, notes, opened.uncertain, evidence)]
     acl_entries = _acl_entries(index, interface.subnet_id)
-    evaluations = []
-    for opened_range in opened.ranges:
-        points = boundaries(groups, acl_entries, opened_range.protocol)
-        for piece in split(opened_range, points):
-            evaluations.append(
-                evaluate_elements(
-                    ExposureEntryKind.PUBLIC_ADDRESS,
-                    entry,
-                    piece.protocol,
-                    (piece.start, piece.end),
-                    _piece(index, address, interface, groups, piece),
-                    evidence=evidence,
-                    limitations=notes,
-                )
-            )
+    evaluations = [
+        evaluate_elements(
+            ExposureEntryKind.PUBLIC_ADDRESS,
+            entry,
+            piece.protocol,
+            (piece.start, piece.end),
+            _piece(index, address, interface, groups, piece),
+            evidence=evidence,
+            limitations=notes,
+        )
+        for opened_range in opened.ranges
+        for piece in split(opened_range, boundaries(groups, acl_entries, opened_range.protocol))
+    ]
     return merge_adjacent(evaluations)

@@ -1,6 +1,7 @@
 """Bounded, evidence-backed SQS configuration collection."""
 
 import json
+from collections.abc import Callable
 from typing import Any
 from uuid import UUID
 
@@ -35,6 +36,62 @@ from .values import (
     redrive,
     redrive_allow,
 )
+
+# The model field each recognised attribute fills (None keeps it under `attributes`), and
+# the normalizer that returns its usable value or None.
+_NAMED_RULES: dict[str, tuple[str | None, Callable[[Any], Any]]] = {
+    "QueueArn": ("arn", lambda value: value if queue_arn(value) else None),
+    "KmsMasterKeyId": ("kms_master_key_id", lambda value: value if kms_key(value) else None),
+    "Policy": ("policy", safe_policy),
+    "RedrivePolicy": (None, redrive),
+    "RedriveAllowPolicy": ("redrive_allow_policy", redrive_allow),
+}
+_REDRIVE_FIELDS = (
+    ("dead_letter_target_arn", "deadLetterTargetArn"),
+    ("max_receive_count", "maxReceiveCount"),
+)
+
+
+def _attribute_rule(key: str) -> tuple[str | None, Callable[[Any], Any]] | None:
+    """The attribute's field and normalizer, or None for an attribute that is not collected."""
+    if key in INTEGER_FIELDS:
+        field, minimum, maximum = INTEGER_FIELDS[key]
+        return field, lambda value: integer(value, minimum, maximum)
+    if key in BOOLEAN_FIELDS:
+        return BOOLEAN_FIELDS[key], _boolean
+    if key in ENUM_FIELDS:
+        return (
+            None,
+            lambda value: value if isinstance(value, str) and value in ENUM_FIELDS[key] else None,
+        )
+    return _NAMED_RULES.get(key)
+
+
+def _boolean(value: Any) -> bool | None:
+    return {"true": True, "false": False}.get(value) if isinstance(value, str) else None
+
+
+def _under_attributes(pointer: str) -> str:
+    return pointer if pointer.startswith("/attributes/") else f"/attributes{pointer}"
+
+
+def _changed_paths(before, after, pointer=""):
+    """The JSON pointers where `after` differs from `before`."""
+    if isinstance(before, dict) and isinstance(after, dict):
+        for key in before.keys() & after.keys():
+            yield from _changed_paths(
+                before[key], after[key], f"{pointer}/{escape_pointer_token(key)}"
+            )
+    elif isinstance(before, list) and isinstance(after, list):
+        # Redaction replaces values, never items; a list whose length changed anyway is
+        # reported whole rather than compared item by item.
+        if len(before) != len(after):
+            yield pointer
+            return
+        for index, (left, right) in enumerate(zip(before, after, strict=True)):
+            yield from _changed_paths(left, right, f"{pointer}/{index}")
+    elif before != after:
+        yield pointer
 
 
 class _Collector(EvidenceBuilder):
@@ -107,39 +164,31 @@ class _Collector(EvidenceBuilder):
         if not isinstance(item, dict):
             self.issue(op, path, resource)
             return
-        safe = {}
-        fields = {}
-        facts = {}
+        safe, fields, facts = self._normalized_attributes(resource, item, path)
+        if not isinstance(resource, SqsQueue):
+            resource.attributes.update(fields)
+            facts = {_under_attributes(pointer): fact for pointer, fact in facts.items()}
+        # Only safe, decoded, allowlisted fields may enter whole-response evidence.
+        whole_id = self.whole(resource, op, response.path, {"Attributes": safe})
+        for pointer, (source_path, value) in facts.items():
+            self.cite(resource, pointer, op, source_path, value)
+        if isinstance(resource, SqsQueue):
+            for field, value in fields.items():
+                setattr(resource, field, value)
+        if "Policy" in safe:
+            self._policy_redactions(resource, item["Policy"], safe["Policy"], whole_id)
+
+    def _normalized_attributes(self, resource, item, path):
+        """The safe values, model fields, and cited facts of the recognised attributes."""
+        safe, fields, facts = {}, {}, {}
         for key, value in item.items():
-            field = None
-            normalized = None
-            if key == "QueueArn":
-                normalized = value if queue_arn(value) else None
-                field = "arn"
-            elif key in INTEGER_FIELDS:
-                field, minimum, maximum = INTEGER_FIELDS[key]
-                normalized = integer(value, minimum, maximum)
-            elif key in BOOLEAN_FIELDS:
-                field = BOOLEAN_FIELDS[key]
-                if isinstance(value, str):
-                    normalized = {"true": True, "false": False}.get(value)
-            elif key in ENUM_FIELDS:
-                normalized = value if isinstance(value, str) and value in ENUM_FIELDS[key] else None
-            elif key == "KmsMasterKeyId":
-                normalized = value if kms_key(value) else None
-                field = "kms_master_key_id"
-            elif key == "Policy":
-                normalized = safe_policy(value)
-                field = "policy"
-            elif key == "RedrivePolicy":
-                normalized = redrive(value)
-            elif key == "RedriveAllowPolicy":
-                normalized = redrive_allow(value)
-                field = "redrive_allow_policy"
-            else:
+            rule = _attribute_rule(key)
+            if rule is None:
                 continue
+            field, normalize = rule
+            normalized = normalize(value)
             if normalized is None:
-                self.issue(op, f"{path}.{key}", resource)
+                self.issue(Op.GET_QUEUE_ATTRIBUTES, f"{path}.{key}", resource)
                 continue
             safe[key] = normalized
             pointer = f"/{field}" if field else f"/attributes/{key}"
@@ -149,52 +198,23 @@ class _Collector(EvidenceBuilder):
             else:
                 resource.attributes[key] = normalized
             if key == "RedrivePolicy":
-                for target_field, source_field in (
-                    ("dead_letter_target_arn", "deadLetterTargetArn"),
-                    ("max_receive_count", "maxReceiveCount"),
-                ):
+                for target_field, source_field in _REDRIVE_FIELDS:
                     fields[target_field] = normalized[source_field]
                     facts[f"/{target_field}"] = (
                         f"{path}.{key}.{source_field}",
                         normalized[source_field],
                     )
-        if not isinstance(resource, SqsQueue):
-            resource.attributes.update(fields)
-            facts = {
-                f"/attributes{pointer}" if not pointer.startswith("/attributes/") else pointer: fact
-                for pointer, fact in facts.items()
-            }
-        # Only safe, decoded, allowlisted fields may enter whole-response evidence.
-        whole_id = self.whole(resource, op, response.path, {"Attributes": safe})
-        for pointer, (source_path, value) in facts.items():
-            self.cite(resource, pointer, op, source_path, value)
-        if isinstance(resource, SqsQueue):
-            for field, value in fields.items():
-                setattr(resource, field, value)
+        return safe, fields, facts
 
-        # Preserve policy-specific redaction paths, including condition context and tag values.
-        if "Policy" in safe:
-            original_safe, paths = sanitize_document(item["Policy"])
-
-            def tag_paths(before, after, pointer=""):
-                if isinstance(before, dict) and isinstance(after, dict):
-                    for key in before.keys() & after.keys():
-                        yield from tag_paths(
-                            before[key],
-                            after[key],
-                            f"{pointer}/{escape_pointer_token(key)}",
-                        )
-                elif isinstance(before, list) and isinstance(after, list):
-                    for index, (left, right) in enumerate(zip(before, after)):
-                        yield from tag_paths(left, right, f"{pointer}/{index}")
-                elif before != after:
-                    yield pointer
-
-            paths += list(tag_paths(original_safe, safe["Policy"]))
-            if paths:
-                pointer = "/policy" if isinstance(resource, SqsQueue) else "/attributes/policy"
-                self.redactions(resource.fact_evidence[pointer], paths)
-                self.redactions([whole_id], paths, "/Attributes/Policy")
+    def _policy_redactions(self, resource, policy, kept, whole_id):
+        """Mark the policy's redactions, including condition context and tag values."""
+        original_safe, paths = sanitize_document(policy)
+        paths += list(_changed_paths(original_safe, kept))
+        if not paths:
+            return
+        pointer = "/policy" if isinstance(resource, SqsQueue) else "/attributes/policy"
+        self.redactions(resource.fact_evidence[pointer], paths)
+        self.redactions([whole_id], paths, "/Attributes/Policy")
 
     def collect(self):
         pages = self.run(
@@ -296,7 +316,7 @@ class _Collector(EvidenceBuilder):
                 self.issue(Op.LIST_QUEUE_TAGS, f"{response.path}.Tags", resource)
                 continue
             # Tag values are untrusted free text even when their key looks innocuous.
-            safe = {key: "[REDACTED]" for key in value}
+            safe = dict.fromkeys(value, "[REDACTED]")
             resource.attributes["tags"] = safe
             whole_id = self.whole(resource, Op.LIST_QUEUE_TAGS, response.path, {"Tags": safe})
             self.cite(

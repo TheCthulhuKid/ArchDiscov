@@ -1,7 +1,7 @@
 from uuid import UUID
 
 import pytest
-from pydantic import ValidationError
+from pydantic import Field, ValidationError
 
 from archdiscov.assistant.tools.contracts import (
     BoundedList,
@@ -52,7 +52,7 @@ class _Side(Model):
 class _Comparison(ToolOutput):
     left: _Side
     right: _Side
-    findings: dict[str, _Finding] = {}
+    findings: dict[str, _Finding] = Field(default_factory=dict)
 
 
 class _Unscoped(ToolOutput):

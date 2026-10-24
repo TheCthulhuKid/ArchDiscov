@@ -23,7 +23,8 @@ Botocore parses the response into plain dictionaries without checking it, so eve
 untrusted: only text, tool-use, and reasoning blocks are mapped, and anything else is
 malformed output. Reasoning blocks must go back unchanged and in their original order, so a
 response holding them becomes a continuation of its whole content in its JSON form,
-replayed verbatim. Botocore is synchronous, so `complete_async` runs it in a thread.
+replayed verbatim. Botocore is synchronous, so `complete_async` runs it in a daemon thread
+that an interrupt does not wait for.
 Botocore fixes the read timeout per client, so a request whose timeout differs from the
 configured one is sent by a client made for that timeout.
 
@@ -52,6 +53,7 @@ from botocore.credentials import (
 )
 from botocore.parsers import ResponseParserError
 
+from archdiscov.core.async_bridge import in_daemon_thread
 from archdiscov.ingestion.aws_sessions import (
     assume_role_parameters,
     profile_session,
@@ -256,7 +258,7 @@ class BedrockProvider:
         params = self._params(request)
         timeout = request.limits.timeout_seconds
         output = await self._retries.call_async(
-            lambda: asyncio.to_thread(self._client(timeout).converse, **params), timeout
+            lambda: in_daemon_thread(lambda: self._client(timeout).converse(**params)), timeout
         )
         return untrusted_response(_response, output)
 

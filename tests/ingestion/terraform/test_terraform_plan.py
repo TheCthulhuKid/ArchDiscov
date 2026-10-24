@@ -17,58 +17,16 @@ from archdiscov.services import (
     load_snapshot,
     save_snapshot,
 )
-from tests.paths import FIXTURES_ROOT
-
-from .test_terraform_state import CONTEXT, flatten
-
-FIXTURE = FIXTURES_ROOT / "terraform" / "plan.json"
-ACCOUNT = "123456789012"
-
-
-def change(address="aws_instance.example", actions=None, before=None, after=None, **extra):
-    return {
-        "address": address,
-        "type": address.split(".")[-2].split("[")[0],
-        "mode": "managed",
-        "provider_name": "registry.terraform.io/hashicorp/aws",
-        "change": {
-            "actions": actions or ["create"],
-            "before": before,
-            "after": {} if after is None else after,
-            **extra,
-        },
-    }
-
-
-def write_plan(tmp_path, changes, **extra):
-    path = tmp_path / "input-plan.json"
-    path.write_text(
-        json.dumps(
-            {
-                "format_version": "1.2",
-                "planned_values": {"root_module": {}},
-                "resource_changes": changes,
-                **extra,
-            }
-        )
-    )
-    return path
-
-
-def request(path, **extra):
-    return TerraformPlanRequest(path=path, account_id=ACCOUNT, region="eu-west-1", **extra)
-
-
-def collect(path):
-    return collect_snapshots(request(path), context=CONTEXT)[0]
-
-
-def resources(snapshot):
-    return {
-        resource.identity.logical_address: resource
-        for tree in snapshot.regions.values()
-        for resource in flatten(tree.resources)
-    }
+from tests.support.terraform_data import (
+    ACCOUNT,
+    CONTEXT,
+    FIXTURE,
+    change,
+    collect,
+    plan_request,
+    resources,
+    write_plan,
+)
 
 
 def test_plan_fixture_lifecycle_uncertainty_persistence_and_evidence(tmp_path, monkeypatch):
@@ -142,7 +100,7 @@ def test_plan_fixture_lifecycle_uncertainty_persistence_and_evidence(tmp_path, m
 
 
 def test_plan_async_and_sync_api_agree():
-    assert asyncio.run(collect_snapshots_async(request(FIXTURE), context=CONTEXT)) == [
+    assert asyncio.run(collect_snapshots_async(plan_request(FIXTURE), context=CONTEXT)) == [
         collect(FIXTURE)
     ]
 

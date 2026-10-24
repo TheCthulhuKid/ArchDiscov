@@ -126,8 +126,49 @@ def test_template_version_shape_fails_at_parsing_boundary(value):
         parse_template(json.dumps({"Resources": {}, "AWSTemplateFormatVersion": value}))
 
 
+BUCKET = {"Type": "AWS::S3::Bucket"}
+PARAMETER = {"Type": "String"}
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        {"Resources": []},
+        {"Resources": {"": BUCKET}},
+        {"Resources": {"Bucket": "AWS::S3::Bucket"}},
+        {"Resources": {"Bucket": {"Type": " "}}},
+        {"Resources": {"Bucket": {**BUCKET, "Properties": []}}},
+        {"Resources": {"Bucket": {**BUCKET, "Condition": {"Ref": "C"}}}},
+        {"Resources": {"Bucket": {**BUCKET, "Metadata": "note"}}},
+        {"Resources": {"Bucket": {**BUCKET, "DependsOn": ["Queue", 1]}}},
+        {"Resources": {}, "Rules": []},
+        {"Resources": {}, "Parameters": {"Name": {"Default": "x"}}},
+        {"Resources": {}, "Parameters": {"Name": {**PARAMETER, "NoEcho": "true"}}},
+        {"Resources": {}, "Parameters": {"Name": {**PARAMETER, "AllowedValues": "a"}}},
+        {"Resources": {}, "Mappings": {"Regions": {"eu": "x"}}},
+        {"Resources": {}, "Conditions": {"Prod": "true"}},
+        {"Resources": {}, "Outputs": {"Name": {"Description": "no value"}}},
+        {"Resources": {}, "Transform": ["AWS::Serverless-2016-10-31", 1]},
+    ],
+    ids=lambda template: json.dumps(template)[:60],
+)
+def test_each_template_shape_rule_is_enforced(template):
+    with pytest.raises(IngestionError, match="Invalid CloudFormation template"):
+        parse_template(json.dumps(template))
+
+
+def test_valid_optional_shapes_are_accepted():
+    template = {
+        "Resources": {"Bucket": {**BUCKET, "DependsOn": "Queue", "Condition": "Prod"}},
+        "Parameters": {"Name": {**PARAMETER, "NoEcho": True, "AllowedValues": ["a"]}},
+        "Conditions": {"Prod": True},
+        "Transform": "AWS::Serverless-2016-10-31",
+    }
+    assert parse_template(json.dumps(template)) == template
+
+
 def test_file_errors_are_generic(tmp_path):
-    with pytest.raises(IngestionError, match="^Invalid CloudFormation template\\.$"):
+    with pytest.raises(IngestionError, match=r"^Invalid CloudFormation template\.$"):
         load_template(tmp_path / "missing-secret-name")
     path = tmp_path / "binary"
     path.write_bytes(b"\xff")

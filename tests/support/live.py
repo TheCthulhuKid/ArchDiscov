@@ -117,6 +117,7 @@ LIVE_PROVIDERS: tuple[Callable[[], LiveProvider], ...] = (
     *(partial(openai_provider, protocol) for protocol in OpenAIProtocol),
     bedrock_provider,
 )
+NO_PROVIDER = "set the variables of at least one live provider test to run the live evaluation"
 
 
 def configured_providers() -> list[LiveProvider]:

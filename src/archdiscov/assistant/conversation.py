@@ -4,8 +4,7 @@ These model the lowest common shape of the Anthropic, OpenAI, and Bedrock format
 vendor-specific fields belong to adapters. Blocks a provider needs back unchanged, such as
 reasoning, ride on an assistant message as an opaque `ProviderContinuation` that only that
 provider's adapter reads. The structured answer proposal is not
-defined here (step 37 owns it); answers reuse the `Answer` status vocabulary in
-`models/results.py`.
+defined here: `answers.py` holds it, with the `AnalysisStatus` vocabulary findings use.
 """
 
 import json
@@ -16,7 +15,7 @@ from typing import Annotated, Any, Literal, Self
 from pydantic import ConfigDict, Field, JsonValue, NonNegativeInt, ValidationError, model_validator
 from pydantic_core import PydanticSerializationError
 
-from archdiscov.ingestion.strict_json import reject_constant, unique_object
+from archdiscov.core.strict_json import reject_constant, unique_object
 from archdiscov.models.resource_base import Model, NonEmptyString
 from archdiscov.models.validation_errors import (
     ValidationIssue,

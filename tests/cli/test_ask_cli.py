@@ -13,38 +13,34 @@ from typer.testing import CliRunner
 from archdiscov import cli_ask
 from archdiscov.assistant.answer_output import ANSWER_JSON_VERSION
 from archdiscov.assistant.answer_results import RenderedAnswer
+from archdiscov.assistant.ask_results import RunSummary
 from archdiscov.assistant.runs import RunTranscript
 from archdiscov.cli import app
 from archdiscov.cli_ask_output import ASK_JSON_VERSION
-from archdiscov.services import AskCancelled, compare_snapshots, load_snapshot, save_comparison
-from archdiscov.services.ask import RunSummary
-from tests.assistant.test_answer_service import PLAIN_TEXT, SEARCH, _proposal, _rejected, _submit
-from tests.assistant.test_orchestrator import _calls, _fail, _text
-from tests.assistant.test_providers import missing_profile_config
-from tests.assistant.test_secret_leaks import SECRET
-from tests.services.test_ask import (
+from archdiscov.services import AskCancelled
+from tests.support.ask_cli_cases import ENVELOPE, PRE_RUN_ERRORS, answered_config
+from tests.support.ask_runs import (
+    ASK_QUESTION,
     COMPARISON,
-    QUESTION,
     SNAPSHOT,
-    _cancelled,
-    _fake,
-    _session,
+    cancelled_ask,
+    fake_config,
+    network_session,
 )
+from tests.support.scripted_answers import (
+    PLAIN_TEXT,
+    SEARCH,
+    answer_proposal,
+    rejected_proposal,
+    submit_turn,
+)
+from tests.support.scripted_turns import calls_turn, fail_turn, text_turn
+from tests.support.secrets import SECRET
 
 runner = CliRunner()
-ENVELOPE = [
-    "schema_version",
-    "snapshot_path",
-    "comparison_path",
-    "comparison_result_paths",
-    "config_path",
-    "transcript_path",
-    "summary",
-    "result",
-]
 
 
-def _run(config: Path, *extra, question: str = QUESTION, snapshot: Path = SNAPSHOT):
+def _run(config: Path, *extra, question: str = ASK_QUESTION, snapshot: Path = SNAPSHOT):
     arguments = ["ask", question, "--snapshot", snapshot, "--config", config, *extra]
     result = runner.invoke(app, [str(item) for item in arguments])
     assert SECRET not in result.stdout + result.stderr
@@ -63,15 +59,11 @@ def _envelope(output: str) -> dict:
     return data
 
 
-def _answered(tmp_path: Path) -> Path:
-    return _fake(tmp_path, [_calls(SEARCH), _submit("a", _proposal(_session()))])
-
-
 # ---- runs --------------------------------------------------------------------------
 
 
 def test_an_answer_is_shown_after_its_run_summary(tmp_path: Path) -> None:
-    result = _run(_answered(tmp_path))
+    result = _run(answered_config(tmp_path))
     assert result.exit_code == 0, result.output
     lines = result.stdout.splitlines()
     assert lines[:2] == [f"Snapshot: {SNAPSHOT}", "Provider: fake, model fake"]
@@ -83,7 +75,7 @@ def test_an_answer_is_shown_after_its_run_summary(tmp_path: Path) -> None:
 
 
 def test_an_answer_is_a_json_envelope(tmp_path: Path) -> None:
-    config = _answered(tmp_path)
+    config = answered_config(tmp_path)
     result = _run(config, "--json")
     assert result.exit_code == 0, result.output
     data = _envelope(result.stdout)
@@ -97,8 +89,11 @@ def test_an_answer_is_a_json_envelope(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("as_json", [False, True], ids=["readable", "json"])
 def test_a_failure_is_explained_with_its_exit_code(tmp_path: Path, as_json: bool) -> None:
-    turns = [_submit("a", _rejected(_session())), _submit("b", _rejected(_session()))]
-    result = _run(_fake(tmp_path, turns), *(["--json"] if as_json else []))
+    turns = [
+        submit_turn("a", rejected_proposal(network_session())),
+        submit_turn("b", rejected_proposal(network_session())),
+    ]
+    result = _run(fake_config(tmp_path, turns), *(["--json"] if as_json else []))
     assert result.exit_code == 5 and result.stderr == ""
     if as_json:
         answer = _envelope(result.stdout)["result"]
@@ -112,15 +107,19 @@ def test_a_failure_is_explained_with_its_exit_code(tmp_path: Path, as_json: bool
 @pytest.mark.parametrize(
     ("turns", "config", "code"),
     [
-        (lambda: [_text(PLAIN_TEXT), _submit("a", _proposal(_session()))], "", 0),
-        (lambda: [_text(PLAIN_TEXT), _text(PLAIN_TEXT)], "", 5),
-        (lambda: [_fail("provider_unavailable")], "", 6),
-        (lambda: [_calls(SEARCH)], "max_requests = 1\n", 6),
+        (
+            lambda: [text_turn(PLAIN_TEXT), submit_turn("a", answer_proposal(network_session()))],
+            "",
+            0,
+        ),
+        (lambda: [text_turn(PLAIN_TEXT), text_turn(PLAIN_TEXT)], "", 5),
+        (lambda: [fail_turn("provider_unavailable")], "", 6),
+        (lambda: [calls_turn(SEARCH)], "max_requests = 1\n", 6),
     ],
     ids=["repaired", "no-proposal", "provider-error", "limit"],
 )
 def test_the_command_exits_with_the_outcome_code(tmp_path: Path, turns, config, code) -> None:
-    result = _run(_fake(tmp_path, turns(), config), "--json")
+    result = _run(fake_config(tmp_path, turns(), config), "--json")
     assert result.exit_code == code
     assert _envelope(result.stdout)["result"]["exit_code"] == code
 
@@ -129,7 +128,7 @@ def test_the_command_exits_with_the_outcome_code(tmp_path: Path, turns, config, 
 def test_a_cancelled_question_is_explained_and_exits_130(
     tmp_path: Path, monkeypatch, as_json: bool
 ) -> None:
-    cancelled = _cancelled(tmp_path, monkeypatch)
+    cancelled = cancelled_ask(tmp_path, monkeypatch)
 
     def interrupted(*args, **kwargs):
         raise AskCancelled(cancelled)
@@ -144,7 +143,7 @@ def test_a_cancelled_question_is_explained_and_exits_130(
 
 
 def test_a_comparison_and_a_transcript_are_reported(tmp_path: Path) -> None:
-    config = _fake(tmp_path, [_text(PLAIN_TEXT), _text(PLAIN_TEXT)])
+    config = fake_config(tmp_path, [text_turn(PLAIN_TEXT), text_turn(PLAIN_TEXT)])
     transcript = tmp_path / "transcript.json"
     readable = _run(config, "--compare", COMPARISON, "--transcript", transcript)
     assert readable.exit_code == 5
@@ -158,73 +157,6 @@ def test_a_comparison_and_a_transcript_are_reported(tmp_path: Path) -> None:
 
 
 # ---- errors before the run ---------------------------------------------------------
-
-
-def _missing_config(tmp_path: Path) -> tuple[Path, list, dict]:
-    return tmp_path / "missing.toml", [], {}
-
-
-def _invalid_config(tmp_path: Path) -> tuple[Path, list, dict]:
-    path = tmp_path / "provider.toml"
-    path.write_text('kind = "fake"\n', encoding="utf-8")
-    return path, [], {}
-
-
-def _missing_profile(tmp_path: Path) -> tuple[Path, list, dict]:
-    return missing_profile_config(tmp_path), [], {}
-
-
-def _blank_question(tmp_path: Path) -> tuple[Path, list, dict]:
-    return _answered(tmp_path), [], {"question": "   "}
-
-
-def _unknown_snapshot(tmp_path: Path) -> tuple[Path, list, dict]:
-    return _answered(tmp_path), [], {"snapshot": tmp_path / "missing.json"}
-
-
-def _invalid_comparison(tmp_path: Path) -> tuple[Path, list, dict]:
-    invalid = tmp_path / "invalid.json"
-    invalid.write_text('{"schema_version": "2"}', encoding="utf-8")
-    return _answered(tmp_path), ["--compare", invalid], {}
-
-
-def _missing_comparison_result(tmp_path: Path) -> tuple[Path, list, dict]:
-    return _answered(tmp_path), ["--comparison-result", tmp_path / "missing.json"], {}
-
-
-def _invalid_comparison_result(tmp_path: Path) -> tuple[Path, list, dict]:
-    invalid = tmp_path / "comparison.json"
-    invalid.write_text("{}", encoding="utf-8")
-    return _answered(tmp_path), ["--comparison-result", invalid], {}
-
-
-def _unselected_comparison_result(tmp_path: Path) -> tuple[Path, list, dict]:
-    """A saved comparison of another snapshot with itself."""
-    other = load_snapshot(COMPARISON)
-    path = tmp_path / "comparison.json"
-    save_comparison(compare_snapshots(other, other), path, left=other, right=other)
-    return _answered(tmp_path), ["--comparison-result", path], {}
-
-
-def _existing_transcript(tmp_path: Path) -> tuple[Path, list, dict]:
-    existing = tmp_path / "transcript.json"
-    existing.write_text("kept", encoding="utf-8")
-    return _answered(tmp_path), ["--transcript", existing], {}
-
-
-# Each case's exit code and diagnostic code; the command documentation lists them too.
-PRE_RUN_ERRORS = [
-    (_missing_config, 1, "provider_config_unreadable"),
-    (_invalid_config, 2, "provider_transcript_missing"),
-    (_missing_profile, 2, "provider_profile_unavailable"),
-    (_blank_question, 2, "invalid_question"),
-    (_unknown_snapshot, 1, "snapshot_io_error"),
-    (_invalid_comparison, 2, "invalid_snapshot"),
-    (_missing_comparison_result, 1, "snapshot_io_error"),
-    (_invalid_comparison_result, 2, "invalid_comparison_result"),
-    (_unselected_comparison_result, 2, "result_snapshot_unselected"),
-    (_existing_transcript, 3, "snapshot_conflict"),
-]
 
 
 @pytest.mark.parametrize(
@@ -255,8 +187,8 @@ def test_errors_before_the_run_are_safe_diagnostics(
     "arguments",
     [
         ["ask", "--snapshot", str(SNAPSHOT), "--config", "provider.toml"],
-        ["ask", QUESTION, "--config", "provider.toml"],
-        ["ask", QUESTION, "--snapshot", str(SNAPSHOT)],
+        ["ask", ASK_QUESTION, "--config", "provider.toml"],
+        ["ask", ASK_QUESTION, "--snapshot", str(SNAPSHOT)],
     ],
     ids=["question", "snapshot", "config"],
 )

@@ -6,8 +6,6 @@ import pytest
 from archdiscov.ingestion.terraform.catalog import RESOURCE_MAPPINGS, service_for_type
 from archdiscov.ingestion.terraform.mapping import map_resource
 from archdiscov.models.architecture import Ec2Instance, Subnet, UnknownResource, Vpc
-from archdiscov.models.enums import AwsRegion, AwsService
-from archdiscov.models.resource_base import ResourceIdentity
 from archdiscov.models.resources.iam import IamInstanceProfile, IamManagedPolicy, IamRole
 from archdiscov.models.resources.network import (
     InternetGateway,
@@ -15,18 +13,7 @@ from archdiscov.models.resources.network import (
     RouteTable,
     SecurityGroup,
 )
-
-
-def identity(kind="aws_vpc", physical_id="source-id"):
-    return ResourceIdentity(
-        account_id="123456789012",
-        region=AwsRegion.GLOBAL
-        if service_for_type(kind) == AwsService.IAM
-        else AwsRegion.US_EAST_1,
-        service=service_for_type(kind),
-        physical_id=physical_id,
-        logical_address=f"{kind}.example",
-    )
+from tests.support.terraform_data import identity
 
 
 def resolve(value, pointer):

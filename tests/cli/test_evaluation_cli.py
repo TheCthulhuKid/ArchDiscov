@@ -22,12 +22,14 @@ from archdiscov.assistant.evaluation import (
 from archdiscov.cli import app
 from archdiscov.services.evaluation import EvaluationCancelled, load_report
 from tests.assistant.provider_harness import AnthropicHarness
-from tests.services.test_evaluation import KEY_VARIABLE, _adapter_config, _through
 from tests.support.evaluation_suites import (
     ADVERSARIAL_SUITE,
+    EVALUATION_KEY_VARIABLE,
     FABRICATED_ID,
     README_SUITE,
     SUITE,
+    anthropic_config,
+    serve_suite,
     write_fake_config,
 )
 
@@ -133,8 +135,8 @@ def test_a_cancelled_evaluation_saves_the_report_so_far_and_exits_130(
 
 def test_the_budget_is_stated_before_the_first_adapter_request(tmp_path: Path, monkeypatch) -> None:
     harness = AnthropicHarness()
-    api = _through(harness, README_SUITE, monkeypatch)
-    monkeypatch.setenv(KEY_VARIABLE, KEY)
+    api = serve_suite(harness, README_SUITE, monkeypatch)
+    monkeypatch.setenv(EVALUATION_KEY_VARIABLE, KEY)
     stated = []
     state_budget = cli_evaluation.state_budget
 
@@ -143,7 +145,7 @@ def test_the_budget_is_stated_before_the_first_adapter_request(tmp_path: Path, m
         state_budget(prepared, **options)
 
     monkeypatch.setattr(cli_evaluation, "state_budget", recording)
-    config = _adapter_config(tmp_path, harness)
+    config = anthropic_config(tmp_path, harness)
     output = tmp_path / "report.json"
     result = _invoke(
         "evaluate", README_SUITE, "--config", config, "--output", output, "--allow-external"
@@ -157,9 +159,9 @@ def test_the_budget_is_stated_before_the_first_adapter_request(tmp_path: Path, m
 
 def test_an_external_provider_needs_the_opt_in(tmp_path: Path, monkeypatch) -> None:
     harness = AnthropicHarness()
-    api = _through(harness, README_SUITE, monkeypatch)
-    monkeypatch.setenv(KEY_VARIABLE, KEY)
-    config = _adapter_config(tmp_path, harness)
+    api = serve_suite(harness, README_SUITE, monkeypatch)
+    monkeypatch.setenv(EVALUATION_KEY_VARIABLE, KEY)
+    config = anthropic_config(tmp_path, harness)
     output = tmp_path / "report.json"
     for flags in ([], ["--json"]):
         result = _invoke("evaluate", README_SUITE, "--config", config, "--output", output, *flags)

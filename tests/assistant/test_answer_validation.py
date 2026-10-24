@@ -6,9 +6,7 @@ import pytest
 
 from archdiscov.assistant.answer_validation import check_citations
 from archdiscov.assistant.answers import AnswerProposal
-from archdiscov.assistant.conversation import ParsedToolArguments, ToolCall
 from archdiscov.assistant.rejections import REJECTION_MESSAGES, Rejection, RejectionCode
-from archdiscov.assistant.tools.catalog import default_registry
 from archdiscov.assistant.tools.contracts import IdKind, ToolLimits
 from archdiscov.assistant.tools.session import ToolSession
 from archdiscov.graph import GraphIndex
@@ -17,19 +15,12 @@ from archdiscov.services.analyses import save_analysis
 from archdiscov.services.analysis_execution import run_analyzer
 from archdiscov.services.snapshots import load_snapshot, validate_snapshot
 from tests.paths import FIXTURES_ROOT
+from tests.support.answer_claims import dispatch_tool
 from tests.support.audit_scenarios import SCENARIOS
+from tests.support.secrets import SECRET
 
-REGISTRY = default_registry()
 OWNERSHIP_SNAPSHOT = FIXTURES_ROOT / "analysis" / "ownership-snapshot.json"
 OWNERSHIP_RESULT = FIXTURES_ROOT / "analysis" / "ownership.json"
-SECRET = "sk-ant-api03-SECRETvalue0123456789abcdefXYZ"
-
-
-def _call(session: ToolSession, tool: str, **arguments: Any) -> dict:
-    result = REGISTRY.dispatch(
-        session, ToolCall(id="c", name=tool, arguments=ParsedToolArguments(value=arguments))
-    )
-    return json.loads(result.content)
 
 
 def _proposal(
@@ -80,7 +71,7 @@ def _codes(rejections: tuple[Rejection, ...]) -> list[tuple[str, str]]:
 
 def _ownership() -> tuple[ToolSession, dict]:
     session = ToolSession.from_paths(OWNERSHIP_SNAPSHOT, analysis_paths=[OWNERSHIP_RESULT])
-    finding = _call(session, "run_analyzer", kind="ownership")["findings"]["items"][0]
+    finding = dispatch_tool(session, "run_analyzer", kind="ownership")["findings"]["items"][0]
     return session, finding
 
 
@@ -91,9 +82,9 @@ def _ownership() -> tuple[ToolSession, dict]:
 def test_citing_delivered_findings_passes_for_every_analyzer(kind: AnalyzerKind) -> None:
     scenario = SCENARIOS[kind]
     session = ToolSession(scenario.build(), limits=ToolLimits(result_limit=100))
-    findings = _call(session, "run_analyzer", kind=kind.value, limit=100, **scenario.parameters)[
-        "findings"
-    ]["items"]
+    findings = dispatch_tool(
+        session, "run_analyzer", kind=kind.value, limit=100, **scenario.parameters
+    )["findings"]["items"]
     assert findings
     proposal = _proposal(
         session,
@@ -110,7 +101,7 @@ def test_citing_delivered_findings_passes_for_every_analyzer(kind: AnalyzerKind)
 def test_citing_queried_configuration_passes() -> None:
     session = ToolSession.from_paths(OWNERSHIP_SNAPSHOT)
     resource = session.index.resource_ids[0]
-    inspected = _call(session, "inspect_resource", resource_id=resource)
+    inspected = dispatch_tool(session, "inspect_resource", resource_id=resource)
     evidence = [item["evidence_id"] for item in inspected["evidence"]["items"]]
     proposal = _proposal(
         session,
@@ -124,7 +115,7 @@ def test_citing_queried_configuration_passes() -> None:
 
 def test_citing_a_saved_analysis_passes() -> None:
     session = ToolSession.from_paths(OWNERSHIP_SNAPSHOT, analysis_paths=[OWNERSHIP_RESULT])
-    finding = _call(session, "get_saved_analysis", number=1)["findings"]["items"][0]
+    finding = dispatch_tool(session, "get_saved_analysis", number=1)["findings"]["items"][0]
     assert check_citations(_proposal(session, _finding_conclusion(finding)), session) == ()
 
 
@@ -173,7 +164,7 @@ def test_a_valid_difference_cites_each_side(compared: ToolSession) -> None:
 def test_ids_from_the_other_snapshot_are_rejected(compared: ToolSession) -> None:
     right_resource = compared.comparison_index.resource_ids[0]
     compared.record.record(compared.comparison_index.snapshot_id, IdKind.RESOURCE, [right_resource])
-    finding = _call(compared, "get_saved_analysis", number=1)["findings"]["items"][0]
+    finding = dispatch_tool(compared, "get_saved_analysis", number=1)["findings"]["items"][0]
     proposal = _proposal(
         compared,
         {"kind": "analyzer_finding", "citations": [{"finding_ids": [finding["finding_id"]]}]},
@@ -237,7 +228,7 @@ def _two_inspected_resources() -> tuple[ToolSession, str, str]:
         resource for resource in index.resource_ids if index.resource_evidence_ids(resource)
     ][:2]
     for resource in (first, second):
-        _call(session, "inspect_resource", resource_id=resource)
+        dispatch_tool(session, "inspect_resource", resource_id=resource)
     return session, first, second
 
 

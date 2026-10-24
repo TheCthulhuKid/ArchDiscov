@@ -343,8 +343,8 @@ def _collect(value: Any, snapshot_id: UUID | None, collected: _Collected) -> Non
         collected.fingerprints |= fingerprints(value.untrusted_text)
     elif isinstance(value, BaseModel):
         fields = type(value).model_fields
-        if "snapshot_id" in fields and getattr(value, "snapshot_id") is not None:
-            snapshot_id = getattr(value, "snapshot_id")
+        if "snapshot_id" in fields and value.snapshot_id is not None:
+            snapshot_id = value.snapshot_id
         for name in fields:
             item = getattr(value, name)
             if name not in ID_FIELDS:

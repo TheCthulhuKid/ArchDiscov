@@ -2,9 +2,9 @@ import json
 
 import pytest
 
+from archdiscov.models.snapshot_access import SnapshotAccess
 from archdiscov.services.analysis_integrity import _has_citation_subset, _IntegrityContext
 from archdiscov.services.analysis_validation import validate_analysis_result
-from archdiscov.services.snapshot_access import SnapshotAccess
 from archdiscov.services.snapshots import load_snapshot
 from tests.paths import FIXTURES_ROOT
 

@@ -28,11 +28,12 @@ from archdiscov.assistant.tools.contracts import ToolLimits
 from archdiscov.assistant.tools.session import ToolSession
 from archdiscov.models.enums import AnalyzerKind, SnapshotSourceKind
 from archdiscov.services.snapshots import load_snapshot
-from tests.assistant.test_answer_claims import _analysis, _call
-from tests.assistant.test_answer_results import REJECTIONS, _run_outcomes
-from tests.assistant.test_answer_suite import INJECTION, SECRET, _answer, _proposal
 from tests.paths import FIXTURES_ROOT
+from tests.support.answer_claims import INJECTION, analyzed_findings, dispatch_tool
+from tests.support.answer_scenarios import finding_proposal, proposed_run
 from tests.support.audit_scenarios import SCENARIOS, with_coverage
+from tests.support.run_outcomes import UNKNOWN_ID_REJECTIONS, every_run_outcome
+from tests.support.secrets import SECRET
 
 OWNERSHIP_SNAPSHOT = FIXTURES_ROOT / "analysis" / "ownership-snapshot.json"
 
@@ -40,8 +41,10 @@ OWNERSHIP_SNAPSHOT = FIXTURES_ROOT / "analysis" / "ownership-snapshot.json"
 def _failures() -> list[AnswerOutcome]:
     """A failed answer outcome for every run outcome and every provider error code."""
     outcomes = [
-        final_outcome(item, REJECTIONS if isinstance(item, Proposed) else (), repaired=True)
-        for item in _run_outcomes()
+        final_outcome(
+            item, UNKNOWN_ID_REJECTIONS if isinstance(item, Proposed) else (), repaired=True
+        )
+        for item in every_run_outcome()
     ]
     outcomes += [
         AnswerOutcome(status="failed", failure="provider_error", provider_error=code)
@@ -65,7 +68,7 @@ def test_examples_cover_every_failure_reason() -> None:
 def _session(*, retrieve: bool) -> ToolSession:
     session = ToolSession.from_paths(OWNERSHIP_SNAPSHOT)
     if retrieve:
-        _call(session, "run_analyzer", kind="ownership")
+        dispatch_tool(session, "run_analyzer", kind="ownership")
     return session
 
 
@@ -131,9 +134,9 @@ def test_rejections_are_listed_with_their_locations_up_to_a_bound() -> None:
 
 def test_a_rejected_run_never_shows_its_narrative_or_secrets() -> None:
     session = ToolSession.from_paths(OWNERSHIP_SNAPSHOT)
-    finding = _call(session, "run_analyzer", kind="ownership")["findings"]["items"][0]
+    finding = dispatch_tool(session, "run_analyzer", kind="ownership")["findings"]["items"][0]
     # Overstated, so validation rejects it; the narrative carries a secret and an instruction.
-    proposal = _proposal(
+    proposal = finding_proposal(
         session,
         [],
         status="supported",
@@ -146,7 +149,7 @@ def test_a_rejected_run_never_shows_its_narrative_or_secrets() -> None:
             }
         ],
     )
-    run = _answer(session, [], proposal)
+    run = proposed_run(session, [], proposal)
     rejections = validate_proposal(run.outcome.proposal, session)
     assert rejections
     rendered = render_failure(session, final_outcome(run.outcome, rejections, repaired=True))
@@ -170,7 +173,7 @@ def test_explaining_a_failure_makes_no_provider_call() -> None:
 
 
 def test_retrieved_findings_are_grouped_and_bounded(monkeypatch) -> None:
-    session, delivered = _analysis(AnalyzerKind.SECURITY_GROUP_IMPACT)
+    session, delivered = analyzed_findings(AnalyzerKind.SECURITY_GROUP_IMPACT)
     monkeypatch.setattr(answer_rendering, "MAX_CITED_IDS", 5)
     monkeypatch.setattr(answer_rendering, "MAX_RETRIEVED", 2)
     failure = render_failure(session, AnswerOutcome(status="failed", failure="cancelled")).failure
@@ -182,7 +185,9 @@ def test_retrieved_findings_are_grouped_by_analyzer() -> None:
     scenario = SCENARIOS[AnalyzerKind.INTERNET_EXPOSURE]
     session = ToolSession(scenario.build(), limits=ToolLimits(result_limit=100))
     for kind in (AnalyzerKind.OWNERSHIP, AnalyzerKind.INTERNET_EXPOSURE):
-        _call(session, "run_analyzer", kind=kind.value, limit=100, **SCENARIOS[kind].parameters)
+        dispatch_tool(
+            session, "run_analyzer", kind=kind.value, limit=100, **SCENARIOS[kind].parameters
+        )
     analyzers = {finding.analyzer for finding in session.record.context().findings}
     assert len(analyzers) == 2
     failure = render_failure(session, AnswerOutcome(status="failed", failure="cancelled")).failure
@@ -228,7 +233,7 @@ def test_only_failed_runs_are_explained_as_failures() -> None:
 def test_a_snapshot_compared_with_itself_shows_its_findings_once() -> None:
     snapshot = load_snapshot(OWNERSHIP_SNAPSHOT)
     session = ToolSession(snapshot, comparison=snapshot)
-    _call(session, "run_analyzer", kind="ownership")
+    dispatch_tool(session, "run_analyzer", kind="ownership")
     failure = render_failure(session, AnswerOutcome(status="failed", failure="cancelled")).failure
     (conclusion,) = failure.retrieved
     assert conclusion.citations[0].side == "primary"

@@ -31,7 +31,7 @@ def sanitize_configuration(
                 result[key] = "[REDACTED]"
                 paths.append(pointer)
             elif key == "AuthenticationRequestExtraParams" and isinstance(child, dict):
-                result[key] = {name: "[REDACTED]" for name in child}
+                result[key] = dict.fromkeys(child, "[REDACTED]")
                 paths.extend(f"{pointer}/{escape_pointer_token(name)}" for name in child)
             else:
                 result[key] = visit(

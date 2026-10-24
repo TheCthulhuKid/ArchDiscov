@@ -2,39 +2,11 @@ import boto3
 import pytest
 from botocore.stub import Stubber
 
-from archdiscov.ingestion import execution_common
 from archdiscov.ingestion.adapter import AdapterContext, IngestionError
 from archdiscov.ingestion.detail_execution import DetailCall, DetailRunner
 from archdiscov.ingestion.requests import AwsAccountConfig
 from archdiscov.models.enums import AwsRegion, AwsService, CoverageStatus
-
-from .test_iam_execution import Clock, Session
-
-
-def runner(client, monkeypatch):
-    # The collector's operation entries are introduced in the later discovery stage.
-    monkeypatch.setattr(
-        execution_common,
-        "ALLOWED_OPERATIONS",
-        execution_common.ALLOWED_OPERATIONS
-        | {(AwsService.ELASTIC_LOAD_BALANCING, "DescribeLoadBalancers")},
-    )
-    session = Session(client)
-    account = AwsAccountConfig(
-        profile="dev",
-        expected_account_id="123456789012",
-        regions=("us-east-1",),
-        services=(AwsService.ELASTIC_LOAD_BALANCING,),
-    )
-    return DetailRunner(
-        session,
-        account,
-        AdapterContext(clock=Clock()),
-        service=AwsService.ELASTIC_LOAD_BALANCING,
-        region=AwsRegion.US_EAST_1,
-        client_name="elbv2",
-        pagination="elbv2",
-    ), session
+from tests.support.aws_execution import Clock, Session, detail_runner
 
 
 @pytest.mark.parametrize("fail_second", [False, True])
@@ -42,7 +14,7 @@ def test_real_elbv2_next_marker_and_retained_empty_page(monkeypatch, fail_second
     client = boto3.client(
         "elbv2", region_name="us-east-1", aws_access_key_id="a", aws_secret_access_key="b"
     )
-    run, session = runner(client, monkeypatch)
+    run, session = detail_runner(client, monkeypatch)
     with Stubber(client) as stub:
         stub.add_response(
             "describe_load_balancers", {"LoadBalancers": [], "NextMarker": "next"}, {}
@@ -82,11 +54,11 @@ def test_marker_excluded_from_request_identity_and_duplicates(monkeypatch):
             assert params == {"Marker": "start"}
             return {"LoadBalancers": [{"LoadBalancerName": "one"}]}
 
-    run, _ = runner(Client(), monkeypatch)
+    run, _ = detail_runner(Client(), monkeypatch)
     call = DetailCall("DescribeLoadBalancers", {"Marker": "start"}, "LoadBalancers", True)
     result = run.run("DescribeLoadBalancers", [call])
     assert result.responses[0].path == "Request[{}].Page[0].LoadBalancers[0]"
-    run, session = runner(None, monkeypatch)
+    run, session = detail_runner(None, monkeypatch)
     with pytest.raises(IngestionError, match="duplicate"):
         run.run("DescribeLoadBalancers", [call, DetailCall("DescribeLoadBalancers")])
     assert session.calls == []
@@ -97,7 +69,7 @@ def test_repeated_elbv2_marker_keeps_pages(monkeypatch):
         def describe_load_balancers(self, **params):
             return {"LoadBalancers": [], "NextMarker": "same"}
 
-    run, _ = runner(Client(), monkeypatch)
+    run, _ = detail_runner(Client(), monkeypatch)
     result = run.run(
         "DescribeLoadBalancers",
         [DetailCall("DescribeLoadBalancers", result_key="LoadBalancers", paginate=True)],
@@ -192,7 +164,7 @@ def test_missing_result_collection_is_not_successful_zero(monkeypatch):
         def describe_load_balancers(self):
             return {}
 
-    run, _ = runner(Client(), monkeypatch)
+    run, _ = detail_runner(Client(), monkeypatch)
     result = run.run(
         "DescribeLoadBalancers", [DetailCall("DescribeLoadBalancers", result_key="LoadBalancers")]
     )

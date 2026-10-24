@@ -33,7 +33,7 @@ query_app = typer.Typer(
 )
 
 SnapshotOption = Annotated[Path, typer.Option("--snapshot", help="Snapshot JSON path to query.")]
-LimitOption = Annotated[int, typer.Option("--limit", help="Maximum results (1–10000).")]
+LimitOption = Annotated[int, typer.Option("--limit", help="Maximum results (1-10000).")]
 DirectionOption = Annotated[
     QueryDirection, typer.Option("--direction", help="outgoing, incoming, or both.")
 ]
@@ -183,10 +183,10 @@ def paths(
     edges: SelectionOption = QueryEdgeSelection.DEPENDENCIES,
     relationship: RelationshipOption = None,
     attachment_kind: AttachmentOption = None,
-    depth: Annotated[int, typer.Option("--depth", help="Maximum steps per path (1–10).")] = 3,
+    depth: Annotated[int, typer.Option("--depth", help="Maximum steps per path (1-10).")] = 3,
     limit: LimitOption = 100,
     work_limit: Annotated[
-        int, typer.Option("--work-limit", help="Maximum candidate edges examined (1–1000000).")
+        int, typer.Option("--work-limit", help="Maximum candidate edges examined (1-1000000).")
     ] = 10_000,
     json_output: JsonOption = False,
 ) -> None:

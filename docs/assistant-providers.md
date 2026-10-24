@@ -513,7 +513,8 @@ ARCHDISCOV_LIVE_OPENAI_PROTOCOLS=responses,chat_completions \
 `assistant/bedrock_provider.py` is the only assistant module that imports `boto3` or
 `botocore`, and `ADAPTERS` imports it only when a `bedrock` configuration is built. Building
 it makes no request; each `complete` then makes one Converse request. Botocore is
-synchronous, so `complete_async` runs the request in a thread.
+synchronous, so `complete_async` runs the request in a daemon thread. An interrupt (Ctrl-C)
+therefore ends the command at once instead of waiting out the request's read timeout.
 
 ```toml
 kind = "bedrock"

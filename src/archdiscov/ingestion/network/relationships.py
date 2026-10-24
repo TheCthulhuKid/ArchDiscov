@@ -61,9 +61,7 @@ class RelationshipBuilder:
         }
         self.dependencies: list[Dependency] = []
 
-    def _resolve(
-        self, kind: ResourceType, op: Op, ref: str, source: Normalized, source_path: str
-    ) -> DependencyTarget:
+    def _resolve(self, kind: ResourceType, op: Op, ref: str, source_path: str) -> DependencyTarget:
         target = self.index.get((kind, ref))
         if target is not None:
             return LocalTarget(resource_id=target.resource.id)
@@ -137,8 +135,8 @@ class RelationshipBuilder:
             key=lambda d: (d.source_id, d.evidence_ids[0], d.attributes["kind"]),
         )
 
-    def _subnet_target(self, entry: Normalized, subnet_id: str, path: str) -> DependencyTarget:
-        return self._resolve(ResourceType.SUBNET, Op.DESCRIBE_SUBNETS, subnet_id, entry, path)
+    def _subnet_target(self, subnet_id: str, path: str) -> DependencyTarget:
+        return self._resolve(ResourceType.SUBNET, Op.DESCRIBE_SUBNETS, subnet_id, path)
 
     def _route_table(self, entry: Normalized) -> None:
         for i, assoc in enumerate(entry.item.get("Associations") or []):
@@ -146,11 +144,11 @@ class RelationshipBuilder:
             attrs = {"association_id": assoc.get("RouteTableAssociationId")}
             kind = AttachmentKind.ROUTE_TABLE_ASSOCIATION
             if assoc.get("SubnetId"):
-                target = self._subnet_target(entry, assoc["SubnetId"], f"{path}.SubnetId")
+                target = self._subnet_target(assoc["SubnetId"], f"{path}.SubnetId")
                 self._link(entry, target, kind, path, assoc, **attrs)
             elif assoc.get("Main") and entry.vpc_id:
                 target = self._resolve(
-                    ResourceType.VPC, Op.DESCRIBE_VPCS, entry.vpc_id, entry, f"{entry.path}.VpcId"
+                    ResourceType.VPC, Op.DESCRIBE_VPCS, entry.vpc_id, f"{entry.path}.VpcId"
                 )
                 self._link(entry, target, kind, path, assoc, main=True, **attrs)
         for i, route in enumerate(entry.item.get("Routes") or []):
@@ -167,7 +165,7 @@ class RelationshipBuilder:
             )
         elif kind in _LOCALLY_STORED:
             stored, op = _LOCALLY_STORED[kind]
-            target = self._resolve(stored, op, target_id, entry, f"{path}.{field}")
+            target = self._resolve(stored, op, target_id, f"{path}.{field}")
         else:
             target = self._external(target_id, _AWS_TYPES.get(kind))
         destination = (
@@ -192,9 +190,7 @@ class RelationshipBuilder:
             if not vpc_id:
                 continue
             path = f"{entry.path}.Attachments[{i}]"
-            target = self._resolve(
-                ResourceType.VPC, Op.DESCRIBE_VPCS, vpc_id, entry, f"{path}.VpcId"
-            )
+            target = self._resolve(ResourceType.VPC, Op.DESCRIBE_VPCS, vpc_id, f"{path}.VpcId")
             self._link(
                 entry,
                 target,
@@ -209,7 +205,7 @@ class RelationshipBuilder:
             if not assoc.get("SubnetId"):
                 continue
             path = f"{entry.path}.Associations[{i}]"
-            target = self._subnet_target(entry, assoc["SubnetId"], f"{path}.SubnetId")
+            target = self._subnet_target(assoc["SubnetId"], f"{path}.SubnetId")
             self._link(
                 entry,
                 target,
@@ -229,7 +225,6 @@ class RelationshipBuilder:
                 ResourceType.SECURITY_GROUP,
                 Op.DESCRIBE_SECURITY_GROUPS,
                 group_id,
-                entry,
                 f"{path}.GroupId",
             )
             self._link(entry, target, AttachmentKind.SECURITY_GROUP_MEMBERSHIP, path, group)
@@ -242,7 +237,6 @@ class RelationshipBuilder:
                 ResourceType.EC2_INSTANCE,
                 Op.DESCRIBE_INSTANCES,
                 attachment["InstanceId"],
-                entry,
                 f"{path}.InstanceId",
             )
             self._link(
@@ -258,7 +252,8 @@ class RelationshipBuilder:
 
     def _security_group(self, entry: Normalized) -> None:
         group = entry.resource
-        assert isinstance(group, SecurityGroup)
+        if not isinstance(group, SecurityGroup):
+            raise TypeError("a security-group entry holds a SecurityGroup")
         for name, rules in (
             ("ingress_rules", group.ingress_rules),
             ("egress_rules", group.egress_rules),
@@ -277,7 +272,6 @@ class RelationshipBuilder:
                             ResourceType.SECURITY_GROUP,
                             Op.DESCRIBE_SECURITY_GROUPS,
                             ref,
-                            entry,
                             source_path,
                         )
                     target_kind = None

@@ -14,6 +14,7 @@ from uuid import UUID
 from archdiscov.graph import GraphIndex
 from archdiscov.models.analysis.results import AnalysisResult
 from archdiscov.models.comparison.results import ComparisonResult
+from archdiscov.models.snapshot_access import SupportedSnapshot
 from archdiscov.services.analyses import load_analysis
 from archdiscov.services.analysis_diagnostics import AnalysisValidationError
 from archdiscov.services.analysis_validation import validate_analysis_result
@@ -22,7 +23,6 @@ from archdiscov.services.comparison_results import (
     validate_comparison_result,
 )
 from archdiscov.services.publication import read_json
-from archdiscov.services.snapshot_access import SupportedSnapshot
 from archdiscov.services.snapshots import load_snapshot
 
 from .contracts import ToolLimits

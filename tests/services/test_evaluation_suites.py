@@ -17,7 +17,7 @@ from archdiscov.assistant.answer_results import RenderedAnswer
 from archdiscov.assistant.evaluation import SAFETY_CHECKS, CaseRecord, CheckName
 from archdiscov.services.ask import AskResult, answer_selected
 from archdiscov.services.evaluation import evaluate_suite, prepare_evaluation
-from tests.assistant.test_answer_claims import INJECTION
+from tests.support.answer_claims import INJECTION
 from tests.support.ask_examples import EXAMPLES, README_QUESTIONS
 from tests.support.evaluation_suites import (
     ADVERSARIAL_SUITE,
@@ -69,9 +69,9 @@ def test_the_checked_in_suites_match_the_generator(suite: Path, tmp_path: Path) 
 def test_every_case_passes_with_the_fake_provider(suite: Path, tmp_path: Path) -> None:
     records = _records(suite, tmp_path)
     assert list(records) == [case["id"] for case in _suite(suite)["cases"]]
-    assert {case_id: _failed(record) for case_id, record in records.items()} == dict.fromkeys(
-        records, []
-    )
+    assert {case_id: _failed(record) for case_id, record in records.items()} == {
+        case_id: [] for case_id in records
+    }
 
 
 def test_the_readme_suite_covers_the_questions_and_variants() -> None:

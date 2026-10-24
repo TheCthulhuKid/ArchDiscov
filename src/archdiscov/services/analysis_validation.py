@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from archdiscov.models.analysis.results import AnalysisResult
+from archdiscov.models.snapshot_access import SnapshotAccess, SupportedSnapshot
 
 from .analysis_diagnostics import (
     AnalysisValidationError,
@@ -11,7 +12,6 @@ from .analysis_diagnostics import (
     parse_analysis_result,
 )
 from .analysis_integrity import validate_integrity
-from .snapshot_access import SnapshotAccess, SupportedSnapshot
 
 __all__ = ["AnalysisValidationError", "AnalysisValidationIssue", "validate_analysis_result"]
 

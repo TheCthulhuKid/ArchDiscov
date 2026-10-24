@@ -264,7 +264,7 @@ class NetworkNormalizer(EvidenceBuilder):
         path, limitations = f"SecurityGroups[{index}]", []
         tags = tags_of(item)
         sources = (
-            self._rules_from_rule_items(path, rules, limitations)
+            self._rules_from_rule_items(rules, limitations)
             if rules is not None
             else self._rules_from_permissions(path, item, limitations)
         )
@@ -313,7 +313,7 @@ class NetworkNormalizer(EvidenceBuilder):
         )
 
     def _rules_from_rule_items(
-        self, group_path: str, rules: list[tuple[int, dict[str, Any]]], limitations: list[str]
+        self, rules: list[tuple[int, dict[str, Any]]], limitations: list[str]
     ) -> list[tuple[SecurityGroupRule, str, str, Any]]:
         out = []
         for i, raw in rules:

@@ -1,13 +1,21 @@
+"""Strict JSON decoding hooks, the bounded file read, and each reader's error policy."""
+
 import json
 import math
 from functools import partial
+from pathlib import Path
 
 import pytest
 
+from archdiscov.core.strict_json import (
+    FileTooLargeError,
+    read_bounded,
+    reject_constant,
+    unique_object,
+)
 from archdiscov.ingestion.adapter import IngestionError
 from archdiscov.ingestion.cloudformation.parameters import load_parameters
 from archdiscov.ingestion.cloudformation.parsing import parse_template
-from archdiscov.ingestion.strict_json import reject_constant, unique_object
 from archdiscov.ingestion.terraform.parsing import load_json
 
 
@@ -112,3 +120,16 @@ def test_float_overflow_validation_stays_with_each_reader(tmp_path):
         parse_template(text)
     with pytest.raises(IngestionError, match="Parameters file"):
         load_parameters(path)
+
+
+def test_a_file_at_the_limit_is_read_and_one_byte_more_is_refused(tmp_path: Path) -> None:
+    path = tmp_path / "data.json"
+    path.write_bytes(b"x" * 10)
+    assert read_bounded(path, 10) == b"x" * 10
+    with pytest.raises(FileTooLargeError):
+        read_bounded(path, 9)
+
+
+def test_an_unreadable_file_raises_os_error(tmp_path: Path) -> None:
+    with pytest.raises(OSError):
+        read_bounded(tmp_path / "missing.json")

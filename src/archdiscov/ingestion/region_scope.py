@@ -88,16 +88,42 @@ def resolve_region_scope(
         )
     partition = partition or role_partition
     if account.region_scope is RegionScope.EXPLICIT:
-        partitions = {region_partition(region) for region in account.regions}
-        if len(partitions) > 1 or (partition and partitions and partitions != {partition}):
-            raise IngestionError(
-                "region_bootstrap_failed", "requested regions conflict with account partition"
-            )
-        return RegionResolution(
-            ResolvedAwsScope.from_account(account, account.regions),
-            partition or next(iter(partitions), None),
-        )
+        return _explicit_resolution(account, partition)
+    bootstrap, partition = _bootstrap(session, account, partition)
+    response = _describe_regions(session, account, context or AdapterContext(), bootstrap)
+    try:
+        enabled, disabled = _enabled_regions(response, partition)
+    except IngestionError:
+        raise
+    except (KeyError, TypeError, ValueError) as error:
+        raise IngestionError(
+            "region_discovery_failed",
+            "DescribeRegions returned invalid or empty scope; no inventory was collected",
+        ) from error
+    return RegionResolution(
+        ResolvedAwsScope.from_account(account, tuple(sorted(enabled))),
+        partition,
+        bootstrap,
+        tuple(sorted(disabled)),
+    )
 
+
+def _explicit_resolution(account: AwsAccountConfig, partition: str | None) -> RegionResolution:
+    partitions = {region_partition(region) for region in account.regions}
+    if len(partitions) > 1 or (partition and partitions and partitions != {partition}):
+        raise IngestionError(
+            "region_bootstrap_failed", "requested regions conflict with account partition"
+        )
+    return RegionResolution(
+        ResolvedAwsScope.from_account(account, account.regions),
+        partition or next(iter(partitions), None),
+    )
+
+
+def _bootstrap(
+    session: Any, account: AwsAccountConfig, partition: str | None
+) -> tuple[AwsRegion, str]:
+    """The region to discover the enabled regions from, and the partition it settles."""
     bootstrap = account.bootstrap_region or getattr(session, "region_name", None)
     if bootstrap:
         try:
@@ -119,64 +145,64 @@ def resolve_region_scope(
             "region_bootstrap_failed",
             "cannot resolve an EC2 bootstrap endpoint; configure bootstrap_region",
         )
+    return bootstrap, partition
 
+
+def _describe_regions(
+    session: Any, account: AwsAccountConfig, context: AdapterContext, bootstrap: AwsRegion
+) -> Any:
     operation = Ec2Operation.DESCRIBE_REGIONS
     require_allowed(AwsService.EC2, operation)
-    context = context or AdapterContext()
     try:
         client = session.client("ec2", region_name=bootstrap.value, config=client_config(account))
         with context.sdk_calls.permit(account.expected_account_id, account.max_in_flight_calls):
-            response = client.describe_regions(AllRegions=True)
+            return client.describe_regions(AllRegions=True)
     except COLLECTION_ERRORS as error:
         failure = sanitize_failure(error, operation)
         raise IngestionError(
             "region_discovery_failed", f"{failure.message}; enabled-region scope was not collected"
         ) from error
+
+
+def _enabled_regions(response: Any, partition: str) -> tuple[set[AwsRegion], set[str]]:
+    """The enabled regions and the recognised disabled ones; a malformed reply raises
+    `KeyError`, `TypeError`, or `ValueError`."""
+    if not isinstance(response, dict):
+        raise ValueError("invalid region response")
+    entries = response["Regions"]
+    if not isinstance(entries, list) or not entries:
+        raise ValueError("missing regions")
+    enabled = set()
+    disabled = set()
+    seen = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise ValueError("invalid region entry")
+        name, status = entry["RegionName"], entry["OptInStatus"]
+        if not isinstance(name, str) or name in seen:
+            raise ValueError("invalid region")
+        seen.add(name)
+        if status == "not-opted-in":
+            # Only retain recognized identifiers, never arbitrary response text.
+            if name in AwsRegion._value2member_map_:
+                disabled.add(name)
+            continue
+        enabled.add(_enabled_region(name, status, partition))
+    if not enabled:
+        raise ValueError("no enabled regions")
+    return enabled, disabled
+
+
+def _enabled_region(name: str, status: Any, partition: str) -> AwsRegion:
+    if status not in {"opt-in-not-required", "opted-in"}:
+        raise ValueError("unknown opt-in status")
     try:
-        if not isinstance(response, dict):
-            raise ValueError("invalid region response")
-        entries = response["Regions"]
-        if not isinstance(entries, list) or not entries:
-            raise ValueError("missing regions")
-        enabled = set()
-        disabled = set()
-        seen = set()
-        for entry in entries:
-            if not isinstance(entry, dict):
-                raise ValueError("invalid region entry")
-            name, status = entry["RegionName"], entry["OptInStatus"]
-            if not isinstance(name, str) or name in seen:
-                raise ValueError("invalid region")
-            seen.add(name)
-            if status == "not-opted-in":
-                # Only retain recognized identifiers, never arbitrary response text.
-                if name in AwsRegion._value2member_map_:
-                    disabled.add(name)
-                continue
-            if status not in {"opt-in-not-required", "opted-in"}:
-                raise ValueError("unknown opt-in status")
-            try:
-                region = AwsRegion(name)
-            except ValueError as error:
-                raise IngestionError(
-                    "unsupported_region",
-                    "an enabled region is unsupported by AwsRegion; update the region contract",
-                ) from error
-            if region is AwsRegion.GLOBAL or region_partition(region) != partition:
-                raise ValueError("region partition mismatch")
-            enabled.add(region)
-        if not enabled:
-            raise ValueError("no enabled regions")
-    except IngestionError:
-        raise
-    except (KeyError, TypeError, ValueError) as error:
+        region = AwsRegion(name)
+    except ValueError as error:
         raise IngestionError(
-            "region_discovery_failed",
-            "DescribeRegions returned invalid or empty scope; no inventory was collected",
+            "unsupported_region",
+            "an enabled region is unsupported by AwsRegion; update the region contract",
         ) from error
-    return RegionResolution(
-        ResolvedAwsScope.from_account(account, tuple(sorted(enabled))),
-        partition,
-        bootstrap,
-        tuple(sorted(disabled)),
-    )
+    if region is AwsRegion.GLOBAL or region_partition(region) != partition:
+        raise ValueError("region partition mismatch")
+    return region

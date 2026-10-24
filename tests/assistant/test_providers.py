@@ -16,9 +16,15 @@ from archdiscov.assistant.fake import FakeProvider, FakeScriptError, FakeScriptE
 from archdiscov.assistant.orchestrator import run_assistant
 from archdiscov.assistant.providers import ADAPTERS, build_provider, load_provider
 from archdiscov.assistant.tools.session import ToolSession
-from tests.assistant.test_config import ANTHROPIC, BEDROCK, OPENAI
-from tests.assistant.test_secret_leaks import SECRET, _renderings
 from tests.paths import TESTS_ROOT
+from tests.support.provider_data import (
+    ANTHROPIC,
+    BEDROCK,
+    MISSING_PROFILE,
+    OPENAI,
+    missing_profile_config,
+)
+from tests.support.secrets import SECRET, secret_renderings
 
 TRANSCRIPT = TESTS_ROOT / "fixtures" / "assistant" / "multi_step.json"
 SNAPSHOT = TESTS_ROOT / "fixtures" / "snapshots" / "network.json"
@@ -27,14 +33,6 @@ EXAMPLES = {
     ProviderKind.OPENAI_COMPATIBLE: OPENAI,
     ProviderKind.BEDROCK: BEDROCK,
 }
-# No AWS configuration is readable in tests, so this profile never exists.
-MISSING_PROFILE = "archdiscov-missing-profile"
-
-
-def missing_profile_config(directory: Path) -> Path:
-    """A Bedrock configuration file naming a profile that cannot be loaded."""
-    lines = (f'{key} = "{value}"' for key, value in {**BEDROCK, "profile": MISSING_PROFILE}.items())
-    return _config(directory, "\n".join(lines) + "\n")
 
 
 def _config(directory: Path, body: str) -> Path:
@@ -124,5 +122,5 @@ def test_no_secret_appears_in_errors_or_providers(tmp_path: Path) -> None:
     shutil.copy(TRANSCRIPT, tmp_path / "run.json")
     _, fake = load_provider(_config(tmp_path, 'kind = "fake"\ntranscript = "run.json"\n'))
     for value in (raised.value, anthropic, fake):
-        for rendering in _renderings(value):
+        for rendering in secret_renderings(value):
             assert SECRET not in rendering

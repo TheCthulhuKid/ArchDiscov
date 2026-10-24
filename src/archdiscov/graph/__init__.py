@@ -1,7 +1,7 @@
 from archdiscov.models.coverage_key import CoverageKey
+from archdiscov.models.edges import ContainmentEdge, DependencyEdge
 
-from .containment import ContainmentEdge
-from .dependencies import DependencyEdge, TerminalTarget
+from .dependencies import TerminalTarget
 from .identity import PhysicalResourceKey
 from .index import GraphIndex
 

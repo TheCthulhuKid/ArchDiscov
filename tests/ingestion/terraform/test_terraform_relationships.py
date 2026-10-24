@@ -2,8 +2,7 @@ import pytest
 
 from archdiscov.ingestion.terraform.mapping import map_resource
 from archdiscov.ingestion.terraform.relationships import place_resources
-
-from .test_terraform_mapping import identity
+from tests.support.terraform_data import identity
 
 
 def resource(kind, physical_id, **values):

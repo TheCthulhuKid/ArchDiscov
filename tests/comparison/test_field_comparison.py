@@ -1,9 +1,8 @@
-from uuid import UUID
-
 from archdiscov.models.enums import ComparisonSide, DifferenceKind, DifferenceSubject
 from archdiscov.services.comparison_fields import FieldComparer
 from archdiscov.services.comparison_matching import match_resources
-from tests.comparison.snapshots import ACCOUNT, REGION, aws_resource, index
+from tests.comparison.snapshots import REGION, aws_resource, index
+from tests.support.comparison_data import evidence, rid, vpc
 
 FIELD, DEPENDENCY, CONTAINMENT = (
     DifferenceSubject.FIELD,
@@ -20,35 +19,8 @@ LEFT, RIGHT = ComparisonSide.LEFT, ComparisonSide.RIGHT
 SUBNET = "AWS::EC2::Subnet"
 
 
-def rid(name, kind="physical"):
-    return f"{ACCOUNT}/{REGION}/ec2/{kind}/{name}"
-
-
-def vpc(physical="vpc-1", *, attributes=None, evidence=(), fact_evidence=None, children=(), **kw):
-    data = aws_resource(physical=physical, **kw)
-    if attributes is not None:
-        data["attributes"] = attributes
-    data["evidence_ids"] = list(evidence)
-    data["fact_evidence"] = fact_evidence or {}
-    data["children"] = list(children)
-    return data
-
-
 def subnet(physical):
     return aws_resource(SUBNET, physical=physical)
-
-
-def evidence(seed, resource, path, *, status="present", value=None):
-    data = {
-        "snapshot_id": str(UUID(int=seed)),
-        "resource_id": rid(resource),
-        "source": "aws",
-        "locator": "test",
-        "configuration_path": path,
-    }
-    if status == "present":
-        return {**data, "value": value}
-    return {**data, "value_status": status, "limitation": "not available"}
 
 
 def edge(source, target, *, kind=None, evidence_ids=("e",)):

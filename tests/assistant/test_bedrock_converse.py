@@ -54,23 +54,21 @@ from archdiscov.assistant.provider import (
 )
 from archdiscov.assistant.tools.session import ToolSession
 from tests.assistant.provider_harness import HARNESS_PROFILE, BedrockHarness
-from tests.assistant.test_anthropic_provider import EXCHANGE
-from tests.assistant.test_bedrock_provider import (
+from tests.paths import FIXTURES_ROOT
+from tests.support.bedrock_exchanges import (
     ANSWER,
     MODEL,
     QUESTION,
     ROLE,
     ROLE_KEY,
-    _assumed,
-    _credential,
-    _fields,
+    assumed_role_response,
+    bedrock_fields,
+    signing_key,
 )
-from tests.assistant.test_continuations import SIGNATURE, THINKING
-from tests.assistant.test_orchestrator import SNAPSHOT
-from tests.assistant.test_provider_contract import INSPECT, SEARCH
-from tests.assistant.test_secret_leaks import _renderings
-from tests.paths import FIXTURES_ROOT
 from tests.support.mock_api import AwsResponse, BotocoreApi, Waits
+from tests.support.provider_data import EXCHANGE, INSPECT_TOOL, SEARCH_TOOL, SIGNATURE, THINKING
+from tests.support.scripted_turns import SNAPSHOT
+from tests.support.secrets import secret_renderings
 
 HARNESS_KEY = "AKIAHARNESSKEY000000"
 
@@ -98,7 +96,7 @@ def _api(*bodies: dict) -> BotocoreApi:
 def _provider(api: BotocoreApi, waits: Waits | None = None, **fields: Any) -> BedrockProvider:
     """The adapter over `api`, its retries waiting into `waits`."""
     config = parse_provider_config(
-        _fields(capabilities=["tool_calling", "parallel_tool_calls"], **fields)
+        bedrock_fields(capabilities=["tool_calling", "parallel_tool_calls"], **fields)
     )
     waits = Waits() if waits is None else waits
     return BedrockProvider(
@@ -109,7 +107,9 @@ def _provider(api: BotocoreApi, waits: Waits | None = None, **fields: Any) -> Be
     )
 
 
-def _request(*messages: dict, tools=(SEARCH, INSPECT), **limits: Any) -> CompletionRequest:
+def _request(
+    *messages: dict, tools=(SEARCH_TOOL, INSPECT_TOOL), **limits: Any
+) -> CompletionRequest:
     return CompletionRequest(
         conversation=Conversation.model_validate(
             {"messages": [{"role": "user", "text": QUESTION}, *messages]}
@@ -155,7 +155,7 @@ def test_a_request_maps_every_message_tool_and_limit() -> None:
                 ]
             }
         ),
-        tools=(SEARCH, INSPECT),
+        tools=(SEARCH_TOOL, INSPECT_TOOL),
         limits=RequestLimits(max_output_tokens=512, max_tool_calls_per_turn=4),
     )
     expected = {
@@ -196,7 +196,7 @@ def test_a_request_maps_every_message_tool_and_limit() -> None:
             },
         ],
         "inferenceConfig": {"maxTokens": 512},
-        "toolConfig": {"tools": [_tool_spec(SEARCH), _tool_spec(INSPECT)]},
+        "toolConfig": {"tools": [_tool_spec(SEARCH_TOOL), _tool_spec(INSPECT_TOOL)]},
     }
     # The stubber checks the request against both this and the service model.
     with Stubber(provider._client(request.limits.timeout_seconds)) as stubber:
@@ -385,7 +385,7 @@ def test_unusable_responses_are_typed_errors_without_provider_text(body, error) 
     with pytest.raises(error) as raised:
         _send(_provider(_api(body)))
     assert str(raised.value) == error.message
-    assert "None of them" not in "".join(_renderings(raised.value))
+    assert "None of them" not in "".join(secret_renderings(raised.value))
 
 
 @pytest.mark.parametrize(
@@ -520,7 +520,7 @@ def test_api_errors_map_by_code_to_fixed_safe_errors(caplog, code, error) -> Non
     assert type(raised.value) is error
     assert raised.value.retryable is (error is ProviderRateLimitError)
     assert isinstance(raised.value.__cause__, ClientError)
-    rendered = "".join(_renderings(raised.value)) + caplog.text
+    rendered = "".join(secret_renderings(raised.value)) + caplog.text
     for leaked in (QUESTION, ROLE, REQUEST_ID):
         assert leaked not in rendered
     assert len(api.requests) == 1
@@ -624,7 +624,7 @@ def test_other_failures_are_never_retried(served) -> None:
 def test_each_request_is_read_with_its_own_timeout(mode: str) -> None:
     clock = FakeClock()
     slow = AwsResponse(200, _body(TEXT), delay=15)
-    provider, _, api = _failing(slow, slow, slow, slow, clock=clock)
+    provider, _, _ = _failing(slow, slow, slow, slow, clock=clock)
     with pytest.raises(ProviderTimeoutError):
         _send(provider, mode, _request(timeout_seconds=10))
     assert clock.monotonic() == 10
@@ -637,8 +637,8 @@ def test_each_request_is_read_with_its_own_timeout(mode: str) -> None:
 
 def test_clients_for_other_timeouts_share_the_assumed_role() -> None:
     answer = AwsResponse(200, _body(TEXT))
-    api = BotocoreApi([_assumed(), answer, answer], profile=HARNESS_PROFILE)
+    api = BotocoreApi([assumed_role_response(), answer, answer], profile=HARNESS_PROFILE)
     provider = _provider(api, role_arn=ROLE)
     for timeout in (60, 20):
         _send(provider, request=_request(timeout_seconds=timeout))
-    assert [_credential(request) for request in api.requests] == [HARNESS_KEY, ROLE_KEY, ROLE_KEY]
+    assert [signing_key(request) for request in api.requests] == [HARNESS_KEY, ROLE_KEY, ROLE_KEY]

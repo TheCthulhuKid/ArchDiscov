@@ -29,7 +29,7 @@ def test_direct_azure_key_construction_matches_factory_and_lookup():
 @pytest.mark.parametrize("value", ["", "   "])
 def test_direct_key_construction_rejects_blank_matching_values(field, value):
     scope = AzureScope(subscription_id="11111111-1111-1111-1111-111111111111")
-    fields = dict(platform=scope.platform, scope=(), native_type="native", physical_id="id")
+    fields = {"platform": scope.platform, "scope": (), "native_type": "native", "physical_id": "id"}
     fields[field] = value
     with pytest.raises(ValueError, match="native type and physical identifier"):
         PhysicalResourceKey(**fields)

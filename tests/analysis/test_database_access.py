@@ -229,6 +229,6 @@ def test_invalid_parameters_are_safe_errors(parameters):
 
 
 def test_the_analyzer_is_registered_with_a_stable_kind():
-    from archdiscov.services import DEFAULT_REGISTRY  # noqa: PLC0415
+    from archdiscov.services import DEFAULT_REGISTRY
 
     assert AnalyzerKind.DATABASE_ACCESS in DEFAULT_REGISTRY.kinds

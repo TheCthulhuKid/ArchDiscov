@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from archdiscov.models.analysis.results import AnalysisResult
+from archdiscov.models.snapshot_access import SupportedSnapshot
 
 from .analysis_diagnostics import (
     AnalysisValidationError,
@@ -13,7 +14,6 @@ from .analysis_diagnostics import (
 )
 from .analysis_validation import validate_analysis_result
 from .publication import SERIALIZATION_ERRORS, publish_text, read_json, render_json
-from .snapshot_access import SupportedSnapshot
 
 _SUBJECT = "analysis result"
 

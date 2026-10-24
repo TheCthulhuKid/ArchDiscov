@@ -4,6 +4,7 @@ from uuid import UUID
 from archdiscov.ingestion.adapter import AdapterContext
 from archdiscov.ingestion.requests import AwsAccountConfig
 from archdiscov.models.enums import AwsService
+from tests.support.aws_fakes import empty_network_pages
 
 from .aws_fakes import ACCOUNT, Clock, Session
 
@@ -155,3 +156,23 @@ def context(session):
         uuid_factory=lambda: UUID(int=15),
         session_factory=lambda **kw: session,
     )
+
+
+def ec2_pages(region):
+    return {
+        **empty_network_pages(),
+        "describe_vpcs": [{"Vpcs": [{"VpcId": "vpc-a"}]}],
+        "describe_subnets": [{"Subnets": [{"SubnetId": "subnet-a", "VpcId": "vpc-a"}]}],
+        "describe_instances": [
+            {
+                "Reservations": [
+                    {
+                        "Instances": [
+                            {"InstanceId": "i-web", "SubnetId": "subnet-a", "VpcId": "vpc-a"}
+                        ]
+                    }
+                ]
+            }
+        ],
+        "describe_security_groups": [{"SecurityGroups": [{"GroupId": "sg-a", "VpcId": "vpc-a"}]}],
+    }

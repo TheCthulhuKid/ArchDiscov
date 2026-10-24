@@ -293,7 +293,7 @@ class AnthropicHarness(MockedHarness):
 
     name = "anthropic"
     # How the Messages API shows each scripted provider error.
-    failures = {
+    failures: ClassVar[Mapping[ProviderErrorCode, Served]] = {
         ProviderErrorCode.AUTHENTICATION: _anthropic_error(401, "authentication_error"),
         ProviderErrorCode.RATE_LIMIT: _anthropic_error(429, "rate_limit_error"),
         ProviderErrorCode.TIMEOUT: transport_failure(httpx2.ReadTimeout),
@@ -572,7 +572,7 @@ class BedrockHarness(MockedHarness):
 
     name = "bedrock"
     # How Converse shows each scripted provider error.
-    failures = {
+    failures: ClassVar[Mapping[ProviderErrorCode, Served]] = {
         ProviderErrorCode.AUTHENTICATION: _aws_error(403, "AccessDeniedException"),
         ProviderErrorCode.RATE_LIMIT: _aws_error(429, "ThrottlingException"),
         ProviderErrorCode.TIMEOUT: lambda request: ReadTimeoutError(endpoint_url=request.url),

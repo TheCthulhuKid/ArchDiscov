@@ -31,8 +31,8 @@ from archdiscov.models.enums import AnalyzerKind
 from archdiscov.services.comparison import compare_snapshots
 from archdiscov.services.comparison_results import save_comparison
 from archdiscov.services.snapshots import load_snapshot, validate_snapshot
-from tests.assistant.tools.test_analysis_tools import _service_result
 from tests.paths import FIXTURES_ROOT
+from tests.support.answer_claims import service_result
 from tests.support.audit_scenarios import SCENARIOS, with_coverage
 
 REGISTRY = default_registry()
@@ -99,7 +99,7 @@ def test_delivered_findings_are_recorded_exactly(kind: AnalyzerKind, status: str
     snapshot = with_coverage(scenario.build(), status) if status else scenario.build()
     session = ToolSession(snapshot, limits=ToolLimits(result_limit=100))
     data = _call(session, "run_analyzer", kind=kind.value, limit=100, **scenario.parameters)
-    expected_result = _service_result(snapshot, kind, scenario.parameters, 3)
+    expected_result = service_result(snapshot, kind, scenario.parameters, 3)
     context = session.record.context()
     (key,) = {key for item in context.findings for key in item.result_keys}
     assert key.startswith(f"run:{kind.value}:")
@@ -121,7 +121,7 @@ def test_only_delivered_findings_are_recorded() -> None:
     (delivered,) = data["findings"]["items"]
     context = session.record.context()
     assert [item.finding_id for item in context.findings] == [delivered["finding_id"]]
-    assert len(_service_result(scenario.build(), scenario.kind, {}, 3).findings) > 1
+    assert len(service_result(scenario.build(), scenario.kind, {}, 3).findings) > 1
 
 
 def test_network_findings_record_their_decision() -> None:
@@ -129,7 +129,7 @@ def test_network_findings_record_their_decision() -> None:
         scenario = SCENARIOS[kind]
         session = ToolSession(scenario.build(), limits=ToolLimits(result_limit=100))
         _call(session, "run_analyzer", kind=kind.value, limit=100, **scenario.parameters)
-        result = _service_result(scenario.build(), kind, scenario.parameters, 3)
+        result = service_result(scenario.build(), kind, scenario.parameters, 3)
         blocks = {
             finding.id: getattr(finding, kind.value).decision
             for finding in result.findings
@@ -279,7 +279,7 @@ def test_an_output_with_a_bad_id_records_nothing() -> None:
 
 def test_findings_not_in_the_delivered_result_are_refused() -> None:
     scenario = SCENARIOS[AnalyzerKind.OWNERSHIP]
-    result = _service_result(scenario.build(), AnalyzerKind.OWNERSHIP, {}, 3)
+    result = service_result(scenario.build(), AnalyzerKind.OWNERSHIP, {}, 3)
 
     class _Analysis(ToolOutput):
         snapshot_id: UUID
@@ -308,7 +308,7 @@ def test_delivered_finding_views_are_kept_as_shown() -> None:
 
 def test_a_redelivered_finding_keeps_the_view_first_shown() -> None:
     scenario = SCENARIOS[AnalyzerKind.OWNERSHIP]
-    result = _service_result(scenario.build(), AnalyzerKind.OWNERSHIP, {}, 3)
+    result = service_result(scenario.build(), AnalyzerKind.OWNERSHIP, {}, 3)
     first = finding_view(result.findings[0])
     reworded = first.model_copy(update={"summary": untrusted("reworded")})
 

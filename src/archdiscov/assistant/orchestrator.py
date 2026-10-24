@@ -29,6 +29,9 @@ from collections.abc import Awaitable, Callable
 
 from pydantic import ValidationError
 
+from archdiscov.core.async_bridge import run_sync as core_run_sync
+from archdiscov.core.async_bridge import wait_until_done
+
 from .answers import SUBMIT_ANSWER, submit_answer_declaration
 from .conversation import (
     AssistantMessage,
@@ -331,7 +334,8 @@ class _Run:
         )
 
     def result(self) -> RunResult:
-        assert self.outcome is not None
+        if self.outcome is None:
+            raise RuntimeError("a run has an outcome once it has ended")
         transcript = RunTranscript(
             provider_kind=self.provider_kind,
             model=self.model,
@@ -406,15 +410,7 @@ class RunInEventLoopError(RuntimeError):
 async def _settle(task: asyncio.Future) -> None:
     """Cancel a provider call and wait until it has actually finished; discard its result."""
     task.cancel()
-    while not task.done():
-        try:
-            await asyncio.shield(task)
-        except asyncio.CancelledError:
-            continue
-        except BaseException:
-            break
-    if not task.cancelled():
-        task.exception()
+    await wait_until_done(task)
 
 
 async def _call(provider: Provider, request: CompletionRequest) -> CompletionResponse | None:
@@ -463,10 +459,13 @@ async def run_assistant_async(
     )
     try:
         await _drive(run, provider)
-        if repair is not None and run.final is not None:
-            if (prompt := repair(run.outcome, run.final)) is not None:
-                run.begin_repair(prompt)
-                await _drive(run, provider)
+        if (
+            repair is not None
+            and run.final is not None
+            and (prompt := repair(run.outcome, run.final)) is not None
+        ):
+            run.begin_repair(prompt)
+            await _drive(run, provider)
     except asyncio.CancelledError as error:
         run.cancel()
         raise RunCancelled(run.result()) from error
@@ -519,8 +518,4 @@ def run_assistant(
 
 def run_sync[T](name: str, workflow: Callable[[], Awaitable[T]]) -> T:
     """Run `workflow` to completion for the synchronous wrapper `name` of `{name}_async`."""
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(workflow())
-    raise RunInEventLoopError(name)
+    return core_run_sync(workflow, lambda: RunInEventLoopError(name))

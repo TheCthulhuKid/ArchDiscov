@@ -31,30 +31,30 @@ from archdiscov.assistant.provider import (
 )
 from archdiscov.assistant.providers import load_provider
 from archdiscov.services.ask import ask_question
-from tests.assistant.test_orchestrator import SNAPSHOT
-from tests.assistant.test_provider_contract import SEARCH
-from tests.assistant.test_secret_leaks import _renderings
 from tests.support.ask_examples import write_provider_config
+from tests.support.bedrock_exchanges import (
+    ANSWER,
+    MODEL,
+    PROFILE,
+    QUESTION,
+    REGION,
+    ROLE,
+    ROLE_KEY,
+    ROLE_SECRET,
+    assumed_role_response,
+    bedrock_fields,
+    signing_key,
+)
 from tests.support.mock_api import AwsResponse, BotocoreApi, mock_api_server
+from tests.support.provider_data import SEARCH_TOOL
+from tests.support.scripted_turns import SNAPSHOT
+from tests.support.secrets import secret_renderings
 
-PROFILE = "assistant"
-REGION = "eu-west-1"
-MODEL = "anthropic.claude-sonnet-5-5-v1:0"
-ROLE = "arn:aws:iam::123456789012:role/assistant"
 ACCESS_KEY = "AKIAPROFILEKEY000000"
 SECRET_KEY = "profileSecretKey0000000000000000000000000"
-ROLE_KEY = "ASIAROLEKEY000000000"
-ROLE_SECRET = "roleSecretKey00000000000000000000000000000"
-QUESTION = "Which databases are reachable?"
 # Botocore percent-encodes the model ID in the path.
 CONVERSE_PATH = f"/model/{MODEL.replace(':', '%3A')}/converse"
 CONVERSE = f"https://bedrock-runtime.{REGION}.amazonaws.com{CONVERSE_PATH}"
-ANSWER = {
-    "output": {"message": {"role": "assistant", "content": [{"text": "None of them."}]}},
-    "stopReason": "end_turn",
-    "usage": {"inputTokens": 3, "outputTokens": 1, "totalTokens": 4},
-    "metrics": {"latencyMs": 1},
-}
 HOSTILE_ENVIRONMENT = {
     "AWS_ACCESS_KEY_ID": "AKIAENVIRONMENT00000",
     "AWS_SECRET_ACCESS_KEY": "environmentSecret000000000000000000000000",
@@ -85,13 +85,9 @@ def _aws_files(tmp_path: Path, monkeypatch, *, config: str = "") -> None:
     monkeypatch.setenv("AWS_SHARED_CREDENTIALS_FILE", str(tmp_path / "aws-credentials"))
 
 
-def _fields(**fields: Any) -> dict[str, Any]:
-    return {"kind": "bedrock", "model": MODEL, "profile": PROFILE, "region": REGION, **fields}
-
-
 def _provider(api: BotocoreApi, **fields: Any) -> BedrockProvider:
     return BedrockProvider(
-        parse_provider_config(_fields(**fields)), session_factory=api.session_factory
+        parse_provider_config(bedrock_fields(**fields)), session_factory=api.session_factory
     )
 
 
@@ -99,31 +95,12 @@ def _rejected() -> Any:
     return AwsResponse(400, {"message": f"Rejected: {QUESTION}"}, {"x-amzn-ErrorType": "x"})
 
 
-def _assumed(key: str = ROLE_KEY, token: str | None = "roleToken") -> Any:
-    """An `AssumeRole` response with the role's credentials; no token makes it invalid."""
-    session_token = "" if token is None else f"<SessionToken>{token}</SessionToken>"
-    body = (
-        '<AssumeRoleResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">'
-        "<AssumeRoleResult><Credentials>"
-        f"<AccessKeyId>{key}</AccessKeyId><SecretAccessKey>{ROLE_SECRET}</SecretAccessKey>"
-        f"{session_token}<Expiration>2030-01-01T00:00:00Z</Expiration>"
-        "</Credentials></AssumeRoleResult></AssumeRoleResponse>"
-    )
-    return AwsResponse(200, body.encode())
-
-
-def _credential(request: Any) -> str:
-    """The access key ID a request was signed with."""
-    authorization = request.headers["Authorization"].decode()
-    return authorization.split("Credential=")[1].split("/")[0]
-
-
 def _request(**limits: Any) -> CompletionRequest:
     return CompletionRequest(
         conversation=Conversation.model_validate(
             {"messages": [{"role": "user", "text": QUESTION}]}
         ),
-        tools=(SEARCH,),
+        tools=(SEARCH_TOOL,),
         limits=limits or {},
     )
 
@@ -142,8 +119,8 @@ def test_a_configuration_builds_the_adapter_without_a_request(
         "BedrockProvider",
         partial(BedrockProvider, session_factory=api.session_factory),
     )
-    fields = _fields() if role_arn is None else _fields(role_arn=role_arn)
-    config, provider = load_provider(write_provider_config(tmp_path / "provider.toml", fields))
+    fields = bedrock_fields() if role_arn is None else bedrock_fields(role_arn=role_arn)
+    _config, provider = load_provider(write_provider_config(tmp_path / "provider.toml", fields))
     assert isinstance(provider, BedrockProvider)
     assert (provider.model, provider.region, provider.profile) == (MODEL, REGION, PROFILE)
     assert provider.capabilities.capabilities == {ProviderCapability.TOOL_CALLING}
@@ -181,17 +158,17 @@ def test_only_the_configuration_chooses_the_target_credential_and_retries(
     for name, value in HOSTILE_ENVIRONMENT.items():
         monkeypatch.setenv(name, value)
     unavailable = AwsResponse(503, {"message": "busy"}, {"x-amzn-ErrorType": "x"})
-    served = [unavailable] if not fields else [_assumed(), unavailable]
+    served = [unavailable] if not fields else [assumed_role_response(), unavailable]
     api = BotocoreApi(served)
     with pytest.raises(ProviderUnavailableError):
         complete(_provider(api, **fields), _request())
     # One attempt, whatever the environment and the profile say about retries.
     *assumed, sent = api.requests
     assert sent.url == CONVERSE
-    assert _credential(sent) == (ROLE_KEY if fields else ACCESS_KEY)
+    assert signing_key(sent) == (ROLE_KEY if fields else ACCESS_KEY)
     for request in assumed:
         assert request.url == f"https://sts.{REGION}.amazonaws.com/"
-        assert _credential(request) == ACCESS_KEY
+        assert signing_key(request) == ACCESS_KEY
         assert f"RoleArn={ROLE.replace(':', '%3A').replace('/', '%2F')}" in request.body
         assert "RoleSessionName=archdiscov-assistant" in request.body
     body = sent.body.decode()
@@ -204,14 +181,14 @@ def test_the_role_is_assumed_once_and_an_invalid_answer_is_an_authentication_err
 ) -> None:
     _aws_files(tmp_path, monkeypatch)
     rejected = AwsResponse(400, {"message": "no"}, {"x-amzn-ErrorType": "x"})
-    api = BotocoreApi([_assumed(), rejected, rejected])
+    api = BotocoreApi([assumed_role_response(), rejected, rejected])
     provider = _provider(api, role_arn=ROLE)
     for _ in range(2):
         with pytest.raises(ProviderUnavailableError):
             complete(provider, _request())
-    assert [_credential(request) for request in api.requests] == [ACCESS_KEY, ROLE_KEY, ROLE_KEY]
+    assert [signing_key(request) for request in api.requests] == [ACCESS_KEY, ROLE_KEY, ROLE_KEY]
 
-    api = BotocoreApi([_assumed(token=None)])
+    api = BotocoreApi([assumed_role_response(token=None)])
     with pytest.raises(ProviderAuthenticationError) as raised:
         complete(_provider(api, role_arn=ROLE), _request())
     assert isinstance(raised.value.__cause__, CredentialRetrievalError)
@@ -233,7 +210,7 @@ def test_a_role_sts_rejects_is_an_authentication_error_without_its_message(
         complete(_provider(api, role_arn=ROLE), _request())
     assert len(api.requests) == 1
     output = capsys.readouterr()
-    for rendering in (*_renderings(raised.value), caplog.text, output.out, output.err):
+    for rendering in (*secret_renderings(raised.value), caplog.text, output.out, output.err):
         assert ROLE not in rendering and "sts-request-id" not in rendering
 
 
@@ -259,7 +236,7 @@ def test_a_configured_endpoint_is_used_and_proxy_variables_are_not(
         for name in ("HTTP_PROXY", "http_proxy", "ALL_PROXY"):
             monkeypatch.setenv(name, f"http://127.0.0.1:{proxy.port}")
         endpoint = f"http://127.0.0.1:{api.port}"
-        provider = BedrockProvider(parse_provider_config(_fields(endpoint=endpoint)))
+        provider = BedrockProvider(parse_provider_config(bedrock_fields(endpoint=endpoint)))
         complete(provider, _request())
     [(path, headers, body)] = api.requests
     assert path == CONVERSE_PATH
@@ -275,12 +252,12 @@ def test_no_credential_or_request_body_reaches_a_rendering_or_log(
     caplog.set_level(logging.DEBUG)
     for name in bedrock_provider._SDK_LOGGERS:
         logging.getLogger(name).setLevel(logging.DEBUG)
-    provider = _provider(BotocoreApi([_assumed(), _rejected()]), role_arn=ROLE)
+    provider = _provider(BotocoreApi([assumed_role_response(), _rejected()]), role_arn=ROLE)
     with pytest.raises(ProviderUnavailableError):
         complete(provider, _request())
     for name in bedrock_provider._SDK_LOGGERS:
         assert logging.getLogger(name).getEffectiveLevel() == logging.WARNING
-    for rendering in (*_renderings(provider), caplog.text):
+    for rendering in (*secret_renderings(provider), caplog.text):
         for secret in (SECRET_KEY, ROLE_SECRET, "roleToken", QUESTION):
             assert secret not in rendering
 
@@ -317,7 +294,7 @@ def test_an_ask_run_without_declared_tool_calling_fails_before_any_request(
         "BedrockProvider",
         partial(BedrockProvider, session_factory=api.session_factory),
     )
-    config = write_provider_config(tmp_path / "provider.toml", _fields(capabilities=[]))
+    config = write_provider_config(tmp_path / "provider.toml", bedrock_fields(capabilities=[]))
     result = ask_question(QUESTION, snapshot_path=SNAPSHOT, config_path=config)
     outcome = result.answer.outcome
     assert outcome.provider_error == ProviderErrorCode.UNSUPPORTED_CAPABILITY

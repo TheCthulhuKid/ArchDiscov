@@ -26,7 +26,10 @@ from archdiscov.assistant.provider import CompletionRequest, complete
 from archdiscov.assistant.tools.catalog import default_registry
 from archdiscov.assistant.tools.registry import ToolDefinition
 from archdiscov.models.enums import AnalysisStatus
-from tests.assistant.tools import test_tool_boundary as audit
+from tests.support.tool_audit import (
+    assert_bounded_and_closed,
+    assert_no_write_network_shell_or_path_inputs,
+)
 
 FINDING = {
     "kind": "analyzer_finding",
@@ -44,7 +47,7 @@ DIFFERENCE = {
     ],
 }
 PRIMARY = [{"side": "primary", "source_kind": "aws"}]
-BOTH = PRIMARY + [{"side": "comparison", "source_kind": "terraform_plan"}]
+BOTH = [*PRIMARY, {"side": "comparison", "source_kind": "terraform_plan"}]
 
 
 def _proposal(**fields: Any) -> dict:
@@ -133,7 +136,7 @@ def _ids(count: int) -> list[str]:
                 for index in range(MAX_LIMITATIONS + 1)
             ]
         ),
-        _proposal(contexts=BOTH + [{"side": "primary", "source_kind": "aws"}]),
+        _proposal(contexts=[*BOTH, {"side": "primary", "source_kind": "aws"}]),
         _proposal(summary="s" * (MAX_SUMMARY_CHARS + 1)),
         _proposal(summary=""),
         _proposal(summary="   "),
@@ -340,8 +343,8 @@ def _as_tool() -> ToolDefinition:
 def test_declaration_passes_the_tool_schema_audit() -> None:
     tool = _as_tool()
     assert tool.declaration == submit_answer_declaration()
-    audit.test_schemas_have_no_write_network_shell_or_path_inputs(tool)
-    audit.test_every_input_is_bounded_and_closed(tool)
+    assert_no_write_network_shell_or_path_inputs(tool)
+    assert_bounded_and_closed(tool)
 
 
 def test_declaration_is_valid_for_providers_alongside_the_tools() -> None:

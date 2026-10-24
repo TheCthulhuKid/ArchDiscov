@@ -64,7 +64,7 @@ def test_several_subnets_stay_a_sorted_set():
 
 
 def test_a_cluster_takes_the_placement_of_its_stored_members_and_subnet_group():
-    index, placement = place(CLUSTER)
+    _index, placement = place(CLUSTER)
     assert [member.identifier for member in placement.members] == ["writer"]
     assert placement.subnet_ids == (SUBNET_A,)
     assert placement.security_group_ids == (SG_A,)  # the cluster itself records none

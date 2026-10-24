@@ -1,11 +1,16 @@
 """Run the installed CLI from outside the checkout, without PYTHONPATH help."""
 
+import hashlib
 import json
 import os
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+from tests.assistant.provider_harness import MockedHarness
+from tests.support.ask_examples import write_provider_config
+from tests.support.offline_guard import OfflineGuard
 
 ENTRY_POINTS = ["script", "module"]
 
@@ -50,3 +55,50 @@ def run_installed_json(
     """Run a command that prints JSON; assert its exit code and a traceback-free stderr."""
     result = run_installed(entry_point, cwd, *arguments, expect=expect, timeout=timeout)
     return json.loads(result.stdout)
+
+
+def digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+class Workspace:
+    """A directory outside the checkout and an installed CLI that cannot reach the network."""
+
+    def __init__(self, entry_point: str, root: Path) -> None:
+        self.entry_point = entry_point
+        self.root = root
+        self.guard = OfflineGuard(root)
+        for name in ("fixtures", "snapshots", "results", "comparisons"):
+            (root / name).mkdir()
+
+    def path(self, *parts: str) -> Path:
+        return self.root.joinpath(*parts)
+
+    def run(self, *arguments: object, expect: int = 0):
+        return run_installed(
+            self.entry_point,
+            self.root,
+            *map(str, arguments),
+            expect=expect,
+            env=self.guard.env,
+        )
+
+    def json(self, *arguments: object, expect: int = 0):
+        data = json.loads(self.run(*arguments, "--json", expect=expect).stdout)
+        return data
+
+    def both(self, *arguments: object) -> tuple[dict, str]:
+        """The JSON result and the readable output of one read-only command."""
+        return self.json(*arguments), self.run(*arguments).stdout
+
+
+INSTALLED_KEY_VARIABLE = "ASK_INSTALLED_PROVIDER_KEY"
+DUMMY_KEY = "sk-proj-INSTALLEDdummy0123456789abcdefXYZ"
+
+
+def harness_config(directory: Path, harness: MockedHarness, endpoint: str | None = None) -> Path:
+    """The harness's configuration, keyed by `INSTALLED_KEY_VARIABLE`, at `endpoint` if given."""
+    fields = harness.configuration(INSTALLED_KEY_VARIABLE)
+    if endpoint is not None:
+        fields["endpoint"] = endpoint
+    return write_provider_config(directory / f"{harness.label}.toml", fields)

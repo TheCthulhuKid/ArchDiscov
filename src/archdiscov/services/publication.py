@@ -11,7 +11,7 @@ from typing import Any
 from pydantic import BaseModel
 from pydantic_core import PydanticSerializationError
 
-from archdiscov.ingestion.strict_json import (
+from archdiscov.core.strict_json import (
     MAX_JSON_FILE_BYTES,
     FileTooLargeError,
     read_bounded,

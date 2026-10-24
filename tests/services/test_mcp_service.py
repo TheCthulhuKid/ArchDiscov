@@ -22,9 +22,9 @@ from archdiscov.assistant.mcp_limits import ServerLimits
 from archdiscov.assistant.mcp_server import PRESENT_ANSWER
 from archdiscov.assistant.tools.session import ToolSession
 from archdiscov.services import mcp as mcp_service
-from tests.assistant.test_mcp_server import _example
 from tests.paths import PROJECT_ROOT
 from tests.support.evaluation_suites import README_SUITE
+from tests.support.mcp_clients import readme_example
 
 README = README_SUITE.parent
 
@@ -84,7 +84,7 @@ def verbose_mcp_logger():
 
 
 def test_a_session_is_served_until_the_client_closes(verbose_mcp_logger) -> None:
-    session, calls, proposal = _example(README / "ownership")
+    session, calls, proposal = readme_example(README / "ownership")
 
     async def scenario() -> tuple[list[str], int]:
         async with create_client_server_memory_streams() as (client_streams, server_streams):

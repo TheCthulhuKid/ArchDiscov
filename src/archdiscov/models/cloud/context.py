@@ -61,9 +61,9 @@ def validate_identity_scope(identity, scope: SupportedScope) -> None:
     if isinstance(identity, ResourceIdentity):
         if identity.account_id != scope.account_id:
             raise ValueError("resource account must match snapshot scope")
-        if identity.physical_id and identity.physical_id.startswith("arn:"):
-            if identity.physical_id.split(":", 2)[1] != scope.partition:
-                raise ValueError("resource ARN partition must match snapshot scope")
+        arn = identity.physical_id if (identity.physical_id or "").startswith("arn:") else None
+        if arn is not None and arn.split(":", 2)[1] != scope.partition:
+            raise ValueError("resource ARN partition must match snapshot scope")
     elif isinstance(scope, AzureScope):
         if identity.scope != scope:
             raise ValueError("resource subscription/tenant must match snapshot scope")

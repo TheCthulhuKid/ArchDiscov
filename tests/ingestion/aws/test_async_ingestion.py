@@ -18,11 +18,11 @@ from archdiscov.services import (
     load_snapshot,
     publication,
 )
-from tests.services.test_ingestion_service import context as simple_context
-from tests.services.test_ingestion_service import request
-
-from .test_async_collection import ACCOUNT, OTHER, account, context, empty_job
-from .test_ec2_collection import Session, default_pages, make_context
+from tests.support.async_collection import ACCOUNT, OTHER, account, context, empty_job
+from tests.support.aws_fakes import Session
+from tests.support.ec2_data import default_pages, ec2_context
+from tests.support.ingestion_service import context as simple_context
+from tests.support.ingestion_service import request
 
 
 def test_async_apis_work_in_existing_loop_with_ordered_isolated_outputs(monkeypatch, tmp_path):
@@ -61,7 +61,7 @@ def test_sync_apis_fail_actionably_inside_loop_before_adapter_calls(api, tmp_pat
         args = [request()]
         if api is collect_and_save:
             args.append([tmp_path / "unused.json"])
-        with pytest.raises(IngestionError, match="async.*running event loop") as exc:
+        with pytest.raises(IngestionError, match=r"async.*running event loop") as exc:
             api(*args, **kwargs)
         assert exc.value.code == "invalid_request"
 
@@ -229,7 +229,7 @@ def test_async_collection_retains_evidence_and_partial_coverage_on_disk(tmp_path
         ]
         return result
 
-    ctx = make_context(pages)
+    ctx = ec2_context(pages)
     path = tmp_path / "architecture.json"
     (outcome,) = asyncio.run(collect_and_save_async(request(), [path], context=ctx))
     assert outcome.error is None

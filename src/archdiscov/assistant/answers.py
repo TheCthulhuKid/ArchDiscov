@@ -3,7 +3,7 @@
 A proposal says which recorded items support which kind of claim; it never states the facts
 itself. The renderer (step 38) writes factual conclusions from validated findings and
 evidence, and shows the narrative fields only as labelled explanation. Validation against the
-run (step 37.4–37.5) checks citations and consistency, not truth.
+run (step 37.4-37.5) checks citations and consistency, not truth.
 
 Citations name a side, `primary` or `comparison`, rather than a snapshot: the session fixes
 which snapshot each side is, so the model never handles snapshot IDs.

@@ -1,3 +1,5 @@
+import functools
+import operator
 from copy import deepcopy
 
 import pytest
@@ -300,7 +302,7 @@ def test_tags_batch_twenty_and_health_for_all_supported_types():
     assert all(c.status == "success" for c in inventory.coverage)
     batches = [p["ResourceArns"] for m, p in session.elb.calls if m == "describe_tags"]
     assert [len(b) for b in batches] == [20, 1]
-    assert len(set(sum(batches, []))) == 21
+    assert len(set(functools.reduce(operator.iadd, batches, []))) == 21
     assert len([p for m, p in session.elb.calls if m == "describe_target_health"]) == 21
 
 

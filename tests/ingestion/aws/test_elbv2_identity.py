@@ -9,6 +9,7 @@ from archdiscov.ingestion.elbv2.normalization import _Normalizer
 from archdiscov.ingestion.operations import Elbv2Operation as Op
 from archdiscov.models.enums import AwsRegion
 from tests.support.aws_fakes import ACCOUNT
+from tests.support.coverage_data import coverage
 from tests.support.elbv2_data import (
     GROUP,
     LB,
@@ -20,8 +21,6 @@ from tests.support.elbv2_data import (
     context,
     responses,
 )
-
-from .test_coverage_updates import coverage
 
 IDENTITIES = [
     (Op.DESCRIBE_LOAD_BALANCERS, "LoadBalancers", "LoadBalancerArn", LB),

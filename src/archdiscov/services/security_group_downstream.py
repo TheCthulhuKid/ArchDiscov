@@ -5,11 +5,11 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
-from archdiscov.graph.dependencies import DependencyEdge
 from archdiscov.models.analysis.impact import SecurityGroupImpact
 from archdiscov.models.analysis.parameters import SecurityGroupImpactParameters
 from archdiscov.models.analysis.references import AnalysisLimitation
 from archdiscov.models.analysis.results import AnalysisFinding
+from archdiscov.models.edges import DependencyEdge
 from archdiscov.models.enums import (
     AnalysisStatus,
     ImpactKind,
@@ -139,6 +139,5 @@ def downstream_paths(
             },
         )
         reasons.update(result.truncation.reasons)
-        for path in result.paths:
-            findings.append(_finding(index, group_id, _edges(path), start_id))
+        findings.extend(_finding(index, group_id, _edges(path), start_id) for path in result.paths)
     return findings, reasons

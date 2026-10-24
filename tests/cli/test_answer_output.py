@@ -26,10 +26,16 @@ from archdiscov.assistant.fake import FakeClock, FakeProvider, FakeTranscript
 from archdiscov.assistant.runs import RunLimits
 from archdiscov.assistant.tools.session import ToolSession
 from archdiscov.services.snapshots import load_snapshot, validate_snapshot
-from tests.assistant.test_answer_claims import _call
-from tests.assistant.test_answer_service import PLAIN_TEXT, SEARCH, _proposal, _rejected, _submit
-from tests.assistant.test_orchestrator import _calls, _fail, _text
 from tests.paths import FIXTURES_ROOT
+from tests.support.answer_claims import dispatch_tool
+from tests.support.scripted_answers import (
+    PLAIN_TEXT,
+    SEARCH,
+    answer_proposal,
+    rejected_proposal,
+    submit_turn,
+)
+from tests.support.scripted_turns import calls_turn, fail_turn, text_turn
 
 GOLDENS = FIXTURES_ROOT / "assistant" / "renderings"
 OWNERSHIP_SNAPSHOT = FIXTURES_ROOT / "analysis" / "ownership-snapshot.json"
@@ -42,8 +48,8 @@ RUN_OWNERSHIP = ("r1", "run_analyzer", {"kind": "ownership"})
 def _cited(session: ToolSession) -> dict:
     """A proposal citing the delivered ownership finding, as a model would copy it."""
     scratch = ToolSession(session.snapshot(session.index.snapshot_id))
-    (finding,) = _call(scratch, "run_analyzer", kind="ownership")["findings"]["items"]
-    return _proposal(
+    (finding,) = dispatch_tool(scratch, "run_analyzer", kind="ownership")["findings"]["items"]
+    return answer_proposal(
         session,
         status=finding["status"],
         insufficient_reason=None,
@@ -81,31 +87,38 @@ def _service(path: Path, turns: Callable[[ToolSession], list[dict]], **limits: A
 
 def _cancelled() -> RenderedAnswer:
     session = ToolSession(load_snapshot(OWNERSHIP_SNAPSHOT))
-    _call(session, "run_analyzer", kind="ownership")
+    dispatch_tool(session, "run_analyzer", kind="ownership")
     return render_failure(session, AnswerOutcome(status="failed", failure="cancelled"))
 
 
 CASES: dict[str, Callable[[], RenderedAnswer]] = {
     "answered": _service(
-        OWNERSHIP_SNAPSHOT, lambda session: [_calls(RUN_OWNERSHIP), _submit("a", _cited(session))]
+        OWNERSHIP_SNAPSHOT,
+        lambda session: [calls_turn(RUN_OWNERSHIP), submit_turn("a", _cited(session))],
     ),
     "answered_after_repair": _service(
-        NETWORK_SNAPSHOT, lambda session: [_text(PLAIN_TEXT), _submit("a", _proposal(session))]
+        NETWORK_SNAPSHOT,
+        lambda session: [text_turn(PLAIN_TEXT), submit_turn("a", answer_proposal(session))],
     ),
     "rejected_after_repair": _service(
         NETWORK_SNAPSHOT,
-        lambda session: [_submit("a", _rejected(session)), _submit("b", _rejected(session))],
+        lambda session: [
+            submit_turn("a", rejected_proposal(session)),
+            submit_turn("b", rejected_proposal(session)),
+        ],
     ),
     "no_proposal_after_repair": _service(
-        NETWORK_SNAPSHOT, lambda _: [_text(PLAIN_TEXT), _text(PLAIN_TEXT)]
+        NETWORK_SNAPSHOT, lambda _: [text_turn(PLAIN_TEXT), text_turn(PLAIN_TEXT)]
     ),
-    "malformed_output": _service(NETWORK_SNAPSHOT, lambda _: [_fail("provider_malformed_output")]),
+    "malformed_output": _service(
+        NETWORK_SNAPSHOT, lambda _: [fail_turn("provider_malformed_output")]
+    ),
     "provider_error": _service(
-        NETWORK_SNAPSHOT, lambda _: [_calls(SEARCH), _fail("provider_unavailable")]
+        NETWORK_SNAPSHOT, lambda _: [calls_turn(SEARCH), fail_turn("provider_unavailable")]
     ),
     "limit_reached": _service(
         OWNERSHIP_SNAPSHOT,
-        lambda _: [_calls(RUN_OWNERSHIP), _calls(SEARCH)],
+        lambda _: [calls_turn(RUN_OWNERSHIP), calls_turn(SEARCH)],
         max_provider_requests=2,
     ),
     "cancelled": _cancelled,
@@ -190,10 +203,10 @@ def injected(tmp_path: Path) -> RenderedAnswer:
         "citations": [{"evidence_ids": evidence, "resource_ids": [resource]}],
     }
     turns = [
-        _calls(("i1", "inspect_resource", {"resource_id": resource})),
+        calls_turn(("i1", "inspect_resource", {"resource_id": resource})),
         # The default summary names the same secret the imported name ends with, which the
         # narrative check rejects as repeated imported text; this test is about quoting.
-        _submit("a", _proposal(session, conclusions=[conclusion], summary="See above.")),
+        submit_turn("a", answer_proposal(session, conclusions=[conclusion], summary="See above.")),
     ]
     provider = FakeProvider(FakeTranscript.model_validate({"turns": turns}))
     return answer_question(

@@ -20,6 +20,7 @@ from typing import Annotated, ClassVar, Literal, Protocol, Self
 
 from pydantic import Field, ValidationError, model_validator
 
+from archdiscov.core.strict_json import FileTooLargeError, read_bounded
 from archdiscov.models.validation_errors import (
     ValidationIssue,
     safe_validation_issues,
@@ -173,12 +174,11 @@ class FakeScriptError(Exception):
 def load_fake_transcript(path: Path) -> FakeTranscript:
     """Read a bounded JSON transcript file and validate it."""
     try:
-        with path.open("rb") as file:
-            content = file.read(MAX_TRANSCRIPT_BYTES + 1)
+        content = read_bounded(path, MAX_TRANSCRIPT_BYTES)
+    except FileTooLargeError as exc:
+        raise FakeScriptError(FakeScriptErrorCode.TOO_LARGE, path=path) from exc
     except OSError as exc:
         raise FakeScriptError(FakeScriptErrorCode.UNREADABLE, path=path) from exc
-    if len(content) > MAX_TRANSCRIPT_BYTES:
-        raise FakeScriptError(FakeScriptErrorCode.TOO_LARGE, path=path)
     try:
         return FakeTranscript.model_validate_json(content)
     except ValidationError as exc:

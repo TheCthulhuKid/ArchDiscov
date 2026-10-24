@@ -1,7 +1,5 @@
-from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
-from threading import Condition, Event, Lock
+from threading import Event
 
 import pytest
 from botocore.exceptions import EndpointConnectionError
@@ -15,6 +13,7 @@ from archdiscov.ingestion.region_scope import resolve_region_scope
 from archdiscov.ingestion.requests import AwsAccountConfig, AwsCollectionRequest
 from archdiscov.models.enums import AwsRegion, AwsService
 from archdiscov.services import collect_and_save
+from tests.support.call_budgets import Calls, Client, ObservedBudget, Session
 
 ACCOUNT = "123456789012"
 OTHER = "999999999999"
@@ -24,77 +23,6 @@ def config(account_id=ACCOUNT, **kwargs):
     return AwsAccountConfig(
         profile="dev", expected_account_id=account_id, regions=("us-east-1",), **kwargs
     )
-
-
-class ObservedBudget(SdkCallBudget):
-    def __init__(self, limit, attempts):
-        super().__init__(limit)
-        self.attempts = attempts
-        self.lock = Lock()
-        self.waiting = Event()
-
-    @contextmanager
-    def permit(self, account_id, limit):
-        with self.lock:
-            self.attempts -= 1
-            if self.attempts == 0:
-                self.waiting.set()
-        with super().permit(account_id, limit):
-            yield
-
-
-class Calls:
-    def __init__(self):
-        self.condition = Condition()
-        self.release = Event()
-        self.active = Counter()
-        self.maximum = Counter()
-        self.total_maximum = 0
-        self.entered = 0
-
-    def invoke(self, account_id):
-        with self.condition:
-            self.active[account_id] += 1
-            self.maximum[account_id] = max(self.maximum[account_id], self.active[account_id])
-            self.total_maximum = max(self.total_maximum, self.active.total())
-            self.entered += 1
-            self.condition.notify_all()
-        try:
-            assert self.release.wait(10), "test did not release the SDK call"
-        finally:
-            with self.condition:
-                self.active[account_id] -= 1
-
-
-class Client:
-    def __init__(self, calls, account_id):
-        self.calls = calls
-        self.account_id = account_id
-
-    def can_paginate(self, method):
-        return True
-
-    def get_paginator(self, method):
-        return self
-
-    def paginate(self, **params):
-        for index in range(2):
-            self.calls.invoke(self.account_id)
-            yield {"Items": [index]}
-
-    def get_role(self, **params):
-        self.calls.invoke(self.account_id)
-        if params["RoleName"] == "bad":
-            raise EndpointConnectionError(endpoint_url="protected-secret")
-        return {"Role": params["RoleName"]}
-
-
-class Session:
-    def __init__(self, client):
-        self.obj = client
-
-    def client(self, name, **kwargs):
-        return self.obj
 
 
 @pytest.mark.parametrize("global_limit,account_limit,capacity", [(1, 4, 1), (4, 1, 2), (3, 2, 3)])
@@ -157,9 +85,8 @@ def test_nested_operation_and_detail_pools_share_total_and_account_limits(
 @pytest.mark.parametrize("failure", [RuntimeError, KeyboardInterrupt])
 def test_permits_release_even_on_base_exceptions(failure):
     budget = SdkCallBudget(1)
-    with pytest.raises(failure):
-        with budget.permit(ACCOUNT, 1):
-            raise failure()
+    with pytest.raises(failure), budget.permit(ACCOUNT, 1):
+        raise failure()
     with ThreadPoolExecutor(max_workers=1) as pool:
 
         def reuse():
@@ -175,18 +102,19 @@ def test_budget_rejects_invalid_limits(limit):
         SdkCallBudget(limit)
     with pytest.raises(ValueError, match="positive integer"):
         SdkCallBudget().restrict(limit)
-    with pytest.raises(ValueError, match="positive integer"):
-        with SdkCallBudget().permit(ACCOUNT, limit):
-            pytest.fail("invalid account limit accepted")
+    with (
+        pytest.raises(ValueError, match="positive integer"),
+        SdkCallBudget().permit(ACCOUNT, limit),
+    ):
+        pytest.fail("invalid account limit accepted")
 
 
 def test_account_limit_cannot_change_within_shared_budget():
     budget = SdkCallBudget()
     with budget.permit(ACCOUNT, 1):
         pass
-    with pytest.raises(ValueError, match="consistent"):
-        with budget.permit(ACCOUNT, 2):
-            pytest.fail("inconsistent account limit accepted")
+    with pytest.raises(ValueError, match="consistent"), budget.permit(ACCOUNT, 2):
+        pytest.fail("inconsistent account limit accepted")
 
 
 def test_paginator_releases_capacity_before_page_processing_and_after_failure():

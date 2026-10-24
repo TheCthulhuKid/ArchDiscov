@@ -18,7 +18,7 @@ live under `archdiscov.models.resources`. The public services package exports
 `SupportedSnapshot = ArchitectureSnapshot | CloudSnapshot`, `validate_snapshot`,
 `load_snapshot`, `save_snapshot`, `ingest_snapshot`, `get_evidence`, `upgrade_snapshot`,
 and `SnapshotAccess`; the latter contracts are implemented in
-`archdiscov.services.snapshot_access`.
+`archdiscov.models.snapshot_access`, which `archdiscov.services` re-exports.
 
 AWS collectors and Terraform state/plan and CloudFormation importers still emit schema
 `2`. Loading or ingesting an existing file preserves its schema; it does not silently

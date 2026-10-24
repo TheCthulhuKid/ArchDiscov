@@ -6,14 +6,14 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
-from ..adapter import IngestionError
-from ..strict_json import (
+from ...core.strict_json import (
     MAX_JSON_FILE_BYTES,
     FileTooLargeError,
     read_bounded,
     reject_constant,
     unique_object,
 )
+from ..adapter import IngestionError
 from .parsing_common import parse_versions, resource_identity, walk_resources
 from .sensitivity import sanitize_values
 

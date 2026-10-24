@@ -5,11 +5,12 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from archdiscov.models.snapshot_access import SupportedSnapshot
+
 from ..ingestion.adapter import AdapterContext, IngestionError
 from ..models.enums import AwsRegion, CoverageStatus
 from .import_requests import ImportOptions, IngestFormat, source_request
 from .ingestion import collect_snapshots
-from .snapshot_access import SupportedSnapshot
 from .snapshots import load_snapshot, save_snapshot
 
 

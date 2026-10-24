@@ -1,10 +1,13 @@
 """Recorded operation coverage for network-path and database-access tests."""
 
-from archdiscov.models.architecture import Coverage
-from archdiscov.models.enums import AwsRegion, AwsService
+from datetime import UTC, datetime
+
+from archdiscov.models.architecture import CollectionFailure, Coverage
+from archdiscov.models.enums import AwsRegion, AwsService, CoverageStatus
 from tests.support.iam_data import ACCOUNT, context
 
 REGION = AwsRegion.EU_WEST_1
+COVERAGE_OPERATION = "ReadConfiguration"
 
 
 def coverage_record(
@@ -39,3 +42,21 @@ def coverage_record(
 
 def ec2_coverage(operation: str, status: str, result_count: int) -> Coverage:
     return coverage_record(AwsService.EC2, operation, status, result_count)
+
+
+def coverage(status=CoverageStatus.SUCCESS):
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    return Coverage(
+        account_id="123456789012",
+        region=AwsRegion.US_EAST_1,
+        service=AwsService.SQS,
+        operation=COVERAGE_OPERATION,
+        status=status,
+        started_at=now,
+        completed_at=now,
+        result_count=2 if status in (CoverageStatus.SUCCESS, CoverageStatus.INCOMPLETE) else None,
+        failures=[CollectionFailure(code="Denied", message="Unavailable")]
+        if status == CoverageStatus.FAILED
+        else [],
+        reason="Existing limitation" if status != CoverageStatus.SUCCESS else None,
+    )

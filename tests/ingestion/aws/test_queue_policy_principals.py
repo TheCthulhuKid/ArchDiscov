@@ -118,7 +118,7 @@ def test_not_principal_stays_unresolved_even_for_a_stored_role():
 
 
 def test_every_statement_and_principal_entry_is_cited_in_order():
-    queue, evidence, links = links_for(
+    _queue, evidence, links = links_for(
         [
             statement({"AWS": ["210987654321", f"arn:aws:iam::{ACCOUNT}:root"]}),
             statement({"Service": "sns.amazonaws.com"}, effect="Deny", condition=False),
@@ -146,7 +146,7 @@ def test_a_single_statement_object_is_supported():
     ids=["uncited", "no-document", "neither"],
 )
 def test_queues_without_a_cited_policy_emit_nothing(options):
-    _, evidence, links = links_for([statement({"AWS": "210987654321"})], **options)
+    _, _evidence, links = links_for([statement({"AWS": "210987654321"})], **options)
     assert links == []
 
 

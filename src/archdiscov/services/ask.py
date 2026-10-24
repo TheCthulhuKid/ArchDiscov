@@ -13,25 +13,24 @@ provider request, and the transcript is written for every run that started, fail
 import asyncio
 import logging
 import time
-from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
-from pydantic import Field, ValidationError
+from pydantic import ValidationError
 
 from archdiscov.assistant.answer_rendering import rendered_snapshots
-from archdiscov.assistant.answer_results import RenderedSnapshot
 from archdiscov.assistant.answer_service import (
     AnswerCancelled,
     AnswerResult,
     answer_question_async,
 )
+from archdiscov.assistant.ask_results import AskResult, RunSummary, ToolUsage
 from archdiscov.assistant.config import ProviderConfig
-from archdiscov.assistant.conversation import MAX_TEXT_CHARS, Contract, TokenUsage, UserMessage
+from archdiscov.assistant.conversation import MAX_TEXT_CHARS, UserMessage
 from archdiscov.assistant.orchestrator import run_sync
 from archdiscov.assistant.provider import Provider
 from archdiscov.assistant.providers import load_provider
-from archdiscov.assistant.runs import RunLimits, RunTranscript
+from archdiscov.assistant.runs import RunLimits
 from archdiscov.assistant.tools.session import ToolSession
 
 from .publication import publish_text, render_json, require_new_path
@@ -40,40 +39,6 @@ from .snapshot_errors import SnapshotError
 _TRANSCRIPT = "transcript"
 
 _logger = logging.getLogger(__name__)
-
-
-class ToolUsage(Contract):
-    """What a run used, taken from its transcript."""
-
-    provider_requests: int = Field(ge=0)
-    tool_calls: dict[str, int]
-    repair_requested: bool
-    tokens: TokenUsage
-
-    @classmethod
-    def from_transcript(cls, transcript: RunTranscript) -> "ToolUsage":
-        calls = Counter(call.name for turn in transcript.turns for call in turn.tool_calls)
-        return cls(
-            provider_requests=len(transcript.turns),
-            tool_calls=dict(sorted(calls.items())),
-            repair_requested=any(turn.repair for turn in transcript.turns),
-            tokens=transcript.usage,
-        )
-
-
-class RunSummary(Contract):
-    """The context a presentation shows before the answer."""
-
-    snapshots: tuple[RenderedSnapshot, ...]
-    provider_kind: str
-    model: str
-    limits: RunLimits
-    usage: ToolUsage
-
-
-class AskResult(Contract):
-    answer: AnswerResult
-    summary: RunSummary
 
 
 class InvalidQuestionError(ValueError):

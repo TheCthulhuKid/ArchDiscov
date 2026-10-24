@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, NamedTuple
 
-from archdiscov.graph.dependencies import DependencyEdge
 from archdiscov.models.analysis.parameters import AnalyzerParameters, CrossAccountTrustParameters
 from archdiscov.models.analysis.references import AnalysisLimitation
 from archdiscov.models.analysis.results import AnalysisFinding, AnalysisResult
 from archdiscov.models.analysis.trust import CrossAccountTrust
 from archdiscov.models.architecture import LocalTarget, UnresolvedTarget
+from archdiscov.models.edges import DependencyEdge
 from archdiscov.models.enums import (
     AnalysisStatus,
     AnalyzerKind,

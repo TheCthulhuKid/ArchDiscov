@@ -49,6 +49,20 @@ class CloudSnapshot(Model):
 
     @model_validator(mode="after")
     def validate_integrity(self) -> Self:
+        self._validate_scope()
+        resources = self._indexed_resources()
+        validate_evidence(self.snapshot_id, resources, self.evidence)
+        validate_resource_facts(resources, self.evidence)
+        validate_unresolved_resources(self.coverage.operations, resources)
+        for record in self.evidence.values():
+            self._validate_evidence_scope(record, resources[record.resource_id])
+        self._validate_lifecycles(resources)
+        for dependency in self.dependencies:
+            self._validate_dependency(dependency, resources)
+        return self
+
+    def _validate_scope(self) -> None:
+        """The source, coverage, and collection window agree with the snapshot's scope."""
         if self.source.platform != self.scope.platform:
             raise validation_error(
                 "cloud_snapshot_source_platform_mismatch",
@@ -75,80 +89,80 @@ class CloudSnapshot(Model):
         validate_collection_window(
             self.collection_started_at, self.collection_completed_at, self.coverage.operations
         )
+
+    def _indexed_resources(self) -> dict:
+        """Every resource by ID, each checked to lie in its enclosing location."""
         resources, locations = {}, {}
-
-        def placement(location):
-            def validate(resource, path):
-                validate_identity_scope(resource.identity, self.scope)
-                if identity_location(resource.identity) != location:
-                    raise validation_error(
-                        "cloud_snapshot_resource_location_mismatch",
-                        f"resource at {path}: location must match enclosing location",
-                    )
-
-            return validate
-
         for location, region in self.regions.items():
             index_resources(
                 region.resources,
                 f"regions[{location}].resources",
                 resources,
                 locations,
-                placement(location),
+                self._placement(location),
             )
         index_resources(
-            self.scope_resources, "scope_resources", resources, locations, placement(None)
+            self.scope_resources, "scope_resources", resources, locations, self._placement(None)
         )
-        validate_evidence(self.snapshot_id, resources, self.evidence)
-        validate_resource_facts(resources, self.evidence)
-        validate_unresolved_resources(self.coverage.operations, resources)
-        for record in self.evidence.values():
-            owner = resources[record.resource_id]
-            if not evidence_context_matches(
-                owner.identity, self.scope, record.scope, record.location, record.service
-            ):
+        return resources
+
+    def _placement(self, location):
+        def validate(resource, path):
+            validate_identity_scope(resource.identity, self.scope)
+            if identity_location(resource.identity) != location:
                 raise validation_error(
-                    "cloud_snapshot_evidence_context_mismatch",
-                    "evidence context must match owning resource",
+                    "cloud_snapshot_resource_location_mismatch",
+                    f"resource at {path}: location must match enclosing location",
                 )
-            if record.source in (SourceType.AWS, SourceType.CLOUDFORMATION):
-                if self.scope.platform != CloudPlatform.AWS:
-                    raise validation_error(
-                        "cloud_snapshot_aws_evidence_scope_required",
-                        "AWS evidence requires AWS scope",
-                    )
-            if record.source == SourceType.AZURE and self.scope.platform != CloudPlatform.AZURE:
-                raise validation_error(
-                    "cloud_snapshot_azure_evidence_scope_required",
-                    "Azure evidence requires Azure scope",
-                )
-        for resource in resources.values():
-            if resource.lifecycle is not None and not (
-                self.scope.platform == CloudPlatform.AWS
-                and self.source.kind == SnapshotSourceKind.TERRAFORM_PLAN
-            ):
-                raise validation_error(
-                    "cloud_snapshot_lifecycle_source_invalid",
-                    "lifecycle requires AWS Terraform plan source semantics",
-                )
-        for dependency in self.dependencies:
-            if dependency.source_id not in resources:
-                raise validation_error(
-                    "cloud_snapshot_dependency_source_unknown", "dependency unknown source_id"
-                )
-            if isinstance(dependency.target, LocalTarget):
-                if dependency.target.resource_id not in resources:
-                    raise validation_error(
-                        "cloud_snapshot_dependency_target_unknown", "dependency unknown target_id"
-                    )
-            else:
-                target = dependency.target
-                if hasattr(target, "scope"):
-                    validate_context(target.scope, target.location, target.service)
-            if dependency.location != identity_location(resources[dependency.source_id].identity):
-                raise validation_error(
-                    "cloud_snapshot_dependency_location_mismatch",
-                    "dependency grouping must match source resource location",
-                )
-            validate_citations(dependency.evidence_ids, dependency.source_id, self.evidence)
-        return self
+
+        return validate
+
+    def _validate_evidence_scope(self, record: CloudEvidence, owner) -> None:
+        if not evidence_context_matches(
+            owner.identity, self.scope, record.scope, record.location, record.service
+        ):
+            raise validation_error(
+                "cloud_snapshot_evidence_context_mismatch",
+                "evidence context must match owning resource",
+            )
+        aws = record.source in (SourceType.AWS, SourceType.CLOUDFORMATION)
+        if aws and self.scope.platform != CloudPlatform.AWS:
+            raise validation_error(
+                "cloud_snapshot_aws_evidence_scope_required",
+                "AWS evidence requires AWS scope",
+            )
+        if record.source == SourceType.AZURE and self.scope.platform != CloudPlatform.AZURE:
+            raise validation_error(
+                "cloud_snapshot_azure_evidence_scope_required",
+                "Azure evidence requires Azure scope",
+            )
+
+    def _validate_lifecycles(self, resources: dict) -> None:
+        planned = (
+            self.scope.platform == CloudPlatform.AWS
+            and self.source.kind == SnapshotSourceKind.TERRAFORM_PLAN
+        )
+        if not planned and any(resource.lifecycle is not None for resource in resources.values()):
+            raise validation_error(
+                "cloud_snapshot_lifecycle_source_invalid",
+                "lifecycle requires AWS Terraform plan source semantics",
+            )
+
+    def _validate_dependency(self, dependency: CloudDependency, resources: dict) -> None:
+        if dependency.source_id not in resources:
+            raise validation_error(
+                "cloud_snapshot_dependency_source_unknown", "dependency unknown source_id"
+            )
+        target = dependency.target
+        if isinstance(target, LocalTarget) and target.resource_id not in resources:
+            raise validation_error(
+                "cloud_snapshot_dependency_target_unknown", "dependency unknown target_id"
+            )
+        if not isinstance(target, LocalTarget) and hasattr(target, "scope"):
+            validate_context(target.scope, target.location, target.service)
+        if dependency.location != identity_location(resources[dependency.source_id].identity):
+            raise validation_error(
+                "cloud_snapshot_dependency_location_mismatch",
+                "dependency grouping must match source resource location",
+            )
+        validate_citations(dependency.evidence_ids, dependency.source_id, self.evidence)

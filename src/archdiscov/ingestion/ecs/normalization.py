@@ -240,9 +240,12 @@ def normalize(inventory: EcsInventory, snapshot_id: UUID, account_id: str, regio
             arn = response.value
             if arn not in resources:
                 # ARN was observed, not guessed; details remain explicitly unknown.
-                identity = dict(
-                    account_id=account_id, region=region, service=AwsService.ECS, physical_id=arn
-                )
+                identity = {
+                    "account_id": account_id,
+                    "region": region,
+                    "service": AwsService.ECS,
+                    "physical_id": arn,
+                }
                 resources[arn] = cls(identity=identity, arn=arn)
             resource = resources[arn]
             builder.cite(resource, "/arn", listing, response.path, arn)
@@ -276,12 +279,12 @@ def normalize(inventory: EcsInventory, snapshot_id: UUID, account_id: str, regio
                     continue
                 if arn not in resources:
                     resources[arn] = EcsTaskDefinition(
-                        identity=dict(
-                            account_id=account_id,
-                            region=region,
-                            service=AwsService.ECS,
-                            physical_id=arn,
-                        ),
+                        identity={
+                            "account_id": account_id,
+                            "region": region,
+                            "service": AwsService.ECS,
+                            "physical_id": arn,
+                        },
                         arn=arn,
                     )
                 resource = resources[arn]

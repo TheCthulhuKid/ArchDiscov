@@ -30,7 +30,7 @@ def finding_violations(finding: AnalysisFinding) -> list[str]:
         elements = getattr(block, "elements", None)
         if elements is None:
             continue
-        decision = getattr(block, "decision")
+        decision = block.decision
         if compose_decisions(item.decision for item in elements) != decision:
             found.append("the decision does not compose its elements")
         if (
@@ -80,11 +80,14 @@ def result_violations(
                 found.append(f"{finding.id[:8]}: supported despite limited coverage")
             if not any(code.startswith("coverage_") for code in codes):
                 found.append(f"{finding.id[:8]}: no coverage limitation under limited coverage")
-    if unrecorded and result.analyzer != AnalyzerKind.OWNERSHIP:
-        if not any(
+    if (
+        unrecorded
+        and result.analyzer != AnalyzerKind.OWNERSHIP
+        and not any(
             limitation.code.startswith("coverage_unrecorded_")
             for finding in result.findings
             for limitation in finding.limitations
-        ):
-            found.append("no coverage_unrecorded limitation without recorded coverage")
+        )
+    ):
+        found.append("no coverage_unrecorded limitation without recorded coverage")
     return found

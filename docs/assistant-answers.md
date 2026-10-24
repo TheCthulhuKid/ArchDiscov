@@ -262,7 +262,8 @@ comparison_result_paths=)` in `services/ask.py` (with `ask_question_async`) is w
 `invalid_question` (2) before anything else, then builds the provider from the
 configuration before reading any snapshot, loads the snapshots and any saved comparisons
 of them into a tool session, takes the run limits from the configuration, and runs the
-answer service. Its `AskResult` holds the `AnswerResult` and a `RunSummary`: each
+answer service. Its `AskResult` (in `assistant/ask_results.py`, beside the answer
+contracts) holds the `AnswerResult` and a `RunSummary`: each
 snapshot as rendered, the provider kind and model, the limits, and the tool usage from the
 transcript (provider requests, tool calls by name, whether the repair was requested, and
 token usage). Cancelling raises `AskCancelled`, whose `result` explains the cancelled run;

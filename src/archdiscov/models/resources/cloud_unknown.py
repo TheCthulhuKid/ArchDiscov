@@ -17,7 +17,9 @@ class CloudUnknownResource(Resource):
     def validate_platform(self) -> Self:
         if self.identity.platform != self.platform:
             raise ValueError("unknown resource platform must match identity")
-        if isinstance(self.identity, AzureResourceIdentity):
-            if self.native_type.casefold() != self.identity.native_type.casefold():
-                raise ValueError("unknown resource native_type must match Azure identity")
+        if (
+            isinstance(self.identity, AzureResourceIdentity)
+            and self.native_type.casefold() != self.identity.native_type.casefold()
+        ):
+            raise ValueError("unknown resource native_type must match Azure identity")
         return self

@@ -2,11 +2,12 @@ import json
 import os
 import subprocess
 import sys
+from typing import ClassVar
 
 import pytest
 from typer.testing import CliRunner
 
-from archdiscov import cli
+from archdiscov import cli, cli_collection
 from archdiscov.ingestion.adapter import AdapterContext
 from archdiscov.ingestion.operations import (
     EcsOperation,
@@ -22,7 +23,7 @@ SERVICES = (AwsService.ECS, AwsService.LAMBDA, AwsService.RDS, AwsService.SQS)
 
 
 class EmptyClient:
-    replies = {
+    replies: ClassVar[dict[str, dict]] = {
         "list_clusters": {"clusterArns": []},
         "list_functions": {"Functions": []},
         "describe_db_instances": {"DBInstances": []},
@@ -103,9 +104,9 @@ def test_combined_empty_inventory_is_complete_per_service_and_region(tmp_path):
 @pytest.mark.parametrize("service", SERVICES)
 def test_collect_cli_accepts_each_regional_service(monkeypatch, tmp_path, service):
     session = Session()
-    real_collect = cli.collect_and_save
+    real_collect = cli_collection.collect_and_save
     monkeypatch.setattr(
-        cli,
+        cli_collection,
         "collect_and_save",
         lambda req, paths: real_collect(
             req, paths, context=AdapterContext(session_factory=lambda **kwargs: session)
@@ -188,12 +189,11 @@ def test_nonempty_combined_services_persist_links_and_inspect_fact_evidence(monk
     from archdiscov.models.resources.queues import SqsQueue
     from tests.support.aws_fakes import Session as Ec2Session
     from tests.support.ecs_data import Client as EcsClient
+    from tests.support.elbv2_data import ec2_pages
+    from tests.support.lambda_data import Client as LambdaClient
     from tests.support.rds_data import Client as RdsClient
     from tests.support.rds_data import data as rds_data
-
-    from .test_elbv2_collection import ec2_pages
-    from .test_lambda_collection import Client as LambdaClient
-    from .test_sqs_collection import Client as SqsClient
+    from tests.support.sqs_data import Client as SqsClient
 
     class CombinedSession(Session):
         def __init__(self):
@@ -269,10 +269,9 @@ def test_nonempty_combined_services_persist_links_and_inspect_fact_evidence(monk
 def test_new_service_partial_failure_keeps_other_service_results(tmp_path):
     from botocore.exceptions import ClientError
 
+    from tests.support.lambda_data import Client as LambdaClient
     from tests.support.rds_data import Client as RdsClient
     from tests.support.rds_data import data as rds_data
-
-    from .test_lambda_collection import Client as LambdaClient
 
     class PartialSession(Session):
         def __init__(self):
