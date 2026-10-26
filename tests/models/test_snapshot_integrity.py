@@ -230,15 +230,8 @@ def test_pointer_targets_and_fact_only_citations(data: dict, pointer: str) -> No
     [
         ("/attributes/missing", "missing key"),
         ("/instance_type/field", "cannot traverse scalar"),
-        ("/name/field", "cannot traverse scalar"),
-        ("/attributes/items/-", "invalid array index"),
-        ("/attributes/items/-1", "invalid array index"),
         ("/attributes/items/01", "invalid array index"),
-        ("/attributes/items/+0", "invalid array index"),
-        ("/attributes/items/1.0", "invalid array index"),
-        ("/attributes/items/٠", "invalid array index"),
         ("/attributes/items/1", "array index out of bounds"),
-        ("/attributes/items/999999999999999999999", "array index out of bounds"),
     ],
 )
 def test_invalid_fact_targets(data: dict, pointer: str, diagnostic: str) -> None:

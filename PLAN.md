@@ -1,6 +1,6 @@
 # Archdiscov implementation plan
 
-This plan follows the four delivery increments in [README.md](README.md) and adds a fifth and a sixth. Phases 1–5 and the cloud-platform foundation bridge 22.1–22.4 are complete, and phase 6, which completes the AWS network paths (steps 49–56), is planned below.
+This plan follows the four delivery increments in [README.md](README.md) and adds a fifth, a sixth, and a seventh. Phases 1–5 and the cloud-platform foundation bridge 22.1–22.4 are complete; phase 6, which completes the AWS network paths (steps 49–56), and phase 7, a local browser UI over the saved results, evidence, and the `ask` workflow (steps 57–60), are planned below.
 
 The completed first milestone is a complete offline workflow:
 
@@ -3593,6 +3593,103 @@ Implement steps 49–56 in order, verifying each before the next. Break each ste
 
 **Acceptance check:** The new fixtures validate, round-trip through persistence, and keep exact citations; every existing fixture and saved result validates unchanged; model tests reject impossible states (for example, a peering connection whose two sides are the same VPC).
 
+Implement and verify substeps 49.1–49.7 in order. Keep the parent planned until every substep's acceptance checks pass.
+
+**Where things go:**
+- Enum members in `models/enums.py`; resource models in `models/resources/network.py` (or a sibling module such as `models/resources/transit.py` if it grows past one readable file), added to `SupportedResource` in `models/architecture.py`.
+- Fixtures beside the existing ones in `tests/fixtures/snapshots/`, one file per element family, so a failure names its family; model tests in `tests/models/`.
+- `docs/` pages and the README are updated once, in 49.7, because the contracts are not user-visible until collection (step 50) lands.
+
+**What is reused:**
+- `Resource`, `Model`, `NonEmptyString`, and the sanitizing validators in `models/resource_base.py`; `Route`, `SecurityGroupRule`, `NaclEntry`, and `PrivateIpAddress` extended in place rather than copied.
+- `DependencyRelationship` and `AttachmentKind` for typed relationships (`attributes["kind"]`), and the snapshot graph index's existing edge-and-evidence handling.
+- The coverage key and outcome contracts in `models/coverage_key.py` and `models/coverage_outcomes.py`.
+
+#### Step 49.1: Fix the vocabulary and guard compatibility
+**Status:** Implemented. `ResourceType` gains the NAT gateway, egress-only internet gateway, peering connection, transit gateway, attachment, transit gateway route table, VPC endpoint, and managed prefix list types (CloudFormation type names); `RouteTargetKind` gains `egress_only_internet_gateway`; `AttachmentKind` gains the kinds step 49.6 records (NAT gateway subnet and interface, peering requester and accepter VPC, transit gateway attachment, VPC attachment, route table association and propagation, endpoint route table, subnet, interface and security group, egress-only gateway attachment, and prefix list reference). No existing value changed and no model uses them yet. `tests/models/test_fixture_compatibility.py` pins the canonical-JSON hash of every existing snapshot fixture and both saved-result fixtures as validated by `load_snapshot` and `load_analysis`, and fails when a snapshot fixture is neither pinned nor listed in `PHASE_SIX_SNAPSHOTS`. The coverage operation names were not declared here: an absent operation already reads as unrecorded coverage by service, and the names belong with the allowlist and permissions page in step 50.
+**Prerequisite:** Step 48.
+
+- Add the `ResourceType` members: NAT gateway, VPC peering connection, transit gateway, transit gateway attachment, transit gateway route table, VPC endpoint, managed prefix list, and egress-only internet gateway. Add the `RouteTargetKind` member for an egress-only internet gateway, and `AttachmentKind` members for each typed relationship step 49.6 records.
+- Before changing any model, add a compatibility guard: every snapshot fixture and saved-result fixture validates to the same data, as the first test to run after each later substep.
+
+**Advice:** Add enum members only, with no models yet. The guard is the safety net for the remaining substeps, so it must pass here, before anything else changes.
+
+**Acceptance check:** The enums list the new members, the guard passes on the unchanged fixtures, and no existing enum value changes.
+
+#### Step 49.2: NAT gateways, egress-only internet gateways, and peering connections
+**Status:** Planned.
+**Prerequisite:** Step 49.1.
+
+- Write the fixtures first: a NAT gateway in a public subnet with its Elastic IP, a same-account peering connection between two VPCs, and an egress-only internet gateway on a VPC.
+- Add `NatGateway` (state, subnet, VPC, public or private connectivity, public IPs, network interface), `EgressOnlyInternetGateway` (VPC), and `VpcPeeringConnection` (state, requester and accepter VPC, CIDRs, and owner account ID for each side).
+- Reject impossible states: a peering connection whose two sides are the same VPC, a public NAT gateway with no public address once `available`, and a malformed owner account.
+
+**Advice:** Record both owner accounts on a peering side even when equal, so the same-account test is a comparison of recorded values, never an assumption.
+
+**Acceptance check:** The fixtures validate and round-trip with exact citations, each impossible state is rejected, and the compatibility guard still passes.
+
+#### Step 49.3: Transit gateways, attachments, and route tables
+**Status:** Planned.
+**Prerequisite:** Step 49.1.
+
+- Write the fixtures first: a transit gateway with two VPC attachments, one route table with an association, a propagation, and a static and a blackhole route.
+- Add `TransitGateway` (state, owner, default association and propagation route table IDs), `TransitGatewayAttachment` (resource type, resource ID and owner, state, association state, associated route table), and `TransitGatewayRouteTable` (associations, propagations, and routes with destination, attachment, type, and state).
+- Reject impossible states: a route naming an attachment while marked `blackhole`, a route with neither, and an association to a route table of another transit gateway.
+
+**Advice:** Record the search bound the collector may hit as a field of the route table (such as whether its routes are known to be complete), so step 50 can mark incomplete coverage without a new contract.
+
+**Acceptance check:** The fixtures validate and round-trip with exact citations, each impossible state is rejected, and the compatibility guard still passes.
+
+#### Step 49.4: Endpoints, managed prefix lists, and their references
+**Status:** Planned.
+**Prerequisite:** Step 49.1.
+
+- Write the fixtures first: a gateway endpoint on route tables, an interface endpoint with ENIs and security groups, and a managed prefix list referenced by a route and by a security-group rule, one customer-owned and one AWS-managed.
+- Add `VpcEndpoint` (gateway or interface, service name, state, VPC, route tables, subnets, ENIs, security groups, owner) and `ManagedPrefixList` (address family, owner, state, version, entries with CIDR and description, and whether entries are recorded).
+- Let `Route`, `SecurityGroupRule`, and `NaclEntry` name a prefix list through typed fields; `Route.destination` keeps its reported form.
+- Reject impossible states: an entry whose CIDR family differs from its list, a gateway endpoint with subnets, and an interface endpoint with route tables.
+
+**Advice:** An AWS-managed list is valid with no recorded entries; its explicit "entries not recorded" state is what lets step 52 answer `unknown` for the right reason.
+
+**Acceptance check:** The fixtures validate and round-trip with exact citations, each impossible state is rejected, and the compatibility guard still passes.
+
+#### Step 49.5: IPv6 fields and the dual-stack fixture
+**Status:** Planned.
+**Prerequisite:** Step 49.1.
+
+- Write the dual-stack fixture first: a VPC and subnet with IPv6 CIDRs, an ENI with an IPv6 address, an IPv6 default route to an internet gateway and one to an egress-only internet gateway, and IPv6 security-group and NACL entries.
+- Add optional `ipv6_cidr_blocks` to `Vpc` and `Subnet`, a list of IPv6 addresses (with any public one) to `NetworkInterface`, and IPv6 destinations and CIDRs to `Route`, `SecurityGroupRule`, and `NaclEntry` through the existing `cidr` field's family, not a second field.
+- Reject impossible states: a subnet IPv6 CIDR outside its VPC's, an IPv6 address that is not IPv6, and a rule that sets both a CIDR and a prefix list.
+
+**Advice:** Keep IPv4 fields exactly as they are; add IPv6 beside them, so "no IPv6 recorded" and "no IPv6 collected" stay distinguishable by coverage, not by empty lists.
+
+**Acceptance check:** The dual-stack fixture validates, round-trips, and keeps exact citations; each impossible state is rejected; the compatibility guard still passes.
+
+#### Step 49.6: Typed relationships and graph traversal
+**Status:** Planned.
+**Prerequisite:** Steps 49.2–49.5.
+
+- Record each target as a typed dependency with evidence: route to NAT gateway, peering connection, transit gateway, endpoint, egress-only internet gateway, and prefix list; attachment to transit gateway and to its VPC; association and propagation to a transit gateway route table; endpoint to route table, subnet, ENI, and security group; NAT gateway to subnet and ENI; rule and route to prefix list.
+- Give a target in another account, or absent from the snapshot, a representation that is an external reference, never a resource of this snapshot.
+- Extend the graph index so each relationship can be followed in both directions with its evidence, using the existing identity, containment, and dependency handling.
+
+**Advice:** Add the relationships to the fixtures that already exist rather than writing new graph fixtures, so one fixture proves both the model and the traversal.
+
+**Acceptance check:** Graph tests follow every new relationship in both directions with exact evidence; an external target is reported as external; and a dangling reference to a missing resource is a cited unresolved dependency.
+
+#### Step 49.7: Verify compatibility and close the step
+**Status:** Planned.
+**Prerequisite:** Step 49.6.
+
+- Confirm schema `3` is unchanged and every new type and field is optional: a snapshot and a saved result written before this step validate unchanged, and a snapshot with the new types round-trips through persistence.
+- Confirm a pre-step-49 snapshot reads as "coverage unrecorded" for the new operations, never as "element absent".
+- Document the new resource types, fields, and relationships in the matching `docs/` page, keep the "unsupported" lists in `docs/network-path-primitives.md` accurate until steps 52–53 decide them, and update `README.md`'s capability table only where behaviour changed.
+- Run the focused and full offline tests, the acceptance suite, Ruff, and the whitespace check, then review the full change as the Checks section requires.
+
+**Advice:** Do not describe the elements as decided anywhere yet: this step settles contracts, and the primitives still answer `unknown` for them.
+
+**Acceptance check:** Every check passes; all fixtures old and new validate; the docs describe the contracts without claiming decisions; the plan marks step 49 implemented.
+
 ### Step 50: Collect the new elements from AWS
 **Status:** Planned.
 **Prerequisite:** Step 49.
@@ -3690,3 +3787,93 @@ Implement steps 49–56 in order, verifying each before the next. Break each ste
 - Is the internet egress question added to the README example questions, the assistant prompts, and the evaluation suites (step 55)? Adding it changes the phase 4 and 5 fixtures; the plan assumes the analyzer is available to the tools without becoming a sixth README question.
 - Are AWS Network Firewall and Gateway Load Balancer endpoints in scope (step 53)? The plan assumes not: a route to either stays `unknown`.
 - How many transit gateway routes may one collection read before coverage is marked incomplete (step 50)?
+
+## 7. Browser UI for results, evidence, and questions
+
+**Phase 7 milestone:** A user starts `archdiscov serve` over a directory of snapshots and saved results → opens a local browser page → browses snapshots, findings, comparisons, and the evidence behind every fact → asks one question with a configured provider and sees the same validated, rendered answer `ask` prints → nothing on any page states a fact the renderers did not.
+
+The web UI is a second presentation over the existing services, as the MCP server is a second front end over the tool session. Its distinct value over an MCP client is browsing saved findings, comparisons, and evidence without a model in the loop, so the pages are results first and the question form second. The server is local, single-user, and read-only: it binds to loopback only, serves files chosen from its configured directory and never from a browser-supplied path, keeps provider configuration and keys on the server, runs one question at a time within the `ask` limits, and writes nothing except a transcript when asked to. Text from the cloud is untrusted: every template autoescapes, and quoted text is shown as `ask` shows it. The pages are server-rendered HTML with no JavaScript build chain, so the repository stays Python-only and the tests run offline through an in-process HTTP client and the scripted fake provider. This phase adds no analyzer, collector, cloud platform, provider, or remediation; the README's deferral of a web UI is lifted by this phase and nowhere else.
+
+Implement steps 57–60 in order, verifying each before the next. Break each step into substeps when it starts, as steps 34–48 were. Keep this phase planned until step 60 passes. Phase 7 touches only new modules and may start before step 56 if the schedule needs it, but its evidence and route pages are easier to finish once phase 6 has settled the network contracts.
+
+**Where things go:**
+- The server lives in a new `src/archdiscov/web/` package: an application factory built from a workspace directory and options, route modules by page family (snapshots and results, evidence and queries, ask), Jinja2 templates under `web/templates/`, and one stylesheet under `web/static/`. Only `web/` imports the web framework, the template engine, and the ASGI server, and only when the server is built, as `mcp_server.py` does with `mcp`.
+- The command lives in `cli_serve.py`, which stays routing and presentation: it parses options, builds the application, and runs the ASGI server.
+- Logic a page needs that today lives only in a `cli_*_output` module (naming, quoting, ordering, summaries) moves into `services/` or `assistant/` so both presentations share it; `web/` never imports a `cli_*` module.
+
+**What is reused:**
+- `load_snapshot`, `load_analysis`, `load_comparison`, `GraphIndex`, and the detached `SnapshotAccess` for browsing; the query services (`services/queries.py` and the search, inspection, neighbour, and path services) with their exact filters and bounds; the evidence services behind the `evidence` command.
+- `ToolSession.from_paths`, `answer_selected`, `AskCancelled`, `RunLimits`, `load_provider_config`, and `resolve_api_key` for questions; `render_answer`, `render_failure`, and `RenderedAnswer` for what the page shows; the `ask` pre-run diagnostics and outcome codes, mapped to HTTP statuses.
+- The sanitizers and the quoting of untrusted text; the no-overwrite persistence for transcripts.
+- The import-isolation test, the installed-CLI harness, the offline guard, and the Docker image and compose file for acceptance.
+
+### Step 57: Serve the workspace and browse snapshots and results
+**Status:** Planned.
+**Prerequisite:** Step 56 (may start after step 49 if phase 6 stalls; see above).
+
+- Add `archdiscov serve WORKSPACE` with `--host` (default `127.0.0.1`), `--port` (default stated in the docs, `0` for an ephemeral port), and `--config PATH` for the provider configuration step 59 uses. Refuse a non-loopback host with a fixed error; a later step may add authentication, this one does not.
+- Build the application from the workspace: list the snapshot files, analysis results, and comparison results in the directory once at start (and again on a `refresh` action), validate each with the existing loaders, and give each a stable opaque key. Every page addresses a file by its key; a path, a `..`, or an unknown key is a `404`, never a filesystem read.
+- Pages: an index of snapshots (platform, account, region, collection time, resource count, coverage summary) with the saved results that name each one; a snapshot page with resource counts by type, coverage by operation, and limitations; an analysis page listing findings with status, blockers, and citations; a comparison page listing matched, differing, unmatched, and ambiguous entries with both sides' citations. A file that fails validation appears with its diagnostic and no pages.
+- Every page has a JSON twin at the same path with an `Accept: application/json` header or a `.json` suffix, returning the loaded model's JSON, so the HTML never carries a fact the JSON lacks.
+- Import the web framework, template engine, and ASGI server only when the server is built; extend the import-isolation test so `ask`, `mcp`, and every other command never import them.
+
+**Advice:** Choose the opaque key from the file's validated content (for example the snapshot ID or result ID), not from its name, so two directories holding the same files address them alike and a renamed file keeps its links.
+
+**Acceptance check:** In-process HTTP client tests walk every page over the committed fixtures and compare each JSON twin to the loader's output; a traversal path, an unknown key, and an invalid file give the documented statuses; a non-loopback host is refused before binding; no command other than `serve` imports the web dependencies.
+
+### Step 58: Drill down to resources, evidence, and queries
+**Status:** Planned.
+**Prerequisite:** Step 57.
+
+- Add a resource page: the inspection the `query` services give (type, identity, containment, fields with their fact citations, dependencies to local, external, and unresolved targets, coverage for its operations), with each citation linking to an evidence page that shows the recorded evidence entry (source operation, path, time, and the sanitized recorded value) exactly as the `evidence` command does.
+- Add neighbours and paths pages over the directional neighbour and bounded path services with the same bounds and limitation reporting; the limitations are shown, never silently dropped.
+- Add a search form over the exact-filter search service, with the service's own limits on results and no free-text matching the service does not offer.
+- Link every citation on the analysis, comparison, and (in step 59) answer pages to its evidence page, so a reader reaches the receipt behind any claim in one click.
+- Render imported text (names, tags, descriptions, policy text) through autoescaping and the same quoting the renderers use, so a resource named like an instruction reads as a quoted value on every page.
+
+**Advice:** Keep the pages thin over the query services: if a page needs a filter, bound, or ordering the service lacks, add it to the service so the `query` CLI and the assistant tools gain it too.
+
+**Acceptance check:** Tests open a finding, follow a citation to its evidence page, and compare the shown value to the evidence record; neighbours, paths, and search give the services' results and limitations; an unresolved or external target is shown as such; a resource name holding HTML and an instruction-like string renders escaped and quoted.
+
+### Step 59: Ask a question from the browser
+**Status:** Planned.
+**Prerequisite:** Step 58.
+
+- Add a question form on a snapshot page (and on a comparison pair) that posts one question. The server builds a `ToolSession` from the selected files, the provider from the configuration given at start, and runs `answer_selected` with `RunLimits.from_config`; the browser never names a configuration, a key, or a file path.
+- Run one question at a time: a second question while one runs gets `409` with a fixed message. Cancel the run when the client disconnects, through the existing cancellation, and explain the cancelled run as `ask` does.
+- Show the `RenderedAnswer`: the validated conclusions rendered from records, the acknowledged limitations, the retrieved summary, and the model's explanation in a clearly labelled unverified box; a rejected, insufficient, provider-failed, or cancelled run shows `render_failure`. Each citation links to its evidence page from step 58. The JSON twin returns the `ask --json` rendering unchanged.
+- Save a transcript only when `serve` was started with `--transcripts DIR`, through the no-overwrite persistence, and show the saved path on the answer page.
+- Reuse the `ask` pre-run diagnostics (missing configuration, provider profile unavailable, result not belonging to the selected snapshots) as `4xx` responses with the same codes and messages.
+
+**Advice:** Do not add chat, memory, or follow-up questions: each submission is one `ask` run, as the CLI and the MCP server are, and the answer page says so.
+
+**Acceptance check:** With the scripted fake provider, each of the five README questions asked from the browser renders the same conclusions, limitations, and citations as `ask` prints for the same transcript; a rejected and a repaired transcript show their outcomes; a concurrent question gets `409`; a disconnect cancels the run and leaves no transcript; the JSON twin equals the `ask --json` output; no key or configuration content appears in any response.
+
+### Step 60: Close phase 7 with acceptance and documentation
+**Status:** Planned.
+**Prerequisite:** Step 59.
+
+- Add offline acceptance journeys through the installed CLI: start `archdiscov serve` on an ephemeral port over a workspace of committed fixtures, walk the index, a snapshot, a finding, a citation, and an evidence page with an HTTP client, ask a README question with the fake provider, and check the rendered answer and its JSON twin; stop the server cleanly.
+- Run the same journey in the Docker image with networking disabled, binding inside the container and connecting from inside it.
+- Write `docs/web-ui.md`: what the pages show, the workspace layout, the loopback-only and read-only boundaries, what a transcript is written for, how untrusted text is rendered, and what the UI does not do (no chat, no analysis on demand, no authentication, no remote binding). Add the capability row and a phase 7 delivery row to the README, remove the web UI from the README's deferred list, and link the page from `docs/project-layout.md`.
+- Run focused and full offline tests, the acceptance suite, Ruff, whitespace checks, and the import-isolation test, then review the full change as the Checks section requires.
+
+**Advice:** Keep the documentation's limits honest, as the MCP page does: the UI shows what the renderers produce and links every claim to evidence, but it is a local tool for one user and makes no claim about hosting, access control, or multi-user use.
+
+**Completion criterion:** Every page is rendered from loaded models or the existing renderers and has a JSON twin equal to the service output; every citation reaches its evidence record; a question from the browser gives the `ask` result unchanged; the server binds only to loopback, reads only its workspace, and writes only requested transcripts; the suite stays offline.
+
+### Phase 7 decisions and open questions
+
+**Advice:** Treat the UI as presentation only. If a page needs a fact, a filter, or a summary the services do not give, add it to the service and its tests first, so the CLI, the assistant tools, and the page all agree.
+
+**Decisions made in this plan:**
+- Server-rendered HTML with Starlette, Jinja2, and uvicorn as regular dependencies imported only by `web/`; FastAPI is not needed because the JSON twins return existing models and no OpenAPI schema is served. Revisit only if another client needs a documented HTTP API.
+- No JavaScript in this phase. Progressive enhancement (for example a vendored htmx file for partial updates, or streamed progress for a running question) is a later step and must not change what a page shows.
+- No authentication, and non-loopback binding is refused. Opening the server beyond loopback needs a token or a reverse proxy and its own step with a security review.
+- Saved results only: the server does not run analyzers, comparisons, or collection. Running an analyzer from the browser would make the server write to the workspace and is left to a later phase if wanted.
+
+**Open questions (settle before the named step):**
+- Is the workspace one flat directory, or the `snapshots/`, `analyses/`, and `comparisons/` layout the CLI examples use (step 57)? The plan assumes one directory scanned by file type, with subdirectories allowed one level deep.
+- Does the index page need a coverage summary per snapshot, or is the snapshot page enough (step 57)? The plan assumes a one-line summary (operations complete, limited, and failed) on the index.
+- Should the question form offer the five README questions as presets, as the MCP server offers them as prompts (step 59)? The plan assumes yes, since they are the questions the evaluation suites verify.
+- Should the comparison pages be part of step 57 or deferred to a later step to keep 57 small (step 57)? The plan assumes they are in 57, because the loader and model already exist and the page is a list.

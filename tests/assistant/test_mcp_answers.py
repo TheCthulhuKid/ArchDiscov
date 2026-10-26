@@ -24,7 +24,6 @@ from archdiscov.assistant.tools.catalog import default_registry
 from archdiscov.assistant.tools.session import ToolSession
 from archdiscov.services.evaluation import prepare_evaluation
 from tests.support.answer_claims import INJECTION
-from tests.support.answer_scenarios import REJECTION_SCENARIOS
 from tests.support.evaluation_suites import ADVERSARIAL_SUITE, README_SUITE, write_fake_config
 from tests.support.mcp_clients import Call, mcp_replies, transcript_calls
 
@@ -54,14 +53,6 @@ def _rejected(session: ToolSession, calls: list[Call], proposal: dict) -> list:
     data = json.loads(text)
     assert data["error"] == "answer_rejected" and data["unlisted"] == 0
     return [(item["code"], item["location"]) for item in data["rejections"]]
-
-
-@pytest.mark.parametrize("code", list(RejectionCode), ids=lambda code: code.value)
-def test_each_rejection_scenario_is_rejected_as_in_ask(code: RejectionCode, tmp_path) -> None:
-    session, calls, proposal = REJECTION_SCENARIOS[code](tmp_path)
-    served = _rejected(session, calls, proposal)
-    assert served == _expected_rejections(session, calls, proposal)
-    assert {served_code for served_code, _ in served} == {code.value}
 
 
 def _cases(suite: Path, tmp_path: Path, ids: set[str] | None = None) -> dict[str, tuple]:

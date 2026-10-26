@@ -1,20 +1,27 @@
 """The installed `ask` command, outside the checkout, with the fake provider and no network.
 
-Both entry points answer the five README example questions in both output forms, and refuse
-a missing configuration, an unknown snapshot, a Bedrock profile that cannot be loaded, an
-Anthropic or OpenAI-compatible configuration without its key, and an existing transcript
-path before the run, and report a scripted provider error and a run limit as answer
-outcomes, each with its documented exit code. The Anthropic adapter, the OpenAI-compatible
-adapter through each protocol, and the Bedrock adapter also answer a README question through
-a mock API on one loopback port, the only connection the run may make. The child sees no
-credentials and no checkout, except a dummy key or AWS profile forwarded to an adapter's run
-alone: its whole `PYTHONPATH` is the offline guard, which fails and records any other
-network use.
+Two journeys, each on its own xdist worker. The first ingests the checked-in evaluation
+suites' case files and asks each README case with its fake transcript: every README question
+is answered from the findings its tools returned, cited evidence is inspected in the
+answered snapshot, and answers short of `supported` state their limitations. Its adversarial
+cases submit a fabricated or unreturned citation (rejected after the repair, exit 5), repair
+a fabricated citation (answered after the repair), and answer over imported text that tries
+to instruct the model (shown only as quoted data).
+
+The second refuses a missing configuration, an unknown snapshot, a Bedrock profile that
+cannot be loaded, an Anthropic or OpenAI-compatible configuration without its key, and an
+existing transcript path before the run, and reports a scripted provider error and a run
+limit as answer outcomes, each with its documented exit code. The Anthropic adapter, the
+OpenAI-compatible adapter through each protocol, and the Bedrock adapter answer a README
+question through a mock API on one loopback port, the only connection the run may make, and
+give the fake's answer. The child sees no credentials and no checkout, except a dummy key or
+AWS profile forwarded to an adapter's run alone: its whole `PYTHONPATH` is the offline guard,
+which fails and records any other network use.
 """
 
-import hashlib
 import json
 import re
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import quote, unquote
@@ -23,7 +30,7 @@ import pytest
 
 from archdiscov.assistant.fake import FakeTranscript
 from archdiscov.assistant.runs import RunTranscript
-from archdiscov.models.enums import AnalyzerKind
+from archdiscov.services import load_snapshot
 from tests.assistant.provider_harness import (
     HARNESS_PROFILE,
     AnthropicHarness,
@@ -32,33 +39,44 @@ from tests.assistant.provider_harness import (
     MockedHarness,
     ResponsesHarness,
 )
+from tests.support.answer_claims import INJECTION
 from tests.support.ask_examples import (
     EXAMPLES,
     README_QUESTIONS,
     write_example,
 )
 from tests.support.ask_runs import fake_config
+from tests.support.evaluation_suites import ADVERSARIAL_SUITE, README_SUITE
 from tests.support.installed_cli import (
     DUMMY_KEY,
-    ENTRY_POINTS,
     INSTALLED_KEY_VARIABLE,
     Workspace,
+    digest,
     harness_config,
+    ingest_selection,
     run_installed,
+    suite_cases,
 )
 from tests.support.mock_api import mock_api_server
 from tests.support.provider_data import MISSING_PROFILE, missing_profile_config
 from tests.support.scripted_answers import SEARCH
 from tests.support.scripted_turns import calls_turn, fail_turn
 
-# Each entry point runs every case once per module: keep them on one xdist worker.
+# Each journey is module-scoped; its tests share one xdist worker, and the two run in parallel.
 pytestmark = pytest.mark.xdist_group("installed-ask")
+ANSWERS = pytest.mark.xdist_group("installed-ask-answers")
 
-# One example per analyzer answers each README question over its audit scenario.
-README_EXAMPLES = [kind.value for kind in AnalyzerKind]
-# The example whose snapshot and configuration the failure cases reuse.
+SUITES = {"readme": README_SUITE, "adversarial": ADVERSARIAL_SUITE}
+# Adversarial cases the journey asks: (expected failure or status, exit code, rejection).
+PATHS = {
+    "fabricated_finding": ("rejected_after_repair", 5, "answer_unknown_id"),
+    "unreturned_evidence": ("rejected_after_repair", 5, "answer_id_not_returned"),
+    "repaired": ("answered_after_repair", 0, None),
+    "injected_text": ("answered", 0, None),
+}
+
+# The examples whose files the failure and adapter cases reuse.
 SNAPSHOT = "internet_exposure"
-# The example each adapter answers through a mock API.
 ADAPTED = "ownership"
 ADAPTERS = [AnthropicHarness(), ChatCompletionsHarness(), ResponsesHarness(), BedrockHarness()]
 BEARER = re.escape(f"Bearer {DUMMY_KEY}")
@@ -80,8 +98,60 @@ ROUTES = {
 }
 
 
-def _digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def _ingest(ws: Workspace, suite: str, case: dict) -> list[str]:
+    """Ingest the case's snapshots and return the `ask` arguments over the ingested files."""
+    selection = ingest_selection(ws, suite, case)
+    config = ws.path("fixtures", suite, case["id"], "provider.toml")
+    return [case["question"], *selection, "--config", str(config)]
+
+
+def _ask(ws: Workspace, suite: str, case: dict, expect: int = 0) -> dict:
+    arguments = _ingest(ws, suite, case)
+    transcript = ws.path("results", f"{suite}-{case['id']}-transcript.json")
+    data = ws.json("ask", *arguments, "--transcript", transcript, expect=expect)
+    readable = ws.run("ask", *arguments, expect=expect).stdout
+    RunTranscript.model_validate_json(transcript.read_bytes())
+    return {"data": data, "readable": readable, "snapshot": arguments[2]}
+
+
+def _findings(answer: dict) -> list[dict]:
+    return [finding for conclusion in answer["conclusions"] for finding in conclusion["findings"]]
+
+
+def _inspected(ws: Workspace, answer: dict, snapshot: str) -> dict:
+    """The first cited evidence record, inspected through the CLI in the answered snapshot,
+    and whether every cited evidence ID is recorded there (checked in process, since one
+    command per ID would dominate the journey)."""
+    evidence_ids = [item for finding in _findings(answer) for item in finding["evidence_ids"]]
+    recorded = load_snapshot(Path(snapshot)).evidence
+    inspected = (
+        ws.json("evidence", evidence_ids[0], "--snapshot", snapshot) if evidence_ids else None
+    )
+    return {
+        "first": evidence_ids[0] if evidence_ids else None,
+        "inspected": inspected,
+        "recorded": all(item in recorded for item in evidence_ids),
+    }
+
+
+def answers_journey(root: Path) -> dict:
+    ws = Workspace(root)
+    for name, suite in SUITES.items():
+        shutil.copytree(suite.parent, ws.path("fixtures", name))
+    fixtures = {path: digest(path) for path in ws.path("fixtures").rglob("*") if path.is_file()}
+    summary: dict = {"examples": {}, "paths": {}}
+    for case_id, case in suite_cases(ws, "readme").items():
+        asked = _ask(ws, "readme", case)
+        answer = asked["data"]["result"]["answer"]
+        asked["evidence"] = _inspected(ws, answer, asked["snapshot"])
+        summary["examples"][case_id] = (case, asked)
+    adversarial = suite_cases(ws, "adversarial")
+    for case_id, (_, code, _) in PATHS.items():
+        summary["paths"][case_id] = _ask(ws, "adversarial", adversarial[case_id], code)
+    # Asking never changes a fixture, and nothing reaches the network.
+    assert {path: digest(path) for path in fixtures} == fixtures
+    assert ws.guard.attempts == []
+    return summary
 
 
 def _missing_config(ws: Workspace, snapshot: Path) -> tuple[list, int, str]:
@@ -135,32 +205,19 @@ FAILED_RUNS = {
 }
 
 
-def _examples(ws: Workspace) -> dict:
-    """Each README example answered in JSON and readably, keyed by name."""
-    answers = {}
-    for name in README_EXAMPLES:
-        directory = ws.path("examples", name)
-        directory.mkdir(parents=True)
-        run = write_example(EXAMPLES[name], directory)
-        data = ws.json("ask", *run.arguments)
-        readable = ws.run("ask", *run.arguments).stdout
-        answers[name] = (run, data, readable)
-    return answers
-
-
 def _refusals(ws: Workspace) -> dict:
     snapshot = ws.path("examples", SNAPSHOT, "snapshot.json")
     refused = {}
     for case in REFUSALS:
         options, code, error = case(ws, snapshot)
-        before = {path: _digest(path) for path in ws.root.rglob("*") if path.is_file()}
+        before = {path: digest(path) for path in ws.root.rglob("*") if path.is_file()}
         question = (README_QUESTIONS[0], *options)
         diagnostic = ws.json("ask", *question, expect=code)["error"]
         readable = ws.run("ask", *question, expect=code)
         assert diagnostic["code"] == error
         assert readable.stdout == "" and readable.stderr.startswith(f"Error [{error}]: ")
         # A refused run neither writes nor overwrites anything.
-        assert {path: _digest(path) for path in ws.root.rglob("*") if path.is_file()} == before
+        assert {path: digest(path) for path in ws.root.rglob("*") if path.is_file()} == before
         refused[case.__name__.strip("_")] = diagnostic
     return refused
 
@@ -216,19 +273,22 @@ def _through_the_adapters(ws: Workspace) -> dict[str, tuple[dict, str, list]]:
             config = harness_config(directory, harness, f"http://127.0.0.1:{api.port}{root}")
             env = ws.guard.allowing(api.port, **_credentials(directory, harness))
             command = ["ask", *map(str, arguments), "--config", str(config)]
-            data = json.loads(
-                run_installed(ws.entry_point, ws.root, *command, "--json", env=env).stdout
-            )
-            readable = run_installed(ws.entry_point, ws.root, *command, env=env).stdout
+            data = json.loads(run_installed(ws.root, *command, "--json", env=env).stdout)
+            readable = run_installed(ws.root, *command, env=env).stdout
         assert api.bodies == []
         answered[harness.label] = (data, readable, api.requests)
     return answered
 
 
-def journey(entry_point: str, root: Path) -> dict:
-    ws = Workspace(entry_point, root)
+def runs_journey(root: Path) -> dict:
+    ws = Workspace(root)
+    examples = {}
+    for name in (SNAPSHOT, ADAPTED):
+        directory = ws.path("examples", name)
+        directory.mkdir(parents=True)
+        examples[name] = write_example(EXAMPLES[name], directory)
     summary = {
-        "examples": _examples(ws),
+        "fake": ws.json("ask", *examples[ADAPTED].arguments),
         "refusals": _refusals(ws),
         "failed": _failed_runs(ws),
         "adapters": _through_the_adapters(ws),
@@ -238,40 +298,102 @@ def journey(entry_point: str, root: Path) -> dict:
 
 
 @pytest.fixture(scope="module")
-def summaries(tmp_path_factory):
+def answers(tmp_path_factory) -> dict:
+    return answers_journey(tmp_path_factory.mktemp("ask-answers"))
+
+
+@pytest.fixture(scope="module")
+def summary(tmp_path_factory) -> dict:
+    return runs_journey(tmp_path_factory.mktemp("ask-runs"))
+
+
+def _cited(answer: dict, key: str) -> set[str]:
     return {
-        entry_point: journey(entry_point, tmp_path_factory.mktemp(f"ask-{entry_point}"))
-        for entry_point in ENTRY_POINTS
+        item
+        for conclusion in answer["conclusions"]
+        for citation in conclusion["citations"]
+        for item in citation[key]
     }
 
 
-@pytest.mark.parametrize("entry_point", ENTRY_POINTS)
-def test_the_readme_questions_are_answered_offline(summaries, entry_point):
-    examples = summaries[entry_point]["examples"]
-    assert {run.arguments[0] for run, _, _ in examples.values()} == set(README_QUESTIONS)
-    for name, (run, data, readable) in examples.items():
-        answer = data["result"]["answer"]
-        assert data["result"]["exit_code"] == 0
-        assert answer["outcome"]["status"] == "answered"
-        assert answer["status"] == EXAMPLES[name].status
-        cited = [
-            finding_id
-            for conclusion in answer["conclusions"]
-            for citation in conclusion["citations"]
-            for finding_id in citation["finding_ids"]
-        ]
-        assert tuple(cited) == run.finding_ids and cited
-        assert data["summary"]["provider_kind"] == "fake"
-        assert "run_analyzer" in data["summary"]["usage"]["tool_calls"]
-        lines = readable.splitlines()
+@ANSWERS
+def test_every_readme_question_is_answered_from_tool_returned_findings(answers):
+    examples = answers["examples"]
+    assert set(README_QUESTIONS) <= {case["question"] for case, _ in examples.values()}
+    for case_id, (case, asked) in examples.items():
+        answer = asked["data"]["result"]["answer"]
+        expect = case["expect"]
+        assert answer["outcome"]["status"] == "answered", case_id
+        assert answer["status"] in expect["statuses"], case_id
+        # The cited findings are exactly those the example's tools returned.
+        assert _cited(answer, "finding_ids") == set(expect.get("finding_ids", ())), case_id
+        assert answer["conclusions"], case_id
+        assert asked["data"]["summary"]["provider_kind"] == "fake", case_id
+        lines = asked["readable"].splitlines()
         assert "Provider: fake, model fake" in lines
         assert "Answer: answered, exit code 0" in lines
-        assert f"Status: {EXAMPLES[name].status}" in lines
+        assert f"Status: {answer['status']}" in lines
 
 
-@pytest.mark.parametrize("entry_point", ENTRY_POINTS)
-def test_errors_before_the_run_fail_safely(summaries, entry_point):
-    refused = summaries[entry_point]["refusals"]
+@ANSWERS
+def test_cited_evidence_is_inspected_in_the_answered_snapshot(answers):
+    inspected = 0
+    for case_id, (_, asked) in answers["examples"].items():
+        evidence = asked["evidence"]
+        answer = asked["data"]["result"]["answer"]
+        # A finding that supports anything cites evidence; insufficient evidence may not.
+        for finding in _findings(answer):
+            if finding["status"] != "insufficient_evidence":
+                assert finding["evidence_ids"], case_id
+        assert evidence["recorded"], case_id
+        if evidence["first"] is not None:
+            assert evidence["inspected"]["evidence_id"] == evidence["first"], case_id
+            inspected += 1
+    assert inspected >= len(README_QUESTIONS)
+
+
+@ANSWERS
+def test_answers_short_of_supported_state_their_limitations(answers):
+    limited = {}
+    for case_id, (_, asked) in answers["examples"].items():
+        answer = asked["data"]["result"]["answer"]
+        if answer["status"] != "supported":
+            assert answer["qualifications"], case_id
+            limited[case_id] = answer["qualifications"]
+    assert {"trust_limited_coverage", "internet_insufficient_evidence", "ownership_planned"} <= (
+        set(limited)
+    )
+
+
+@ANSWERS
+def test_fabricated_and_unreturned_citations_are_rejected_and_repairs_answer(answers):
+    for case_id, asked in answers["paths"].items():
+        outcome_name, code, rejection = PATHS[case_id]
+        result = asked["data"]["result"]
+        outcome = result["answer"]["outcome"]
+        assert result["exit_code"] == code, case_id
+        assert (outcome["failure"] or outcome["status"]) == outcome_name, case_id
+        if rejection is not None:
+            assert rejection in {item["code"] for item in outcome["rejections"]}, case_id
+            assert result["answer"]["conclusions"] == []
+            assert f"Answer: failed ({outcome_name}), exit code {code}" in asked["readable"]
+    repaired = answers["paths"]["repaired"]["data"]
+    assert repaired["summary"]["usage"]["repair_requested"]
+
+
+@ANSWERS
+def test_imported_instructions_are_only_quoted_data(answers):
+    asked = answers["paths"]["injected_text"]
+    answer = asked["data"]["result"]["answer"]
+    quoted = [item["untrusted_text"] for c in answer["conclusions"] for item in c["data"]]
+    statements = [item for c in answer["conclusions"] for item in c["statements"]]
+    assert INJECTION in quoted
+    assert not any(INJECTION in text for text in [*statements, *answer["qualifications"]])
+    assert INJECTION not in json.dumps(answer["narrative"])
+
+
+def test_errors_before_the_run_fail_safely(summary):
+    refused = summary["refusals"]
     assert list(refused) == [case.__name__.strip("_") for case in REFUSALS]
     # A Bedrock profile is named, never its contents, and fails before any request.
     assert refused["missing_profile"]["profile"] == MISSING_PROFILE
@@ -282,25 +404,17 @@ def test_errors_before_the_run_fail_safely(summaries, entry_point):
         assert refused[f"missing_{kind}_key"]["variable"] == INSTALLED_KEY_VARIABLE
 
 
-@pytest.mark.parametrize("entry_point", ENTRY_POINTS)
-def test_provider_errors_and_limits_are_answer_outcomes(summaries, entry_point):
-    for name, (data, transcript) in summaries[entry_point]["failed"].items():
+def test_provider_errors_and_limits_are_answer_outcomes(summary):
+    for name, (data, transcript) in summary["failed"].items():
         _, _, code, reason = FAILED_RUNS[name]
         assert data["result"]["exit_code"] == code
         assert transcript.outcome.kind == reason
 
 
-def test_answers_do_not_depend_on_the_entry_point(summaries):
-    script, module = (summaries[entry_point] for entry_point in ENTRY_POINTS)
-    for name in README_EXAMPLES:
-        assert script["examples"][name][1]["result"] == module["examples"][name][1]["result"]
-
-
 @pytest.mark.parametrize("harness", ADAPTERS, ids=lambda harness: harness.label)
-@pytest.mark.parametrize("entry_point", ENTRY_POINTS)
-def test_each_adapter_answers_through_a_loopback_api(summaries, entry_point, harness):
-    data, readable, requests = summaries[entry_point]["adapters"][harness.label]
-    _, fake, _ = summaries[entry_point]["examples"][ADAPTED]
+def test_each_adapter_answers_through_a_loopback_api(summary, harness):
+    data, readable, requests = summary["adapters"][harness.label]
+    fake = summary["fake"]
     model = harness.configuration(INSTALLED_KEY_VARIABLE)["model"]
     assert data["summary"]["provider_kind"] == harness.name
     assert data["result"] == fake["result"]

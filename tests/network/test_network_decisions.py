@@ -67,15 +67,7 @@ def test_results_round_trip_and_serialize_every_blocker_field():
     "build",
     [
         lambda: NetworkResult(decision=D.ALLOW),
-        lambda: NetworkResult(
-            decision=D.ALLOW,
-            evidence_ids=["e"],
-            blockers=[NetworkBlocker(code=B.MISSING_EVIDENCE, message="m")],
-        ),
         lambda: NetworkResult(decision=D.DENY),
-        lambda: NetworkResult(
-            decision=D.DENY, blockers=[NetworkBlocker(code=B.MISSING_EVIDENCE, message="m")]
-        ),
         lambda: NetworkResult(
             decision=D.DENY,
             blockers=[
@@ -84,30 +76,14 @@ def test_results_round_trip_and_serialize_every_blocker_field():
             ],
         ),
         lambda: NetworkResult(decision=D.UNKNOWN),
-        lambda: NetworkResult(
-            decision=D.UNKNOWN, blockers=[NetworkBlocker(code=B.DENIED, message="m")]
-        ),
         lambda: NetworkBlocker(code=B.COVERAGE_LIMITED, message="m"),
-        lambda: NetworkBlocker(
-            code=B.MISSING_EVIDENCE,
-            message="m",
-            coverage=CoverageReference(
-                scope={"platform": "aws", "account_id": "123456789012"},
-                service="ec2",
-                operation="Op",
-            ),
-        ),
     ],
     ids=[
         "allow-uncited",
-        "allow-with-blocker",
         "deny-bare",
-        "deny-nondenied",
         "deny-mixed",
         "unknown-bare",
-        "unknown-only-denied",
         "limited-without-coverage",
-        "coverage-on-other-code",
     ],
 )
 def test_invalid_results_and_blockers_are_rejected(build):

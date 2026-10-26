@@ -796,8 +796,8 @@ Example transcripts are in `tests/fixtures/assistant/`. The shared contract suit
 `tests/assistant/provider_harness.py` through the same mapping, error, capability,
 retry, and timeout cases. The orchestration and answer-service suites and the README example
 questions run through every harness too, and check that each adapter reaches the same run
-and answer as the fake from the same turns; each adapter's harness serves them from its own
-mocked API. An adapter's harness subclasses `MockedHarness`, giving its protocol's response
+and answer as the fake from the same turns, so their per-outcome checks run on the fake alone;
+each adapter's harness serves them from its own mocked API. An adapter's harness subclasses `MockedHarness`, giving its protocol's response
 body and how its API shows each scripted error; the Bedrock harness also says how its API
 serves a body and is made, since botocore is mocked through its `before-send` event (with
 `BotocoreApi`) rather than an HTTP transport, and reads a dummy AWS profile from

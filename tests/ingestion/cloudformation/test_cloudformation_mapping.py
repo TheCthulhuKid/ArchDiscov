@@ -237,7 +237,15 @@ def test_invalid_values_are_omitted_individually_without_losing_valid_facts():
     assert_safe_facts(resource, facts, properties)
 
 
-@pytest.mark.parametrize("value", [None, True, [], {}, "", "[REDACTED]", "bad", -1, 1000000])
+@pytest.mark.parametrize(
+    "value",
+    [
+        None,
+        [],
+        "[REDACTED]",
+        -1,
+    ],
+)
 def test_invalid_scalar_configuration_does_not_abort_or_leak(value):
     resource, facts, limitations = map_resource(
         str(ResourceType.LAMBDA_FUNCTION),

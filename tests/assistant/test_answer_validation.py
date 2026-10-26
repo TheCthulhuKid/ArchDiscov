@@ -239,13 +239,15 @@ def _configuration(evidence: str, *resources: str) -> dict:
     }
 
 
-def test_evidence_cited_for_another_resource_is_detached() -> None:
+def test_evidence_must_be_cited_with_its_own_resource() -> None:
     session, first, second = _two_inspected_resources()
     evidence = session.index.resource_evidence_ids(first)[0]
     proposal = _proposal(session, _configuration(evidence, second))
     assert _codes(check_citations(proposal, session)) == [
         ("answer_evidence_detached", "conclusions[0].citations[0].evidence_ids[0]")
     ]
+    attached = _proposal(session, _configuration(evidence, first, second))
+    assert check_citations(attached, session) == ()
 
 
 def test_evidence_cited_without_any_resource_or_finding_is_detached() -> None:
@@ -254,14 +256,6 @@ def test_evidence_cited_without_any_resource_or_finding_is_detached() -> None:
     assert _codes(check_citations(proposal, session)) == [
         ("answer_evidence_detached", "conclusions[0].citations[0].evidence_ids[0]")
     ]
-
-
-def test_evidence_cited_with_its_own_resource_passes() -> None:
-    session, first, second = _two_inspected_resources()
-    evidence = session.index.resource_evidence_ids(first)[0]
-    assert (
-        check_citations(_proposal(session, _configuration(evidence, first, second)), session) == ()
-    )
 
 
 def test_evidence_attached_to_a_cited_finding_passes_without_its_resource() -> None:

@@ -211,9 +211,11 @@ credentials, or the question.
 how to try the command by hand with a written fake transcript or the example helper.
 
 `tests/acceptance/test_installed_ask.py` runs the installed command outside the checkout,
-through the `archdiscov` script and `python -m archdiscov`, with an offline guard that fails
-any network use and an environment without credentials. It answers the five README example
-questions in both output forms, refuses a missing configuration, an unknown snapshot, a
+through the `archdiscov` script, with an offline guard that fails
+any network use and an environment without credentials. It ingests the README evaluation
+suite's case files and answers each case, including the five README example questions, in
+both output forms, inspects the cited evidence, and checks that a fabricated citation is
+rejected after the one repair. It refuses a missing configuration, an unknown snapshot, a
 Bedrock profile that cannot be loaded, an Anthropic or OpenAI-compatible configuration
 without its key, and an existing transcript path, and reports a scripted provider error and a run
 limit, each with the exit code above. It also answers a README question through the

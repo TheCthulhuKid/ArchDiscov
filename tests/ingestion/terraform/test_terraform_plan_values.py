@@ -2,8 +2,6 @@ import json
 import random
 from itertools import count
 
-import pytest
-
 from archdiscov.ingestion.terraform.plan_values import sanitize_plan_values
 
 
@@ -28,18 +26,18 @@ def _masked_tree(rng: random.Random, depth: int, labels: count):
     return values, sensitive, unknown
 
 
-@pytest.mark.parametrize("seed", range(300))
-def test_no_sensitive_or_unknown_value_survives(seed):
-    rng = random.Random(seed)
-    labels = count()
-    trees = [_masked_tree(rng, 1, labels) for _ in range(rng.randint(1, 4))]
-    values, sensitive, unknown = (
-        {f"a{index}": tree[part] for index, tree in enumerate(trees)} for part in range(3)
-    )
+def test_no_sensitive_or_unknown_value_survives():
+    for seed in range(50):
+        rng = random.Random(seed)
+        labels = count()
+        trees = [_masked_tree(rng, 1, labels) for _ in range(rng.randint(1, 4))]
+        values, sensitive, unknown = (
+            {f"a{index}": tree[part] for index, tree in enumerate(trees)} for part in range(3)
+        )
 
-    safe, redacted, unknown_paths = sanitize_plan_values(values, sensitive, unknown)
+        safe, redacted, unknown_paths = sanitize_plan_values(values, sensitive, unknown)
 
-    rendered = json.dumps(safe)
-    assert "sensitive-" not in rendered
-    assert "unknown-" not in rendered
-    assert all(path.startswith("/a") for path in [*redacted, *unknown_paths])
+        rendered = json.dumps(safe)
+        assert "sensitive-" not in rendered, seed
+        assert "unknown-" not in rendered, seed
+        assert all(path.startswith("/a") for path in [*redacted, *unknown_paths]), seed

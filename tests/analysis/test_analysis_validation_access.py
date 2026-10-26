@@ -11,7 +11,7 @@ from tests.paths import FIXTURES_ROOT
 FIXTURES = FIXTURES_ROOT
 
 
-def test_integrity_uses_owned_snapshot_without_public_copy_accessors(monkeypatch):
+def test_integrity_uses_owned_snapshot_without_copies_or_mutation(monkeypatch):
     snapshot = load_snapshot(FIXTURES / "snapshots" / "dependency-targets.json")
     data = json.loads((FIXTURES / "analysis" / "partial-path.json").read_text())
 
@@ -22,14 +22,9 @@ def test_integrity_uses_owned_snapshot_without_public_copy_accessors(monkeypatch
         monkeypatch.setattr(SnapshotAccess, name, copied_access)
     for name in ("scope", "evidence", "coverage"):
         monkeypatch.setattr(SnapshotAccess, name, property(copied_access))
-    validate_analysis_result(data, snapshot)
-
-
-def test_integrity_does_not_mutate_input_snapshot():
-    snapshot = load_snapshot(FIXTURES / "snapshots" / "dependency-targets.json")
-    data = json.loads((FIXTURES / "analysis" / "partial-path.json").read_text())
     before = snapshot.model_dump_json()
     result = validate_analysis_result(data, snapshot)
+    # The result is detached: changing it leaves the input snapshot as it was.
     result.findings[0].path[0].target.reason = "Changed detached result"
     assert snapshot.model_dump_json() == before
 

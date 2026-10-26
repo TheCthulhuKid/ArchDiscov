@@ -72,35 +72,35 @@ def _session(*, retrieve: bool) -> ToolSession:
     return session
 
 
-@pytest.mark.parametrize("retrieve", [False, True], ids=["nothing-retrieved", "retrieved"])
 @pytest.mark.parametrize("outcome", FAILURES, ids=_id)
-def test_every_failure_is_explained(outcome: AnswerOutcome, retrieve: bool) -> None:
-    session = _session(retrieve=retrieve)
-    rendered = render_failure(session, outcome)
+def test_every_failure_is_explained(outcome: AnswerOutcome) -> None:
+    rendered = render_failure(_session(retrieve=False), outcome)
     assert RenderedAnswer.model_validate_json(rendered.model_dump_json()) == rendered
     failure = rendered.failure
     assert failure.reason == outcome.failure
     assert rendered.status is None and rendered.narrative is None and not rendered.conclusions
     assert NOT_VALIDATED in failure.unverified
-    if retrieve:
-        assert RETRIEVED_NOT_ANSWER in failure.unverified
-        assert "The run retrieved 1 finding(s) from these analyzers: ownership." in (
-            failure.unverified
-        )
-        (conclusion,) = failure.retrieved
-        context = session.record.context()
-        assert conclusion.findings == tuple(item.view for item in context.views)
-    else:
-        assert failure.retrieved == ()
-        assert "The run retrieved no analyzer findings." in failure.unverified
-        assert RETRIEVED_NOT_ANSWER not in failure.unverified
+    assert failure.retrieved == ()
+    assert "The run retrieved no analyzer findings." in failure.unverified
+    assert RETRIEVED_NOT_ANSWER not in failure.unverified
+    # The repaired attempt may fail differently from the first, so neither is called a repeat.
+    assert not any(" again" in item for item in failure.unverified)
 
 
-@pytest.mark.parametrize("code", list(ProviderErrorCode))
-def test_provider_errors_are_stated_with_their_fixed_message(code: ProviderErrorCode) -> None:
-    outcome = AnswerOutcome(status="failed", failure="provider_error", provider_error=code)
-    first = render_failure(_session(retrieve=False), outcome).failure.unverified[0]
-    assert first == f"The provider failed ({code}): {PROVIDER_ERROR_MESSAGES[code]}"
+def test_a_failure_shows_what_the_run_retrieved_as_unverified() -> None:
+    session = _session(retrieve=True)
+    failure = render_failure(session, FAILURES[0]).failure
+    assert RETRIEVED_NOT_ANSWER in failure.unverified
+    assert "The run retrieved 1 finding(s) from these analyzers: ownership." in failure.unverified
+    (conclusion,) = failure.retrieved
+    assert conclusion.findings == tuple(item.view for item in session.record.context().views)
+
+
+def test_provider_errors_are_stated_with_their_fixed_message() -> None:
+    for code in ProviderErrorCode:
+        outcome = AnswerOutcome(status="failed", failure="provider_error", provider_error=code)
+        first = render_failure(_session(retrieve=False), outcome).failure.unverified[0]
+        assert first == f"The provider failed ({code}): {PROVIDER_ERROR_MESSAGES[code]}"
 
 
 def test_each_limit_and_malformed_reason_has_its_own_statement() -> None:
@@ -238,10 +238,3 @@ def test_a_snapshot_compared_with_itself_shows_its_findings_once() -> None:
     (conclusion,) = failure.retrieved
     assert conclusion.citations[0].side == "primary"
     assert not any("more retrieved" in item for item in failure.unverified)
-
-
-@pytest.mark.parametrize("outcome", FAILURES, ids=_id)
-def test_failures_never_claim_a_repeated_mistake(outcome: AnswerOutcome) -> None:
-    # The repaired attempt may fail differently from the first, so neither is called a repeat.
-    unverified = render_failure(_session(retrieve=False), outcome).failure.unverified
-    assert not any(" again" in item for item in unverified)

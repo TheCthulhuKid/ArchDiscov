@@ -91,7 +91,6 @@ def test_every_declaration_is_valid_for_step_34_providers() -> None:
 
 # ---- every tool: success, invalid input, unknown IDs, Azure ------------------------
 
-VPC_ID = "123456789012/eu-west-1/ec2/physical/vpc-example"
 UNKNOWN = "123456789012/eu-west-1/ec2/physical/missing"
 
 

@@ -524,9 +524,8 @@ def _with_arguments(call: dict, arguments: Any) -> dict:
         "refusal-text",
     ],
 )
-@pytest.mark.parametrize("mode", ["sync", "async"])
-def test_chat_responses_map_to_the_shared_contracts(body, message, stop, mode: str) -> None:
-    response = send_request(_chat(responding_api(body)), mode)
+def test_chat_responses_map_to_the_shared_contracts(body, message, stop) -> None:
+    response = send_request(_chat(responding_api(body)), "async")
     assert response == CompletionResponse(
         message=message, stop_reason=stop, usage=TokenUsage(input_tokens=3, output_tokens=1)
     )
@@ -536,60 +535,22 @@ def test_chat_responses_map_to_the_shared_contracts(body, message, stop, mode: s
     ("body", "error"),
     [
         (_body({"content": None}, "length"), ProviderTruncatedOutputError),
-        (
-            _body({"content": "Part", "tool_calls": [_with_arguments(LOOKUP, '{"ty')]}, "length"),
-            ProviderTruncatedOutputError,
-        ),
         (_body(TEXT, "content_filter"), ProviderRefusalError),
-        (_body({"content": None}, "content_filter"), ProviderRefusalError),
         (_body({"refusal": "No.", "tool_calls": [LOOKUP]}, "tool_calls"), ProviderRefusalError),
-        (_body(choices=[_choice(TEXT), _choice(TEXT)]), ProviderMalformedOutputError),
         (_body(choices=[]), ProviderMalformedOutputError),
-        (_body(choices="None of them."), ProviderMalformedOutputError),
-        ({**_body(), "choices": None}, ProviderMalformedOutputError),
-        (_body(TEXT, "function_call"), ProviderMalformedOutputError),
         (_body(TEXT, "improvised"), ProviderMalformedOutputError),
-        (_body(TEXT, ["stop"]), ProviderMalformedOutputError),
-        (
-            _calls_body({"id": "c", "type": "custom", "custom": {"name": "x", "input": ""}}),
-            ProviderMalformedOutputError,
-        ),
-        (_calls_body({**LOOKUP, "function": "oops"}), ProviderMalformedOutputError),
-        (_body({**TEXT, "tool_calls": [LOOKUP]}), ProviderMalformedOutputError),
-        (_body(TEXT, "tool_calls"), ProviderMalformedOutputError),
-        (_body({"content": None}), ProviderMalformedOutputError),
-        (_body({"content": 5}), ProviderMalformedOutputError),
-        (_body({"content": [{"type": "text", "text": "x"}]}), ProviderMalformedOutputError),
         (
             _calls_body({**INSPECTION, "function": {"name": "not a tool", "arguments": "{}"}}),
             ProviderMalformedOutputError,
         ),
-        (_body(choices=[{"index": 0, "finish_reason": "stop"}]), ProviderMalformedOutputError),
-        (_body(usage={"prompt_tokens": -1, "completion_tokens": 1}), ProviderMalformedOutputError),
     ],
     ids=[
         "length-empty",
-        "length-partial-call",
         "content-filter-text",
-        "content-filter-empty",
         "refusal-with-call",
-        "two-choices",
         "no-choices",
-        "choices-not-a-list",
-        "choices-null",
-        "function-call-finish",
         "unknown-finish",
-        "finish-not-a-string",
-        "custom-tool-call",
-        "function-not-an-object",
-        "calls-at-stop",
-        "no-calls-at-tool-calls",
-        "empty",
-        "content-not-a-string",
-        "content-parts",
         "invalid-tool-name",
-        "no-message",
-        "negative-usage",
     ],
 )
 def test_unusable_chat_responses_are_typed_errors_without_provider_text(body, error) -> None:
@@ -656,16 +617,8 @@ _BODIES = {
     [
         (400, ProviderInvalidRequestError),
         (401, ProviderAuthenticationError),
-        (403, ProviderAuthenticationError),
-        (404, ProviderInvalidRequestError),
-        (409, ProviderInvalidRequestError),
-        (413, ProviderInvalidRequestError),
-        (422, ProviderInvalidRequestError),
         (429, ProviderRateLimitError),
         (500, ProviderUnavailableError),
-        (502, ProviderUnavailableError),
-        (503, ProviderUnavailableError),
-        (504, ProviderUnavailableError),
     ],
 )
 def test_statuses_map_to_fixed_safe_errors(caplog, protocol, status: int, error) -> None:

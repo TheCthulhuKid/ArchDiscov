@@ -53,19 +53,18 @@ def test_unknown_code_uses_generic_safe_fallback() -> None:
     )
 
 
-@pytest.mark.parametrize("code", SAFE_VALIDATION_MESSAGES)
-def test_all_registered_codes_ignore_even_conflicting_private_details(code: str) -> None:
-    private = validation_error(code, SECRET)
-    assert isinstance(private, PydanticCustomError)
-    assert private.type == code
-    assert str(private) == SECRET
-    error = ValidationError.from_exception_data(
-        "PrivateValidation", [{"type": private, "loc": (), "input": {"password": SECRET}}]
-    ).errors(include_url=False)[0]
-    assert error["ctx"] == {"detail": SECRET}
-    assert error["input"] == {"password": SECRET}
-    assert _safe_validation_message(error) == SAFE_VALIDATION_MESSAGES[code]
-    assert _safe_validation_message({"type": code}) == SAFE_VALIDATION_MESSAGES[code]
+def test_all_registered_codes_ignore_even_conflicting_private_details() -> None:
+    for code, safe in SAFE_VALIDATION_MESSAGES.items():
+        private = validation_error(code, SECRET)
+        assert isinstance(private, PydanticCustomError)
+        assert private.type == code
+        assert str(private) == SECRET
+        error = ValidationError.from_exception_data(
+            "PrivateValidation", [{"type": private, "loc": (), "input": {"password": SECRET}}]
+        ).errors(include_url=False)[0]
+        assert error["ctx"] == {"detail": SECRET}
+        assert _safe_validation_message(error) == safe
+        assert _safe_validation_message({"type": code}) == safe
 
 
 def test_unregistered_validator_code_is_rejected() -> None:

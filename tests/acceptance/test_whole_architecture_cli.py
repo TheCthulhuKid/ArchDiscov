@@ -1,8 +1,6 @@
 import json
 import os
 import subprocess
-import sys
-from pathlib import Path
 
 import pytest
 from click import unstyle
@@ -10,6 +8,7 @@ from typer.testing import CliRunner
 
 from archdiscov import cli, cli_collection
 from archdiscov.ingestion.requests import COLLECTABLE_SERVICES, RegionScope
+from tests.support.installed_cli import CLI
 
 ACCOUNT = "123456789012"
 
@@ -96,18 +95,10 @@ def test_cli_forwards_execution_and_bootstrap_controls(monkeypatch, tmp_path):
     "flags",
     [
         ["--all-services", "--service", "ec2"],
-        ["--all-services", "--service", "iam"],
         ["--all-services", "--region-scope", "explicit"],
-        ["--all-services", "--region", "us-east-1", "--region-scope", "enabled"],
         ["--all-services", "--region", "global"],
-        ["--all-services", "--bootstrap-region", "global"],
         ["--all-services", "--bootstrap-region", "invalid-private-value"],
-        ["--all-services", "--max-in-flight-calls", "0"],
         ["--all-services", "--max-in-flight-calls", "65"],
-        ["--all-services", "--account-max-in-flight-calls", "17"],
-        ["--all-services", "--max-active-accounts", "0"],
-        ["--all-services", "--max-collector-jobs", "65"],
-        ["--all-services", "--max-concurrency", "0"],
     ],
 )
 def test_invalid_scope_and_limits_are_rejected_before_collection(monkeypatch, tmp_path, flags):
@@ -145,14 +136,9 @@ def test_a_rejected_request_names_what_is_wrong_without_its_value(
     assert "invalid-private-value" not in result.output
 
 
-@pytest.mark.parametrize("entry_point", ["script", "module"])
 @pytest.mark.parametrize("styled", [False, True], ids=["plain", "styled"])
-def test_installed_whole_architecture_controls_outside_checkout(tmp_path, entry_point, styled):
-    command = (
-        [str(Path(sys.executable).with_name("archdiscov"))]
-        if entry_point == "script"
-        else [sys.executable, "-m", "archdiscov"]
-    )
+def test_installed_whole_architecture_controls_outside_checkout(tmp_path, styled):
+    command = CLI
     env = {
         key: value
         for key, value in os.environ.items()

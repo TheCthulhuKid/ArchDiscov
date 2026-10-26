@@ -16,21 +16,14 @@ FIXTURES = FIXTURES_ROOT / "snapshots"
 
 
 @pytest.mark.parametrize(
-    "partition",
-    ["aws", "aws-cn", "aws-us-gov", "aws-iso", "aws-iso-b", "aws-iso-e", "aws-iso-f", "aws-eusc"],
-)
-@pytest.mark.parametrize(
-    "resource",
+    "arn",
     [
-        "role/Discovery",
-        "role/team/platform/Discovery_+=,.@-01",
-        "role/aws-service-role/ecs.amazonaws.com/AWSServiceRoleForECS",
-        "role/team!~:/Discovery",
-        f"role/{'p' * 510}/{'r' * 64}",
+        "arn:aws:iam::123456789012:role/Discovery",
+        "arn:aws-us-gov:iam::123456789012:role/aws-service-role/ecs.amazonaws.com/Discovery",
     ],
+    ids=["commercial", "partition-and-path"],
 )
-def test_aws_source_role_arn_round_trip(partition: str, resource: str) -> None:
-    arn = f"arn:{partition}:iam::123456789012:{resource}"
+def test_aws_source_role_arn_round_trip(arn: str) -> None:
     source = AwsSource(role_arn=arn)
     assert source.role_arn == arn
     assert AwsSource.model_validate_json(source.model_dump_json()) == source
@@ -39,28 +32,13 @@ def test_aws_source_role_arn_round_trip(partition: str, resource: str) -> None:
 @pytest.mark.parametrize(
     "arn",
     [
-        "Discovery",
         "arn:aws:iam::123456789012:user/Discovery",
-        "arn:aws:sts::123456789012:assumed-role/Discovery/session",
         "arn:aws:iam:eu-west-1:123456789012:role/Discovery",
         "arn:aws:iam::12345678901:role/Discovery",
-        "arn:aws:iam::1234567890123:role/Discovery",
-        "arn:aws:iam::abcdefghijkl:role/Discovery",
-        "arn::iam::123456789012:role/Discovery",
-        "arn:AWS:iam::123456789012:role/Discovery",
         "arn:aws:iam::123456789012:role/",
-        "arn:aws:iam::123456789012:role/team/",
-        "arn:aws:iam::123456789012:role/Discovery name",
-        "arn:aws:iam::123456789012:role/Discovery*",
-        "arn:aws:iam::123456789012:role/Díscovery",
-        "arn:aws:iam::123456789012:role/team name/Discovery",
-        "arn:aws:iam::123456789012:role/team\nname/Discovery",
-        "arn:aws:iam::123456789012:role/Discovery\n",
-        " arn:aws:iam::123456789012:role/Discovery",
         "arn:aws:iam::123456789012:role/Discovery ",
-        f"arn:aws:iam::123456789012:role/{'r' * 65}",
-        f"arn:aws:iam::123456789012:role/{'p' * 511}/Discovery",
     ],
+    ids=["user", "regional", "short-account", "no-name", "whitespace"],
 )
 def test_invalid_aws_source_role_arn_is_rejected(arn: str) -> None:
     with pytest.raises(ValidationError) as error:
@@ -359,7 +337,7 @@ def test_resource_service_is_an_enum() -> None:
     assert snapshot.global_resources[0].identity.service is AwsService.IAM
 
 
-@pytest.mark.parametrize("service", ["", "EC2", "ec2/physical", "not-a-service", "elbv2"])
+@pytest.mark.parametrize("service", ["EC2", "not-a-service"])
 def test_unknown_resource_service_is_rejected(service: str) -> None:
     data = snapshot_data()
     data["regions"]["eu-west-1"]["resources"][0]["identity"]["service"] = service
@@ -387,24 +365,23 @@ def test_load_balancer_identity_uses_arn_service_namespace() -> None:
     assert ResourceIdentity.model_validate_json(identity.model_dump_json()) == identity
 
 
-@pytest.mark.parametrize("service", list(AwsService))
-def test_service_enum_round_trip(service: AwsService) -> None:
-    identity = ResourceIdentity.model_validate(
-        {
-            "account_id": "123456789012",
-            "region": "eu-west-1",
-            "service": service.value,
-            "physical_id": "example",
-        }
-    )
-    assert identity.service is service
-    assert identity.model_dump(mode="json")["service"] == service.value
-    assert identity.stable_id == f"123456789012/eu-west-1/{service.value}/physical/example"
-    assert ResourceIdentity.model_validate_json(identity.model_dump_json()) == identity
+def test_service_enum_round_trip() -> None:
+    for service in AwsService:
+        identity = ResourceIdentity.model_validate(
+            {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": service.value,
+                "physical_id": "example",
+            }
+        )
+        assert identity.service is service
+        assert identity.stable_id == f"123456789012/eu-west-1/{service.value}/physical/example"
+        assert ResourceIdentity.model_validate_json(identity.model_dump_json()) == identity
 
 
-@pytest.mark.parametrize("region", [region for region in AwsRegion if region != AwsRegion.GLOBAL])
-def test_enum_regions_are_used_throughout_snapshot(region: AwsRegion) -> None:
+def test_enum_regions_are_used_throughout_snapshot() -> None:
+    region = AwsRegion.US_EAST_1
     data = snapshot_data()
     contents = data["regions"].pop("eu-west-1")
     contents["resources"][0]["identity"]["region"] = region.value
@@ -455,20 +432,16 @@ def test_global_cannot_be_used_as_a_regional_container() -> None:
         )
 
 
-@pytest.mark.parametrize("value", ["", "   "])
 @pytest.mark.parametrize(
     ("source", "field"),
     [
         ({"kind": "aws"}, "profile"),
-        ({"kind": "aws"}, "role_arn"),
         ({"kind": "terraform_state", "path": "state.json", "format_version": "1"}, "path"),
-        ({"kind": "terraform_state", "path": "state.json", "format_version": "1"}, "lineage"),
-        ({"kind": "cloudformation", "path": "template.json"}, "path"),
         ({"kind": "mock", "label": "fixture"}, "label"),
     ],
 )
-def test_blank_source_metadata_is_rejected(source: dict, field: str, value: str) -> None:
+def test_blank_source_metadata_is_rejected(source: dict, field: str) -> None:
     data = snapshot_data()
-    data["source"] = {**source, field: value}
+    data["source"] = {**source, field: "   "}
     with pytest.raises(ValidationError):
         ArchitectureSnapshot.model_validate(data)

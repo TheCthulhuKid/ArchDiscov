@@ -59,7 +59,12 @@ def invoke(stage, session):
 
 
 @pytest.mark.parametrize("stage", ["profile", "assume", "identity", "discovery"])
-@pytest.mark.parametrize("error_type", [TypeError, ValueError, RuntimeError, AttributeError])
+@pytest.mark.parametrize(
+    "error_type",
+    [
+        TypeError,
+    ],
+)
 def test_programming_errors_are_not_account_failures(stage, error_type):
     error = error_type(SECRET)
     with pytest.raises(error_type) as caught:

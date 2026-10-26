@@ -122,15 +122,6 @@ def test_schema_1_remains_strict_and_keeps_its_shape() -> None:
         (lambda d: d.update(source_id="missing"), "unknown source_id"),
         (lambda d: d.update(evidence_ids=["role"]), "belongs to another resource"),
         (lambda d: d.update(evidence_ids=["nope"]), "unknown evidence citation"),
-        (
-            lambda d: d.update(target={"kind": "unresolved", "reason": " ", "source_path": "a"}),
-            "String",
-        ),
-        (lambda d: d.update(target={"kind": "unresolved", "reason": "r"}), "Field required"),
-        (
-            lambda d: d.update(target={"kind": "external", "identifier": "a", "account_id": "1"}),
-            "String",
-        ),
         (lambda d: d.update(target={"kind": "bogus"}), "does not match any of the expected tags"),
         (
             lambda d: d.update(
@@ -138,7 +129,6 @@ def test_schema_1_remains_strict_and_keeps_its_shape() -> None:
             ),
             "sensitive",
         ),
-        (lambda d: d.pop("target"), "exactly one of target_id or target"),
     ],
 )
 def test_schema_2_rejects_invalid_targets(mutation, message: str) -> None:

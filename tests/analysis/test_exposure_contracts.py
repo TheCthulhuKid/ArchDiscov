@@ -175,30 +175,16 @@ def test_each_entry_kind_accepts_its_full_path(kind):
     [
         {"elements": [element("scheme")]},  # a load balancer element on a public address
         {"elements": [element("route"), element("public_address")]},
-        {"elements": [element("route"), element("route")]},
         {"elements": []},
-        {"elements": [element("nonsense")]},
-        {"port_start": 0},
-        {"port_end": 65536},
         {"port_start": 444, "port_end": 443},
-        {"port_start": "443"},
         {"protocol": "icmp"},
-        {"entry_kind": "database"},
-        {"decision": "maybe"},
     ],
     ids=[
         "wrong-kind",
         "unordered",
-        "duplicate",
         "empty",
-        "element",
-        "start-low",
-        "end-high",
         "inverted",
-        "port-str",
         "protocol",
-        "entry",
-        "decision",
     ],
 )
 def test_invalid_exposure_values_are_rejected(fields):

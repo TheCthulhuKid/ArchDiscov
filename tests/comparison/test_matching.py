@@ -46,11 +46,7 @@ def test_equal_physical_identities_match_and_the_rest_are_unmatched_on_their_sid
     assert unmatched_left == [rid("vpc-2")]
     assert unmatched_right == [rid("vpc-3")]
     assert ambiguous == []
-
-
-def test_matching_is_symmetric_apart_from_the_side_labels():
-    left = index([aws_resource(physical="vpc-1"), aws_resource(physical="vpc-2")])
-    right = index([aws_resource(physical="vpc-1"), aws_resource(physical="vpc-3")])
+    # Matching is symmetric apart from the side labels.
     forward, backward = match_resources(left, right), match_resources(right, left)
     assert [(m.right_id, m.left_id) for m in forward.matched] == [
         (m.left_id, m.right_id) for m in backward.matched

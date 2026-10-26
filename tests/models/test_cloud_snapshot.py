@@ -53,50 +53,66 @@ def modern_data():
     ).model_dump(mode="json")
 
 
-@pytest.mark.parametrize(
-    "defect,diagnostic",
-    [
-        ("scope", "account must match"),
-        ("platform", "source platform"),
-        ("placement", "location must match"),
-        ("duplicate", "duplicate resource"),
-        ("pointer", "fact pointer"),
-        ("citation", "unknown evidence citation"),
-        ("owner", "belongs to another resource"),
-        ("coverage", "coverage scope"),
-        ("window", "must not precede"),
-        ("lifecycle", "lifecycle requires"),
-        ("endpoint", "unknown target_id"),
-    ],
-)
-def test_schema3_integrity_rejects_isolated_defects(defect, diagnostic):
+def _root(data: dict) -> dict:
+    return data["regions"]["eu-west-1"]["resources"][0]
+
+
+def _other_account(data: dict) -> None:
+    data["scope"]["account_id"] = data["coverage"]["scope"]["account_id"] = "999999999999"
+
+
+def _other_region(data: dict) -> None:
+    data["regions"]["eu-west-2"] = data["regions"].pop("eu-west-1")
+    data["coverage"]["locations"].append("eu-west-2")
+
+
+def _evidence_of_another_resource(data: dict) -> None:
+    next(iter(data["evidence"].values()))["resource_id"] = data["scope_resources"][0]["id"]
+
+
+DEFECTS = {
+    "scope": (_other_account, "account must match"),
+    "platform": (lambda data: data["source"].update(platform="azure"), "source platform"),
+    "placement": (_other_region, "location must match"),
+    "duplicate": (
+        lambda data: data["regions"]["eu-west-1"]["resources"].append(deepcopy(_root(data))),
+        "duplicate resource",
+    ),
+    "pointer": (
+        lambda data: _root(data)["fact_evidence"].update(
+            {"/missing": [next(iter(data["evidence"]))]}
+        ),
+        "fact pointer",
+    ),
+    "citation": (
+        lambda data: _root(data).update(evidence_ids=["missing"]),
+        "unknown evidence citation",
+    ),
+    "owner": (_evidence_of_another_resource, "belongs to another resource"),
+    "coverage": (
+        lambda data: data["coverage"]["scope"].update(account_id="999999999999"),
+        "coverage scope",
+    ),
+    "window": (
+        lambda data: data.update(collection_completed_at="2020-01-01T00:00:00Z"),
+        "must not precede",
+    ),
+    "lifecycle": (
+        lambda data: _root(data).update(lifecycle={"actions": ["create"]}),
+        "lifecycle requires",
+    ),
+    "endpoint": (
+        lambda data: data["dependencies"][0]["target"].update(resource_id="missing"),
+        "unknown target_id",
+    ),
+}
+
+
+@pytest.mark.parametrize("defect", DEFECTS)
+def test_schema3_integrity_rejects_isolated_defects(defect):
     data = modern_data()
-    root = data["regions"]["eu-west-1"]["resources"][0]
-    if defect == "scope":
-        data["scope"]["account_id"] = "999999999999"
-        data["coverage"]["scope"]["account_id"] = "999999999999"
-    elif defect == "platform":
-        data["source"]["platform"] = "azure"
-    elif defect == "placement":
-        data["regions"]["eu-west-2"] = data["regions"].pop("eu-west-1")
-        data["coverage"]["locations"].append("eu-west-2")
-    elif defect == "duplicate":
-        data["regions"]["eu-west-1"]["resources"].append(deepcopy(root))
-    elif defect == "pointer":
-        root["fact_evidence"]["/missing"] = [next(iter(data["evidence"]))]
-    elif defect == "citation":
-        root["evidence_ids"] = ["missing"]
-    elif defect == "owner":
-        evidence = next(iter(data["evidence"].values()))
-        evidence["resource_id"] = data["scope_resources"][0]["id"]
-    elif defect == "coverage":
-        data["coverage"]["scope"]["account_id"] = "999999999999"
-    elif defect == "window":
-        data["collection_completed_at"] = "2020-01-01T00:00:00Z"
-    elif defect == "lifecycle":
-        root["lifecycle"] = {"actions": ["create"]}
-    elif defect == "endpoint":
-        data["dependencies"][0]["target"]["resource_id"] = "missing"
+    corrupt, diagnostic = DEFECTS[defect]
+    corrupt(data)
     with pytest.raises(ValidationError, match=diagnostic):
         CloudSnapshot.model_validate(data)
 

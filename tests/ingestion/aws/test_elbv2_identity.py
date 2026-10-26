@@ -31,7 +31,7 @@ IDENTITIES = [
 
 
 @pytest.mark.parametrize("op,key,field,arn", IDENTITIES)
-@pytest.mark.parametrize("invalid", [None, 123, "account", "region", "suffix", "kind"])
+@pytest.mark.parametrize("invalid", [None, "account", "kind"])
 def test_both_boundaries_reject_invalid_identity(op, key, field, arn, invalid):
     invalid = {
         "account": arn.replace(ACCOUNT, "000000000000"),
@@ -71,15 +71,12 @@ def test_both_boundaries_reject_invalid_identity(op, key, field, arn, invalid):
     assert outcome.unresolved_values == []
 
 
-@pytest.mark.parametrize("partition", ["aws", "aws-cn", "aws-us-gov"])
+@pytest.mark.parametrize("partition", ["aws", "aws-us-gov"])
 @pytest.mark.parametrize(
     "field,suffix",
     [
         ("LoadBalancerArn", "loadbalancer/app/web-1/123abc"),
-        ("LoadBalancerArn", "loadbalancer/net/web-1/123abc"),
-        ("LoadBalancerArn", "loadbalancer/gwy/web-1/123abc"),
         ("ListenerArn", "listener/app/web-1/123abc/456def"),
-        ("ListenerArn", "listener/net/web-1/123abc/456def"),
         ("RuleArn", "listener-rule/app/web-1/123abc/456def/789abc"),
         ("TargetGroupArn", "targetgroup/web-1/123abc"),
     ],

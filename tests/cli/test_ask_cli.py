@@ -164,23 +164,27 @@ def test_a_comparison_and_a_transcript_are_reported(tmp_path: Path) -> None:
     PRE_RUN_ERRORS,
     ids=lambda value: getattr(value, "__name__", str(value)).strip("_"),
 )
-@pytest.mark.parametrize("as_json", [False, True], ids=["readable", "json"])
 def test_errors_before_the_run_are_safe_diagnostics(
-    tmp_path: Path, case, code: int, error: str, as_json: bool
+    tmp_path: Path, case, code: int, error: str
 ) -> None:
     config, extra, overrides = case(tmp_path)
-    result = _run(config, *extra, *(["--json"] if as_json else []), **overrides)
+    result = _run(config, *extra, "--json", **overrides)
     assert result.exit_code == code
-    if as_json:
-        diagnostic = json.loads(result.stdout)["error"]
-        assert diagnostic["code"] == error and result.stderr == ""
-        if "--comparison-result" in extra:
-            # A saved comparison's failure names that file, not the snapshot.
-            assert diagnostic["path"] == str(extra[-1])
-    else:
-        assert result.stdout == ""
-        assert result.stderr.startswith(f"Error [{error}]: ")
+    diagnostic = json.loads(result.stdout)["error"]
+    assert diagnostic["code"] == error and result.stderr == ""
+    if "--comparison-result" in extra:
+        # A saved comparison's failure names that file, not the snapshot.
+        assert diagnostic["path"] == str(extra[-1])
     assert "Traceback" not in result.output
+
+
+def test_errors_before_the_run_are_readable_on_stderr(tmp_path: Path) -> None:
+    case, code, error = PRE_RUN_ERRORS[0]
+    config, extra, overrides = case(tmp_path)
+    result = _run(config, *extra, **overrides)
+    assert result.exit_code == code
+    assert result.stdout == ""
+    assert result.stderr.startswith(f"Error [{error}]: ")
 
 
 @pytest.mark.parametrize(

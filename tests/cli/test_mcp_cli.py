@@ -23,7 +23,7 @@ from archdiscov.assistant.questions import README_QUESTIONS
 from archdiscov.cli import app
 from archdiscov.services import mcp as mcp_service
 from tests.support.evaluation_suites import README_SUITE
-from tests.support.installed_cli import cli_command
+from tests.support.installed_cli import CLI
 from tests.support.mcp_clients import readme_example
 
 runner = CliRunner()
@@ -120,7 +120,7 @@ def test_an_interrupt_exits_130(monkeypatch) -> None:
 
 
 def _command(*options: object) -> list[str]:
-    return [*cli_command("module"), "mcp", "--snapshot", str(SNAPSHOT), *map(str, options)]
+    return [*CLI, "mcp", "--snapshot", str(SNAPSHOT), *map(str, options)]
 
 
 def test_a_stdio_client_lists_prompts_and_answers_a_readme_example(tmp_path: Path) -> None:

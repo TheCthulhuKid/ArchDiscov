@@ -1,7 +1,6 @@
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -21,6 +20,7 @@ from archdiscov.services import (
     validate_snapshot,
 )
 from tests.paths import FIXTURES_ROOT
+from tests.support.installed_cli import CLI
 
 FIXTURES = FIXTURES_ROOT / "snapshots"
 runner = CliRunner()
@@ -236,21 +236,14 @@ def test_aws_explicit_schema3_upgrade_save_load_and_ingest(tmp_path: Path) -> No
     assert evidence.evidence.service == "ec2"
 
 
-@pytest.mark.parametrize("entry_point", ["script", "module"])
-def test_installed_azure_workflow_outside_checkout_without_credentials(
-    tmp_path: Path, entry_point: str
-) -> None:
+def test_installed_azure_workflow_outside_checkout_without_credentials(tmp_path: Path) -> None:
     env = {
         key: value
         for key, value in os.environ.items()
         if not key.startswith(("AWS_", "AZURE_", "ARM_")) and key != "PYTHONPATH"
     }
     env["AWS_EC2_METADATA_DISABLED"] = "true"
-    command = (
-        [str(Path(sys.executable).with_name("archdiscov"))]
-        if entry_point == "script"
-        else [sys.executable, "-m", "archdiscov"]
-    )
+    command = CLI
     output = tmp_path / "azure.json"
     imported = subprocess.run(
         [*command, "ingest", str(FIXTURES / "azure.json"), "-o", str(output), "--json"],

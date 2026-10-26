@@ -246,21 +246,3 @@ def snapshot_data(*, services: tuple[str, ...] = SERVICES, statuses: dict | None
 
 def variant(**options) -> dict:
     return deepcopy(snapshot_data(**options))
-
-
-def schema_one_data(**options) -> dict:
-    """The same snapshot as schema 1, whose dependencies can only be local `target_id`s."""
-    data = variant(**options)
-    data["schema_version"] = "1"
-    edges = []
-    for edge in data["dependencies_by_region"][REGION]:
-        if edge["target"]["kind"] != "local":
-            continue
-        edges.append(
-            {
-                **{k: v for k, v in edge.items() if k != "target"},
-                "target_id": edge["target"]["resource_id"],
-            }
-        )
-    data["dependencies_by_region"][REGION] = edges
-    return data

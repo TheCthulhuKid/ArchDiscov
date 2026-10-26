@@ -1,4 +1,3 @@
-import copy
 import functools
 import json
 import operator
@@ -73,74 +72,63 @@ def test_offline_fixture_has_typed_hierarchy_and_explicit_facts(azure_data: dict
     assert CloudSnapshot.model_validate_json(snapshot.model_dump_json()) == snapshot
 
 
-@pytest.mark.parametrize(
-    ("defect", "diagnostic"),
-    [
-        ("resource_scope", "subscription/tenant must match"),
-        ("resource_location", "location must match enclosing location"),
-        ("duplicate", "duplicate resource"),
-        ("citation_owner", "belongs to another resource"),
-        ("missing_citation", "unknown evidence"),
-        ("absent_fact", "missing key"),
-        ("dangling_endpoint", "unknown target_id"),
-        ("dependency_owner", "belongs to another resource"),
-        ("arm_type", "type must match"),
-        ("typed_native_type", "native_type must match"),
-        ("evidence_scope", "evidence context must match"),
-        ("evidence_location", "evidence context must match"),
-        ("evidence_service", "evidence context must match"),
-        ("evidence_snapshot", "snapshot_id"),
-        ("operation_scope", "scope must match"),
-        ("coverage_scope", "scope must match"),
-        ("unresolved_owner", "unknown unresolved resource"),
-    ],
-)
-def test_isolated_azure_integrity_defects(azure_data: dict, defect: str, diagnostic: str) -> None:
-    network, _, vm = resources(azure_data)
-    if defect == "resource_scope":
-        vm["identity"]["subscription_id"] = OTHER_SUBSCRIPTION
-        vm["identity"]["physical_id"] = vm["identity"]["physical_id"].replace(
-            azure_data["scope"]["subscription_id"], OTHER_SUBSCRIPTION
-        )
-    elif defect == "resource_location":
-        vm["identity"]["location"] = "westus"
-    elif defect == "duplicate":
-        azure_data["regions"]["eastus"]["resources"].append(copy.deepcopy(network))
-    elif defect == "citation_owner":
-        vm["fact_evidence"]["/vm_size"] = ["network-address"]
-    elif defect == "missing_citation":
-        vm["evidence_ids"].append("absent")
-    elif defect == "absent_fact":
-        vm["fact_evidence"]["/attributes/unavailable"] = ["vm-unavailable"]
-    elif defect == "dangling_endpoint":
-        azure_data["dependencies"][0]["target"]["resource_id"] = "absent"
-    elif defect == "dependency_owner":
-        azure_data["dependencies"][0]["evidence_ids"] = ["subnet-prefix"]
-    elif defect == "arm_type":
-        vm["identity"]["physical_id"] = vm["identity"]["physical_id"].replace(
-            "/virtualMachines/", "/disks/"
-        )
-    elif defect == "typed_native_type":
-        vm["identity"]["native_type"] = "Microsoft.Compute/disks"
-        vm["identity"]["physical_id"] = vm["identity"]["physical_id"].replace(
-            "/virtualMachines/", "/disks/"
-        )
-    elif defect == "evidence_scope":
-        azure_data["evidence"]["vm-size"]["scope"]["subscription_id"] = OTHER_SUBSCRIPTION
-    elif defect == "evidence_location":
-        azure_data["evidence"]["vm-size"]["location"] = "westus"
-    elif defect == "evidence_service":
-        azure_data["evidence"]["vm-size"]["service"] = "Microsoft.Network"
-    elif defect == "evidence_snapshot":
-        azure_data["evidence"]["vm-size"]["snapshot_id"] = OTHER_SUBSCRIPTION
-    elif defect == "operation_scope":
-        azure_data["coverage"]["operations"][0]["scope"]["subscription_id"] = OTHER_SUBSCRIPTION
-    elif defect == "coverage_scope":
-        azure_data["coverage"]["scope"]["subscription_id"] = OTHER_SUBSCRIPTION
-        for operation in azure_data["coverage"]["operations"]:
-            operation["scope"]["subscription_id"] = OTHER_SUBSCRIPTION
-    else:
-        azure_data["coverage"]["operations"][1]["unresolved_values"][0]["resource_id"] = "absent"
+def _vm_identity(data: dict) -> dict:
+    return resources(data)[2]["identity"]
+
+
+def _vm_in_other_subscription(data: dict) -> None:
+    identity = _vm_identity(data)
+    identity["subscription_id"] = OTHER_SUBSCRIPTION
+    identity["physical_id"] = identity["physical_id"].replace(
+        data["scope"]["subscription_id"], OTHER_SUBSCRIPTION
+    )
+
+
+def _vm_with_disk_arm(data: dict, *, native_type: bool = False) -> None:
+    identity = _vm_identity(data)
+    identity["physical_id"] = identity["physical_id"].replace("/virtualMachines/", "/disks/")
+    if native_type:
+        identity["native_type"] = "Microsoft.Compute/disks"
+
+
+# Azure-specific integrity defects; the shared checks (duplicates, citations, endpoints) are
+# covered for schema 3 in `test_cloud_snapshot.py`.
+AZURE_DEFECTS = {
+    "resource_scope": (_vm_in_other_subscription, "subscription/tenant must match"),
+    "resource_location": (
+        lambda data: _vm_identity(data).update(location="westus"),
+        "location must match enclosing location",
+    ),
+    "arm_type": (_vm_with_disk_arm, "type must match"),
+    "typed_native_type": (
+        lambda data: _vm_with_disk_arm(data, native_type=True),
+        "native_type must match",
+    ),
+    "evidence_scope": (
+        lambda data: data["evidence"]["vm-size"]["scope"].update(
+            subscription_id=OTHER_SUBSCRIPTION
+        ),
+        "evidence context must match",
+    ),
+    "operation_scope": (
+        lambda data: data["coverage"]["operations"][0]["scope"].update(
+            subscription_id=OTHER_SUBSCRIPTION
+        ),
+        "scope must match",
+    ),
+    "unresolved_owner": (
+        lambda data: data["coverage"]["operations"][1]["unresolved_values"][0].update(
+            resource_id="absent"
+        ),
+        "unknown unresolved resource",
+    ),
+}
+
+
+@pytest.mark.parametrize("defect", AZURE_DEFECTS)
+def test_isolated_azure_integrity_defects(azure_data: dict, defect: str) -> None:
+    corrupt, diagnostic = AZURE_DEFECTS[defect]
+    corrupt(azure_data)
     with pytest.raises(SnapshotValidationError) as error:
         validate_snapshot(azure_data)
     assert error.value.code == "invalid_snapshot"

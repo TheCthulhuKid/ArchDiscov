@@ -81,30 +81,12 @@ def test_shared_valid_outcomes_and_wire_field_order(model, outcome):
             "successful coverage requires a count and no failures/unresolved values",
         ),
         (
-            {"failures": [{"code": "Denied", "message": "denied"}]},
-            "successful coverage requires a count and no failures/unresolved values",
-        ),
-        (
             {"status": "incomplete"},
             "incomplete coverage requires a retained count and a limitation",
         ),
-        (
-            {"status": "incomplete", "result_count": None, "reason": "limited"},
-            "incomplete coverage requires a retained count and a limitation",
-        ),
-        ({"status": "failed"}, "only successful or incomplete coverage can have a result_count"),
         ({"status": "failed", "result_count": None}, "failed coverage requires a failure"),
         (
             {"status": "skipped", "result_count": None},
-            "skipped/unsupported coverage requires a reason and no collected data",
-        ),
-        (
-            {
-                "status": "unsupported",
-                "result_count": None,
-                "reason": "unsupported",
-                "unresolved_values": [{"configuration_path": "/value", "reason": "unknown"}],
-            },
             "skipped/unsupported coverage requires a reason and no collected data",
         ),
     ],

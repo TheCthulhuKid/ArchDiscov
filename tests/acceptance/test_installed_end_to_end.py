@@ -1,7 +1,7 @@
 """One credential-free, network-free journey through the installed CLI, outside the checkout.
 
 fixture -> ingest -> queries -> each analyzer -> saved results -> findings -> evidence ->
-comparisons -> comparison display, through both entry points, checking JSON and readable
+comparisons -> comparison display, through the installed script, checking JSON and readable
 output at each stage. The child sees no credentials and no checkout: its whole `PYTHONPATH` is
 the offline guard, which fails and records any network use.
 """
@@ -25,11 +25,11 @@ from archdiscov.services import (
 from tests.paths import FIXTURES_ROOT, PROJECT_ROOT
 from tests.support.audit_scenarios import SCENARIOS
 from tests.support.comparison_data import journey_snapshot
-from tests.support.installed_cli import ENTRY_POINTS, Workspace, digest
+from tests.support.installed_cli import Workspace, digest
 from tests.support.offline_guard import OfflineGuard
 from tests.support.security_group_data import IDS
 
-# The journey runs both entry points once per module: keep it on one xdist worker.
+# The journey's tests share installed-CLI work: keep them on one xdist worker.
 pytestmark = pytest.mark.xdist_group("installed-journey")
 
 CONTEXT = ("--account-id", "123456789012", "--region", "eu-west-1")
@@ -37,9 +37,9 @@ OPTIONS = {"resource_id": "--resource-id", "port": "--port", "max_depth": "--max
 GROUP = IDS["sg-app"]
 
 
-def journey(entry_point: str, root: Path) -> dict:
-    """Run the whole journey; return the identifiers that must not depend on the entry point."""
-    ws = Workspace(entry_point, root)
+def journey(root: Path) -> dict:
+    """Run the whole journey; return the snapshots, findings, and comparisons it produced."""
+    ws = Workspace(root)
     summary: dict = {"snapshots": {}, "findings": {}, "comparisons": {}}
 
     # -- fixtures: generated AWS snapshots, and the raw IaC inputs copied out of the checkout
@@ -196,24 +196,11 @@ def journey(entry_point: str, root: Path) -> dict:
     return summary
 
 
-@pytest.fixture(scope="module")
-def summaries(tmp_path_factory):
-    return {
-        entry_point: journey(entry_point, tmp_path_factory.mktemp(entry_point))
-        for entry_point in ENTRY_POINTS
-    }
-
-
-@pytest.mark.parametrize("entry_point", ENTRY_POINTS)
-def test_the_journey_runs_through_every_stage(summaries, entry_point):
-    summary = summaries[entry_point]
+def test_the_journey_runs_through_every_stage(tmp_path):
+    summary = journey(tmp_path)
     assert set(summary["findings"]) == {kind.value for kind in AnalyzerKind}
     assert set(summary["comparisons"]) == {"pair", "plan", "template"}
     assert summary["comparisons"]["pair"]["matched"]
-
-
-def test_identifiers_do_not_depend_on_the_entry_point(summaries):
-    assert summaries["script"] == summaries["module"]
 
 
 def test_the_offline_guard_blocks_network_use(tmp_path):

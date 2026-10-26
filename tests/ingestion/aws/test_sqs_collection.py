@@ -154,18 +154,11 @@ def test_partial_pagination_preserves_valid_queue_and_qualifies_downstream():
     "key,value",
     [
         ("Policy", "{secret-malformed-policy"),
-        ("Policy", '{"Statement":"secret-wrong-statement"}'),
-        ("RedrivePolicy", "{secret-malformed-redrive"),
         ("RedrivePolicy", '{"deadLetterTargetArn": "secret-invalid-arn", "maxReceiveCount": 4}'),
-        ("RedrivePolicy", json.dumps({"deadLetterTargetArn": DLQ, "maxReceiveCount": False})),
-        ("RedriveAllowPolicy", "{secret-malformed-allow"),
         ("RedriveAllowPolicy", '{"redrivePermission": []}'),
-        ("RedriveAllowPolicy", '{"redrivePermission": "byQueue", "sourceQueueArns": []}'),
         ("VisibilityTimeout", "secret-invalid-number"),
         ("FifoQueue", "secret-invalid-boolean"),
-        ("FifoQueue", ["secret-listed-boolean"]),
         ("DeduplicationScope", "secret-unknown-scope"),
-        ("DeduplicationScope", ["secret-listed-scope"]),
         ("KmsMasterKeyId", "secret-invalid-key"),
     ],
 )

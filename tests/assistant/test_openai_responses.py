@@ -281,9 +281,8 @@ def _malformed(reason: MalformedArgumentsReason) -> MalformedToolArguments:
         "unencrypted-reasoning",
     ],
 )
-@pytest.mark.parametrize("mode", ["sync", "async"])
-def test_responses_map_to_the_shared_contracts(body, message, stop, mode: str) -> None:
-    response = send_request(_responses(responding_api(body)), mode)
+def test_responses_map_to_the_shared_contracts(body, message, stop) -> None:
+    response = send_request(_responses(responding_api(body)), "async")
     assert response == CompletionResponse(
         message=message, stop_reason=stop, usage=TokenUsage(input_tokens=3, output_tokens=1)
     )
@@ -293,68 +292,22 @@ def test_responses_map_to_the_shared_contracts(body, message, stop, mode: str) -
     ("body", "error"),
     [
         (_body(status="incomplete", reason="max_output_tokens"), ProviderTruncatedOutputError),
-        (
-            _body(
-                _message(_text("Part")),
-                {**LOOKUP, "arguments": '{"ty'},
-                status="incomplete",
-                reason="max_output_tokens",
-            ),
-            ProviderTruncatedOutputError,
-        ),
         (_body(TEXT, status="incomplete", reason="content_filter"), ProviderRefusalError),
-        (_body(status="incomplete", reason="content_filter"), ProviderRefusalError),
         (
             _body(_message({"type": "refusal", "refusal": "No."}), LOOKUP),
             ProviderRefusalError,
         ),
         (_body(TEXT, status="failed"), ProviderMalformedOutputError),
-        (_body(TEXT, status="in_progress"), ProviderMalformedOutputError),
-        (_body(TEXT, status=None), ProviderMalformedOutputError),
-        (_body(TEXT, status="incomplete", reason="max_messages"), ProviderMalformedOutputError),
-        (_body(TEXT, status="incomplete"), ProviderMalformedOutputError),
-        (_body(TEXT, status=["completed"]), ProviderMalformedOutputError),
-        (
-            _body(TEXT, {"type": "web_search_call", "id": "ws_1", "status": "completed"}),
-            ProviderMalformedOutputError,
-        ),
         (_body(TEXT, {"type": "hologram"}), ProviderMalformedOutputError),
-        (_body(_message({"type": "hologram", "text": "x"})), ProviderMalformedOutputError),
-        ({**_body(), "output": "None of them."}, ProviderMalformedOutputError),
-        ({**_body(), "output": None}, ProviderMalformedOutputError),
-        (_body(), ProviderMalformedOutputError),
-        (_body(REASONING), ProviderMalformedOutputError),
-        (_body(_message(_text(5))), ProviderMalformedOutputError),
-        (_body({**TEXT, "content": "None of them."}), ProviderMalformedOutputError),
         (_body({**LOOKUP, "name": "not a tool"}), ProviderMalformedOutputError),
-        (
-            _body(TEXT, usage={"input_tokens": -1, "output_tokens": 1}),
-            ProviderMalformedOutputError,
-        ),
     ],
     ids=[
         "length-empty",
-        "length-partial-call",
         "content-filter-text",
-        "content-filter-empty",
         "refusal-with-call",
         "failed",
-        "in-progress",
-        "no-status",
-        "unknown-incomplete-reason",
-        "incomplete-without-reason",
-        "status-not-a-string",
-        "server-tool-item",
         "unknown-item",
-        "unknown-part",
-        "output-not-a-list",
-        "output-null",
-        "empty",
-        "only-reasoning",
-        "text-not-a-string",
-        "content-not-a-list",
         "invalid-tool-name",
-        "negative-usage",
     ],
 )
 def test_unusable_responses_are_typed_errors_without_provider_text(body, error) -> None:

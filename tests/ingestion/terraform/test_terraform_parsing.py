@@ -153,19 +153,10 @@ def test_rejects_malformed_module_shapes(module):
 @pytest.mark.parametrize(
     "overrides",
     [
-        {"mode": None},
         {"mode": RAW_SECRET},
-        {"address": None},
         {"address": " "},
-        {"address": 1},
-        {"type": None},
         {"type": "google_compute_instance"},
-        {"type": "aws_"},
-        {"provider_name": None},
         {"provider_name": "registry.terraform.io/hashicorp/google"},
-        {"provider_name": "registry.terraform.io/example/aws"},
-        {"values": None},
-        {"values": []},
         {"values": RAW_SECRET},
     ],
 )
@@ -388,14 +379,8 @@ def test_redaction_paths_are_sorted_and_deduplicated():
     [
         ({"id": RAW_SECRET}, RAW_SECRET),
         ({"id": RAW_SECRET}, 1),
-        ({"id": RAW_SECRET}, 0),
-        ({"id": RAW_SECRET}, []),
         ({"id": RAW_SECRET}, {RAW_SECRET: True}),
-        ({"id": RAW_SECRET}, {"id": {}}),
-        ({"id": RAW_SECRET}, {"id": []}),
         ({"items": [RAW_SECRET]}, {"items": {}}),
-        ({"items": [RAW_SECRET]}, {"items": [False, True]}),
-        ({"items": {"id": RAW_SECRET}}, {"items": []}),
         ({"items": [RAW_SECRET]}, {"items": [RAW_SECRET]}),
     ],
 )

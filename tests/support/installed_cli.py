@@ -13,17 +13,12 @@ from tests.support.ask_examples import write_provider_config
 from tests.support.evaluation_suites import SUITE
 from tests.support.offline_guard import OfflineGuard
 
-ENTRY_POINTS = ["script", "module"]
-
-
-def cli_command(entry_point: str) -> list[str]:
-    if entry_point == "script":
-        return [str(Path(sys.executable).with_name("archdiscov"))]
-    return [sys.executable, "-m", "archdiscov"]
+# The installed console script. `tests/acceptance/test_package.py` checks that
+# `python -m archdiscov` starts too; journeys run through the script alone.
+CLI = [str(Path(sys.executable).with_name("archdiscov"))]
 
 
 def run_installed(
-    entry_point: str,
     cwd: Path,
     *arguments: str,
     expect: int = 0,
@@ -38,7 +33,7 @@ def run_installed(
         env = os.environ.copy()
         env.pop("PYTHONPATH", None)
     result = subprocess.run(
-        [*cli_command(entry_point), *arguments],
+        [*CLI, *arguments],
         cwd=cwd,
         env=env,
         capture_output=True,
@@ -50,11 +45,9 @@ def run_installed(
     return result
 
 
-def run_installed_json(
-    entry_point: str, cwd: Path, *arguments: str, expect: int = 0, timeout: int = 60
-) -> Any:
+def run_installed_json(cwd: Path, *arguments: str, expect: int = 0, timeout: int = 60) -> Any:
     """Run a command that prints JSON; assert its exit code and a traceback-free stderr."""
-    result = run_installed(entry_point, cwd, *arguments, expect=expect, timeout=timeout)
+    result = run_installed(cwd, *arguments, expect=expect, timeout=timeout)
     return json.loads(result.stdout)
 
 
@@ -65,8 +58,7 @@ def digest(path: Path) -> str:
 class Workspace:
     """A directory outside the checkout and an installed CLI that cannot reach the network."""
 
-    def __init__(self, entry_point: str, root: Path) -> None:
-        self.entry_point = entry_point
+    def __init__(self, root: Path) -> None:
         self.root = root
         self.guard = OfflineGuard(root)
         for name in ("fixtures", "snapshots", "results", "comparisons"):
@@ -77,7 +69,6 @@ class Workspace:
 
     def run(self, *arguments: object, expect: int = 0):
         return run_installed(
-            self.entry_point,
             self.root,
             *map(str, arguments),
             expect=expect,

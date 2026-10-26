@@ -2,13 +2,13 @@
 
 `EXPECTED` is computed from `RunOutcome`, `RunLimitKind`, `MalformedOutputReason`,
 `ProviderErrorCode`, and the answer stop reasons, so a new outcome, limit, reason, or code
-fails `test_every_outcome_is_covered` until a case is added below. Each case runs through
-every provider harness, so the same turns pass through each adapter's mapping layer to the
-same run; a case marked `fake_only` describes behaviour only the fake can script.
+fails `test_every_outcome_is_covered` until a case is added below. Each case also runs
+through every provider harness, so the same turns pass through each adapter's mapping layer
+to the same run; because they do, the per-outcome checks run on the fake alone. A case
+marked `fake_only` describes behaviour only the fake can script.
 """
 
 import asyncio
-import json
 from typing import get_args
 
 import pytest
@@ -146,28 +146,17 @@ def test_every_outcome_is_covered() -> None:
 @pytest.mark.parametrize(
     "identity", sorted(_expected()), ids=lambda item: "-".join(filter(None, item))
 )
-def test_each_outcome_is_reached_exactly(identity: tuple[str, str], harness) -> None:
-    result = _result(identity, harness)
+def test_each_outcome_is_reached_exactly_without_leaking_a_secret(
+    identity: tuple[str, str],
+) -> None:
+    result = _result(identity)
     assert _identity(result) == identity
     transcript = result.transcript
     assert RunTranscript.model_validate_json(transcript.model_dump_json()) == transcript
     assert _identity(result.model_copy(update={"outcome": transcript.outcome})) == identity
     assert len(transcript.turns) <= transcript.limits.max_provider_requests + 1
     assert result.returned == result.returned.model_validate_json(result.returned.model_dump_json())
-
-
-@pytest.mark.parametrize(
-    "identity", sorted(_expected()), ids=lambda item: "-".join(filter(None, item))
-)
-def test_no_transcript_leaks_a_secret(identity: tuple[str, str], harness) -> None:
-    transcript = _result(identity, harness).transcript
-    rendered = [
-        transcript.model_dump_json(),
-        repr(transcript),
-        json.dumps(transcript.model_dump(mode="json")),
-    ]
-    for text in rendered:
-        assert SECRET not in text
+    for text in (transcript.model_dump_json(), repr(transcript)):
         assert SECRET[:20] not in text
 
 

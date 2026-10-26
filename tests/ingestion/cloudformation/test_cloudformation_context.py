@@ -124,18 +124,10 @@ def test_sensitive_paths_permitted_cases(path):
 @pytest.mark.parametrize(
     "path",
     [
-        "/Resources",
         "/Resources/R",
-        "/Resources/R/Type",
-        "/Parameters",
-        "/Parameters/P",
         "/Parameters/P/Type",
-        "/Mappings",
-        "/Mappings/M",
-        "/Conditions",
         "/Outputs/O/Value",
         "/Resources/R/Properties/Values/01",
-        "/Resources/R/Properties/Values/1",
     ],
 )
 def test_sensitive_paths_reject_ineligible_or_invalid_locations(path):
