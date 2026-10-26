@@ -4,7 +4,7 @@ Links between stored resources are recorded as dependencies. A field keeps an id
 when a decision compares it, such as a NAT gateway's subnet or a peering side's owner account.
 """
 
-from ipaddress import IPv4Address
+from ipaddress import IPv4Address, IPv6Address
 from typing import Literal, Self
 
 from pydantic import Field, IPvAnyNetwork, model_validator
@@ -46,6 +46,12 @@ class SecurityGroupRule(Model):
     referenced_account_id: str | None = Field(default=None, pattern=_ACCOUNT_ID)
     prefix_list_id: str | None = None
 
+    @model_validator(mode="after")
+    def validate_single_source(self) -> Self:
+        if self.cidr is not None and self.prefix_list_id is not None:
+            raise ValueError("a rule names a CIDR or a prefix list, not both")
+        return self
+
 
 class NaclEntry(Model):
     rule_number: int
@@ -84,10 +90,14 @@ class SecurityGroup(Resource):
 
 
 class NetworkInterface(Resource):
+    omitted_when_absent = Resource.omitted_when_absent | {"ipv6_addresses"}
     resource_type: Literal[ResourceType.NETWORK_INTERFACE] = ResourceType.NETWORK_INTERFACE
     private_ip_addresses: list[PrivateIpAddress] = Field(default_factory=list)
     public_ip: str | None = None
     mac_address: str | None = None
+    # None when not recorded. AWS assigns globally routable addresses, so whether one is
+    # public follows from the address itself.
+    ipv6_addresses: list[IPv6Address] | None = None
 
 
 class NatGateway(Resource):

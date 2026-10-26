@@ -90,10 +90,30 @@ class Subnet(Resource):
 
 
 class Vpc(Resource):
-    """VPC-specific attributes; containment is inherited from Resource."""
+    """VPC-specific attributes; containment is inherited from Resource.
+
+    `cidr_blocks` holds both address families, as subnets, routes, and rules do.
+    """
 
     resource_type: Literal[ResourceType.VPC] = ResourceType.VPC
     cidr_blocks: list[IPvAnyNetwork] | None = None
+
+    @model_validator(mode="after")
+    def validate_subnet_ipv6_blocks(self) -> Self:
+        blocks = [block for block in self.cidr_blocks or [] if block.version == 6]
+        if not blocks:
+            return self
+        outside = [
+            (child.id, block)
+            for child in self.children
+            if isinstance(child, Subnet)
+            for block in child.cidr_blocks or []
+            if block.version == 6 and not any(block.subnet_of(vpc) for vpc in blocks)
+        ]
+        if outside:
+            subnet_id, block = outside[0]
+            raise ValueError(f"subnet {subnet_id!r}: IPv6 CIDR {block} is outside its VPC's")
+        return self
 
 
 # A named alias is built once as a shared schema definition; an inline union is rebuilt
