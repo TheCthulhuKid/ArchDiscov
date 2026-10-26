@@ -278,6 +278,16 @@ class RouteReach(StrEnum):
     INTERNET_GATEWAY = "internet_gateway"
 
 
+class NatConnectivity(StrEnum):
+    PUBLIC = "public"
+    PRIVATE = "private"
+
+
+class TransitGatewayRouteType(StrEnum):
+    STATIC = "static"
+    PROPAGATED = "propagated"
+
+
 class RuleDirection(StrEnum):
     INGRESS = "ingress"
     EGRESS = "egress"

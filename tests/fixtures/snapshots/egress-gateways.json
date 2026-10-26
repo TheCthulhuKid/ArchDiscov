@@ -1,0 +1,159 @@
+{
+  "schema_version": "2",
+  "snapshot_id": "00000000-0000-4000-8000-000000000049",
+  "account_id": "123456789012",
+  "collection_started_at": "2026-10-26T08:00:00Z",
+  "collection_completed_at": "2026-10-26T08:01:00Z",
+  "source": {
+    "kind": "mock",
+    "label": "egress-gateways"
+  },
+  "coverage": {
+    "regions": [
+      "eu-west-1"
+    ],
+    "account_wide": false
+  },
+  "regions": {
+    "eu-west-1": {
+      "resources": [
+        {
+          "identity": {
+            "account_id": "123456789012",
+            "region": "eu-west-1",
+            "service": "ec2",
+            "physical_id": "vpc-egress"
+          },
+          "resource_type": "AWS::EC2::VPC",
+          "cidr_blocks": [
+            "10.1.0.0/16"
+          ],
+          "children": [
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "subnet-public"
+              },
+              "resource_type": "AWS::EC2::Subnet",
+              "availability_zone": "eu-west-1a",
+              "cidr_blocks": [
+                "10.1.0.0/24"
+              ],
+              "children": [
+                {
+                  "identity": {
+                    "account_id": "123456789012",
+                    "region": "eu-west-1",
+                    "service": "ec2",
+                    "physical_id": "nat-public"
+                  },
+                  "resource_type": "AWS::EC2::NatGateway",
+                  "state": "available",
+                  "connectivity": "public",
+                  "vpc_id": "vpc-egress",
+                  "subnet_id": "subnet-public",
+                  "network_interface_id": "eni-nat",
+                  "public_ips": [
+                    "198.51.100.20"
+                  ],
+                  "evidence_ids": [
+                    "nat"
+                  ],
+                  "fact_evidence": {
+                    "/state": [
+                      "nat"
+                    ],
+                    "/connectivity": [
+                      "nat"
+                    ],
+                    "/subnet_id": [
+                      "nat"
+                    ],
+                    "/network_interface_id": [
+                      "nat-address"
+                    ],
+                    "/public_ips/0": [
+                      "nat-address"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "identity": {
+            "account_id": "123456789012",
+            "region": "eu-west-1",
+            "service": "ec2",
+            "physical_id": "eigw-main"
+          },
+          "resource_type": "AWS::EC2::EgressOnlyInternetGateway",
+          "vpc_id": "vpc-egress",
+          "evidence_ids": [
+            "eigw"
+          ],
+          "fact_evidence": {
+            "/vpc_id": [
+              "eigw-attachment"
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "dependencies_by_region": {},
+  "evidence": {
+    "nat": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000049",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/nat-public",
+      "source": "mock",
+      "locator": "egress-gateways.json",
+      "configuration_path": "NatGateways[0]",
+      "value": {
+        "NatGatewayId": "nat-public",
+        "State": "available",
+        "ConnectivityType": "public",
+        "VpcId": "vpc-egress",
+        "SubnetId": "subnet-public"
+      }
+    },
+    "nat-address": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000049",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/nat-public",
+      "source": "mock",
+      "locator": "egress-gateways.json",
+      "configuration_path": "NatGateways[0].NatGatewayAddresses[0]",
+      "value": {
+        "AllocationId": "eipalloc-nat",
+        "NetworkInterfaceId": "eni-nat",
+        "PrivateIp": "10.1.0.10",
+        "PublicIp": "198.51.100.20",
+        "IsPrimary": true
+      }
+    },
+    "eigw": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000049",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/eigw-main",
+      "source": "mock",
+      "locator": "egress-gateways.json",
+      "configuration_path": "EgressOnlyInternetGateways[0]",
+      "value": {
+        "EgressOnlyInternetGatewayId": "eigw-main"
+      }
+    },
+    "eigw-attachment": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000049",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/eigw-main",
+      "source": "mock",
+      "locator": "egress-gateways.json",
+      "configuration_path": "EgressOnlyInternetGateways[0].Attachments[0]",
+      "value": {
+        "State": "attached",
+        "VpcId": "vpc-egress"
+      }
+    }
+  }
+}

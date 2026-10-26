@@ -40,11 +40,17 @@ from .resources.functions import LambdaFunction
 from .resources.iam import IamInstanceProfile, IamManagedPolicy, IamRole
 from .resources.load_balancing import Listener, ListenerRule, LoadBalancer, TargetGroup
 from .resources.network import (
+    EgressOnlyInternetGateway,
     InternetGateway,
+    NatGateway,
     NetworkAcl,
     NetworkInterface,
     RouteTable,
     SecurityGroup,
+    TransitGateway,
+    TransitGatewayAttachment,
+    TransitGatewayRouteTable,
+    VpcPeeringConnection,
 )
 from .resources.queues import SqsQueue
 from .sanitization import is_sensitive_path, sanitize_value
@@ -56,6 +62,7 @@ from .snapshot_integrity import (
     validate_collection_window,
     validate_evidence,
     validate_resource_facts,
+    validate_transit_gateway_links,
     validate_unresolved_resources,
 )
 
@@ -96,6 +103,12 @@ SupportedResource = Annotated[
     | NetworkAcl
     | SecurityGroup
     | NetworkInterface
+    | NatGateway
+    | EgressOnlyInternetGateway
+    | VpcPeeringConnection
+    | TransitGateway
+    | TransitGatewayAttachment
+    | TransitGatewayRouteTable
     | IamRole
     | IamInstanceProfile
     | IamManagedPolicy
@@ -132,6 +145,12 @@ for resource_model in (
     NetworkAcl,
     SecurityGroup,
     NetworkInterface,
+    NatGateway,
+    EgressOnlyInternetGateway,
+    VpcPeeringConnection,
+    TransitGateway,
+    TransitGatewayAttachment,
+    TransitGatewayRouteTable,
     IamRole,
     IamInstanceProfile,
     IamManagedPolicy,
@@ -452,6 +471,7 @@ class ArchitectureSnapshot(AccountArchitecture):
         validate_evidence(self.snapshot_id, resources, self.evidence)
         validate_resource_facts(resources, self.evidence)
         validate_unresolved_resources(self.coverage.operations, resources)
+        validate_transit_gateway_links(resources)
         for resource in resources.values():
             if resource.lifecycle is not None and not (
                 self.schema_version == "2" and self.source.kind == SnapshotSourceKind.TERRAFORM_PLAN

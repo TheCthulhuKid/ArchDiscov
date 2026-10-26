@@ -1,0 +1,135 @@
+{
+  "schema_version": "2",
+  "snapshot_id": "00000000-0000-4000-8000-00000000004a",
+  "account_id": "123456789012",
+  "collection_started_at": "2026-10-26T08:00:00Z",
+  "collection_completed_at": "2026-10-26T08:01:00Z",
+  "source": {
+    "kind": "mock",
+    "label": "vpc-peering"
+  },
+  "coverage": {
+    "regions": [
+      "eu-west-1"
+    ],
+    "account_wide": false
+  },
+  "regions": {
+    "eu-west-1": {
+      "resources": [
+        {
+          "identity": {
+            "account_id": "123456789012",
+            "region": "eu-west-1",
+            "service": "ec2",
+            "physical_id": "vpc-app"
+          },
+          "resource_type": "AWS::EC2::VPC",
+          "cidr_blocks": [
+            "10.2.0.0/16"
+          ]
+        },
+        {
+          "identity": {
+            "account_id": "123456789012",
+            "region": "eu-west-1",
+            "service": "ec2",
+            "physical_id": "vpc-data"
+          },
+          "resource_type": "AWS::EC2::VPC",
+          "cidr_blocks": [
+            "10.3.0.0/16"
+          ]
+        },
+        {
+          "identity": {
+            "account_id": "123456789012",
+            "region": "eu-west-1",
+            "service": "ec2",
+            "physical_id": "pcx-app-data"
+          },
+          "resource_type": "AWS::EC2::VPCPeeringConnection",
+          "state": "active",
+          "requester": {
+            "vpc_id": "vpc-app",
+            "owner_id": "123456789012",
+            "cidr_blocks": [
+              "10.2.0.0/16"
+            ]
+          },
+          "accepter": {
+            "vpc_id": "vpc-data",
+            "owner_id": "123456789012",
+            "cidr_blocks": [
+              "10.3.0.0/16"
+            ]
+          },
+          "evidence_ids": [
+            "pcx"
+          ],
+          "fact_evidence": {
+            "/state": [
+              "pcx-status"
+            ],
+            "/requester": [
+              "pcx-requester"
+            ],
+            "/accepter": [
+              "pcx-accepter"
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "dependencies_by_region": {},
+  "evidence": {
+    "pcx": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004a",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/pcx-app-data",
+      "source": "mock",
+      "locator": "vpc-peering.json",
+      "configuration_path": "VpcPeeringConnections[0]",
+      "value": {
+        "VpcPeeringConnectionId": "pcx-app-data"
+      }
+    },
+    "pcx-status": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004a",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/pcx-app-data",
+      "source": "mock",
+      "locator": "vpc-peering.json",
+      "configuration_path": "VpcPeeringConnections[0].Status",
+      "value": {
+        "Code": "active",
+        "Message": "Active"
+      }
+    },
+    "pcx-requester": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004a",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/pcx-app-data",
+      "source": "mock",
+      "locator": "vpc-peering.json",
+      "configuration_path": "VpcPeeringConnections[0].RequesterVpcInfo",
+      "value": {
+        "VpcId": "vpc-app",
+        "OwnerId": "123456789012",
+        "CidrBlock": "10.2.0.0/16",
+        "Region": "eu-west-1"
+      }
+    },
+    "pcx-accepter": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004a",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/pcx-app-data",
+      "source": "mock",
+      "locator": "vpc-peering.json",
+      "configuration_path": "VpcPeeringConnections[0].AccepterVpcInfo",
+      "value": {
+        "VpcId": "vpc-data",
+        "OwnerId": "123456789012",
+        "CidrBlock": "10.3.0.0/16",
+        "Region": "eu-west-1"
+      }
+    }
+  }
+}

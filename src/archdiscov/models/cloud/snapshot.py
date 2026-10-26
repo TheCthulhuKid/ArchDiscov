@@ -14,6 +14,7 @@ from ..snapshot_integrity import (
     validate_collection_window,
     validate_evidence,
     validate_resource_facts,
+    validate_transit_gateway_links,
     validate_unresolved_resources,
 )
 from ..validation_errors import validation_error
@@ -54,6 +55,7 @@ class CloudSnapshot(Model):
         validate_evidence(self.snapshot_id, resources, self.evidence)
         validate_resource_facts(resources, self.evidence)
         validate_unresolved_resources(self.coverage.operations, resources)
+        validate_transit_gateway_links(resources)
         for record in self.evidence.values():
             self._validate_evidence_scope(record, resources[record.resource_id])
         self._validate_lifecycles(resources)

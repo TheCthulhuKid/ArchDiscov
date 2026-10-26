@@ -1,0 +1,389 @@
+{
+  "schema_version": "2",
+  "snapshot_id": "00000000-0000-4000-8000-00000000004b",
+  "account_id": "123456789012",
+  "collection_started_at": "2026-10-26T08:00:00Z",
+  "collection_completed_at": "2026-10-26T08:01:00Z",
+  "source": {
+    "kind": "mock",
+    "label": "transit-gateway"
+  },
+  "coverage": {
+    "regions": [
+      "eu-west-1"
+    ],
+    "account_wide": false
+  },
+  "regions": {
+    "eu-west-1": {
+      "resources": [
+        {
+          "identity": {
+            "account_id": "123456789012",
+            "region": "eu-west-1",
+            "service": "ec2",
+            "physical_id": "vpc-app"
+          },
+          "resource_type": "AWS::EC2::VPC",
+          "cidr_blocks": [
+            "10.2.0.0/16"
+          ]
+        },
+        {
+          "identity": {
+            "account_id": "123456789012",
+            "region": "eu-west-1",
+            "service": "ec2",
+            "physical_id": "vpc-data"
+          },
+          "resource_type": "AWS::EC2::VPC",
+          "cidr_blocks": [
+            "10.3.0.0/16"
+          ]
+        },
+        {
+          "identity": {
+            "account_id": "123456789012",
+            "region": "eu-west-1",
+            "service": "ec2",
+            "physical_id": "tgw-main"
+          },
+          "resource_type": "AWS::EC2::TransitGateway",
+          "state": "available",
+          "owner_id": "123456789012",
+          "association_default_route_table_id": "tgw-rtb-main",
+          "propagation_default_route_table_id": "tgw-rtb-main",
+          "evidence_ids": [
+            "tgw"
+          ],
+          "fact_evidence": {
+            "/state": [
+              "tgw"
+            ],
+            "/owner_id": [
+              "tgw"
+            ],
+            "/association_default_route_table_id": [
+              "tgw-options"
+            ],
+            "/propagation_default_route_table_id": [
+              "tgw-options"
+            ]
+          }
+        },
+        {
+          "identity": {
+            "account_id": "123456789012",
+            "region": "eu-west-1",
+            "service": "ec2",
+            "physical_id": "tgw-attach-app"
+          },
+          "resource_type": "AWS::EC2::TransitGatewayAttachment",
+          "state": "available",
+          "transit_gateway_id": "tgw-main",
+          "attached_resource_type": "vpc",
+          "attached_resource_id": "vpc-app",
+          "attached_resource_owner_id": "123456789012",
+          "evidence_ids": [
+            "tgw-attach-app"
+          ],
+          "fact_evidence": {
+            "/state": [
+              "tgw-attach-app"
+            ],
+            "/transit_gateway_id": [
+              "tgw-attach-app"
+            ],
+            "/attached_resource_type": [
+              "tgw-attach-app"
+            ],
+            "/attached_resource_id": [
+              "tgw-attach-app"
+            ],
+            "/attached_resource_owner_id": [
+              "tgw-attach-app"
+            ],
+            "/association_state": [
+              "tgw-attach-app-association"
+            ],
+            "/associated_route_table_id": [
+              "tgw-attach-app-association"
+            ]
+          },
+          "association_state": "associated",
+          "associated_route_table_id": "tgw-rtb-main"
+        },
+        {
+          "identity": {
+            "account_id": "123456789012",
+            "region": "eu-west-1",
+            "service": "ec2",
+            "physical_id": "tgw-attach-data"
+          },
+          "resource_type": "AWS::EC2::TransitGatewayAttachment",
+          "state": "available",
+          "transit_gateway_id": "tgw-main",
+          "attached_resource_type": "vpc",
+          "attached_resource_id": "vpc-data",
+          "attached_resource_owner_id": "123456789012",
+          "evidence_ids": [
+            "tgw-attach-data"
+          ],
+          "fact_evidence": {
+            "/state": [
+              "tgw-attach-data"
+            ],
+            "/transit_gateway_id": [
+              "tgw-attach-data"
+            ],
+            "/attached_resource_type": [
+              "tgw-attach-data"
+            ],
+            "/attached_resource_id": [
+              "tgw-attach-data"
+            ],
+            "/attached_resource_owner_id": [
+              "tgw-attach-data"
+            ]
+          }
+        },
+        {
+          "identity": {
+            "account_id": "123456789012",
+            "region": "eu-west-1",
+            "service": "ec2",
+            "physical_id": "tgw-rtb-main"
+          },
+          "resource_type": "AWS::EC2::TransitGatewayRouteTable",
+          "state": "available",
+          "transit_gateway_id": "tgw-main",
+          "associations": [
+            {
+              "attachment_id": "tgw-attach-app",
+              "state": "associated"
+            }
+          ],
+          "propagations": [
+            {
+              "attachment_id": "tgw-attach-data",
+              "state": "enabled"
+            }
+          ],
+          "routes": [
+            {
+              "destination": "10.2.0.0/16",
+              "attachment_ids": [
+                "tgw-attach-app"
+              ],
+              "route_type": "static",
+              "state": "active"
+            },
+            {
+              "destination": "10.3.0.0/16",
+              "attachment_ids": [
+                "tgw-attach-data"
+              ],
+              "route_type": "propagated",
+              "state": "active"
+            },
+            {
+              "destination": "192.168.0.0/16",
+              "attachment_ids": [],
+              "route_type": "static",
+              "state": "blackhole"
+            }
+          ],
+          "routes_complete": true,
+          "evidence_ids": [
+            "tgw-rtb"
+          ],
+          "fact_evidence": {
+            "/transit_gateway_id": [
+              "tgw-rtb"
+            ],
+            "/associations/0": [
+              "tgw-rtb-association"
+            ],
+            "/propagations/0": [
+              "tgw-rtb-propagation"
+            ],
+            "/routes_complete": [
+              "tgw-rtb-search"
+            ],
+            "/routes/0": [
+              "tgw-rtb-route-0"
+            ],
+            "/routes/1": [
+              "tgw-rtb-route-1"
+            ],
+            "/routes/2": [
+              "tgw-rtb-route-2"
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "dependencies_by_region": {},
+  "evidence": {
+    "tgw": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004b",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/tgw-main",
+      "source": "mock",
+      "locator": "transit-gateway.json",
+      "configuration_path": "TransitGateways[0]",
+      "value": {
+        "TransitGatewayId": "tgw-main",
+        "State": "available",
+        "OwnerId": "123456789012"
+      }
+    },
+    "tgw-options": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004b",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/tgw-main",
+      "source": "mock",
+      "locator": "transit-gateway.json",
+      "configuration_path": "TransitGateways[0].Options",
+      "value": {
+        "AssociationDefaultRouteTableId": "tgw-rtb-main",
+        "PropagationDefaultRouteTableId": "tgw-rtb-main"
+      }
+    },
+    "tgw-rtb": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004b",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/tgw-rtb-main",
+      "source": "mock",
+      "locator": "transit-gateway.json",
+      "configuration_path": "TransitGatewayRouteTables[0]",
+      "value": {
+        "TransitGatewayRouteTableId": "tgw-rtb-main",
+        "TransitGatewayId": "tgw-main",
+        "State": "available"
+      }
+    },
+    "tgw-rtb-association": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004b",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/tgw-rtb-main",
+      "source": "mock",
+      "locator": "transit-gateway.json",
+      "configuration_path": "TransitGatewayRouteTableAssociations[0]",
+      "value": {
+        "TransitGatewayAttachmentId": "tgw-attach-app",
+        "ResourceId": "vpc-app",
+        "ResourceType": "vpc",
+        "State": "associated"
+      }
+    },
+    "tgw-rtb-propagation": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004b",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/tgw-rtb-main",
+      "source": "mock",
+      "locator": "transit-gateway.json",
+      "configuration_path": "TransitGatewayRouteTablePropagations[0]",
+      "value": {
+        "TransitGatewayAttachmentId": "tgw-attach-data",
+        "ResourceId": "vpc-data",
+        "ResourceType": "vpc",
+        "State": "enabled"
+      }
+    },
+    "tgw-rtb-search": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004b",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/tgw-rtb-main",
+      "source": "mock",
+      "locator": "transit-gateway.json",
+      "configuration_path": "AdditionalRoutesAvailable",
+      "value": false
+    },
+    "tgw-rtb-route-0": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004b",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/tgw-rtb-main",
+      "source": "mock",
+      "locator": "transit-gateway.json",
+      "configuration_path": "Routes[0]",
+      "value": {
+        "DestinationCidrBlock": "10.2.0.0/16",
+        "TransitGatewayAttachments": [
+          {
+            "TransitGatewayAttachmentId": "tgw-attach-app",
+            "ResourceType": "vpc"
+          }
+        ],
+        "Type": "static",
+        "State": "active"
+      }
+    },
+    "tgw-rtb-route-1": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004b",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/tgw-rtb-main",
+      "source": "mock",
+      "locator": "transit-gateway.json",
+      "configuration_path": "Routes[1]",
+      "value": {
+        "DestinationCidrBlock": "10.3.0.0/16",
+        "TransitGatewayAttachments": [
+          {
+            "TransitGatewayAttachmentId": "tgw-attach-data",
+            "ResourceType": "vpc"
+          }
+        ],
+        "Type": "propagated",
+        "State": "active"
+      }
+    },
+    "tgw-rtb-route-2": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004b",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/tgw-rtb-main",
+      "source": "mock",
+      "locator": "transit-gateway.json",
+      "configuration_path": "Routes[2]",
+      "value": {
+        "DestinationCidrBlock": "192.168.0.0/16",
+        "TransitGatewayAttachments": [],
+        "Type": "static",
+        "State": "blackhole"
+      }
+    },
+    "tgw-attach-app": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004b",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/tgw-attach-app",
+      "source": "mock",
+      "locator": "transit-gateway.json",
+      "configuration_path": "TransitGatewayAttachments[0]",
+      "value": {
+        "TransitGatewayAttachmentId": "tgw-attach-app",
+        "TransitGatewayId": "tgw-main",
+        "ResourceType": "vpc",
+        "ResourceId": "vpc-app",
+        "ResourceOwnerId": "123456789012",
+        "State": "available"
+      }
+    },
+    "tgw-attach-app-association": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004b",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/tgw-attach-app",
+      "source": "mock",
+      "locator": "transit-gateway.json",
+      "configuration_path": "TransitGatewayAttachments[0].Association",
+      "value": {
+        "TransitGatewayRouteTableId": "tgw-rtb-main",
+        "State": "associated"
+      }
+    },
+    "tgw-attach-data": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004b",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/tgw-attach-data",
+      "source": "mock",
+      "locator": "transit-gateway.json",
+      "configuration_path": "TransitGatewayAttachments[1]",
+      "value": {
+        "TransitGatewayAttachmentId": "tgw-attach-data",
+        "TransitGatewayId": "tgw-main",
+        "ResourceType": "vpc",
+        "ResourceId": "vpc-data",
+        "ResourceOwnerId": "123456789012",
+        "State": "available"
+      }
+    }
+  }
+}

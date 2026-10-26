@@ -1,13 +1,26 @@
-"""Typed network resources; relationships between them are dependencies, not fields."""
+"""Typed network resources.
 
-from typing import Literal
+Links between stored resources are recorded as dependencies. A field keeps an identifier only
+when a decision compares it, such as a NAT gateway's subnet or a peering side's owner account.
+"""
 
-from pydantic import Field, IPvAnyNetwork
+from ipaddress import IPv4Address
+from typing import Literal, Self
 
-from ..enums import NaclAction, ResourceType, RouteTargetKind, RuleDirection
+from pydantic import Field, IPvAnyNetwork, model_validator
+
+from ..enums import (
+    NaclAction,
+    NatConnectivity,
+    ResourceType,
+    RouteTargetKind,
+    RuleDirection,
+    TransitGatewayRouteType,
+)
 from ..resource_base import Model, NonEmptyString, Resource
 
 Port = Field(default=None, ge=-1, le=65535)  # -1 means all ports or ICMP types
+_ACCOUNT_ID = r"^[0-9]{12}$"
 
 
 class Route(Model):
@@ -25,7 +38,7 @@ class SecurityGroupRule(Model):
     to_port: int | None = Port
     cidr: IPvAnyNetwork | None = None
     referenced_group_id: str | None = None
-    referenced_account_id: str | None = Field(default=None, pattern=r"^[0-9]{12}$")
+    referenced_account_id: str | None = Field(default=None, pattern=_ACCOUNT_ID)
     prefix_list_id: str | None = None
 
 
@@ -70,3 +83,110 @@ class NetworkInterface(Resource):
     private_ip_addresses: list[PrivateIpAddress] = Field(default_factory=list)
     public_ip: str | None = None
     mac_address: str | None = None
+
+
+class NatGateway(Resource):
+    resource_type: Literal[ResourceType.NAT_GATEWAY] = ResourceType.NAT_GATEWAY
+    state: NonEmptyString | None = None  # as reported, for example "available"
+    connectivity: NatConnectivity | None = None
+    vpc_id: NonEmptyString | None = None
+    subnet_id: NonEmptyString | None = None
+    network_interface_id: NonEmptyString | None = None
+    public_ips: list[IPv4Address] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_public_addresses(self) -> Self:
+        if self.connectivity is NatConnectivity.PRIVATE and self.public_ips:
+            raise ValueError("a private NAT gateway has no public address")
+        if (
+            self.connectivity is NatConnectivity.PUBLIC
+            and self.state == "available"
+            and not self.public_ips
+        ):
+            raise ValueError("an available public NAT gateway has a public address")
+        return self
+
+
+class EgressOnlyInternetGateway(Resource):
+    resource_type: Literal[ResourceType.EGRESS_ONLY_INTERNET_GATEWAY] = (
+        ResourceType.EGRESS_ONLY_INTERNET_GATEWAY
+    )
+    vpc_id: NonEmptyString | None = None
+
+
+class PeeringSide(Model):
+    vpc_id: NonEmptyString
+    owner_id: str | None = Field(default=None, pattern=_ACCOUNT_ID)
+    cidr_blocks: list[IPvAnyNetwork] = Field(default_factory=list)
+
+
+class VpcPeeringConnection(Resource):
+    """Both sides as recorded; whether they share an account is a comparison of owner IDs."""
+
+    resource_type: Literal[ResourceType.VPC_PEERING_CONNECTION] = (
+        ResourceType.VPC_PEERING_CONNECTION
+    )
+    state: NonEmptyString | None = None  # as reported, for example "active"
+    requester: PeeringSide
+    accepter: PeeringSide
+
+    @model_validator(mode="after")
+    def validate_distinct_sides(self) -> Self:
+        if self.requester.vpc_id == self.accepter.vpc_id:
+            raise ValueError("a peering connection joins two different VPCs")
+        return self
+
+
+class TransitGateway(Resource):
+    resource_type: Literal[ResourceType.TRANSIT_GATEWAY] = ResourceType.TRANSIT_GATEWAY
+    state: NonEmptyString | None = None  # as reported, for example "available"
+    owner_id: str | None = Field(default=None, pattern=_ACCOUNT_ID)
+    association_default_route_table_id: NonEmptyString | None = None
+    propagation_default_route_table_id: NonEmptyString | None = None
+
+
+class TransitGatewayAttachment(Resource):
+    resource_type: Literal[ResourceType.TRANSIT_GATEWAY_ATTACHMENT] = (
+        ResourceType.TRANSIT_GATEWAY_ATTACHMENT
+    )
+    state: NonEmptyString | None = None
+    transit_gateway_id: NonEmptyString | None = None
+    # As reported, for example "vpc" or "peering"; AWS adds kinds over time.
+    attached_resource_type: NonEmptyString | None = None
+    attached_resource_id: NonEmptyString | None = None
+    attached_resource_owner_id: str | None = Field(default=None, pattern=_ACCOUNT_ID)
+    association_state: NonEmptyString | None = None
+    associated_route_table_id: NonEmptyString | None = None
+
+
+class TransitGatewayLink(Model):
+    """One attachment's association with, or propagation to, a route table."""
+
+    attachment_id: NonEmptyString
+    state: NonEmptyString | None = None
+
+
+class TransitGatewayRoute(Model):
+    destination: str | None = None  # CIDR or prefix list ID as reported
+    attachment_ids: list[NonEmptyString] = Field(default_factory=list)
+    route_type: TransitGatewayRouteType | None = None
+    state: NonEmptyString | None = None  # as reported, for example "active" or "blackhole"
+
+    @model_validator(mode="after")
+    def validate_target(self) -> Self:
+        if (self.state == "blackhole") == bool(self.attachment_ids):
+            raise ValueError("a transit gateway route names attachments unless it is a blackhole")
+        return self
+
+
+class TransitGatewayRouteTable(Resource):
+    resource_type: Literal[ResourceType.TRANSIT_GATEWAY_ROUTE_TABLE] = (
+        ResourceType.TRANSIT_GATEWAY_ROUTE_TABLE
+    )
+    state: NonEmptyString | None = None
+    transit_gateway_id: NonEmptyString | None = None
+    associations: list[TransitGatewayLink] = Field(default_factory=list)
+    propagations: list[TransitGatewayLink] = Field(default_factory=list)
+    routes: list[TransitGatewayRoute] = Field(default_factory=list)
+    # False when the route search reported more routes than it returned; None when unrecorded.
+    routes_complete: bool | None = None

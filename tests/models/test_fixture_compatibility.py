@@ -27,7 +27,9 @@ RESULT_HASHES = {
     "partial-path.json": "78874319628a6d9c617f9929020757bde6aa2e8eef5b1f1a38e1ab11e4c02f36",
 }
 # Fixtures added by phase 6 are checked by their own tests, not pinned here.
-PHASE_SIX_SNAPSHOTS: frozenset[str] = frozenset()
+PHASE_SIX_SNAPSHOTS = frozenset(
+    {"egress-gateways.json", "transit-gateway.json", "vpc-peering.json"}
+)
 
 
 def test_every_existing_snapshot_fixture_is_pinned() -> None:
