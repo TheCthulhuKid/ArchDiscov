@@ -11,7 +11,7 @@ describe intended configuration, not applied state or proof of reachability/acce
 Import `TerraformPlanRequest` from `archdiscov.ingestion.terraform` and call
 `archdiscov.services.collect_snapshots(request, context=...)` or
 `collect_snapshots_async`. Context is optional; the result contains one account
-snapshot. See the [fixture example](../README.md#terraform-plan-api-implemented),
+snapshot. See the [fixture example](infrastructure-as-code.md#terraform-plan-api),
 using `tests/fixtures/terraform/plan.json`, account `123456789012`, and `eu-west-1`.
 
 The request requires `path`; `account_id`, concrete `region`, and descriptive

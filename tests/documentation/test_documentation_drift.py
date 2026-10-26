@@ -61,6 +61,8 @@ from tests.support.ask_cli_cases import ENVELOPE, PRE_RUN_ERRORS
 
 DOCS = PROJECT_ROOT / "docs"
 README = PROJECT_ROOT / "README.md"
+ACCEPTANCE = DOCS / "acceptance.md"
+ROADMAP = DOCS / "roadmap.md"
 ANALYZERS = DOCS / "analyzers.md"
 PARAMETER_MODELS = {
     model.model_fields["kind"].default: model
@@ -371,18 +373,18 @@ def test_documented_bounds_match_the_constants():
         assert f"`{code.value}`" in text, code
 
 
-def test_the_readme_links_the_provider_contracts_without_claiming_real_providers():
-    text = README.read_text(encoding="utf-8")
-    assert "docs/assistant-providers.md" in text
-    assert "docs/assistant-providers.md#anthropic-adapter" in text
-    assert "docs/assistant-providers.md#openai-compatible-adapter" in text
+def test_the_readme_and_roadmap_link_the_provider_contracts():
+    assert "docs/assistant-providers.md" in README.read_text(encoding="utf-8")
+    text = ROADMAP.read_text(encoding="utf-8")
+    assert "assistant-providers.md#anthropic-adapter" in text
+    assert "assistant-providers.md#openai-compatible-adapter" in text
     assert "Bedrock adapter is implemented" not in text
     # Every adapter that exists answers; none is described as built but silent.
     assert "does not answer" not in text
     # The phase row lists every adapter as a finished step.
     assert "#openai-compatible-adapter) (step 41)," in text
     assert "#bedrock-adapter) (step 42)," in text
-    assert "(docs/assistant-evaluation.md) (step 43), and offline" in text
+    assert "(assistant-evaluation.md) (step 43), and offline" in text
     assert "| Complete (steps 34–44); separate from cloud platforms:" in text
     assert "in progress) |" not in text
     provider_doc = PROVIDERS_DOC.read_text(encoding="utf-8")
@@ -679,7 +681,8 @@ def test_the_readme_and_assistant_pages_link_evaluation():
     text = README.read_text(encoding="utf-8")
     assert "| `evaluate`, `evaluation` |" in text and "docs/assistant-evaluation.md" in text
     acceptance = "tests/acceptance/test_installed_evaluation.py"
-    assert acceptance in text and (PROJECT_ROOT / acceptance).is_file()
+    assert acceptance in ACCEPTANCE.read_text(encoding="utf-8")
+    assert (PROJECT_ROOT / acceptance).is_file()
     for page in ("ask-command", "assistant-answers", "assistant-providers", "result-contracts"):
         assert "(assistant-evaluation.md" in (DOCS / f"{page}.md").read_text(encoding="utf-8")
 
@@ -873,7 +876,7 @@ def test_documented_ask_exit_codes_match_the_code():
 def test_the_readme_lists_and_links_the_ask_command():
     text = README.read_text(encoding="utf-8")
     assert "| `ask` |" in text and "docs/ask-command.md" in text
-    assert "tests/acceptance/test_installed_ask.py" in text
+    assert "tests/acceptance/test_installed_ask.py" in ACCEPTANCE.read_text(encoding="utf-8")
     assert (PROJECT_ROOT / "tests/acceptance/test_installed_ask.py").is_file()
 
 
@@ -881,11 +884,12 @@ def test_the_readme_lists_and_links_the_mcp_server():
     text = README.read_text(encoding="utf-8")
     assert "| `mcp` |" in text and "docs/mcp-server.md" in text
     acceptance = "tests/acceptance/test_phase_five_acceptance.py"
-    assert acceptance in text and (PROJECT_ROOT / acceptance).is_file()
-    assert "### Phase 5 offline acceptance" in text and "(#phase-5-offline-acceptance)" in text
-    increments = [row[0] for row in table_rows(README, "| Increment")]
+    assert acceptance in ACCEPTANCE.read_text(encoding="utf-8")
+    assert (PROJECT_ROOT / acceptance).is_file()
+    assert "(acceptance.md#phase-5-offline-acceptance)" in ROADMAP.read_text(encoding="utf-8")
+    increments = [row[0] for row in table_rows(ROADMAP, "| Increment")]
     assert any(name.startswith("5. MCP server") for name in increments)
-    assert any(row[0].startswith("MCP server over") for row in table_rows(README, "| Capability"))
+    assert any(row[0].startswith("MCP server over") for row in table_rows(ROADMAP, "| Capability"))
 
 
 @pytest.mark.parametrize("document", DOC_FILES, ids=lambda path: path.name)

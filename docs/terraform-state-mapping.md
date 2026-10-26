@@ -16,7 +16,7 @@ Import `TerraformStateRequest` from `archdiscov.ingestion.terraform` and pass it
 the result is a list containing one account snapshot. The async equivalent is
 `collect_snapshots_async`. Collection and persistence are separate: use
 `save_snapshot(snapshot, new_path)` and inspect citations with
-`get_evidence(snapshot, evidence_id)`. See the [runnable fixture example](../README.md#terraform-state-api-implemented).
+`get_evidence(snapshot, evidence_id)`. See the [runnable fixture example](infrastructure-as-code.md#terraform-state-api).
 
 The request requires `path`; `account_id`, concrete `region`, and descriptive
 `workspace` are optional. Workspace is metadata, not a backend selector. Output uses
