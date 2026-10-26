@@ -1,0 +1,445 @@
+{
+  "schema_version": "2",
+  "snapshot_id": "00000000-0000-4000-8000-00000000004c",
+  "account_id": "123456789012",
+  "collection_started_at": "2026-10-26T08:00:00Z",
+  "collection_completed_at": "2026-10-26T08:01:00Z",
+  "source": {
+    "kind": "mock",
+    "label": "endpoints-and-prefix-lists"
+  },
+  "coverage": {
+    "regions": [
+      "eu-west-1"
+    ],
+    "account_wide": false
+  },
+  "regions": {
+    "eu-west-1": {
+      "resources": [
+        {
+          "identity": {
+            "account_id": "123456789012",
+            "region": "eu-west-1",
+            "service": "ec2",
+            "physical_id": "vpc-svc"
+          },
+          "resource_type": "AWS::EC2::VPC",
+          "cidr_blocks": [
+            "10.4.0.0/16"
+          ],
+          "children": [
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "subnet-svc"
+              },
+              "resource_type": "AWS::EC2::Subnet",
+              "cidr_blocks": [
+                "10.4.1.0/24"
+              ],
+              "children": [
+                {
+                  "identity": {
+                    "account_id": "123456789012",
+                    "region": "eu-west-1",
+                    "service": "ec2",
+                    "physical_id": "eni-vpce"
+                  },
+                  "resource_type": "AWS::EC2::NetworkInterface",
+                  "private_ip_addresses": [
+                    {
+                      "address": "10.4.1.10",
+                      "primary": true
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "rtb-svc"
+              },
+              "resource_type": "AWS::EC2::RouteTable",
+              "routes": [
+                {
+                  "destination": "10.4.0.0/16",
+                  "target_kind": "local",
+                  "state": "active"
+                },
+                {
+                  "destination": "pl-s3",
+                  "prefix_list_id": "pl-s3",
+                  "target_kind": "vpc_endpoint",
+                  "target_id": "vpce-s3",
+                  "state": "active"
+                },
+                {
+                  "destination": "pl-office",
+                  "prefix_list_id": "pl-office",
+                  "target_kind": "transit_gateway",
+                  "target_id": "tgw-main",
+                  "state": "active"
+                }
+              ],
+              "evidence_ids": [
+                "rtb"
+              ],
+              "fact_evidence": {
+                "/routes/1": [
+                  "rtb-s3"
+                ],
+                "/routes/2": [
+                  "rtb-office"
+                ]
+              }
+            },
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "sg-endpoint"
+              },
+              "resource_type": "AWS::EC2::SecurityGroup",
+              "ingress_rules": [
+                {
+                  "direction": "ingress",
+                  "rule_id": "sgr-office",
+                  "protocol": "tcp",
+                  "from_port": 443,
+                  "to_port": 443,
+                  "prefix_list_id": "pl-office"
+                }
+              ],
+              "evidence_ids": [
+                "sg"
+              ],
+              "fact_evidence": {
+                "/ingress_rules/0": [
+                  "sg-office"
+                ]
+              }
+            },
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "vpce-s3"
+              },
+              "resource_type": "AWS::EC2::VPCEndpoint",
+              "endpoint_type": "gateway",
+              "service_name": "com.amazonaws.eu-west-1.s3",
+              "state": "available",
+              "vpc_id": "vpc-svc",
+              "owner_id": "123456789012",
+              "route_table_ids": [
+                "rtb-svc"
+              ],
+              "evidence_ids": [
+                "vpce-s3"
+              ],
+              "fact_evidence": {
+                "/endpoint_type": [
+                  "vpce-s3"
+                ],
+                "/service_name": [
+                  "vpce-s3"
+                ],
+                "/state": [
+                  "vpce-s3"
+                ],
+                "/route_table_ids/0": [
+                  "vpce-s3-route-table"
+                ]
+              }
+            },
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "vpce-sqs"
+              },
+              "resource_type": "AWS::EC2::VPCEndpoint",
+              "endpoint_type": "interface",
+              "service_name": "com.amazonaws.eu-west-1.sqs",
+              "state": "available",
+              "vpc_id": "vpc-svc",
+              "owner_id": "123456789012",
+              "subnet_ids": [
+                "subnet-svc"
+              ],
+              "network_interface_ids": [
+                "eni-vpce"
+              ],
+              "security_group_ids": [
+                "sg-endpoint"
+              ],
+              "evidence_ids": [
+                "vpce-sqs"
+              ],
+              "fact_evidence": {
+                "/endpoint_type": [
+                  "vpce-sqs"
+                ],
+                "/subnet_ids/0": [
+                  "vpce-sqs-subnet"
+                ],
+                "/network_interface_ids/0": [
+                  "vpce-sqs-interface"
+                ],
+                "/security_group_ids/0": [
+                  "vpce-sqs-group"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "identity": {
+            "account_id": "123456789012",
+            "region": "eu-west-1",
+            "service": "ec2",
+            "physical_id": "pl-s3"
+          },
+          "name": "com.amazonaws.eu-west-1.s3",
+          "resource_type": "AWS::EC2::PrefixList",
+          "address_family": "ipv4",
+          "owner_id": "AWS",
+          "state": "create-complete",
+          "evidence_ids": [
+            "pl-s3"
+          ],
+          "fact_evidence": {
+            "/address_family": [
+              "pl-s3"
+            ],
+            "/owner_id": [
+              "pl-s3"
+            ]
+          }
+        },
+        {
+          "identity": {
+            "account_id": "123456789012",
+            "region": "eu-west-1",
+            "service": "ec2",
+            "physical_id": "pl-office"
+          },
+          "name": "office",
+          "resource_type": "AWS::EC2::PrefixList",
+          "address_family": "ipv4",
+          "owner_id": "123456789012",
+          "state": "modify-complete",
+          "version": 3,
+          "entries": [
+            {
+              "cidr": "198.51.100.0/24"
+            },
+            {
+              "cidr": "203.0.113.0/24"
+            }
+          ],
+          "evidence_ids": [
+            "pl-office"
+          ],
+          "fact_evidence": {
+            "/version": [
+              "pl-office"
+            ],
+            "/entries/0": [
+              "pl-office-entry-0"
+            ],
+            "/entries/1": [
+              "pl-office-entry-1"
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "dependencies_by_region": {},
+  "evidence": {
+    "rtb": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004c",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-svc",
+      "source": "mock",
+      "locator": "endpoints-and-prefix-lists.json",
+      "configuration_path": "RouteTables[0]",
+      "value": {
+        "RouteTableId": "rtb-svc",
+        "VpcId": "vpc-svc"
+      }
+    },
+    "rtb-s3": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004c",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-svc",
+      "source": "mock",
+      "locator": "endpoints-and-prefix-lists.json",
+      "configuration_path": "RouteTables[0].Routes[1]",
+      "value": {
+        "DestinationPrefixListId": "pl-s3",
+        "GatewayId": "vpce-s3",
+        "State": "active"
+      }
+    },
+    "rtb-office": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004c",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-svc",
+      "source": "mock",
+      "locator": "endpoints-and-prefix-lists.json",
+      "configuration_path": "RouteTables[0].Routes[2]",
+      "value": {
+        "DestinationPrefixListId": "pl-office",
+        "TransitGatewayId": "tgw-main",
+        "State": "active"
+      }
+    },
+    "sg": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004c",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/sg-endpoint",
+      "source": "mock",
+      "locator": "endpoints-and-prefix-lists.json",
+      "configuration_path": "SecurityGroups[0]",
+      "value": {
+        "GroupId": "sg-endpoint"
+      }
+    },
+    "sg-office": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004c",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/sg-endpoint",
+      "source": "mock",
+      "locator": "endpoints-and-prefix-lists.json",
+      "configuration_path": "SecurityGroupRules[0]",
+      "value": {
+        "SecurityGroupRuleId": "sgr-office",
+        "GroupId": "sg-endpoint",
+        "IsEgress": false,
+        "IpProtocol": "tcp",
+        "FromPort": 443,
+        "ToPort": 443,
+        "PrefixListId": "pl-office"
+      }
+    },
+    "vpce-s3": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004c",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/vpce-s3",
+      "source": "mock",
+      "locator": "endpoints-and-prefix-lists.json",
+      "configuration_path": "VpcEndpoints[0]",
+      "value": {
+        "VpcEndpointId": "vpce-s3",
+        "VpcEndpointType": "Gateway",
+        "ServiceName": "com.amazonaws.eu-west-1.s3",
+        "State": "available",
+        "VpcId": "vpc-svc",
+        "OwnerId": "123456789012"
+      }
+    },
+    "vpce-s3-route-table": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004c",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/vpce-s3",
+      "source": "mock",
+      "locator": "endpoints-and-prefix-lists.json",
+      "configuration_path": "VpcEndpoints[0].RouteTableIds[0]",
+      "value": "rtb-svc"
+    },
+    "vpce-sqs": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004c",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/vpce-sqs",
+      "source": "mock",
+      "locator": "endpoints-and-prefix-lists.json",
+      "configuration_path": "VpcEndpoints[1]",
+      "value": {
+        "VpcEndpointId": "vpce-sqs",
+        "VpcEndpointType": "Interface",
+        "ServiceName": "com.amazonaws.eu-west-1.sqs",
+        "State": "available",
+        "VpcId": "vpc-svc",
+        "OwnerId": "123456789012"
+      }
+    },
+    "vpce-sqs-subnet": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004c",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/vpce-sqs",
+      "source": "mock",
+      "locator": "endpoints-and-prefix-lists.json",
+      "configuration_path": "VpcEndpoints[1].SubnetIds[0]",
+      "value": "subnet-svc"
+    },
+    "vpce-sqs-interface": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004c",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/vpce-sqs",
+      "source": "mock",
+      "locator": "endpoints-and-prefix-lists.json",
+      "configuration_path": "VpcEndpoints[1].NetworkInterfaceIds[0]",
+      "value": "eni-vpce"
+    },
+    "vpce-sqs-group": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004c",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/vpce-sqs",
+      "source": "mock",
+      "locator": "endpoints-and-prefix-lists.json",
+      "configuration_path": "VpcEndpoints[1].Groups[0]",
+      "value": {
+        "GroupId": "sg-endpoint"
+      }
+    },
+    "pl-s3": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004c",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/pl-s3",
+      "source": "mock",
+      "locator": "endpoints-and-prefix-lists.json",
+      "configuration_path": "PrefixLists[0]",
+      "value": {
+        "PrefixListId": "pl-s3",
+        "AddressFamily": "IPv4",
+        "State": "create-complete",
+        "PrefixListName": "com.amazonaws.eu-west-1.s3",
+        "OwnerId": "AWS"
+      }
+    },
+    "pl-office": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004c",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/pl-office",
+      "source": "mock",
+      "locator": "endpoints-and-prefix-lists.json",
+      "configuration_path": "PrefixLists[1]",
+      "value": {
+        "PrefixListId": "pl-office",
+        "AddressFamily": "IPv4",
+        "State": "modify-complete",
+        "PrefixListName": "office",
+        "OwnerId": "123456789012",
+        "Version": 3
+      }
+    },
+    "pl-office-entry-0": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004c",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/pl-office",
+      "source": "mock",
+      "locator": "endpoints-and-prefix-lists.json",
+      "configuration_path": "Entries[0]",
+      "value": {
+        "Cidr": "198.51.100.0/24"
+      }
+    },
+    "pl-office-entry-1": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004c",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/pl-office",
+      "source": "mock",
+      "locator": "endpoints-and-prefix-lists.json",
+      "configuration_path": "Entries[1]",
+      "value": {
+        "Cidr": "203.0.113.0/24"
+      }
+    }
+  }
+}

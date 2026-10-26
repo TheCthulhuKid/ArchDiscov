@@ -103,13 +103,17 @@ def _best_route(table: RouteTable, target: IPv4Network) -> tuple[int, Route] | U
 
 
 def _attachment_evidence(
-    index: GraphIndex, table: RouteTable, route: Route, vpc_id: str | None, where: str
+    index: GraphIndex, table: RouteTable, citations: list[str], vpc_id: str | None, where: str
 ) -> tuple[str, ...] | NetworkResult:
-    """Evidence that the route's internet gateway is recorded as attached to the VPC."""
+    """Evidence that the route's internet gateway is recorded as attached to the VPC.
+
+    The route's target edge is the one citing the same source entry as the route, so routes
+    sharing a destination form, such as a prefix list, are never confused.
+    """
     targets = [
         edge
         for edge in index.outgoing_edges(table.id, attachment_kind=AttachmentKind.ROUTE_TARGET)
-        if edge.attributes.get("destination") == route.destination
+        if set(edge.evidence_ids) & set(citations)
     ]
     gateway = index.get_resource(targets[0].target_id) if len(targets) == 1 else None
     if not isinstance(gateway, InternetGateway):
@@ -188,7 +192,9 @@ def _decide(
     extra = association_evidence_ids
     allowed = route.target_kind == _REACH_KINDS[reach]
     if allowed and reach == RouteReach.INTERNET_GATEWAY:
-        attachment = _attachment_evidence(index, table, route, index.parent_id(subnet.id), where)
+        attachment = _attachment_evidence(
+            index, table, citations, index.parent_id(subnet.id), where
+        )
         if isinstance(attachment, NetworkResult):
             return attachment
         extra = (*extra, *attachment)

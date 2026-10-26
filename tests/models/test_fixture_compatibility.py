@@ -28,7 +28,12 @@ RESULT_HASHES = {
 }
 # Fixtures added by phase 6 are checked by their own tests, not pinned here.
 PHASE_SIX_SNAPSHOTS = frozenset(
-    {"egress-gateways.json", "transit-gateway.json", "vpc-peering.json"}
+    {
+        "egress-gateways.json",
+        "endpoints-and-prefix-lists.json",
+        "transit-gateway.json",
+        "vpc-peering.json",
+    }
 )
 
 

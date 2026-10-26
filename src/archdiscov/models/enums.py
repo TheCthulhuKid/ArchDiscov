@@ -288,6 +288,17 @@ class TransitGatewayRouteType(StrEnum):
     PROPAGATED = "propagated"
 
 
+class VpcEndpointType(StrEnum):
+    GATEWAY = "gateway"
+    INTERFACE = "interface"
+    GATEWAY_LOAD_BALANCER = "gateway_load_balancer"
+
+
+class AddressFamily(StrEnum):
+    IPV4 = "ipv4"
+    IPV6 = "ipv6"
+
+
 class RuleDirection(StrEnum):
     INGRESS = "ingress"
     EGRESS = "egress"

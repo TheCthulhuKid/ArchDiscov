@@ -42,6 +42,7 @@ from .resources.load_balancing import Listener, ListenerRule, LoadBalancer, Targ
 from .resources.network import (
     EgressOnlyInternetGateway,
     InternetGateway,
+    ManagedPrefixList,
     NatGateway,
     NetworkAcl,
     NetworkInterface,
@@ -50,6 +51,7 @@ from .resources.network import (
     TransitGateway,
     TransitGatewayAttachment,
     TransitGatewayRouteTable,
+    VpcEndpoint,
     VpcPeeringConnection,
 )
 from .resources.queues import SqsQueue
@@ -94,7 +96,9 @@ class Vpc(Resource):
     cidr_blocks: list[IPvAnyNetwork] | None = None
 
 
-SupportedResource = Annotated[
+# A named alias is built once as a shared schema definition; an inline union is rebuilt
+# inside each member's children, nesting one level per member until recursion runs out.
+type SupportedResource = Annotated[
     Vpc
     | Subnet
     | Ec2Instance
@@ -109,6 +113,8 @@ SupportedResource = Annotated[
     | TransitGateway
     | TransitGatewayAttachment
     | TransitGatewayRouteTable
+    | VpcEndpoint
+    | ManagedPrefixList
     | IamRole
     | IamInstanceProfile
     | IamManagedPolicy
@@ -151,6 +157,8 @@ for resource_model in (
     TransitGateway,
     TransitGatewayAttachment,
     TransitGatewayRouteTable,
+    VpcEndpoint,
+    ManagedPrefixList,
     IamRole,
     IamInstanceProfile,
     IamManagedPolicy,

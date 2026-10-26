@@ -154,6 +154,6 @@ def test_each_resource_is_serialized_at_most_once_per_validation(scope: str) -> 
     visits = sum(
         stats[1]
         for key, stats in pstats.Stats(profile).stats.items()
-        if key[2] == "omit_absent_lifecycle"
+        if key[2] == "omit_absent_fields"
     )
     assert visits == len(cited)

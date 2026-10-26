@@ -10,21 +10,26 @@ from typing import Literal, Self
 from pydantic import Field, IPvAnyNetwork, model_validator
 
 from ..enums import (
+    AddressFamily,
     NaclAction,
     NatConnectivity,
     ResourceType,
     RouteTargetKind,
     RuleDirection,
     TransitGatewayRouteType,
+    VpcEndpointType,
 )
-from ..resource_base import Model, NonEmptyString, Resource
+from ..resource_base import Model, NonEmptyString, OmitsAbsentFields, Resource
 
 Port = Field(default=None, ge=-1, le=65535)  # -1 means all ports or ICMP types
 _ACCOUNT_ID = r"^[0-9]{12}$"
+_IP_VERSIONS = {AddressFamily.IPV4: 4, AddressFamily.IPV6: 6}
 
 
-class Route(Model):
+class Route(OmitsAbsentFields):
+    omitted_when_absent = frozenset({"prefix_list_id"})
     destination: str | None = None  # CIDR, IPv6 CIDR, or prefix list ID as reported
+    prefix_list_id: NonEmptyString | None = None  # the destination, when it is a prefix list
     target_kind: RouteTargetKind
     target_id: str | None = None
     state: str | None = None
@@ -190,3 +195,48 @@ class TransitGatewayRouteTable(Resource):
     routes: list[TransitGatewayRoute] = Field(default_factory=list)
     # False when the route search reported more routes than it returned; None when unrecorded.
     routes_complete: bool | None = None
+
+
+class VpcEndpoint(Resource):
+    resource_type: Literal[ResourceType.VPC_ENDPOINT] = ResourceType.VPC_ENDPOINT
+    endpoint_type: VpcEndpointType | None = None
+    service_name: NonEmptyString | None = None
+    state: NonEmptyString | None = None  # as reported, for example "available"
+    vpc_id: NonEmptyString | None = None
+    owner_id: str | None = Field(default=None, pattern=_ACCOUNT_ID)
+    route_table_ids: list[NonEmptyString] = Field(default_factory=list)
+    subnet_ids: list[NonEmptyString] = Field(default_factory=list)
+    network_interface_ids: list[NonEmptyString] = Field(default_factory=list)
+    security_group_ids: list[NonEmptyString] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_placement(self) -> Self:
+        if self.endpoint_type is VpcEndpointType.GATEWAY and self.subnet_ids:
+            raise ValueError("a gateway endpoint has no subnets")
+        if self.endpoint_type is VpcEndpointType.INTERFACE and self.route_table_ids:
+            raise ValueError("an interface endpoint has no route tables")
+        return self
+
+
+class PrefixListEntry(Model):
+    cidr: IPvAnyNetwork
+
+
+class ManagedPrefixList(Resource):
+    resource_type: Literal[ResourceType.MANAGED_PREFIX_LIST] = ResourceType.MANAGED_PREFIX_LIST
+    address_family: AddressFamily | None = None
+    # An account ID, or "AWS" for a list AWS manages, such as a service's gateway prefix list.
+    owner_id: str | None = Field(default=None, pattern=r"^([0-9]{12}|AWS)$")
+    state: NonEmptyString | None = None  # as reported, for example "create-complete"
+    version: int | None = Field(default=None, ge=1)
+    # None when the entries were not recorded; an empty list is a recorded empty list.
+    entries: list[PrefixListEntry] | None = None
+
+    @model_validator(mode="after")
+    def validate_entry_family(self) -> Self:
+        if self.address_family is None:
+            return self
+        for entry in self.entries or []:
+            if entry.cidr.version != _IP_VERSIONS[self.address_family]:
+                raise ValueError(f"entry {entry.cidr} is not {self.address_family.value}")
+        return self
