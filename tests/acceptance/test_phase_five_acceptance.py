@@ -3,12 +3,12 @@
 fixture -> ingest -> `archdiscov mcp` over stdio -> prompt -> tool calls -> `submit_answer` ->
 cited evidence, through the installed script outside the checkout. The fixtures are the
 checked-in README suite's case files: each case's tool calls and proposal are the ones its
-fake transcript makes for `ask`, so `ask` over the same files is the reference an accepted
-answer must equal. The adversarial suite's proposals are submitted too: each unsupported claim
-is rejected with its code and a corrected proposal is accepted in the same session. The server
-and `ask` run with no credentials and no checkout: their whole `PYTHONPATH` is the offline
-guard, which fails and records any network use, and, for the boundary check, every file the
-server opens in the workspace.
+fake transcript makes for `ask`, so `ask` over the same files, run in process, is the
+reference an accepted answer must equal. The adversarial suite's proposals are submitted too:
+each unsupported claim is rejected with its code and a corrected proposal is accepted in the
+same session. The server runs with no credentials and no checkout: its whole `PYTHONPATH` is
+the offline guard, which fails and records any network use, and, for the boundary check,
+every file the server opens in the workspace.
 """
 
 import json
@@ -18,10 +18,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from typer.testing import CliRunner
 
 from archdiscov.assistant.mcp_server import PRESENT_ANSWER
 from archdiscov.assistant.questions import README_QUESTIONS
 from archdiscov.assistant.tools.catalog import default_registry
+from archdiscov.cli import app
 from tests.paths import FIXTURES_ROOT
 from tests.support.answer_claims import INJECTION
 from tests.support.evaluation_suites import ADVERSARIAL_SUITE, README_SUITE
@@ -40,6 +42,7 @@ UNPROMPTED = {"ownership_compared"}
 # Each journey is module-scoped; its tests share one xdist worker, and the two run in parallel.
 pytestmark = pytest.mark.xdist_group("phase-five")
 REFUSALS = pytest.mark.xdist_group("phase-five-refusals")
+runner = CliRunner()
 
 
 def _serve(ws: Workspace, selection: list[str], env: dict[str, str] | None = None) -> StdioSession:
@@ -66,13 +69,25 @@ def _first_evidence(session: StdioSession, answer: dict) -> dict | None:
     return {"id": cited[0], "reply": session.tool("get_evidence", {"evidence_id": cited[0]})}
 
 
+def _ask(arguments: list[str]) -> dict:
+    """`ask` over the same files, in process: the reference an accepted answer must equal.
+
+    The installed `ask` command is exercised by `test_installed_ask.py`; here only its result
+    matters, so it runs without a subprocess.
+    """
+    data, readable = (runner.invoke(app, ["ask", *arguments, *flag]) for flag in (["--json"], []))
+    for result in (data, readable):
+        assert result.exit_code == 0, result.output
+    return {"data": json.loads(data.stdout), "readable": readable.stdout}
+
+
 def _answered(ws: Workspace, case: dict) -> dict:
     """What `ask` and the server give for the case's files, and how the server ended."""
     selection = ingest_selection(ws, "readme", case)
     fixtures = ws.path("fixtures", "readme")
     config = fixtures / case["id"] / "provider.toml"
     arguments = [case["question"], *selection, "--config", str(config)]
-    asked = {"data": ws.json("ask", *arguments), "readable": ws.run("ask", *arguments).stdout}
+    asked = _ask(arguments)
     transcript = fixtures / case["fake_transcript"]
     [proposal] = submitted_proposals(transcript)
     session = _serve(ws, selection)
