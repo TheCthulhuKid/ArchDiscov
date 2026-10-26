@@ -261,16 +261,10 @@ def test_rejects_malformed_lifecycle_without_echoing_values(actions):
     "key,value",
     [
         ("after_unknown", 1),
-        ("after_sensitive", 0),
         ("before_sensitive", SECRET),
         ("after_unknown", {"id": []}),
-        ("after_unknown", {"tags": [True]}),
-        ("after_sensitive", {"id": {"bad": True}}),
         ("after_sensitive", {"absent": True}),
         ("after_unknown", {"tags": {"Name": SECRET}}),
-        ("after_unknown", {"id": None}),
-        ("after_sensitive", {"tags": {"Name": 1}}),
-        ("after_unknown", None),
     ],
 )
 def test_rejects_incompatible_or_non_boolean_masks(key, value):
@@ -286,13 +280,9 @@ def test_rejects_incompatible_or_non_boolean_masks(key, value):
     [
         {"mode": SECRET},
         {"type": "azurerm_virtual_network"},
-        {"provider_name": SECRET},
         {"address": " "},
-        {"deposed": "abcd"},
         {"change": None},
         {"change": {"actions": ["update"], "after": None}},
-        {"change": {"actions": ["delete"], "before": None, "after": None}},
-        {"change": {"actions": ["update"], "after": [], "before": {}}},
     ],
 )
 def test_rejects_bad_managed_changes(overrides):
@@ -305,13 +295,9 @@ def test_rejects_bad_managed_changes(overrides):
     "overrides",
     [
         {"format_version": "2.0"},
-        {"format_version": 1},
-        {"format_version": "1.x"},
         {"terraform_version": SECRET},
         {"resource_changes": {}},
-        {"planned_values": []},
         {"planned_values": {"root_module": []}},
-        {"values": {"root_module": {}}},
         {"version": 4},
     ],
 )

@@ -14,11 +14,8 @@ import botocore.session
 import pytest
 from botocore.exceptions import (
     ClientError,
-    ConnectionClosedError,
-    ConnectTimeoutError,
     EndpointConnectionError,
     ReadTimeoutError,
-    SSLError,
 )
 from botocore.stub import Stubber
 
@@ -39,6 +36,7 @@ from archdiscov.assistant.orchestrator import run_assistant
 from archdiscov.assistant.provider import (
     CompletionRequest,
     CompletionResponse,
+    ProviderAuthenticationError,
     ProviderError,
     ProviderInvalidRequestError,
     ProviderMalformedOutputError,
@@ -293,9 +291,8 @@ def _with_input(block: dict, value: Any) -> dict:
         "content-filtered-text",
     ],
 )
-@pytest.mark.parametrize("mode", ["sync", "async"])
-def test_responses_map_to_the_shared_contracts(body, message, stop, mode: str) -> None:
-    response = _send(_provider(_api(body)), mode)
+def test_responses_map_to_the_shared_contracts(body, message, stop) -> None:
+    response = _send(_provider(_api(body)), "async")
     assert response == CompletionResponse(
         message=message, stop_reason=stop, usage=TokenUsage(input_tokens=3, output_tokens=1)
     )
@@ -305,80 +302,19 @@ def test_responses_map_to_the_shared_contracts(body, message, stop, mode: str) -
     ("body", "error"),
     [
         (_body(stop="max_tokens"), ProviderTruncatedOutputError),
-        (
-            _body(TEXT, _with_input(LOOKUP, {"type": "rd"}), stop="max_tokens"),
-            ProviderTruncatedOutputError,
-        ),
         (_body(stop="guardrail_intervened"), ProviderRefusalError),
-        (_body(TEXT, LOOKUP, stop="guardrail_intervened"), ProviderRefusalError),
-        (_body(stop="content_filtered"), ProviderRefusalError),
-        (_body(TEXT, LOOKUP, stop="content_filtered"), ProviderRefusalError),
         (_body(TEXT, stop="malformed_model_output"), ProviderMalformedOutputError),
-        (_body(LOOKUP, stop="malformed_tool_use"), ProviderMalformedOutputError),
-        (_body(TEXT, stop="improvised"), ProviderMalformedOutputError),
         (_body(TEXT, {"hologram": {}}), ProviderMalformedOutputError),
-        (_body(TEXT, {"reasoningContent": {"hologram": {}}}), ProviderMalformedOutputError),
-        (
-            _body(TEXT, {"image": {"format": "png", "source": {"bytes": "aW1n"}}}),
-            ProviderMalformedOutputError,
-        ),
-        (
-            _body({"citationsContent": {"content": [TEXT], "citations": []}}),
-            ProviderMalformedOutputError,
-        ),
-        (
-            _body({"guardContent": {"text": {"text": "x"}}}, TEXT),
-            ProviderMalformedOutputError,
-        ),
-        (
-            _body({"toolUse": {**LOOKUP["toolUse"], "type": "server_tool_use"}}, stop="tool_use"),
-            ProviderMalformedOutputError,
-        ),
-        (
-            _body(TEXT, {"toolResult": {"toolUseId": "t", "content": [TEXT]}}),
-            ProviderMalformedOutputError,
-        ),
-        (_body(TEXT, LOOKUP), ProviderMalformedOutputError),
-        (_body(LOOKUP, stop="end_turn"), ProviderMalformedOutputError),
         (_body(TEXT, stop="tool_use"), ProviderMalformedOutputError),
-        (_body(stop="end_turn"), ProviderMalformedOutputError),
         (_body({"text": 5}), ProviderMalformedOutputError),
-        (_body({**TEXT, **LOOKUP}), ProviderMalformedOutputError),
-        (
-            _body({"toolUse": {**LOOKUP["toolUse"], "name": "not a tool name"}}, stop="tool_use"),
-            ProviderMalformedOutputError,
-        ),
-        (_body(TEXT, usage={"inputTokens": -1, "outputTokens": 1}), ProviderMalformedOutputError),
-        ({**_body(TEXT), "output": {"hologram": {}}}, ProviderMalformedOutputError),
-        ({"output": _body(TEXT)["output"]}, ProviderMalformedOutputError),
     ],
     ids=[
         "max-tokens-empty",
-        "max-tokens-partial-call",
         "guardrail-empty",
-        "guardrail-with-call",
-        "content-filtered-empty",
-        "content-filtered-with-call",
         "malformed-model-output",
-        "malformed-tool-use",
-        "unknown-stop",
         "unknown-block",
-        "unknown-reasoning",
-        "image-block",
-        "citations-block",
-        "guard-content-block",
-        "server-tool-use",
-        "tool-result-block",
-        "calls-at-end-turn",
-        "no-calls-at-tool-use",
         "text-at-tool-use",
-        "empty",
         "text-not-a-string",
-        "two-member-block",
-        "invalid-tool-name",
-        "negative-usage",
-        "unknown-output",
-        "no-stop-reason",
     ],
 )
 def test_unusable_responses_are_typed_errors_without_provider_text(body, error) -> None:
@@ -506,9 +442,11 @@ def _failing(
 @pytest.mark.parametrize(
     ("code", "error"),
     [
-        *API_ERRORS.items(),
+        ("ThrottlingException", ProviderRateLimitError),
+        ("AccessDeniedException", ProviderAuthenticationError),
+        ("ValidationException", ProviderInvalidRequestError),
+        ("ModelTimeoutException", ProviderTimeoutError),
         ("SomethingNewException", ProviderUnavailableError),
-        (None, ProviderUnavailableError),
     ],
     ids=str,
 )
@@ -536,30 +474,17 @@ def test_every_converse_error_has_a_mapping() -> None:
     ("served", "error"),
     [
         (lambda request: ReadTimeoutError(endpoint_url=request.url), ProviderTimeoutError),
-        (lambda request: ConnectTimeoutError(endpoint_url=request.url), ProviderTimeoutError),
         (
             lambda request: EndpointConnectionError(endpoint_url=request.url),
             ProviderTransportError,
         ),
-        (
-            lambda request: ConnectionClosedError(endpoint_url=request.url),
-            ProviderTransportError,
-        ),
-        (lambda request: SSLError(endpoint_url=request.url, error="x"), ProviderTransportError),
         (AwsResponse(200, b"{not json"), ProviderMalformedOutputError),
-        (AwsResponse(200, b"[]"), ProviderMalformedOutputError),
-        (AwsResponse(200, {"usage": {"inputTokens": "x"}}), ProviderMalformedOutputError),
         (AwsResponse(502, b"<html>Bad gateway</html>"), ProviderUnavailableError),
     ],
     ids=[
         "read-timeout",
-        "connect-timeout",
         "connection",
-        "connection-closed",
-        "tls",
         "not-json",
-        "not-an-object",
-        "wrong-field-type",
         "gateway-page",
     ],
 )

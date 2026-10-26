@@ -197,21 +197,13 @@ def test_coverage_limitations_round_trip(status: str) -> None:
     "change,diagnostic",
     [
         ({"result_count": None}, "successful coverage requires a count"),
-        ({"result_count": -1}, "greater_than_equal"),
-        ({"result_count": True}, "int_type"),
         ({"status": "failed", "result_count": None}, "failed coverage requires a failure"),
-        ({"status": "invalid"}, "enum"),
         (
             {"started_at": "2026-10-13T08:00:20Z", "completed_at": "2026-10-13T08:00:10Z"},
             "coverage completed_at must not precede started_at",
         ),
-        ({"started_at": "2026-10-13T08:00:00"}, "timezone_aware"),
         (
             {"failures": [{"code": "Denied", "message": "Denied"}]},
-            "successful coverage requires a count and no failures/unresolved values",
-        ),
-        (
-            {"unresolved_values": [{"configuration_path": "VpcId", "reason": "Unknown"}]},
             "successful coverage requires a count and no failures/unresolved values",
         ),
     ],

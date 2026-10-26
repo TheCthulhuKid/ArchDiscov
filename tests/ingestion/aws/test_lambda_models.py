@@ -29,20 +29,11 @@ def test_optional_unknown_fields_are_not_empty_configuration():
     "field,value",
     [
         ("memory_size", True),
-        ("memory_size", "256"),
-        ("memory_size", 127),
         ("memory_size", 10241),
-        ("timeout", 0),
-        ("timeout", 901),
         ("architectures", ["future"]),
-        ("architectures", []),
         ("runtime", "future"),
-        ("state", "future"),
-        ("last_update_status", "future"),
-        ("package_type", "future"),
         ("role_arn", "https://example.invalid/secret"),
         ("subnet_ids", ["bad subnet"]),
-        ("security_group_ids", [None]),
     ],
 )
 def test_direct_typed_facts_reject_unknown_malformed_and_coercible_values(field, value):

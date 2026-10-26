@@ -5,7 +5,8 @@
 `test_every_answer_outcome_is_covered` until a case is added. Unrepairable outcomes reuse
 the loop's cases from the orchestration suite; repairable ones script both attempts here.
 Every case checks the rendering, the exit code, the number of repair attempts, and that no
-secret or fabricated narrative claim appears outside the labelled narrative.
+secret or fabricated narrative claim appears outside the labelled narrative. Those checks
+run on the fake; every adapter is shown to reach the fake's answer for the same turns.
 """
 
 import asyncio
@@ -225,8 +226,8 @@ def test_every_answer_outcome_is_covered() -> None:
 @pytest.mark.parametrize(
     "identity", sorted(_expected()), ids=lambda item: "-".join(filter(None, item))
 )
-def test_each_answer_outcome_is_reached_and_rendered(identity: Identity, harness) -> None:
-    result, requests = _result(identity, harness)
+def test_each_answer_outcome_is_reached_and_rendered_without_leaks(identity: Identity) -> None:
+    result, requests = _result(identity)
     outcome = result.outcome
     assert _identity(outcome) == identity
     exit_code = (
@@ -242,7 +243,8 @@ def test_each_answer_outcome_is_reached_and_rendered(identity: Identity, harness
     assert (result.transcript.repair is not None) == (identity in REPAIRED)
     rendered = result.rendered
     assert rendered.outcome == outcome
-    first = answer_text(rendered).splitlines()[0]
+    text = answer_text(rendered)
+    first = text.splitlines()[0]
     if outcome.failure is None:
         assert rendered.failure is None and rendered.narrative is not None
         assert first.startswith("Answer: answered")
@@ -250,24 +252,15 @@ def test_each_answer_outcome_is_reached_and_rendered(identity: Identity, harness
         assert rendered.failure.reason == outcome.failure and rendered.narrative is None
         assert first == f"Answer: failed ({outcome.failure}), exit code {exit_code}"
     assert AnswerResult.model_validate_json(result.model_dump_json()) == result
-
-
-@pytest.mark.parametrize(
-    "identity", sorted(_expected()), ids=lambda item: "-".join(filter(None, item))
-)
-def test_no_secret_or_fabricated_claim_leaks(identity: Identity, harness) -> None:
-    result, _ = _result(identity, harness)
-    text = answer_text(result.rendered)
-    data = json.dumps(answer_data(result.rendered))
+    data = json.dumps(answer_data(rendered))
     for rendering in [*secret_renderings(result), text, data]:
         assert SECRET not in rendering and SECRET[:20] not in rendering
     narrative = [line for line in text.splitlines() if line.startswith("  |")]
     outside_narrative = [line for line in text.splitlines() if not line.startswith("  |")]
     assert all(FABRICATED not in line for line in outside_narrative)
-    if result.outcome.failure is None:
+    if outcome.failure is None:
         # The claim was submitted, so it must show, but only as the labelled narrative.
         assert any(FABRICATED in line for line in narrative)
-    rendered = result.rendered
     conclusions = [*rendered.conclusions, *(rendered.failure.retrieved if rendered.failure else ())]
     for conclusion in conclusions:
         assert all(FABRICATED not in item for item in conclusion.statements)

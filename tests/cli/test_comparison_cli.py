@@ -96,7 +96,7 @@ def test_an_unreadable_snapshot_names_its_own_side(tmp_path):
     assert json.loads(failed.stdout)["error"]["path"] == str(missing)
 
 
-def test_swapped_snapshots_fail_verification(tmp_path):
+def test_swapped_snapshots_or_a_tampered_result_fail_verification(tmp_path):
     output = tmp_path / "comparison.json"
     assert compare(AWS, PLAN, output).exit_code == 0
     swapped = run("comparison", output, "--left", PLAN, "--right", AWS, "--json")
@@ -105,10 +105,6 @@ def test_swapped_snapshots_fail_verification(tmp_path):
     assert error["code"] == "invalid_comparison_result"
     assert error["details"][0]["type"] == "snapshot_mismatch"
 
-
-def test_a_tampered_result_fails_verification(tmp_path):
-    output = tmp_path / "comparison.json"
-    assert compare(AWS, PLAN, output).exit_code == 0
     data = json.loads(output.read_text())
     data["limitations"] = []
     output.write_text(json.dumps(data))

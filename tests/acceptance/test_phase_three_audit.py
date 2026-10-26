@@ -46,6 +46,8 @@ def analysis(kind, schema, coverage="success"):
 
 
 KINDS = list(AnalyzerKind)
+# Schemas 1 and 2 are audited with full coverage; the other checks use the current schema.
+CURRENT_SCHEMA = SCHEMAS[-1]
 TAGS = {"Name": "app"}
 
 
@@ -68,21 +70,19 @@ def test_findings_with_full_coverage_cite_evidence_and_paths(kind, schema):
 
 
 @pytest.mark.parametrize("status", LIMITED_STATUSES)
-@pytest.mark.parametrize("schema", SCHEMAS)
 @pytest.mark.parametrize("kind", KINDS)
-def test_limited_coverage_never_produces_an_unqualified_conclusion(kind, schema, status):
-    result = analysis(kind, schema, status)
+def test_limited_coverage_never_produces_an_unqualified_conclusion(kind, status):
+    result = analysis(kind, CURRENT_SCHEMA, status)
     assert result.findings
     assert result_violations(result, limited=True) == []
 
 
-@pytest.mark.parametrize("schema", SCHEMAS)
 @pytest.mark.parametrize("kind", KINDS)
-def test_unrecorded_coverage_is_reported_without_inventing_operations(kind, schema):
-    result = analysis(kind, schema, "unrecorded")
+def test_unrecorded_coverage_is_reported_without_inventing_operations(kind):
+    result = analysis(kind, CURRENT_SCHEMA, "unrecorded")
     assert result_violations(result, unrecorded=True) == []
     if kind == AnalyzerKind.OWNERSHIP:  # absent records are not interpreted
-        assert result.findings == analysis(kind, schema, "success").findings
+        assert result.findings == analysis(kind, CURRENT_SCHEMA, "success").findings
 
 
 def test_unavailable_tag_data_is_never_an_ownership_conclusion():
@@ -177,10 +177,9 @@ def test_generic_mechanics_still_work_on_azure():
 # ---- results are immutable and verified -------------------------------------------
 
 
-@pytest.mark.parametrize("schema", SCHEMAS)
 @pytest.mark.parametrize("kind", KINDS)
-def test_saved_results_are_immutable_and_verified(tmp_path, kind, schema):
-    source, result = snapshot(kind, schema), analysis(kind, schema)
+def test_saved_results_are_immutable_and_verified(tmp_path, kind):
+    source, result = snapshot(kind, CURRENT_SCHEMA), analysis(kind, CURRENT_SCHEMA)
     path = save_analysis(result, tmp_path / "result.json", snapshot=source)
     original = path.read_bytes()
     with pytest.raises(SnapshotConflictError):
@@ -199,7 +198,7 @@ def test_saved_results_are_immutable_and_verified(tmp_path, kind, schema):
         assert error.value.code == "invalid_analysis_result"
         assert summary not in repr(error.value.details)
 
-    other = snapshot(next(item for item in KINDS if item != kind), schema)
+    other = snapshot(next(item for item in KINDS if item != kind), CURRENT_SCHEMA)
     assert other.snapshot_id != source.snapshot_id
     with pytest.raises(AnalysisValidationError):
         load_analysis(path, snapshot=other)

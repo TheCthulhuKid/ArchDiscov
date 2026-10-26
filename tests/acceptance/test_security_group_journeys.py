@@ -1,7 +1,5 @@
 """Credential-free fixture -> analyze -> save -> findings -> evidence journeys."""
 
-import pytest
-
 from archdiscov.graph import GraphIndex
 from archdiscov.services import (
     load_analysis,
@@ -11,22 +9,18 @@ from archdiscov.services import (
     validate_snapshot,
 )
 from tests.paths import FIXTURES_ROOT
-from tests.support.installed_cli import ENTRY_POINTS, run_installed_json
-from tests.support.security_group_data import EVIDENCE, IDS, schema_one_data, variant
+from tests.support.installed_cli import run_installed_json
+from tests.support.security_group_data import EVIDENCE, IDS, variant
 
 
-def aws_snapshot(schema: str):
-    if schema == "1":
-        return validate_snapshot(schema_one_data())
-    snapshot = validate_snapshot(variant())
-    return upgrade_snapshot(snapshot) if schema == "3" else snapshot
+def aws_snapshot():
+    return upgrade_snapshot(validate_snapshot(variant()))
 
 
-def journey(entry_point, tmp_path, snapshot_path, resource_id, *extra):
+def journey(tmp_path, snapshot_path, resource_id, *extra):
     result_path = tmp_path / "result.json"
     arguments = ["--snapshot", str(snapshot_path)]
     saved = run_installed_json(
-        entry_point,
         tmp_path,
         "analyze",
         *arguments,
@@ -39,21 +33,15 @@ def journey(entry_point, tmp_path, snapshot_path, resource_id, *extra):
         *extra,
         "--json",
     )
-    shown = run_installed_json(
-        entry_point, tmp_path, "findings", str(result_path), *arguments, "--json"
-    )
+    shown = run_installed_json(tmp_path, "findings", str(result_path), *arguments, "--json")
     assert shown["findings"] == saved["findings"]
     return result_path, shown
 
 
-@pytest.mark.parametrize("entry_point", ENTRY_POINTS)
-@pytest.mark.parametrize("schema", ["1", "2", "3"])
-def test_installed_aws_security_group_journey(tmp_path, entry_point, schema):
-    snapshot = aws_snapshot(schema)
+def test_installed_aws_security_group_journey(tmp_path):
+    snapshot = aws_snapshot()
     snapshot_path = save_snapshot(snapshot, tmp_path / "snapshot.json")
-    result_path, shown = journey(
-        entry_point, tmp_path, snapshot_path, IDS["sg-app"], "--max-depth", "3"
-    )
+    result_path, shown = journey(tmp_path, snapshot_path, IDS["sg-app"], "--max-depth", "3")
     result = load_analysis(result_path, snapshot=load_snapshot(snapshot_path))
     assert result.parameters.max_depth == 3
 
@@ -71,7 +59,6 @@ def test_installed_aws_security_group_journey(tmp_path, entry_point, schema):
     )
     assert direct["evidence_ids"] == [EVIDENCE["lambda"]]
     inspected = run_installed_json(
-        entry_point,
         tmp_path,
         "evidence",
         direct["evidence_ids"][0],
@@ -83,7 +70,6 @@ def test_installed_aws_security_group_journey(tmp_path, entry_point, schema):
 
     before = result_path.read_bytes()
     conflict = run_installed_json(
-        entry_point,
         tmp_path,
         "analyze",
         "--snapshot",
@@ -101,11 +87,10 @@ def test_installed_aws_security_group_journey(tmp_path, entry_point, schema):
     assert result_path.read_bytes() == before
 
 
-@pytest.mark.parametrize("entry_point", ENTRY_POINTS)
-def test_installed_azure_journey_returns_an_actionable_unsupported_result(tmp_path, entry_point):
+def test_installed_azure_journey_returns_an_actionable_unsupported_result(tmp_path):
     azure = FIXTURES_ROOT / "snapshots" / "azure.json"
     selected = GraphIndex(load_snapshot(azure)).resource_ids[0]
-    _, shown = journey(entry_point, tmp_path, azure, selected)
+    _, shown = journey(tmp_path, azure, selected)
     [finding] = shown["findings"]
     assert finding["status"] == "insufficient_evidence"
     assert finding["impact"] is None

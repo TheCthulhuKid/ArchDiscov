@@ -1,9 +1,9 @@
 """The installed `ask` command, outside the checkout, with the fake provider and no network.
 
-Both entry points answer the five README example questions in both output forms, and refuse
+The installed script answers the five README example questions in both output forms, and refuses
 a missing configuration, an unknown snapshot, a Bedrock profile that cannot be loaded, an
 Anthropic or OpenAI-compatible configuration without its key, and an existing transcript
-path before the run, and report a scripted provider error and a run limit as answer
+path before the run, and reports a scripted provider error and a run limit as answer
 outcomes, each with its documented exit code. The Anthropic adapter, the OpenAI-compatible
 adapter through each protocol, and the Bedrock adapter also answer a README question through
 a mock API on one loopback port, the only connection the run may make. The child sees no
@@ -40,7 +40,6 @@ from tests.support.ask_examples import (
 from tests.support.ask_runs import fake_config
 from tests.support.installed_cli import (
     DUMMY_KEY,
-    ENTRY_POINTS,
     INSTALLED_KEY_VARIABLE,
     Workspace,
     harness_config,
@@ -51,7 +50,7 @@ from tests.support.provider_data import MISSING_PROFILE, missing_profile_config
 from tests.support.scripted_answers import SEARCH
 from tests.support.scripted_turns import calls_turn, fail_turn
 
-# Each entry point runs every case once per module: keep them on one xdist worker.
+# The journey runs every case once per module: keep its tests on one xdist worker.
 pytestmark = pytest.mark.xdist_group("installed-ask")
 
 # One example per analyzer answers each README question over its audit scenario.
@@ -216,17 +215,15 @@ def _through_the_adapters(ws: Workspace) -> dict[str, tuple[dict, str, list]]:
             config = harness_config(directory, harness, f"http://127.0.0.1:{api.port}{root}")
             env = ws.guard.allowing(api.port, **_credentials(directory, harness))
             command = ["ask", *map(str, arguments), "--config", str(config)]
-            data = json.loads(
-                run_installed(ws.entry_point, ws.root, *command, "--json", env=env).stdout
-            )
-            readable = run_installed(ws.entry_point, ws.root, *command, env=env).stdout
+            data = json.loads(run_installed(ws.root, *command, "--json", env=env).stdout)
+            readable = run_installed(ws.root, *command, env=env).stdout
         assert api.bodies == []
         answered[harness.label] = (data, readable, api.requests)
     return answered
 
 
-def journey(entry_point: str, root: Path) -> dict:
-    ws = Workspace(entry_point, root)
+def journey(root: Path) -> dict:
+    ws = Workspace(root)
     summary = {
         "examples": _examples(ws),
         "refusals": _refusals(ws),
@@ -238,16 +235,12 @@ def journey(entry_point: str, root: Path) -> dict:
 
 
 @pytest.fixture(scope="module")
-def summaries(tmp_path_factory):
-    return {
-        entry_point: journey(entry_point, tmp_path_factory.mktemp(f"ask-{entry_point}"))
-        for entry_point in ENTRY_POINTS
-    }
+def summary(tmp_path_factory):
+    return journey(tmp_path_factory.mktemp("ask"))
 
 
-@pytest.mark.parametrize("entry_point", ENTRY_POINTS)
-def test_the_readme_questions_are_answered_offline(summaries, entry_point):
-    examples = summaries[entry_point]["examples"]
+def test_the_readme_questions_are_answered_offline(summary):
+    examples = summary["examples"]
     assert {run.arguments[0] for run, _, _ in examples.values()} == set(README_QUESTIONS)
     for name, (run, data, readable) in examples.items():
         answer = data["result"]["answer"]
@@ -269,9 +262,8 @@ def test_the_readme_questions_are_answered_offline(summaries, entry_point):
         assert f"Status: {EXAMPLES[name].status}" in lines
 
 
-@pytest.mark.parametrize("entry_point", ENTRY_POINTS)
-def test_errors_before_the_run_fail_safely(summaries, entry_point):
-    refused = summaries[entry_point]["refusals"]
+def test_errors_before_the_run_fail_safely(summary):
+    refused = summary["refusals"]
     assert list(refused) == [case.__name__.strip("_") for case in REFUSALS]
     # A Bedrock profile is named, never its contents, and fails before any request.
     assert refused["missing_profile"]["profile"] == MISSING_PROFILE
@@ -282,25 +274,17 @@ def test_errors_before_the_run_fail_safely(summaries, entry_point):
         assert refused[f"missing_{kind}_key"]["variable"] == INSTALLED_KEY_VARIABLE
 
 
-@pytest.mark.parametrize("entry_point", ENTRY_POINTS)
-def test_provider_errors_and_limits_are_answer_outcomes(summaries, entry_point):
-    for name, (data, transcript) in summaries[entry_point]["failed"].items():
+def test_provider_errors_and_limits_are_answer_outcomes(summary):
+    for name, (data, transcript) in summary["failed"].items():
         _, _, code, reason = FAILED_RUNS[name]
         assert data["result"]["exit_code"] == code
         assert transcript.outcome.kind == reason
 
 
-def test_answers_do_not_depend_on_the_entry_point(summaries):
-    script, module = (summaries[entry_point] for entry_point in ENTRY_POINTS)
-    for name in README_EXAMPLES:
-        assert script["examples"][name][1]["result"] == module["examples"][name][1]["result"]
-
-
 @pytest.mark.parametrize("harness", ADAPTERS, ids=lambda harness: harness.label)
-@pytest.mark.parametrize("entry_point", ENTRY_POINTS)
-def test_each_adapter_answers_through_a_loopback_api(summaries, entry_point, harness):
-    data, readable, requests = summaries[entry_point]["adapters"][harness.label]
-    _, fake, _ = summaries[entry_point]["examples"][ADAPTED]
+def test_each_adapter_answers_through_a_loopback_api(summary, harness):
+    data, readable, requests = summary["adapters"][harness.label]
+    _, fake, _ = summary["examples"][ADAPTED]
     model = harness.configuration(INSTALLED_KEY_VARIABLE)["model"]
     assert data["summary"]["provider_kind"] == harness.name
     assert data["result"] == fake["result"]

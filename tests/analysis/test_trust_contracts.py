@@ -76,21 +76,18 @@ def result(findings, kind="cross_account_trust"):
     }
 
 
-@pytest.mark.parametrize(
-    ("classification", "effect", "conditional"),
-    list(product(TrustClassification, TrustEffect, [False, True])),
-)
-def test_every_classification_effect_and_conditionality_round_trips(
-    classification, effect, conditional
-):
-    model = CrossAccountTrust(
-        source=TrustSource.ROLE_TRUST_POLICY,
-        classification=classification,
-        effect=effect,
-        conditional=conditional,
-    )
-    assert CrossAccountTrust.model_validate_json(model.model_dump_json()) == model
-    assert model.not_principal is False
+def test_every_classification_effect_and_conditionality_round_trips():
+    for classification, effect, conditional in product(
+        TrustClassification, TrustEffect, [False, True]
+    ):
+        model = CrossAccountTrust(
+            source=TrustSource.ROLE_TRUST_POLICY,
+            classification=classification,
+            effect=effect,
+            conditional=conditional,
+        )
+        assert CrossAccountTrust.model_validate_json(model.model_dump_json()) == model
+        assert model.not_principal is False
 
 
 @pytest.mark.parametrize("source", TrustSource)

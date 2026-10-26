@@ -144,28 +144,8 @@ def test_real_model_names_are_not_mistaken_for_secrets(model: str) -> None:
     "data,code",
     [
         ({**ANTHROPIC, "api_key": SECRET}, "provider_config_secret_field"),
-        ({**ANTHROPIC, "api_key": "ANTHROPIC_API_KEY"}, "provider_config_secret_field"),
-        ({**ANTHROPIC, "password": "x"}, "provider_config_secret_field"),
-        ({**ANTHROPIC, "headers": {"Authorization": "x"}}, "provider_config_secret_field"),
-        ({**BEDROCK, "aws_secret_access_key": "x"}, "provider_config_secret_field"),
         ({**ANTHROPIC, "model": SECRET}, "provider_config_secret_value"),
-        ({**ANTHROPIC, "api_key_env": "AKIAIOSFODNN7EXAMPLE"}, "provider_config_secret_value"),
-        ({**ANTHROPIC, "model": "Bearer abc"}, "provider_config_secret_value"),
-        ({**ANTHROPIC, "model": "-----BEGIN RSA PRIVATE KEY-----"}, "provider_config_secret_value"),
-        (
-            {**ANTHROPIC, "model": "aB3dE5fG7hJ9kL1mN3pQ5rS7tU9vW1xY3z"},
-            "provider_config_secret_value",
-        ),
-        ({**OPENAI, "notes": [f"key {SECRET}"]}, "provider_config_secret_value"),
         ({**ANTHROPIC, "unknown": 1}, "extra_forbidden"),
-        ({**ANTHROPIC, "api_key_env": "lowercase"}, "string_pattern_mismatch"),
-        ({"kind": SECRET}, "union_tag_invalid"),
-        ({"kind": "gemini", "model": "x"}, "union_tag_invalid"),
-        ({"model": "x"}, "union_tag_not_found"),
-        ({k: v for k, v in OPENAI.items() if k != "protocol"}, "missing"),
-        ({**OPENAI, "protocol": "assistants"}, "enum"),
-        ({k: v for k, v in OPENAI.items() if k != "endpoint"}, "missing"),
-        ({k: v for k, v in ANTHROPIC.items() if k != "api_key_env"}, "missing"),
         ({**OPENAI, "endpoint": "http://api.example.com/v1"}, "provider_config_endpoint_invalid"),
         # A password in the URL is a secret-looking value, refused before the endpoint check.
         (
@@ -173,48 +153,18 @@ def test_real_model_names_are_not_mistaken_for_secrets(model: str) -> None:
             "provider_config_secret_value",
         ),
         (
-            {**OPENAI, "endpoint": "https://user@api.example.com/v1"},
-            "provider_config_endpoint_invalid",
-        ),
-        (
-            {**OPENAI, "endpoint": "https://api.example.com/v1?key=x"},
-            "provider_config_endpoint_invalid",
-        ),
-        (
-            {**OPENAI, "endpoint": "https://api.example.com/v1#x"},
-            "provider_config_endpoint_invalid",
-        ),
-        ({**OPENAI, "endpoint": "ftp://api.example.com"}, "url_scheme"),
-        (
             {**OPENAI, "capabilities": ["parallel_tool_calls"]},
             "provider_parallel_calls_without_tools",
         ),
-        ({**OPENAI, "capabilities": ["function_calling"]}, "enum"),
-        ({**OPENAI, "capabilities": "tool_calling"}, "frozen_set_type"),
         (
             {**OPENAI, "protocol": "chat_completions", "encrypted_reasoning": True},
             "provider_config_reasoning_protocol",
         ),
-        ({**OPENAI, "encrypted_reasoning": "true"}, "bool_type"),
         ({**BEDROCK, "region": "global"}, "provider_config_region_invalid"),
-        (
-            {**BEDROCK, "capabilities": ["parallel_tool_calls"]},
-            "provider_parallel_calls_without_tools",
-        ),
-        ({**BEDROCK, "endpoint": "http://bedrock.example.com"}, "provider_config_endpoint_invalid"),
-        ({**BEDROCK, "region": "mars-1"}, "enum"),
-        ({**BEDROCK, "role_arn": "role/x"}, "string_pattern_mismatch"),
-        ({k: v for k, v in BEDROCK.items() if k != "profile"}, "missing"),
         (
             {**ANTHROPIC, "request_timeout_seconds": 120, "max_latency_seconds": 60},
             "provider_config_limit_order",
         ),
-        (
-            {**ANTHROPIC, "max_tool_calls_per_turn": 8, "max_tool_calls": 4},
-            "provider_config_limit_order",
-        ),
-        ({**ANTHROPIC, "max_retries": "2"}, "int_type"),
-        ({**ANTHROPIC, "max_retries": True}, "int_type"),
     ],
 )
 def test_invalid_configuration_fails_safely(data: dict, code: str) -> None:

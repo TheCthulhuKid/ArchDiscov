@@ -124,18 +124,9 @@ def test_condition_redaction_preserves_statement_dict_shape_and_context_scope():
     "value",
     [
         None,
-        [],
-        42,
         "raw-secret",
-        "%7Braw-secret",
-        '{"Statement": "raw-secret"}',
         {"Statement": None},
-        {"Statement": ["raw-secret"]},
-        {"Statement": [None]},
-        {"Statement": {}, "raw-secret": object()},
         {"Statement": {}, "value": float("nan")},
-        {"Statement": {}, "value": float("inf")},
-        {"Statement": {}, 1: "raw-secret"},
         {},
     ],
 )

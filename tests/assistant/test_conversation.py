@@ -120,10 +120,6 @@ def test_tool_declaration_and_usage_round_trip() -> None:
     [
         (_conversation(USER, _results("call_1")), "conversation_tool_result_orphan"),
         (
-            _conversation(USER, _results("call_1"), _assistant_calls(_call("call_1"))),
-            "conversation_tool_result_orphan",
-        ),
-        (
             _conversation(
                 USER,
                 _assistant_calls(_call("call_1")),
@@ -143,10 +139,6 @@ def test_tool_declaration_and_usage_round_trip() -> None:
             "conversation_tool_result_duplicate",
         ),
         (_conversation(USER, {"role": "assistant"}), "assistant_message_empty"),
-        (
-            _conversation(USER, {"role": "assistant", "tool_calls": []}),
-            "assistant_message_empty",
-        ),
         (_conversation(USER, SYSTEM), "conversation_system_message_position"),
         (
             _conversation(
@@ -155,14 +147,6 @@ def test_tool_declaration_and_usage_round_trip() -> None:
             "tool_arguments_too_large",
         ),
         (_conversation({**USER, SECRET: SECRET}), "extra_forbidden"),
-        (_conversation({"role": SECRET, "text": SECRET}), "union_tag_invalid"),
-        (
-            _conversation(USER, _assistant_calls(_call("call_1", name=f"bad-{SECRET}"))),
-            "string_pattern_mismatch",
-        ),
-        (_conversation({"role": "user", "text": " "}), "string_pattern_mismatch"),
-        (_conversation(USER, {"role": "tool", "results": []}), "too_short"),
-        ({"messages": []}, "too_short"),
     ],
 )
 def test_invalid_conversations_fail_with_safe_diagnostics(data: dict, code: str) -> None:

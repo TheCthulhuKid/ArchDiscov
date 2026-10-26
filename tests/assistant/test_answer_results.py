@@ -131,7 +131,8 @@ def test_exit_codes_avoid_the_existing_cli_codes() -> None:
     every_run_outcome(),
     ids=lambda item: f"{item.kind}-{getattr(item, 'reason', getattr(item, 'limit', ''))}",
 )
-def test_repair_is_offered_only_for_what_a_model_can_fix(outcome: RunOutcome) -> None:
+def test_every_run_outcome_maps_to_one_answer_outcome(outcome: RunOutcome) -> None:
+    # Repair is offered only for what a model can fix: a missing or rejected proposal.
     repairable = isinstance(outcome, Answered) or (
         isinstance(outcome, MalformedOutput) and outcome.reason in PROPOSAL_REASONS
     )
@@ -141,14 +142,6 @@ def test_repair_is_offered_only_for_what_a_model_can_fix(outcome: RunOutcome) ->
     else:
         assert needs_repair(outcome, ()) is repairable
         assert needs_repair(outcome, UNKNOWN_ID_REJECTIONS) is repairable
-
-
-@pytest.mark.parametrize(
-    "outcome",
-    every_run_outcome(),
-    ids=lambda item: f"{item.kind}-{getattr(item, 'reason', getattr(item, 'limit', ''))}",
-)
-def test_every_run_outcome_maps_to_one_answer_outcome(outcome: RunOutcome) -> None:
     rejections = UNKNOWN_ID_REJECTIONS if isinstance(outcome, Proposed) else ()
     if needs_repair(outcome, rejections):
         with pytest.raises(ValueError, match="only after its repair"):

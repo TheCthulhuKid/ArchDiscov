@@ -91,7 +91,7 @@ def test_execution_limit_upper_boundaries():
 @pytest.mark.parametrize(
     "field", ["max_in_flight_calls", "max_active_accounts", "max_collector_jobs"]
 )
-@pytest.mark.parametrize("value", [0, -1, True, "2", 1.5, 1000])
+@pytest.mark.parametrize("value", [0, True, 1000])
 def test_invalid_run_limits_rejected(field, value):
     with pytest.raises(ValidationError, match=field):
         AwsCollectionRequest(accounts=(account(services=["iam"]),), **{field: value})

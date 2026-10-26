@@ -10,14 +10,9 @@ from archdiscov.services import (
 )
 from tests.support.tagged_snapshots import NO_TAGS, TAG_EVIDENCE, tagged
 
-SOURCES = [
-    ("analysis/ownership-snapshot.json", False),
-    ("snapshots/hierarchy.json", False),
-    ("snapshots/hierarchy.json", True),
-    ("snapshots/azure.json", False),
-    ("snapshots/network.json", False),
-]
-IDS = ["aws-v2", "aws-v1", "aws-v3", "azure-v3", "aws-network"]
+# The analyzer reads both clouds through the graph, which is tested across schemas itself.
+SOURCES = [("snapshots/hierarchy.json", True), ("snapshots/azure.json", False)]
+IDS = ["aws", "azure"]
 
 
 def analyze(snapshot, keys=None):
@@ -51,7 +46,7 @@ class TestOwnershipSignals:
         assert "Owner or Team" in finding.summary
         assert "tags_unavailable" not in codes(finding)
 
-    @pytest.mark.parametrize("tags", [{}, {"owner": "x"}, {"Owner": ""}, {"Owner": "  "}])
+    @pytest.mark.parametrize("tags", [{}, {"owner": "x"}, {"Owner": "  "}])
     def test_empty_blank_and_case_mismatched_values_do_not_count(self, source, upgraded, tags):
         snapshot, target = tagged(source, upgraded, tags=tags)
         assert target in analyze(snapshot)[0]

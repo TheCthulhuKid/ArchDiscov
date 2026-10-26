@@ -1,8 +1,8 @@
 """Phase 4 closes with one credential-free, network-free journey through the installed CLI.
 
 fixture -> ingest -> `ask` for each README example -> validated answer -> evidence
-inspection, plus the failure and repair paths, through each entry point outside the
-checkout, the two on separate workers. The fixtures are the checked-in evaluation suites'
+inspection, plus the failure and repair paths, through the installed script outside the
+checkout. The fixtures are the checked-in evaluation suites'
 case files: the README cases answer each example question with a fake transcript, and the
 adversarial cases submit a fabricated or unreturned citation (always rejected, exit 5),
 repair a fabricated citation (answered after the repair), and answer over imported text
@@ -23,7 +23,6 @@ from tests.support.answer_claims import INJECTION
 from tests.support.ask_examples import README_QUESTIONS
 from tests.support.evaluation_suites import ADVERSARIAL_SUITE, README_SUITE
 from tests.support.installed_cli import (
-    ENTRY_POINTS,
     Workspace,
     digest,
     ingest_selection,
@@ -38,6 +37,10 @@ PATHS = {
     "repaired": ("answered_after_repair", 0, None),
     "injected_text": ("answered", 0, None),
 }
+
+
+# The journey is module-scoped, so its tests share one xdist worker.
+pytestmark = pytest.mark.xdist_group("phase-four")
 
 
 def _ingest(ws: Workspace, suite: str, case: dict) -> list[str]:
@@ -76,8 +79,8 @@ def _inspected(ws: Workspace, answer: dict, snapshot: str) -> dict:
     }
 
 
-def journey(entry_point: str, root: Path) -> dict:
-    ws = Workspace(entry_point, root)
+def journey(root: Path) -> dict:
+    ws = Workspace(root)
     for name, suite in SUITES.items():
         shutil.copytree(suite.parent, ws.path("fixtures", name))
     fixtures = {path: digest(path) for path in ws.path("fixtures").rglob("*") if path.is_file()}
@@ -96,16 +99,9 @@ def journey(entry_point: str, root: Path) -> dict:
     return summary
 
 
-@pytest.fixture(
-    scope="module",
-    params=[
-        pytest.param(entry_point, marks=pytest.mark.xdist_group(f"phase-four-{entry_point}"))
-        for entry_point in ENTRY_POINTS
-    ],
-)
-def summary(request, tmp_path_factory) -> dict:
-    """One entry point's journey; each runs once, on its own xdist worker."""
-    return journey(request.param, tmp_path_factory.mktemp(f"phase-four-{request.param}"))
+@pytest.fixture(scope="module")
+def summary(tmp_path_factory) -> dict:
+    return journey(tmp_path_factory.mktemp("phase-four"))
 
 
 def _cited(answer: dict, key: str) -> set[str]:

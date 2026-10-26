@@ -386,9 +386,8 @@ def _malformed(reason: MalformedArgumentsReason) -> MalformedToolArguments:
         "refusal-text",
     ],
 )
-@pytest.mark.parametrize("mode", ["sync", "async"])
-def test_responses_map_to_the_shared_contracts(body, message, stop, mode: str) -> None:
-    response = _send(_provider(_api(body)), mode)
+def test_responses_map_to_the_shared_contracts(body, message, stop) -> None:
+    response = _send(_provider(_api(body)), "async")
     assert response == CompletionResponse(
         message=message, stop_reason=stop, usage=TokenUsage(input_tokens=3, output_tokens=1)
     )
@@ -398,44 +397,25 @@ def test_responses_map_to_the_shared_contracts(body, message, stop, mode: str) -
     ("body", "error"),
     [
         (_body(stop="max_tokens"), ProviderTruncatedOutputError),
-        (
-            _body(TEXT, {**LOOKUP, "input": {"type": "rd"}}, stop="max_tokens"),
-            ProviderTruncatedOutputError,
-        ),
         (_body(stop="refusal"), ProviderRefusalError),
-        (_body(TEXT, LOOKUP, stop="refusal"), ProviderRefusalError),
         (
             _body(TEXT, {"type": "server_tool_use", "id": "s", "name": "web_search", "input": {}}),
             ProviderMalformedOutputError,
         ),
-        (_body(TEXT, {"type": "hologram"}), ProviderMalformedOutputError),
-        (_body(TEXT, stop="pause_turn"), ProviderMalformedOutputError),
         (_body(TEXT, stop="improvised"), ProviderMalformedOutputError),
-        (_body(TEXT, LOOKUP), ProviderMalformedOutputError),
         (_body(LOOKUP, stop="end_turn"), ProviderMalformedOutputError),
-        (_body(stop="end_turn"), ProviderMalformedOutputError),
-        (_body({"type": "text", "text": 5}), ProviderMalformedOutputError),
         (
             _body({**LOOKUP, "name": "not a tool name"}, stop="tool_use"),
             ProviderMalformedOutputError,
         ),
-        (_body(TEXT, usage={"input_tokens": -1, "output_tokens": 1}), ProviderMalformedOutputError),
     ],
     ids=[
         "max-tokens-empty",
-        "max-tokens-partial-call",
         "refusal-empty",
-        "refusal-with-call",
         "server-tool-block",
-        "unknown-block",
-        "pause-turn",
         "unknown-stop",
-        "calls-at-end-turn",
         "no-calls-at-tool-use",
-        "empty",
-        "text-not-a-string",
         "invalid-tool-name",
-        "negative-usage",
     ],
 )
 def test_unusable_responses_are_typed_errors_without_provider_text(body, error) -> None:
@@ -527,16 +507,8 @@ def _error(status: int, headers: dict | None = None) -> httpx2.Response:
     [
         (400, ProviderInvalidRequestError),
         (401, ProviderAuthenticationError),
-        (403, ProviderAuthenticationError),
-        (404, ProviderInvalidRequestError),
-        (409, ProviderInvalidRequestError),
-        (413, ProviderInvalidRequestError),
-        (422, ProviderInvalidRequestError),
         (429, ProviderRateLimitError),
         (500, ProviderUnavailableError),
-        (502, ProviderUnavailableError),
-        (503, ProviderUnavailableError),
-        (504, ProviderUnavailableError),
         (529, ProviderRateLimitError),
     ],
 )

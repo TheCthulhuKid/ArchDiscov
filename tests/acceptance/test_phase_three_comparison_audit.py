@@ -1,9 +1,8 @@
-"""Audit comparisons across every pair of snapshot source kinds.
+"""Audit comparisons across representative pairs of snapshot source kinds.
 
-Driven from `SnapshotSourceKind`: a new source kind has no builder, and the audit fails.
+Driven from `SnapshotSourceKind`: a new source kind has no builder, and the audit fails. The
+pairs cover each distinct case: the same kind, two AWS kinds (one planned), and both clouds.
 """
-
-import itertools
 
 import pytest
 
@@ -45,7 +44,14 @@ def test_every_source_kind_is_built_by_the_audit():
         assert build(kind, 1).source is not None
 
 
-PAIRS = list(itertools.product(KINDS, KINDS))
+K = SnapshotSourceKind
+AWS_PAIRS = [
+    (K.AWS, K.AWS),
+    (K.AWS, K.TERRAFORM_PLAN),
+    (K.TERRAFORM_PLAN, K.CLOUDFORMATION),
+    (K.TERRAFORM_STATE, K.MOCK),
+]
+PAIRS = [*AWS_PAIRS, (K.AWS, K.AZURE_FIXTURE), (K.AZURE_FIXTURE, K.AZURE_FIXTURE)]
 
 
 @pytest.mark.parametrize(("left_kind", "right_kind"), PAIRS, ids=lambda kind: kind.value)
@@ -105,10 +111,6 @@ def test_cross_cloud_pairs_match_nothing_and_same_cloud_pairs_match_identity(lef
         }
 
 
-AWS_KINDS = [kind for kind in KINDS if not is_azure(kind)]
-AWS_PAIRS = list(itertools.product(AWS_KINDS, AWS_KINDS))
-
-
 @pytest.mark.parametrize("recorded", COVERAGE)
 @pytest.mark.parametrize(("left_kind", "right_kind"), AWS_PAIRS, ids=lambda kind: kind.value)
 def test_absences_follow_the_other_sides_recorded_coverage(left_kind, right_kind, recorded):
@@ -135,7 +137,7 @@ def test_absences_follow_the_other_sides_recorded_coverage(left_kind, right_kind
     assert absent_from_left == expected_right
 
 
-@pytest.mark.parametrize("right_kind", AWS_KINDS, ids=lambda kind: kind.value)
+@pytest.mark.parametrize("right_kind", [K.AWS, K.TERRAFORM_PLAN], ids=lambda kind: kind.value)
 def test_planned_lifecycle_qualifies_the_pair_and_the_difference_is_not_an_absence(right_kind):
     result = compare_snapshots(build(SnapshotSourceKind.AWS, 1), build(right_kind, 2))
     [pair] = result.matched

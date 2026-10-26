@@ -1,14 +1,14 @@
 """Phase 5 acceptance: an MCP client answers the README questions through the installed server.
 
-fixture -> ingest -> `archdiscov mcp` over stdio -> prompt -> tool calls -> `submit_answer`
--> cited evidence, through each entry point outside the checkout, the two on separate
-workers. The fixtures are the checked-in README suite's case files: each case's tool calls and
-proposal are the ones its fake transcript makes for `ask`, so `ask` over the same files is
-the reference an accepted answer must equal. The adversarial suite's proposals are submitted
-too: each unsupported claim is rejected with its code and a corrected proposal is accepted in
-the same session. The server and `ask` run with no credentials and no checkout: their whole
-`PYTHONPATH` is the offline guard, which fails and records any network use, and, for the
-boundary check, every file the server opens in the workspace.
+fixture -> ingest -> `archdiscov mcp` over stdio -> prompt -> tool calls -> `submit_answer` ->
+cited evidence, through the installed script outside the checkout. The fixtures are the
+checked-in README suite's case files: each case's tool calls and proposal are the ones its
+fake transcript makes for `ask`, so `ask` over the same files is the reference an accepted
+answer must equal. The adversarial suite's proposals are submitted too: each unsupported claim
+is rejected with its code and a corrected proposal is accepted in the same session. The server
+and `ask` run with no credentials and no checkout: their whole `PYTHONPATH` is the offline
+guard, which fails and records any network use, and, for the boundary check, every file the
+server opens in the workspace.
 """
 
 import json
@@ -26,9 +26,8 @@ from tests.paths import FIXTURES_ROOT
 from tests.support.answer_claims import INJECTION
 from tests.support.evaluation_suites import ADVERSARIAL_SUITE, README_SUITE
 from tests.support.installed_cli import (
-    ENTRY_POINTS,
+    CLI,
     Workspace,
-    cli_command,
     digest,
     ingest_selection,
     suite_cases,
@@ -38,11 +37,14 @@ from tests.support.mcp_clients import StdioSession, submitted_proposals, transcr
 PROMPTS = {question: kind.value for kind, question in README_QUESTIONS.items()}
 # The case that asks about two snapshots has no prompt: its question is not a README question.
 UNPROMPTED = {"ownership_compared"}
+# Each journey is module-scoped; its tests share one xdist worker, and the two run in parallel.
+pytestmark = pytest.mark.xdist_group("phase-five")
+REFUSALS = pytest.mark.xdist_group("phase-five-refusals")
 
 
 def _serve(ws: Workspace, selection: list[str], env: dict[str, str] | None = None) -> StdioSession:
     """`archdiscov mcp` over the selection, as a client starts it; use it as a context."""
-    command = [*cli_command(ws.entry_point), "mcp", *selection]
+    command = [*CLI, "mcp", *selection]
     return StdioSession(command, ws.root, ws.guard.env if env is None else env)
 
 
@@ -101,8 +103,8 @@ def _answered(ws: Workspace, case: dict) -> dict:
     }
 
 
-def journey(entry_point: str, root: Path) -> dict:
-    ws = Workspace(entry_point, root)
+def journey(root: Path) -> dict:
+    ws = Workspace(root)
     shutil.copytree(README_SUITE.parent, ws.path("fixtures", "readme"))
     fixtures = {path: digest(path) for path in ws.path("fixtures").rglob("*") if path.is_file()}
     cases = {case_id: _answered(ws, case) for case_id, case in suite_cases(ws, "readme").items()}
@@ -111,16 +113,9 @@ def journey(entry_point: str, root: Path) -> dict:
     return {"cases": cases, "network": ws.guard.attempts}
 
 
-@pytest.fixture(
-    scope="module",
-    params=[
-        pytest.param(entry_point, marks=pytest.mark.xdist_group(f"phase-five-{entry_point}"))
-        for entry_point in ENTRY_POINTS
-    ],
-)
-def summary(request, tmp_path_factory) -> dict:
-    """One entry point's journey; each runs once, on its own xdist worker."""
-    return journey(request.param, tmp_path_factory.mktemp(f"phase-five-{request.param}"))
+@pytest.fixture(scope="module")
+def summary(tmp_path_factory) -> dict:
+    return journey(tmp_path_factory.mktemp("phase-five"))
 
 
 def _answer(run: dict) -> dict:
@@ -408,8 +403,8 @@ def _boundary(ws: Workspace) -> dict:
     }
 
 
-def refusal_journey(entry_point: str, root: Path) -> dict:
-    ws = Workspace(entry_point, root)
+def refusal_journey(root: Path) -> dict:
+    ws = Workspace(root)
     shutil.copytree(README_SUITE.parent, ws.path("fixtures", "readme"))
     shutil.copytree(ADVERSARIAL_SUITE.parent, ws.path("fixtures", "adversarial"))
     adversarial = suite_cases(ws, "adversarial")
@@ -426,17 +421,9 @@ def refusal_journey(entry_point: str, root: Path) -> dict:
     return summary
 
 
-@pytest.fixture(
-    scope="module",
-    params=[
-        pytest.param(entry_point, marks=pytest.mark.xdist_group(f"phase-five-{entry_point}"))
-        for entry_point in ENTRY_POINTS
-    ],
-)
-def refusals(request, tmp_path_factory) -> dict:
-    """One entry point's refusal journey; each runs once, on the entry point's worker."""
-    root = tmp_path_factory.mktemp(f"phase-five-refusals-{request.param}")
-    return refusal_journey(request.param, root)
+@pytest.fixture(scope="module")
+def refusals(tmp_path_factory) -> dict:
+    return refusal_journey(tmp_path_factory.mktemp("phase-five-refusals"))
 
 
 def _reply(result: tuple[bool, list[str]]) -> dict:
@@ -445,6 +432,7 @@ def _reply(result: tuple[bool, list[str]]) -> dict:
     return json.loads(text)
 
 
+@REFUSALS
 def test_each_unsupported_claim_is_rejected_with_its_code(refusals):
     for case_id, (code, _, _) in REJECTED.items():
         reply = _reply(refusals["rejected"][case_id]["refused"])
@@ -454,6 +442,7 @@ def test_each_unsupported_claim_is_rejected_with_its_code(refusals):
         assert FABRICATED not in json.dumps(reply) and INJECTION not in json.dumps(reply)
 
 
+@REFUSALS
 def test_a_corrected_proposal_is_accepted_in_the_same_session(refusals):
     for case_id, (_, _, still_rejected) in REJECTED.items():
         run = refusals["rejected"][case_id]
@@ -465,6 +454,7 @@ def test_a_corrected_proposal_is_accepted_in_the_same_session(refusals):
         assert run["original"][0] is still_rejected, case_id
 
 
+@REFUSALS
 def test_imported_instructions_are_only_quoted_data(refusals):
     injected = refusals["injected"]
     quoted = bare = 0
@@ -480,6 +470,7 @@ def test_imported_instructions_are_only_quoted_data(refusals):
     assert INJECTION not in json.dumps(answer["narrative"])
 
 
+@REFUSALS
 def test_pre_serve_failures_exit_with_a_diagnostic_and_serve_nothing(refusals):
     codes = {"missing": "snapshot_io_error", "invalid": "invalid_snapshot"}
     for name, result in refusals["pre_serve"].items():
@@ -488,6 +479,7 @@ def test_pre_serve_failures_exit_with_a_diagnostic_and_serve_nothing(refusals):
         assert result.stderr.startswith(f"Error [{expected}]: "), name
 
 
+@REFUSALS
 def test_the_server_opens_only_the_files_it_was_given(refusals):
     boundary = refusals["boundary"]
     registry = {tool.name for tool in default_registry().declarations()}

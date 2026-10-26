@@ -36,9 +36,6 @@ def rid(physical_id, service=AwsService.EC2):
     return stable_id(physical_id, REGION, service)
 
 
-ADMITS_LOAD_BALANCER = {"GroupId": "sg-a", "UserId": ACCOUNT}
-
-
 def _rule(group, port, **target):
     item = {
         "SecurityGroupRuleId": f"sgr-{group}-{port}",

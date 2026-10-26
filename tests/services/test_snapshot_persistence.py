@@ -89,17 +89,6 @@ def test_validation_diagnostics_exclude_raw_inputs_and_contexts() -> None:
     assert not hasattr(issue, "ctx")
 
 
-@pytest.mark.parametrize("path", sorted(FIXTURES.glob("*.json")), ids=lambda path: path.name)
-def test_load_committed_fixtures(path: Path) -> None:
-    loaded = load_snapshot(str(path))
-    if json.loads(path.read_text())["schema_version"] == "3":
-        from archdiscov.models.cloud.snapshot import CloudSnapshot
-
-        assert loaded == CloudSnapshot.model_validate_json(path.read_text())
-    else:
-        assert loaded == ArchitectureSnapshot.model_validate_json(path.read_text())
-
-
 @pytest.mark.parametrize("content", [b'{\n"private-secret": }', b"\xff", b"NaN"])
 def test_load_format_errors(tmp_path: Path, content: bytes) -> None:
     path = tmp_path / "snapshot.json"

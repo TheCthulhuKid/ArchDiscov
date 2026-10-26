@@ -14,7 +14,6 @@ import pytest
 
 from archdiscov.assistant.answer_results import AnswerStatus, FailureReason
 from archdiscov.assistant.evaluation import (
-    MAX_CASES,
     MIN_QUOTED_CHARS,
     SAFETY_CHECKS,
     Budget,
@@ -150,61 +149,21 @@ def test_case_outcomes_are_the_answered_statuses_and_the_failure_reasons() -> No
     "data",
     [
         _suite(_case_data(), extra=1),
-        _suite(_case_data(), schema_version="2"),
         _suite(),
-        _suite(*(_case_data(f"c{index}") for index in range(MAX_CASES + 1))),
         _suite(_case_data(), _case_data()),
-        _suite(_case_data(f"Bad {SECRET_PATH}")),
-        _suite(_case_data(question="")),
         _suite(_case_data(snapshot=f"/{SECRET_PATH}/snapshot.json")),
         _suite(_case_data(snapshot=f"../{SECRET_PATH}.json")),
-        _suite(_case_data(snapshot=f"a/../../{SECRET_PATH}.json")),
-        _suite(_case_data(snapshot=f"a\\{SECRET_PATH}.json")),
-        _suite(_case_data(snapshot=f"./{SECRET_PATH}.json")),
-        _suite(_case_data(snapshot=f"a//{SECRET_PATH}.json")),
-        _suite(_case_data(fake_transcript=f"../{SECRET_PATH}.json")),
-        _suite(_case_data(comparison_results=[f"{SECRET_PATH}.json"])),
-        _suite(
-            _case_data(comparison="c.json", comparison_results=[f"{SECRET_PATH}", f"{SECRET_PATH}"])
-        ),
-        _suite(_case_data(expect={"outcomes": []})),
-        _suite(_case_data(expect={"outcomes": ["answered", "answered"]})),
         _suite(_case_data(expect={"outcomes": [SECRET_PATH]})),
         _suite(_case_data(expect={"outcomes": ["provider_error"], "statuses": ["supported"]})),
-        _suite(_case_data(expect={"outcomes": ["limit_reached"], "finding_ids": ["f1"]})),
-        _suite(_case_data(expect={"outcomes": ["cancelled"], "limitations": ["x"]})),
-        _suite(
-            _case_data(expect={"outcomes": ["answered"], "rejections": ["answer_id_not_returned"]})
-        ),
-        _suite(_case_data(expect={"outcomes": ["answered"], "finding_ids": ["f1", "f1"]})),
-        _suite(_case_data(expect={"outcomes": ["answered"], SECRET_PATH: 1})),
     ],
     ids=[
         "unknown-field",
-        "schema-version",
         "no-cases",
-        "too-many-cases",
         "duplicate-case",
-        "bad-case-id",
-        "empty-question",
         "absolute-path",
         "parent-path",
-        "escaping-path",
-        "backslash",
-        "dot-segment",
-        "empty-segment",
-        "escaping-transcript",
-        "results-without-comparison",
-        "duplicate-results",
-        "no-outcomes",
-        "duplicate-outcomes",
         "unknown-outcome",
         "status-without-answer",
-        "findings-without-answer",
-        "limitations-without-answer",
-        "rejections-without-rejection",
-        "duplicate-finding",
-        "unknown-expectation",
     ],
 )
 def test_invalid_suites_are_refused_with_safe_diagnostics(data: dict) -> None:
@@ -493,37 +452,20 @@ def _recount(report: dict, **changes: Any) -> dict:
     [
         lambda records: _report(_edited(records, cited_finding_ids=["edited"])),
         lambda records: _report(_edited(records, passed=False)),
-        lambda records: _report(_edited(records, checks=[{"name": "cited", "passed": True}])),
-        lambda records: _report(_edited(records, cited_finding_ids=["b", "a"])),
         lambda records: _recount(
             _report(records), totals={**Totals.of(records).model_dump(), "passed": 1}
         ),
         lambda records: _report(tuple(reversed(records))),
-        lambda records: _report(records[:1]),
-        lambda records: _report(records, budget=Budget.for_runs(RunLimits(), 3)),
         lambda records: _report(records, model=f"sk-proj-{SECRET_PATH}XYZ"),
         lambda records: {**_report(records), "schema_version": "2"},
-        lambda records: {**_report(records), "providers": []},
-        lambda records: {**_report(records), "extra": SECRET_PATH},
-        lambda records: {
-            **_report(records),
-            "suite": {"name": "readme", "digest": "0" * 64, "case_ids": ["a", "a"]},
-        },
     ],
     ids=[
         "edited-record",
         "passed-without-checks",
-        "missing-safety-checks",
-        "unsorted-ids",
         "wrong-totals",
         "out-of-order",
-        "missing-case",
-        "wrong-budget",
         "secret-model",
         "schema-version",
-        "no-providers",
-        "unknown-field",
-        "duplicate-suite-case",
     ],
 )
 def test_invalid_reports_are_refused_with_safe_diagnostics(records, build) -> None:

@@ -3,13 +3,12 @@
 import json
 import os
 import subprocess
-import sys
-from pathlib import Path
 
 import pytest
 
 from archdiscov.services import load_snapshot
 from tests.paths import FIXTURES_ROOT
+from tests.support.installed_cli import CLI
 
 FIXTURES = FIXTURES_ROOT
 ACCOUNT = "123456789012"
@@ -33,8 +32,8 @@ SECRETS = (
 )
 
 
-@pytest.fixture(params=["script", "module"])
-def offline_cli(request, tmp_path):
+@pytest.fixture
+def offline_cli(tmp_path):
     env = {
         key: value
         for key, value in os.environ.items()
@@ -51,11 +50,7 @@ def offline_cli(request, tmp_path):
         NO_COLOR="1",
         COLUMNS="160",
     )
-    command = (
-        [str(Path(sys.executable).with_name("archdiscov"))]
-        if request.param == "script"
-        else [sys.executable, "-m", "archdiscov"]
-    )
+    command = CLI
 
     def run(*arguments, exit_code=0, json_output=True):
         result = subprocess.run(

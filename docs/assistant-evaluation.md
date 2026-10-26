@@ -275,11 +275,10 @@ follow the suite's cases (all of them, unless the run was cancelled).
 ## Verification
 
 `tests/acceptance/test_installed_evaluation.py` runs the installed commands outside the
-checkout, through the `archdiscov` script and `python -m archdiscov`, with an offline guard
-that fails any network use and an environment without credentials. Both entry points
-evaluate the README and adversarial suites, copied out of the checkout, with the fake
-provider in both output forms: every case passes, and the reports equal each other apart
-from timing. The README suite is also evaluated through the Anthropic adapter against a
+checkout, through the `archdiscov` script, with an offline guard that fails any network
+use and an environment without credentials. It evaluates the README and adversarial suites,
+copied out of the checkout, with the fake provider in both output forms, and every case
+passes. The README suite is also evaluated through the Anthropic adapter against a
 mock API on one loopback port, the only connection the guard allows, opted in with
 `--allow-external`, and reaches the fake's record IDs. An existing output path and an
 Anthropic configuration without `--allow-external` are refused before any request, leaving

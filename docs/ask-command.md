@@ -211,7 +211,7 @@ credentials, or the question.
 how to try the command by hand with a written fake transcript or the example helper.
 
 `tests/acceptance/test_installed_ask.py` runs the installed command outside the checkout,
-through the `archdiscov` script and `python -m archdiscov`, with an offline guard that fails
+through the `archdiscov` script, with an offline guard that fails
 any network use and an environment without credentials. It answers the five README example
 questions in both output forms, refuses a missing configuration, an unknown snapshot, a
 Bedrock profile that cannot be loaded, an Anthropic or OpenAI-compatible configuration

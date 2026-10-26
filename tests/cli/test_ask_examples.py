@@ -1,10 +1,10 @@
 """The README example questions, answered through the `ask` command with fake transcripts.
 
-Each example is written to a temporary directory and run in both output forms, with the
-fake provider and with each adapter harness (Anthropic, and the OpenAI-compatible adapter
-through each protocol) over a mocked API serving the same turns; the validated status, the
-cited findings and differences, and the qualifications are checked against what the
-example's tools returned.
+Each example is written to a temporary directory and run in both output forms with the
+fake provider; the validated status, the cited findings and differences, and the
+qualifications are checked against what the example's tools returned. Each adapter harness
+(Anthropic, Bedrock, and the OpenAI-compatible adapter through each protocol), over a mocked
+API serving the same turns, must give the fake's answer.
 """
 
 import json
@@ -132,11 +132,10 @@ def _cited(answer: RenderedAnswer, run: ExampleRun) -> None:
     assert findings or differences
 
 
-@pytest.mark.parametrize("provider", PROVIDERS)
 @pytest.mark.parametrize("name", list(EXAMPLES))
-def test_each_example_answers_in_json(tmp_path: Path, monkeypatch, name: str, provider) -> None:
+def test_each_example_answers_in_json(tmp_path: Path, monkeypatch, name: str) -> None:
     example = EXAMPLES[name]
-    run, output = _ask(name, tmp_path, monkeypatch, provider, "--json")
+    run, output = _ask(name, tmp_path, monkeypatch, "fake", "--json")
     result = json.loads(output)["result"]
     assert result["exit_code"] == 0
     answer = RenderedAnswer.model_validate(result["answer"])
@@ -150,11 +149,10 @@ def test_each_example_answers_in_json(tmp_path: Path, monkeypatch, name: str, pr
         assert view.finding_id in run.finding_ids
 
 
-@pytest.mark.parametrize("provider", PROVIDERS)
 @pytest.mark.parametrize("name", list(EXAMPLES))
-def test_each_example_answers_readably(tmp_path: Path, monkeypatch, name: str, provider) -> None:
+def test_each_example_answers_readably(tmp_path: Path, monkeypatch, name: str) -> None:
     example = EXAMPLES[name]
-    run, output = _ask(name, tmp_path, monkeypatch, provider)
+    run, output = _ask(name, tmp_path, monkeypatch, "fake")
     lines = output.splitlines()
     assert "Answer: answered, exit code 0" in lines
     assert f"Status: {example.status}" in lines

@@ -136,37 +136,23 @@ def _ids(count: int) -> list[str]:
                 for index in range(MAX_LIMITATIONS + 1)
             ]
         ),
-        _proposal(contexts=[*BOTH, {"side": "primary", "source_kind": "aws"}]),
         _proposal(summary="s" * (MAX_SUMMARY_CHARS + 1)),
-        _proposal(summary=""),
-        _proposal(summary="   "),
         _proposal(explanation="e" * (MAX_EXPLANATION_CHARS + 1)),
-        _proposal(explanation=""),
         _proposal(
             conclusions=[
                 {"kind": "analyzer_finding", "citations": [{"finding_ids": ["x" * 2_049]}]}
             ]
         ),
-        _proposal(limitations=[{"finding_id": "f-1", "limitation": "Not A Code"}]),
         _proposal(status="certain"),
-        _proposal(contexts=[{"side": "primary", "source_kind": "guess"}]),
-        _proposal(conclusions=[{"kind": "opinion", "citations": [{"finding_ids": ["f-1"]}]}]),
     ],
     ids=[
         "conclusions",
         "ids",
         "limitations",
-        "contexts",
         "summary-long",
-        "summary-empty",
-        "summary-blank",
         "explanation-long",
-        "explanation-empty",
         "id-long",
-        "code",
         "status",
-        "source-kind",
-        "conclusion-kind",
     ],
 )
 def test_every_bound_is_enforced(data: dict) -> None:

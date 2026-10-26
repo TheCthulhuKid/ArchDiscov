@@ -234,7 +234,7 @@ Boundary regression tests include `tests/models/test_cloud_identity.py`,
 and CLI regressions. They cover strict scope/ARM inputs, case matching and ID stability,
 provider guards, placement/duplicates, citation ownership, exact pointers and nulls,
 dependency context, relevant coverage, detached redaction, invalid-model rejection before
-publication, no-overwrite bytes, AWS upgrades, and installed entry points outside the
+publication, no-overwrite bytes, AWS upgrades, and the installed CLI outside the
 checkout without credentials/network. No live Azure acceptance is implied.
 
 The pre-phase-3 bridge follows explicit prerequisites:

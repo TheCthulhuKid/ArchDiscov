@@ -1128,8 +1128,8 @@ The phase closes with complementary journeys rather than live-AWS requirements:
   local/external/unresolved targets retain their identifiers, reasons and citations.
 - `tests/acceptance/test_whole_architecture_acceptance.py`: populated seven-family collection
   across accounts/regions, with discovery, isolated failures, redaction and immutable files.
-- `tests/acceptance/test_raw_ingestion_acceptance.py`: both installed entry points outside the
-  checkout for every source format, context/format failures, protected parameters,
+- `tests/acceptance/test_raw_ingestion_acceptance.py`: the installed `archdiscov` script outside
+  the checkout for every source format, context/format failures, protected parameters,
   partial summaries, evidence inspection and no overwrite.
 - `tests/acceptance/test_offline_acceptance.py` and the fixture persistence suite preserve
   historical schema `1`, typed children, citations and qualified coverage.
@@ -1166,11 +1166,12 @@ Phase 3 closes with offline checks that need no credentials or network, on the h
 `.venv/bin/python` and in Docker with `/opt/venv/bin/python`:
 
 - `tests/acceptance/test_phase_three_audit.py` and `test_phase_three_comparison_audit.py`: every
-  analyzer on schemas `1`–`3` and the Azure fixture, and every pair of snapshot source kinds,
-  against the completion criteria (cited evidence and paths, coverage qualification, no
+  analyzer on schemas `1`–`3` (limited and unrecorded coverage on the current schema) and the
+  Azure fixture, and representative pairs of snapshot source kinds (the same kind, two AWS
+  kinds, a planned side, and both clouds), against the completion criteria (cited evidence and paths, coverage qualification, no
   unqualified conclusion under partial coverage, immutable and verified results).
 - `tests/acceptance/test_installed_end_to_end.py`: one journey outside the checkout through the
-  installed script and module (ingest, queries, each analyzer, findings, evidence, comparisons)
+  installed `archdiscov` script (ingest, queries, each analyzer, findings, evidence, comparisons)
   with an offline guard that fails any network use.
 - `tests/acceptance/test_readme_scenarios.py` and `tests/documentation`: the scenarios below,
   and the documentation, command, limit, link, and scenario-mapping checks.
@@ -1194,8 +1195,8 @@ results of the AWS-only analyzers; they are not Azure discovery or analysis.
 Phase 4 closes with offline checks that need no credentials or network, on the host with
 `.venv/bin/python` and in Docker with `/opt/venv/bin/python`:
 
-- `tests/acceptance/test_phase_four_acceptance.py`: one journey per entry point outside the
-  checkout: the checked-in fixtures are ingested, each README example question is asked with a
+- `tests/acceptance/test_phase_four_acceptance.py`: one journey outside the checkout through
+  the installed `archdiscov` script: the checked-in fixtures are ingested, each README example question is asked with a
   fake transcript and answered from the findings the tools returned, cited evidence is
   inspected in the answered snapshot, answers short of `supported` state their limitations, a
   fabricated or unreturned citation is rejected after the one repair (exit 5), a repaired
@@ -1223,8 +1224,8 @@ evaluation run only with `-m live` and their variables, never in CI.
 Phase 5 closes with offline checks that need no credentials, no provider, and no network, on
 the host with `.venv/bin/python` and in Docker with `/opt/venv/bin/python`:
 
-- `tests/acceptance/test_phase_five_acceptance.py`: two journeys per entry point outside the
-  checkout, with no connection allowed at all. In the first, the checked-in README fixtures are
+- `tests/acceptance/test_phase_five_acceptance.py`: two journeys outside the checkout through
+  the installed `archdiscov` script, with no connection allowed at all. In the first, the checked-in README fixtures are
   ingested and an MCP stdio client starts `archdiscov mcp` over each, lists the tools and the five
   prompts, answers each example question from its prompt through the tools and `submit_answer`,
   and retrieves cited evidence through a tool; each accepted answer equals what `ask` gives for
@@ -1286,7 +1287,7 @@ not only that a command ran:
 | MCP server reads only the selected files and never the network | `tests/acceptance/test_phase_five_acceptance.py::test_the_server_opens_only_the_files_it_was_given`<br>`tests/acceptance/test_phase_five_acceptance.py::test_the_server_exits_cleanly_and_nothing_reaches_the_network` |
 
 `tests/acceptance/test_installed_ask.py` runs the installed `ask` command outside the checkout
-through both entry points, with the offline guard and no credentials: it answers the five
+through the `archdiscov` script, with the offline guard and no credentials: it answers the five
 example questions above with fake-provider transcripts, answers one through each provider
 adapter against a loopback mock API, and checks that a missing configuration, an unknown
 snapshot, a Bedrock profile that cannot be loaded, a missing key, a provider error, a run

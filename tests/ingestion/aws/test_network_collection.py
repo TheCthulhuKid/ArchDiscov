@@ -49,11 +49,6 @@ def flatten(resources):
         yield from flatten(resource.children)
 
 
-def group_of(snapshot, physical_id="sg-1"):
-    resources = flatten(snapshot.regions["us-east-1"].resources)
-    return next(r for r in resources if r.identity.physical_id == physical_id)
-
-
 def test_collection_emits_schema_two_with_network_resources_and_relationships():
     snapshot = collect(pages=pages())
     assert snapshot.schema_version == "2"

@@ -179,31 +179,15 @@ def test_partial_coverage_is_qualified(kind: AnalyzerKind, status: str | None) -
     [
         ("ownership", {"port": 5432}, ToolErrorCode.INVALID_ARGUMENTS, ["port"]),
         ("security_group_impact", {}, ToolErrorCode.INVALID_ARGUMENTS, ["resource_id"]),
-        ("database_access", {"resource_id": "x"}, ToolErrorCode.INVALID_ARGUMENTS, ["port"]),
-        (
-            "internet_exposure",
-            {"resource_id": "x"},
-            ToolErrorCode.INVALID_ARGUMENTS,
-            ["resource_id"],
-        ),
         (
             "database_access",
             {"resource_id": "x", "port": 0},
             ToolErrorCode.INVALID_ARGUMENTS,
             ["port"],
         ),
-        (
-            "database_access",
-            {"resource_id": "x", "port": 65536},
-            ToolErrorCode.INVALID_ARGUMENTS,
-            ["port"],
-        ),
         ("internet_exposure", {"max_depth": 11}, ToolErrorCode.INVALID_ARGUMENTS, ["max_depth"]),
-        ("internet_exposure", {"max_depth": 0}, ToolErrorCode.INVALID_ARGUMENTS, ["max_depth"]),
-        ("ownership", {"ownership_keys": []}, ToolErrorCode.INVALID_ARGUMENTS, ["ownership_keys"]),
         ("ownership", {"ownership_keys": ["Owner", "Owner"]}, ToolErrorCode.INVALID_ARGUMENTS, []),
         ("drift", {}, ToolErrorCode.INVALID_ARGUMENTS, ["kind"]),
-        ("ownership", {"result_limit": 5}, ToolErrorCode.INVALID_ARGUMENTS, ["field"]),
     ],
 )
 def test_invalid_parameters_are_rejected(

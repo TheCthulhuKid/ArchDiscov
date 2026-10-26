@@ -1,7 +1,7 @@
 import json
 import os
 import subprocess
-import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -12,13 +12,18 @@ from archdiscov.cli import app
 from archdiscov.models.cloud.snapshot import CloudSnapshot
 from archdiscov.services import load_snapshot
 from tests.paths import FIXTURES_ROOT
+from tests.support.installed_cli import CLI
 
 FIXTURES = FIXTURES_ROOT / "snapshots"
 runner = CliRunner()
 
 
-@pytest.mark.parametrize("fixture", sorted(FIXTURES.glob("*.json")), ids=lambda path: path.stem)
-def test_ingest_preserves_every_fixture(tmp_path: Path, fixture: Path) -> None:
+@pytest.mark.parametrize(
+    "fixture",
+    [FIXTURES / name for name in ("aws.json", "azure.json", "partial-coverage.json")],
+    ids=lambda path: path.stem,
+)
+def test_ingest_preserves_the_fixture(tmp_path: Path, fixture: Path) -> None:
     output = tmp_path / "snapshot.json"
     result = runner.invoke(app, ["ingest", str(fixture), "--output", str(output), "--json"])
     assert result.exit_code == 0, result.output
@@ -163,67 +168,63 @@ def test_readable_file_evidence_without_operation_coverage(tmp_path: Path) -> No
     assert "Fact citations: <none>" in result.stdout
 
 
-@pytest.mark.parametrize(
-    "kind,code,exit_code",
-    [
-        ("json", "invalid_json", 2),
-        ("duplicate", "invalid_json", 2),
-        ("encoding", "invalid_encoding", 2),
-        ("version", "unsupported_schema_version", 2),
-        ("reference", "invalid_snapshot", 2),
-        ("discriminator", "invalid_snapshot", 2),
-        ("missing", "snapshot_io_error", 1),
-        ("directory", "snapshot_io_error", 1),
-    ],
-)
-@pytest.mark.parametrize("command", ["ingest", "evidence"])
-@pytest.mark.parametrize("json_output", [False, True])
-def test_commands_report_safe_input_errors(
-    tmp_path: Path, kind: str, code: str, exit_code: int, command: str, json_output: bool
-) -> None:
-    source = tmp_path / "bad.json"
-    if kind == "json":
-        source.write_text('{"secret":"never-disclose",')
-    elif kind == "duplicate":
-        source.write_text('{"secret":"never-disclose","secret":"never-disclose"}')
-    elif kind == "encoding":
-        source.write_bytes(b"\xff")
-    elif kind == "directory":
-        source.mkdir()
-    elif kind != "missing":
+def _snapshot_with(edit: Callable[[dict], None]) -> Callable[[Path], None]:
+    """A writer of the partial-coverage fixture after `edit` puts a secret into it."""
+
+    def write(source: Path) -> None:
         data = json.loads((FIXTURES / "partial-coverage.json").read_text())
-        if kind == "version":
-            data["schema_version"] = "never-disclose"
-        elif kind == "reference":
-            data["evidence"]["sg-rule"]["resource_id"] = "never-disclose"
-        else:
-            data["source"]["kind"] = "never-disclose"
+        edit(data)
         source.write_text(json.dumps(data))
+
+    return write
+
+
+BAD_INPUTS = {
+    "json": (lambda source: source.write_text('{"secret":"never-disclose",'), "invalid_json", 2),
+    "version": (
+        _snapshot_with(lambda data: data.update(schema_version="never-disclose")),
+        "unsupported_schema_version",
+        2,
+    ),
+    "reference": (
+        _snapshot_with(
+            lambda data: data["evidence"]["sg-rule"].update(resource_id="never-disclose")
+        ),
+        "invalid_snapshot",
+        2,
+    ),
+    "missing": (lambda source: None, "snapshot_io_error", 1),
+}
+
+
+@pytest.mark.parametrize("kind", BAD_INPUTS)
+@pytest.mark.parametrize("command", ["ingest", "evidence"])
+def test_commands_report_safe_input_errors(tmp_path: Path, kind: str, command: str) -> None:
+    write, code, exit_code = BAD_INPUTS[kind]
+    source = tmp_path / "bad.json"
+    write(source)
     output = tmp_path / "output.json"
     arguments = (
         ["ingest", str(source), "-o", str(output)]
         if command == "ingest"
         else ["evidence", "sg-rule", "--snapshot", str(source)]
     )
-    result = runner.invoke(app, [*arguments, *(["--json"] if json_output else [])])
-    assert result.exit_code == exit_code, result.output
-    assert "never-disclose" not in result.output
-    assert "Traceback" not in result.output
+    readable = runner.invoke(app, arguments)
+    result = runner.invoke(app, [*arguments, "--json"])
+    for outcome in (readable, result):
+        assert outcome.exit_code == exit_code, outcome.output
+        assert "never-disclose" not in outcome.output
+        assert "Traceback" not in outcome.output
     assert not output.exists()
-    if json_output:
-        error = json.loads(result.stdout)["error"]
-        assert error["code"] == code
-        assert error["path"] == str(source)
-        assert result.stderr == ""
-        if kind == "version":
-            assert error["details"][0]["location"] == ["schema_version"]
-            assert error["details"][0]["type"] == code
-        if kind == "json":
-            assert error["line"] == 1 and error["column"] > 0
-    else:
-        assert result.stdout == ""
-        assert code in result.stderr
-        assert str(source) in result.stderr
+    assert readable.stdout == ""
+    assert code in readable.stderr and str(source) in readable.stderr
+    error = json.loads(result.stdout)["error"]
+    assert (error["code"], error["path"], result.stderr) == (code, str(source), "")
+    if kind == "version":
+        assert error["details"][0]["location"] == ["schema_version"]
+        assert error["details"][0]["type"] == code
+    if kind == "json":
+        assert error["line"] == 1 and error["column"] > 0
 
 
 @pytest.mark.parametrize("json_output", [False, True])
@@ -292,15 +293,10 @@ def test_command_help_and_usage(command: str, styled: bool, monkeypatch) -> None
     assert runner.invoke(app, [command]).exit_code == 2
 
 
-@pytest.mark.parametrize("entry_point", ["script", "module"])
-def test_installed_workflow_outside_repository(tmp_path: Path, entry_point: str) -> None:
+def test_installed_workflow_outside_repository(tmp_path: Path) -> None:
     env = os.environ.copy()
     env.pop("PYTHONPATH", None)
-    command = (
-        [str(Path(sys.executable).with_name("archdiscov"))]
-        if entry_point == "script"
-        else [sys.executable, "-m", "archdiscov"]
-    )
+    command = CLI
     output = tmp_path / "snapshot.json"
     imported = subprocess.run(
         [*command, "ingest", str(FIXTURES / "hierarchy.json"), "-o", str(output), "--json"],

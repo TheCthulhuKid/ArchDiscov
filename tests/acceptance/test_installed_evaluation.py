@@ -1,13 +1,12 @@
 """The installed `evaluate` and `evaluation` commands, outside the checkout and offline.
 
-Both entry points evaluate the checked-in README and adversarial suites, copied out of the
-checkout, with the fake provider in both output forms; every case passes, and the reports
-equal each other apart from timing. The README suite is also evaluated through the
-Anthropic adapter against a mock API on one loopback port, opted in with `--allow-external`,
-to the fake's records. An existing output path and a non-fake configuration without the
-opt-in are refused before any request, and two reports are compared and the comparison
-saved. The child sees no credentials, except the dummy key forwarded to the adapter's run
-alone, and its offline guard fails and records any other network use.
+The installed script evaluates the checked-in README and adversarial suites, copied out of the
+checkout, with the fake provider in both output forms, and every case passes. The README suite
+is also evaluated through the Anthropic adapter against a mock API on one loopback port, opted
+in with `--allow-external`, to the fake's records. An existing output path and a non-fake
+configuration without the opt-in are refused before any request, and two reports are compared
+and the comparison saved. The child sees no credentials, except the dummy key forwarded to the
+adapter's run alone, and its offline guard fails and records any other network use.
 """
 
 import hashlib
@@ -33,7 +32,6 @@ from tests.support.evaluation_suites import (
 )
 from tests.support.installed_cli import (
     DUMMY_KEY,
-    ENTRY_POINTS,
     INSTALLED_KEY_VARIABLE,
     Workspace,
     harness_config,
@@ -41,7 +39,7 @@ from tests.support.installed_cli import (
 )
 from tests.support.mock_api import mock_api_server
 
-# Each entry point runs every suite once per module: keep them on one xdist worker.
+# The journey runs every suite once per module: keep its tests on one xdist worker.
 pytestmark = pytest.mark.xdist_group("installed-evaluation")
 
 SUITES = {"readme": README_SUITE, "adversarial": ADVERSARIAL_SUITE}
@@ -93,7 +91,7 @@ def _through_the_adapter(ws: Workspace) -> tuple[dict, list]:
         output = ws.path("results", "readme-anthropic.json")
         env = ws.guard.allowing(api.port, **{INSTALLED_KEY_VARIABLE: DUMMY_KEY})
         command = ["evaluate", suite, "--config", config, "--output", output, "--allow-external"]
-        result = run_installed(ws.entry_point, ws.root, *map(str, command), "--json", env=env)
+        result = run_installed(ws.root, *map(str, command), "--json", env=env)
     assert api.bodies == []
     return json.loads(result.stdout), api.requests
 
@@ -128,8 +126,8 @@ def _compared(ws: Workspace) -> tuple[dict, str]:
     return data, readable
 
 
-def journey(entry_point: str, root: Path) -> dict:
-    ws = Workspace(entry_point, root)
+def journey(root: Path) -> dict:
+    ws = Workspace(root)
     summary = {
         "evaluated": _evaluated(ws),
         "adapter": _through_the_adapter(ws),
@@ -143,19 +141,15 @@ def journey(entry_point: str, root: Path) -> dict:
 
 
 @pytest.fixture(scope="module")
-def summaries(tmp_path_factory):
-    return {
-        entry_point: journey(entry_point, tmp_path_factory.mktemp(f"evaluation-{entry_point}"))
-        for entry_point in ENTRY_POINTS
-    }
+def summary(tmp_path_factory):
+    return journey(tmp_path_factory.mktemp("evaluation"))
 
 
-@pytest.mark.parametrize("entry_point", ENTRY_POINTS)
-def test_both_suites_pass_with_the_fake_provider(summaries, entry_point):
-    for name, (data, budget, readable) in summaries[entry_point]["evaluated"].items():
+def test_both_suites_pass_with_the_fake_provider(summary):
+    for name, (data, budget, readable) in summary["evaluated"].items():
         assert json.loads(budget) == {"budgets": data["budgets"]}
         report = parse_report(data["report"])
-        assert report == summaries[entry_point]["reports"][name]
+        assert report == summary["reports"][name]
         [run] = report.providers
         assert run.totals.failed == 0 and run.totals.passed == len(report.suite.case_ids)
         for record in run.records:
@@ -165,26 +159,10 @@ def test_both_suites_pass_with_the_fake_provider(summaries, entry_point):
         assert f"Suite: {name}, {len(report.suite.case_ids)} cases" in lines[1]
 
 
-def _without_timing(report: EvaluationReport) -> dict:
-    data = report.model_dump(mode="json", exclude={"created_at"})
-    for run in data["providers"]:
-        run["totals"].pop("latency_seconds")
-        for record in run["records"]:
-            record.pop("latency_seconds")
-    return data
-
-
-def test_reports_do_not_depend_on_the_entry_point(summaries):
-    script, module = (summaries[entry_point]["reports"] for entry_point in ENTRY_POINTS)
-    for name in SUITES:
-        assert _without_timing(script[name]) == _without_timing(module[name])
-
-
-@pytest.mark.parametrize("entry_point", ENTRY_POINTS)
-def test_the_adapter_reaches_the_fakes_records_through_a_loopback_api(summaries, entry_point):
-    data, requests = summaries[entry_point]["adapter"]
+def test_the_adapter_reaches_the_fakes_records_through_a_loopback_api(summary):
+    data, requests = summary["adapter"]
     [run] = parse_report(data["report"]).providers
-    [fake] = summaries[entry_point]["reports"]["readme"].providers
+    [fake] = summary["reports"]["readme"].providers
     assert data["budgets"][0]["provider_kind"] == run.provider_kind == "anthropic"
     assert [record.id for record in run.records] == [record.id for record in fake.records]
     assert len(requests) == run.totals.provider_requests
@@ -192,18 +170,16 @@ def test_the_adapter_reaches_the_fakes_records_through_a_loopback_api(summaries,
     assert DUMMY_KEY not in json.dumps(data)
 
 
-@pytest.mark.parametrize("entry_point", ENTRY_POINTS)
-def test_unsafe_or_unannounced_runs_are_refused(summaries, entry_point):
-    refused = summaries[entry_point]["refusals"]
+def test_unsafe_or_unannounced_runs_are_refused(summary):
+    refused = summary["refusals"]
     assert refused["existing_output"]["code"] == "snapshot_conflict"
     assert refused["existing_output"]["path"].endswith("readme.json")
     assert refused["external"]["code"] == "evaluation_external_not_allowed"
     assert refused["external"]["path"].endswith("anthropic.toml")
 
 
-@pytest.mark.parametrize("entry_point", ENTRY_POINTS)
-def test_two_reports_are_compared(summaries, entry_point):
-    data, readable = summaries[entry_point]["compared"]
+def test_two_reports_are_compared(summary):
+    data, readable = summary["compared"]
     comparison = ReportComparison.model_validate(data["comparison"])
     assert comparison.same_suite
     assert (comparison.providers_added, comparison.providers_removed) == ((), ())
@@ -211,7 +187,4 @@ def test_two_reports_are_compared(summaries, entry_point):
     assert run.cases and not any(case.changed for case in run.cases)
     assert "Same suite." in readable.splitlines()
     assert "0 of 9 shared cases changed" in readable
-    assert (
-        "Provider 1: fake, model fake: 9 passed, 0 failed of 9 cases"
-        in (summaries[entry_point]["shown"])
-    )
+    assert "Provider 1: fake, model fake: 9 passed, 0 failed of 9 cases" in (summary["shown"])
