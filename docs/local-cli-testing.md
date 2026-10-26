@@ -4,7 +4,7 @@ This page walks through the `archdiscov` commands on your own machine, offline, 
 fixtures committed under `tests/fixtures/`. Nothing here needs AWS credentials, a provider
 key, or network access, except the last section on asking a real provider, which is
 optional and costs tokens. For what each command does, see the
-[README command reference](../README.md#cli-commands) and the linked pages.
+[README command reference](../README.md#commands) and the linked pages.
 
 ## Set up
 

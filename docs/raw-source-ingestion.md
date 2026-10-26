@@ -1,7 +1,7 @@
 # Offline snapshot and raw-source ingestion
 
 Step 21 adds explicit raw-source selection to `archdiscov ingest`; the phase-2 acceptance
-workflow is in the [README](../README.md#phase-2-offline-acceptance). Run commands from the checkout after locked
+workflow is in the [README](acceptance.md#phase-2-offline-acceptance). Run commands from the checkout after locked
 installation. No AWS credentials, network access, Terraform/provider execution,
 infrastructure apply, stack deployment, or arbitrary template code evaluation is used.
 

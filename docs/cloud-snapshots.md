@@ -205,7 +205,7 @@ temporary files, flush/`fsync`, atomic hard-link publication, and cancellation-s
 collection draining. There is no replacement fallback or automatic directory creation.
 Safe public diagnostics omit raw input values/secrets; original exception causes remain
 debugging-only and must not be rendered to untrusted callers. See
-[persistence details](../README.md#snapshot-python-services).
+[persistence details](snapshot-format.md#snapshot-python-services).
 
 ## Offline CLI example
 

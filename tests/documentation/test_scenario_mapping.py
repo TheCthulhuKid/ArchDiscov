@@ -1,4 +1,4 @@
-"""The README maps each acceptance scenario, provider ones included, to tests that exist."""
+"""The acceptance page maps each scenario, provider ones included, to tests that exist."""
 
 import ast
 import re
@@ -8,7 +8,7 @@ import pytest
 from tests.documentation.markdown import table_rows
 from tests.paths import PROJECT_ROOT
 
-README = PROJECT_ROOT / "README.md"
+ACCEPTANCE = PROJECT_ROOT / "docs" / "acceptance.md"
 SCENARIOS = [
     "Public load balancer with a private backend",
     "Public IP with blocked ingress",
@@ -37,7 +37,8 @@ SCENARIOS = [
 
 def rows():
     return {
-        row[0]: re.findall(r"`([^`]+::[^`]+)`", row[1]) for row in table_rows(README, "| Scenario")
+        row[0]: re.findall(r"`([^`]+::[^`]+)`", row[1])
+        for row in table_rows(ACCEPTANCE, "| Scenario")
     }
 
 
