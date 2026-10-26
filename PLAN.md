@@ -138,7 +138,7 @@ Implement and verify substeps 49.1–49.7 in order. Keep the parent planned unti
 - Give a target in another account, or absent from the snapshot, a representation that is an external reference, never a resource of this snapshot.
 - Extend the graph index so each relationship can be followed in both directions with its evidence, using the existing identity, containment, and dependency handling.
 
-**Advice:** Add the relationships to the fixtures that already exist rather than writing new graph fixtures, so one fixture proves both the model and the traversal.
+**Advice:** Add the relationships to the fixtures that already exist rather than writing new graph fixtures, so one fixture proves both the model and the traversal. The relationship builders dispatch through per-resource handler tables (`_HANDLERS` in `ingestion/network/relationships.py` and `ingestion/elbv2/relationships.py`, `_GLOBAL_HANDLERS` in `ingestion/iam/relationships.py`); give each new resource type its own handler and table entry rather than a branch in a shared function.
 
 **Acceptance check:** Graph tests follow every new relationship in both directions with exact evidence; an external target is reported as external; and a dangling reference to a missing resource is a cited unresolved dependency.
 

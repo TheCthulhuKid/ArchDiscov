@@ -4,7 +4,7 @@ Each dependency starts at a stored resource, cites the exact source entry, and e
 external, or unresolved target. Nothing here concludes reachability or exposure.
 """
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from ...models.architecture import (
@@ -21,7 +21,7 @@ from ...models.enums import (
     ResourceType,
     RouteTargetKind,
 )
-from ...models.resources.network import NetworkInterface, RouteTable, SecurityGroup
+from ...models.resources.network import SecurityGroup, SecurityGroupRule
 from ..evidence_builder import EvidenceBuilder
 from ..operations import Ec2Operation as Op
 from .resources import Normalized, classify_route_target
@@ -117,19 +117,9 @@ class RelationshipBuilder:
 
     def build(self) -> list[Dependency]:
         for entry in self.index.values():
-            match entry.resource:
-                case RouteTable():
-                    self._route_table(entry)
-                case SecurityGroup():
-                    self._security_group(entry)
-                case NetworkInterface():
-                    self._network_interface(entry)
-            if entry.resource.resource_type is ResourceType.INTERNET_GATEWAY:
-                self._internet_gateway(entry)
-            elif entry.resource.resource_type is ResourceType.NETWORK_ACL:
-                self._network_acl(entry)
-            elif entry.resource.resource_type is ResourceType.EC2_INSTANCE:
-                self._members(entry, "SecurityGroups")
+            handler = _HANDLERS.get(entry.resource.resource_type)
+            if handler is not None:
+                handler(self, entry)
         return sorted(
             self.dependencies,
             key=lambda d: (d.source_id, d.evidence_ids[0], d.attributes["kind"]),
@@ -229,6 +219,9 @@ class RelationshipBuilder:
             )
             self._link(entry, target, AttachmentKind.SECURITY_GROUP_MEMBERSHIP, path, group)
 
+    def _instance(self, entry: Normalized) -> None:
+        self._members(entry, "SecurityGroups")
+
     def _network_interface(self, entry: Normalized) -> None:
         attachment = entry.item.get("Attachment") or {}
         if attachment.get("InstanceId"):
@@ -263,41 +256,46 @@ class RelationshipBuilder:
                     continue
                 evidence_id = group.fact_evidence[f"/{name}/{n}"][0]
                 source_path = self.builder.evidence[evidence_id].configuration_path
-                if rule.referenced_group_id:
-                    ref = rule.referenced_group_id
-                    if rule.referenced_account_id not in (None, self.builder.account_id):
-                        target = self._external(ref, RT.SECURITY_GROUP, rule.referenced_account_id)
-                    else:
-                        target = self._resolve(
-                            ResourceType.SECURITY_GROUP,
-                            Op.DESCRIBE_SECURITY_GROUPS,
-                            ref,
-                            source_path,
-                        )
-                    target_kind = None
-                else:
-                    target = self._external(
-                        rule.prefix_list_id, _AWS_TYPES[RouteTargetKind.PREFIX_LIST]
-                    )
-                    target_kind = RouteTargetKind.PREFIX_LIST
+                target, target_kind = self._rule_target(rule, source_path)
                 self._add(
                     entry,
                     target,
                     AttachmentKind.SECURITY_GROUP_REFERENCE,
                     evidence_id,
                     {
-                        k: v
-                        for k, v in {
-                            "direction": rule.direction,
-                            "rule_id": rule.rule_id,
-                            "protocol": rule.protocol,
-                            "from_port": rule.from_port,
-                            "to_port": rule.to_port,
-                            "target_kind": target_kind,
-                        }.items()
-                        if v is not None
+                        "direction": rule.direction,
+                        "rule_id": rule.rule_id,
+                        "protocol": rule.protocol,
+                        "from_port": rule.from_port,
+                        "to_port": rule.to_port,
+                        "target_kind": target_kind,
                     },
                 )
+
+    def _rule_target(
+        self, rule: SecurityGroupRule, source_path: str
+    ) -> tuple[DependencyTarget, RouteTargetKind | None]:
+        """The group or prefix list a rule references, and the kind recorded for a prefix list."""
+        ref = rule.referenced_group_id
+        if not ref:
+            prefix_list = _AWS_TYPES[RouteTargetKind.PREFIX_LIST]
+            return self._external(rule.prefix_list_id, prefix_list), RouteTargetKind.PREFIX_LIST
+        if rule.referenced_account_id not in (None, self.builder.account_id):
+            return self._external(ref, RT.SECURITY_GROUP, rule.referenced_account_id), None
+        target = self._resolve(
+            ResourceType.SECURITY_GROUP, Op.DESCRIBE_SECURITY_GROUPS, ref, source_path
+        )
+        return target, None
+
+
+_HANDLERS: dict[ResourceType, Callable[[RelationshipBuilder, Normalized], None]] = {
+    ResourceType.ROUTE_TABLE: RelationshipBuilder._route_table,
+    ResourceType.SECURITY_GROUP: RelationshipBuilder._security_group,
+    ResourceType.NETWORK_INTERFACE: RelationshipBuilder._network_interface,
+    ResourceType.INTERNET_GATEWAY: RelationshipBuilder._internet_gateway,
+    ResourceType.NETWORK_ACL: RelationshipBuilder._network_acl,
+    ResourceType.EC2_INSTANCE: RelationshipBuilder._instance,
+}
 
 
 def build_dependencies(

@@ -1,5 +1,6 @@
 """Containment and observed forwarding references, without reachability inference."""
 
+from collections.abc import Callable
 from enum import Enum
 from typing import Any
 
@@ -23,6 +24,8 @@ from ...models.enums import (
 )
 from ...models.resource_tree import walk_resources as walk_resources
 from ...models.resources.load_balancing import Listener, ListenerRule, LoadBalancer, TargetGroup
+from ...models.resources.load_balancing_values import ListenerAction
+from ..configuration_relationships import arn_scope
 
 
 class _ResolutionMode(Enum):
@@ -45,13 +48,10 @@ def _resolve_target(
             source_path=path,
         )
     if mode == _ResolutionMode.EXTERNAL_LAMBDA:
-        parts = ref.split(":", 5)
         return ExternalTarget(
             identifier=ref,
             service=AwsService.LAMBDA,
-            account_id=parts[4]
-            if len(parts) == 6 and len(parts[4]) == 12 and parts[4].isdigit()
-            else None,
+            account_id=arn_scope(ref)[0],
             aws_resource_type=ResourceType.LAMBDA_FUNCTION,
         )
     matches = index.get((kind, ref), [])
@@ -96,17 +96,41 @@ def merge_resources(roots: list[Resource], resources: list[Resource]) -> list[Re
     return roots
 
 
-def resolve_relationships(roots: list[Resource], evidence: dict[str, Evidence]) -> list[Dependency]:
-    resources = list(walk_resources(roots))
-    index: dict[tuple[ResourceType, str], list[Resource]] = {}
-    for resource in resources:
-        if resource.identity.physical_id:
-            index.setdefault((resource.resource_type, resource.identity.physical_id), []).append(
-                resource
-            )
-    dependencies: list[Dependency] = []
+_MEMBERSHIPS = (
+    ("subnet_ids", ResourceType.SUBNET, AttachmentKind.SUBNET_MEMBERSHIP),
+    ("security_group_ids", ResourceType.SECURITY_GROUP, AttachmentKind.SECURITY_GROUP_MEMBERSHIP),
+)
+_PARENTS = {
+    ResourceType.ELBV2_LISTENER: (
+        "load_balancer_arn",
+        ResourceType.ELBV2_LOAD_BALANCER,
+        AttachmentKind.LISTENER_LOAD_BALANCER,
+    ),
+    ResourceType.ELBV2_LISTENER_RULE: (
+        "listener_arn",
+        ResourceType.ELBV2_LISTENER,
+        AttachmentKind.RULE_LISTENER,
+    ),
+}
+_TARGET_MODES = {
+    TargetType.IP: _ResolutionMode.IP,
+    TargetType.LAMBDA: _ResolutionMode.EXTERNAL_LAMBDA,
+    TargetType.ALB: _ResolutionMode.APPLICATION_LOAD_BALANCER,
+}
 
-    def link(
+
+class _Relationships:
+    def __init__(self, resources: list[Resource], evidence: dict[str, Evidence]) -> None:
+        self.evidence = evidence
+        self.index: dict[tuple[ResourceType, str], list[Resource]] = {}
+        for resource in resources:
+            if resource.identity.physical_id:
+                key = (resource.resource_type, resource.identity.physical_id)
+                self.index.setdefault(key, []).append(resource)
+        self.dependencies: list[Dependency] = []
+
+    def _link(
+        self,
         resource: Resource,
         pointer: str,
         ref: str,
@@ -119,108 +143,102 @@ def resolve_relationships(roots: list[Resource], evidence: dict[str, Evidence]) 
         citations = resource.fact_evidence.get(pointer, [])
         if not citations:
             return
-        path = evidence[citations[0]].configuration_path
-        target = _resolve_target(index, kind, ref, path, mode)
-        dependencies.append(
+        path = self.evidence[citations[0]].configuration_path
+        self.dependencies.append(
             Dependency(
                 source_id=resource.id,
-                target=target,
+                target=_resolve_target(self.index, kind, ref, path, mode),
                 relationship=relationship,
                 evidence_ids=citations,
                 attributes={"observed_identifier": ref, **attributes},
             )
         )
 
-    for resource in resources:
-        if isinstance(resource, LoadBalancer):
-            for field, kind, attachment in (
-                ("subnet_ids", ResourceType.SUBNET, AttachmentKind.SUBNET_MEMBERSHIP),
-                (
-                    "security_group_ids",
-                    ResourceType.SECURITY_GROUP,
-                    AttachmentKind.SECURITY_GROUP_MEMBERSHIP,
-                ),
-            ):
-                for position, ref in enumerate(getattr(resource, field) or []):
-                    link(
-                        resource,
-                        f"/{field}/{position}",
-                        ref,
-                        kind,
-                        DependencyRelationship.ATTACHED_TO,
-                        {"kind": attachment},
-                    )
-        if isinstance(resource, (Listener, ListenerRule)):
-            parent = (
-                resource.load_balancer_arn
-                if isinstance(resource, Listener)
-                else resource.listener_arn
-            )
-            pointer = "/load_balancer_arn" if isinstance(resource, Listener) else "/listener_arn"
-            parent_type = (
-                ResourceType.ELBV2_LOAD_BALANCER
-                if isinstance(resource, Listener)
-                else ResourceType.ELBV2_LISTENER
-            )
-            attachment = (
-                AttachmentKind.LISTENER_LOAD_BALANCER
-                if isinstance(resource, Listener)
-                else AttachmentKind.RULE_LISTENER
-            )
-            if parent:
-                link(
+    def _load_balancer(self, resource: LoadBalancer) -> None:
+        for field, kind, attachment in _MEMBERSHIPS:
+            for position, ref in enumerate(getattr(resource, field) or []):
+                self._link(
                     resource,
-                    pointer,
-                    parent,
-                    parent_type,
+                    f"/{field}/{position}",
+                    ref,
+                    kind,
                     DependencyRelationship.ATTACHED_TO,
                     {"kind": attachment},
                 )
-            for position, action in enumerate(resource.actions or []):
-                if action.type != ListenerActionType.FORWARD:
-                    continue
-                # ForwardConfig is authoritative when present; don't double-count its direct ARN.
-                groups = [
-                    (group.arn, group.weight, f"/actions/{position}/forward_groups/{i}/arn")
-                    for i, group in enumerate(action.forward_groups)
-                ]
-                if not groups and action.target_group_arn:
-                    groups = [
-                        (action.target_group_arn, None, f"/actions/{position}/target_group_arn")
-                    ]
-                for ref, weight, pointer in groups:
-                    link(
-                        resource,
-                        pointer,
-                        ref,
-                        ResourceType.ELBV2_TARGET_GROUP,
-                        DependencyRelationship.FORWARDS_TO,
-                        {"action_index": position, "action_order": action.order, "weight": weight},
-                    )
-        if isinstance(resource, TargetGroup):
-            mode = {
-                TargetType.IP: _ResolutionMode.IP,
-                TargetType.LAMBDA: _ResolutionMode.EXTERNAL_LAMBDA,
-                TargetType.ALB: _ResolutionMode.APPLICATION_LOAD_BALANCER,
-            }.get(resource.target_type, _ResolutionMode.LOCAL)
-            for position, target in enumerate(resource.targets or []):
-                kind = (
-                    ResourceType.ELBV2_LOAD_BALANCER
-                    if resource.target_type == TargetType.ALB
-                    else ResourceType.EC2_INSTANCE
-                )
-                link(
-                    resource,
-                    f"/targets/{position}/id",
-                    target.id,
-                    kind,
-                    DependencyRelationship.FORWARDS_TO,
-                    {
-                        "port": target.port,
-                        "availability_zone": target.availability_zone,
-                        "health_state": target.health_state,
-                        "health_reason": target.health_reason,
-                    },
-                    mode=mode,
-                )
-    return dependencies
+
+    def _listener_or_rule(self, resource: Listener | ListenerRule) -> None:
+        field, parent_type, attachment = _PARENTS[resource.resource_type]
+        parent = getattr(resource, field)
+        if parent:
+            self._link(
+                resource,
+                f"/{field}",
+                parent,
+                parent_type,
+                DependencyRelationship.ATTACHED_TO,
+                {"kind": attachment},
+            )
+        for position, action in enumerate(resource.actions or []):
+            if action.type == ListenerActionType.FORWARD:
+                self._forward(resource, position, action)
+
+    def _forward(
+        self, resource: Listener | ListenerRule, position: int, action: ListenerAction
+    ) -> None:
+        # ForwardConfig is authoritative when present; don't double-count its direct ARN.
+        groups = [
+            (group.arn, group.weight, f"/actions/{position}/forward_groups/{i}/arn")
+            for i, group in enumerate(action.forward_groups)
+        ]
+        if not groups and action.target_group_arn:
+            groups = [(action.target_group_arn, None, f"/actions/{position}/target_group_arn")]
+        for ref, weight, pointer in groups:
+            self._link(
+                resource,
+                pointer,
+                ref,
+                ResourceType.ELBV2_TARGET_GROUP,
+                DependencyRelationship.FORWARDS_TO,
+                {"action_index": position, "action_order": action.order, "weight": weight},
+            )
+
+    def _target_group(self, resource: TargetGroup) -> None:
+        mode = _TARGET_MODES.get(resource.target_type, _ResolutionMode.LOCAL)
+        kind = (
+            ResourceType.ELBV2_LOAD_BALANCER
+            if resource.target_type == TargetType.ALB
+            else ResourceType.EC2_INSTANCE
+        )
+        for position, target in enumerate(resource.targets or []):
+            self._link(
+                resource,
+                f"/targets/{position}/id",
+                target.id,
+                kind,
+                DependencyRelationship.FORWARDS_TO,
+                {
+                    "port": target.port,
+                    "availability_zone": target.availability_zone,
+                    "health_state": target.health_state,
+                    "health_reason": target.health_reason,
+                },
+                mode=mode,
+            )
+
+
+_HANDLERS: dict[ResourceType, Callable[[_Relationships, Any], None]] = {
+    ResourceType.ELBV2_LOAD_BALANCER: _Relationships._load_balancer,
+    ResourceType.ELBV2_LISTENER: _Relationships._listener_or_rule,
+    ResourceType.ELBV2_LISTENER_RULE: _Relationships._listener_or_rule,
+    ResourceType.ELBV2_TARGET_GROUP: _Relationships._target_group,
+}
+
+
+def resolve_relationships(roots: list[Resource], evidence: dict[str, Evidence]) -> list[Dependency]:
+    resources = list(walk_resources(roots))
+    relationships = _Relationships(resources, evidence)
+    for resource in resources:
+        handler = _HANDLERS.get(resource.resource_type)
+        if handler is not None:
+            handler(relationships, resource)
+    return relationships.dependencies
