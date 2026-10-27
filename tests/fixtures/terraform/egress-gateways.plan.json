@@ -1,0 +1,140 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.11.4",
+  "planned_values": {
+    "root_module": {}
+  },
+  "resource_changes": [
+    {
+      "address": "aws_vpc.egress",
+      "mode": "managed",
+      "type": "aws_vpc",
+      "name": "egress",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "cidr_block": "10.1.0.0/16"
+        },
+        "after_unknown": {
+          "id": true
+        },
+        "before_sensitive": false,
+        "after_sensitive": {}
+      }
+    },
+    {
+      "address": "aws_subnet.public",
+      "mode": "managed",
+      "type": "aws_subnet",
+      "name": "public",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "cidr_block": "10.1.0.0/24",
+          "availability_zone": "eu-west-1a"
+        },
+        "after_unknown": {
+          "id": true,
+          "vpc_id": true
+        },
+        "before_sensitive": false,
+        "after_sensitive": {}
+      }
+    },
+    {
+      "address": "aws_nat_gateway.public",
+      "mode": "managed",
+      "type": "aws_nat_gateway",
+      "name": "public",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "connectivity_type": "public"
+        },
+        "after_unknown": {
+          "id": true,
+          "subnet_id": true,
+          "network_interface_id": true,
+          "public_ip": true,
+          "allocation_id": true
+        },
+        "before_sensitive": false,
+        "after_sensitive": {}
+      }
+    },
+    {
+      "address": "aws_egress_only_internet_gateway.main",
+      "mode": "managed",
+      "type": "aws_egress_only_internet_gateway",
+      "name": "main",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {},
+        "after_unknown": {
+          "id": true,
+          "vpc_id": true
+        },
+        "before_sensitive": false,
+        "after_sensitive": {}
+      }
+    }
+  ],
+  "configuration": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_subnet.public",
+          "mode": "managed",
+          "expressions": {
+            "vpc_id": {
+              "references": [
+                "aws_vpc.egress.id",
+                "aws_vpc.egress"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_nat_gateway.public",
+          "mode": "managed",
+          "expressions": {
+            "subnet_id": {
+              "references": [
+                "aws_subnet.public.id",
+                "aws_subnet.public"
+              ]
+            }
+          }
+        },
+        {
+          "address": "aws_egress_only_internet_gateway.main",
+          "mode": "managed",
+          "expressions": {
+            "vpc_id": {
+              "references": [
+                "aws_vpc.egress.id",
+                "aws_vpc.egress"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

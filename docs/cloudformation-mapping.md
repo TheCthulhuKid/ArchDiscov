@@ -83,17 +83,21 @@ provider, network, or arbitrary code execution is performed.
 | VPC/subnet | Valid CIDRs; subnet availability zone | `CidrBlock`, `Ipv6CidrBlock`, `AvailabilityZone` |
 | EC2 instance | Instance type | `InstanceType` |
 | Core EC2/network | Literal VPC/subnet/group identifiers; safe Name tag | `VpcId`, `SubnetId`, `SecurityGroupIds`, `GroupSet`, `Tags[i].Value` |
+| NAT and egress-only gateways | `ConnectivityType` → `connectivity`; literal subnet and VPC identifiers as typed fields | `ConnectivityType`, `SubnetId`, `VpcId` |
 | Lambda summary | Name, runtime, role reference, memory, timeout | `FunctionName`, `Runtime`, `Role`, `MemorySize`, `Timeout` |
 | SQS summary | Name, visibility timeout, retention | `QueueName`, `VisibilityTimeout`, `MessageRetentionPeriod` |
 | RDS summary | Identifier, engine/version, class/port as applicable | Selected scalar configuration only |
 | ECS, IAM, ELBv2 summaries | Selected names/path/protocol/port/scheme/type | Selected scalar configuration only |
 | Nested stacks/unsupported types | AWS type and safe Name tag only | `Type`, `Tags[i].Value` |
 
-Typed core models cover VPCs, subnets, instances, security groups, internet gateways,
-route tables, and ENIs. Rules, routes, policy documents, workload definitions,
-authentication, environment values, and other complex configurations are not mapped.
-Unmapped properties and unsupported summaries qualify coverage rather than implying
-complete configuration.
+Typed core models cover VPCs, subnets, instances, security groups, internet gateways, route tables,
+ENIs, NAT gateways, and egress-only internet gateways. A NAT gateway's address comes from a
+referenced `AWS::EC2::EIP`, which stays an unsupported summary, so `public_ips` stays empty. A
+declared value a typed model rejects (such as an unknown `ConnectivityType`) leaves an unsupported
+summary with its safe Name tag and a coverage limitation. Rules, routes, policy documents, workload
+definitions, authentication, environment values, and other complex configurations are not mapped.
+Unmapped properties and unsupported summaries qualify coverage rather than implying complete
+configuration.
 
 Containment follows direct local VPC/subnet references of the expected type, without
 inventing missing parents. All resources are stored once. `Ref`, `GetAtt`, and

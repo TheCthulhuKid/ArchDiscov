@@ -1,0 +1,81 @@
+{
+  "format_version": "1.0",
+  "terraform_version": "1.11.4",
+  "values": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_vpc.egress",
+          "mode": "managed",
+          "type": "aws_vpc",
+          "name": "egress",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "vpc-egress",
+            "cidr_block": "10.1.0.0/16"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_subnet.public",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "public",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "subnet-public",
+            "vpc_id": "vpc-egress",
+            "cidr_block": "10.1.0.0/24",
+            "availability_zone": "eu-west-1a"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_eip.nat",
+          "mode": "managed",
+          "type": "aws_eip",
+          "name": "nat",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "eipalloc-nat",
+            "public_ip": "198.51.100.20",
+            "domain": "vpc"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_nat_gateway.public",
+          "mode": "managed",
+          "type": "aws_nat_gateway",
+          "name": "public",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "nat-public",
+            "subnet_id": "subnet-public",
+            "connectivity_type": "public",
+            "allocation_id": "eipalloc-nat",
+            "network_interface_id": "eni-nat",
+            "public_ip": "198.51.100.20",
+            "private_ip": "10.1.0.10",
+            "tags": {
+              "Name": "public-nat"
+            }
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_egress_only_internet_gateway.main",
+          "mode": "managed",
+          "type": "aws_egress_only_internet_gateway",
+          "name": "main",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "eigw-main",
+            "vpc_id": "vpc-egress"
+          },
+          "sensitive_values": {}
+        }
+      ]
+    }
+  }
+}

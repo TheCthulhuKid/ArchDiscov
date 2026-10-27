@@ -8,7 +8,9 @@ and nested-template payloads are intentionally not imported.
 
 from ipaddress import ip_network
 
-from ...models.architecture import Ec2Instance, Subnet, UnknownResource, Vpc
+from pydantic import ValidationError
+
+from ...models.architecture import Subnet, UnknownResource, Vpc
 from ...models.enums import AwsService
 from ...models.resource_base import Resource, ResourceIdentity
 from .catalog import RESOURCE_MAPPINGS
@@ -129,6 +131,26 @@ class _Properties:
             self.data["cidr_blocks"] = blocks
 
 
+def _typed(
+    model: type[Resource], string_fields: tuple[tuple[str, str], ...], fields: _Properties
+) -> Resource | None:
+    """The typed resource, or None when its declared values break the model's rules."""
+    for source, target in (("VpcId", "vpc_id"), ("SubnetId", "subnet_id")):
+        # A model that declares the field records it there, as collection does.
+        fields.string(source, target, attribute=target not in model.model_fields)
+    fields.security_groups()
+    if model in (Vpc, Subnet):
+        fields.cidrs()
+    for source, target in string_fields:
+        fields.string(source, target, attribute=False)
+    if any(key in fields.values for key in ("SecurityGroupIngress", "SecurityGroupEgress")):
+        fields.limitations.append("Inline security group rules are not mapped.")
+    try:
+        return model(**fields.data)
+    except ValidationError:
+        return None
+
+
 def map_resource(
     aws_type: str, properties: dict, identity: ResourceIdentity
 ) -> tuple[Resource, dict[str, str], list[str]]:
@@ -144,18 +166,14 @@ def map_resource(
     model = mapping.model if mapping is not None else None
     fields.name_tag()
     if model is not None:
-        for source, target in (("VpcId", "vpc_id"), ("SubnetId", "subnet_id")):
-            fields.string(source, target)
-        fields.security_groups()
-        if model in (Vpc, Subnet):
-            fields.cidrs()
-        if model is Subnet:
-            fields.string("AvailabilityZone", "availability_zone", attribute=False)
-        if model is Ec2Instance:
-            fields.string("InstanceType", "instance_type", attribute=False)
-        if any(key in fields.values for key in ("SecurityGroupIngress", "SecurityGroupEgress")):
-            fields.limitations.append("Inline security group rules are not mapped.")
-        resource = model(**fields.data)
+        resource = _typed(model, mapping.string_fields, fields)
+        if resource is not None:
+            return resource, fields.facts, list(dict.fromkeys(fields.limitations))
+        fields.limitations.append("Typed resource validation failed; only its type is retained.")
+        fields.data = {"identity": identity, "attributes": {}}
+        fields.facts = {}
+        fields.name_tag()  # an unknown resource still keeps its safe Name tag
+        resource = UnknownResource(aws_resource_type=aws_type, **fields.data)
     else:
         if mapping is not None:
             for source, target in mapping.string_fields:

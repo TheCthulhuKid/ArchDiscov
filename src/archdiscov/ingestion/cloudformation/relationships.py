@@ -13,6 +13,11 @@ _PARENTS = {
         ("SubnetId", ResourceType.SUBNET),
         ("VpcId", ResourceType.VPC),
     ),
+    ResourceType.NAT_GATEWAY: (
+        ("SubnetId", ResourceType.SUBNET),
+        ("VpcId", ResourceType.VPC),
+    ),
+    ResourceType.EGRESS_ONLY_INTERNET_GATEWAY: (("VpcId", ResourceType.VPC),),
 }
 
 

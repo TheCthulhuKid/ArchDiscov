@@ -269,6 +269,99 @@ Implement and verify substeps 50.1–50.6 in order. Keep the parent planned unti
 
 **Acceptance check:** Each type imports from each source with exact citations; unknown planned values stay indeterminate; comparison matches observed and declared elements without guessing; existing import fixtures are unchanged.
 
+Implement and verify substeps 51.1–51.6 in order. Keep the parent planned until every substep's acceptance checks pass.
+
+**Where things go:**
+- Terraform: `RESOURCE_MAPPINGS` in `ingestion/terraform/catalog.py` and the field mapping in `mapping.py` and `mapping_values.py`; references in `ingestion/terraform/relationships.py` (`_PARENT_CANDIDATES` and the cited reference fields), with planned values through `plan_values.py` and `plan_relationships.py`.
+- CloudFormation: `RESOURCE_MAPPINGS` in `ingestion/cloudformation/catalog.py`, the property mapping in `mapping.py`, and parents in `relationships.py` (`_PARENTS`). `Ref` and `Fn::GetAtt` references are already linked generically by intrinsic evaluation.
+- Fixtures beside the existing ones in `tests/fixtures/terraform/` and `tests/fixtures/cloudformation/`, named by element family as in step 49 (for example `egress-gateways.state.json`, `egress-gateways.plan.json`, `egress-gateways.yaml`); tests in `tests/ingestion/terraform/` and `tests/ingestion/cloudformation/`.
+- Each substep updates `docs/terraform-state-mapping.md`, `docs/terraform-plan-mapping.md`, and `docs/cloudformation-mapping.md` for its types, since import output changes as soon as it lands.
+
+**What is reused:**
+- The model contracts from step 49, the typed-model path the importers already use for VPCs, subnets, route tables, and security groups, and their sanitization, citation, unknown-value, and limitation handling.
+- The step 49 fixtures as the target shape: a declared element records the fields its source declares, in the same models.
+
+**Decisions made in this plan (as today's importers do):**
+- Imported links stay configuration references: `terraform_configuration_reference` or `cloudformation_configuration_reference`, with the field named. A declared reference is not a deployed attachment, so the importers never record the collector's typed kinds (`nat_gateway_subnet` and so on). The primitives therefore keep answering `unknown` for imported network paths, as they do today for imported route tables and security groups.
+- A typed field records only what the element's own declaration states. Several elements AWS reports as one resource are declared as separate child resources. Those children (`aws_ec2_transit_gateway_route_table_association`, `_propagation`, and `aws_ec2_transit_gateway_route`; `aws_vpc_endpoint_route_table_association` and its subnet and security-group siblings; `aws_ec2_managed_prefix_list_entry`; and their CloudFormation counterparts) stay unknown resources with cited references to their parent. They are not folded into it. A parent that such a child names records a limitation that its list may be incomplete, and a list the model can leave unset (prefix-list `entries`, `routes_complete`) stays unset.
+- Out of scope, unchanged from today: Terraform inline `route` and `ingress`/`egress` blocks (imported only when empty), CloudFormation `AWS::EC2::Route` and inline security-group rules, and Terraform data sources (so an AWS-managed prefix list read through `data.aws_ec2_managed_prefix_list` is not imported). Route targets, prefix-list destinations, and IPv6 rules therefore come only from collection in this phase. Mapping them is a separate step if wanted.
+
+**Advice:** Keep tests to the usual path, as `AGENTS.md` asks. Each substep needs one test per source (state, plan, template) built from its fixtures, checking the typed fields, citations, and references. Add a case only for behaviour of its own, such as an unknown planned value or a separately declared child. Test plan values through the substep's own plan fixture rather than a second plan test.
+
+#### Step 51.1: NAT gateways and egress-only internet gateways
+**Status:** Implemented. Terraform `aws_nat_gateway`, previously an unknown resource, now maps to `NatGateway`: `connectivity_type`, `network_interface_id`, a nonempty `public_ip` as a one-item `public_ips` (a new `address_lists` mapping field), and `subnet_id` or `vpc_id`. `aws_egress_only_internet_gateway` maps to `EgressOnlyInternetGateway` with `vpc_id`. CloudFormation `AWS::EC2::NatGateway` (`ConnectivityType`) and `AWS::EC2::EgressOnlyInternetGateway` map the same way; the NAT gateway's `AWS::EC2::EIP` stays an unsupported summary, so `public_ips` stays empty. Both importers now record `vpc_id` and `subnet_id` as typed fields when the model declares them, as collection does, and as attributes otherwise, so existing types are unchanged. Terraform placement and references read whichever the model uses (`_reference` in `terraform/relationships.py`). A NAT gateway's parent is its subnet, else its VPC; an egress-only gateway's is its VPC; neither gets a state. The CloudFormation typed branch's per-model `if` chain moved into the catalog's `string_fields`. A declared value the model rejects (such as `ConnectivityType: Public`) now falls back to an unsupported summary with its Name tag and a coverage limitation, as Terraform already did, instead of failing the import. Fixtures `egress-gateways.state.json`, `egress-gateways.plan.json` (unknown ID, interface, address, and subnet), and `egress-gateways.yaml` are in `tests/fixtures/terraform/` and `tests/fixtures/cloudformation/`. Tests: `test_terraform_network_elements.py` (state, and plan with indeterminate unknown values) and `test_cloudformation_network_elements.py` (template, and a rejected value). The NAT network interface is a typed field only, not a reference, because AWS creates it and no configuration declares it. Existing import fixtures and tests are unchanged.
+**Prerequisite:** Step 50.
+
+- Write the fixtures first: `egress-gateways.state.json`, `egress-gateways.plan.json` (a NAT gateway created with an unknown ID and network interface), and `egress-gateways.yaml`, each with a VPC, a subnet, a public NAT gateway with its Elastic IP, and an egress-only internet gateway.
+- Terraform `aws_nat_gateway` (replacing today's unknown mapping) maps `subnet_id`, `connectivity_type`, `network_interface_id`, `public_ip`, and `vpc_id` for a regional NAT gateway; `aws_egress_only_internet_gateway` maps `vpc_id`. CloudFormation `AWS::EC2::NatGateway` maps `SubnetId` and `ConnectivityType` (its address comes from a referenced `AWS::EC2::EIP`, which stays unknown), and `AWS::EC2::EgressOnlyInternetGateway` maps `VpcId`.
+- A NAT gateway's parent is its subnet, else its VPC; an egress-only gateway's is its VPC. Neither declares a state, so `state` stays unset.
+
+**Advice:** A declared public NAT gateway has no recorded state, so the model's available-without-address rule does not apply. Do not default `state` to make it apply.
+
+**Acceptance check:** Each source imports both types with exact citations and resolved references to the subnet and VPC; the plan's unknown ID and interface stay indeterminate; existing import fixtures and their tests are unchanged.
+
+#### Step 51.2: VPC peering connections
+**Status:** Planned.
+**Prerequisite:** Step 51.1.
+
+- Write the fixtures first: a same-account peering between two VPCs declared in each source.
+- Terraform `aws_vpc_peering_connection` maps the requester side from `vpc_id` and the accepter side from `peer_vpc_id`, `peer_owner_id`, and `peer_region`, and `accept_status` as state when the state records it. CloudFormation `AWS::EC2::VPCPeeringConnection` maps `VpcId`, `PeerVpcId`, `PeerOwnerId`, and `PeerRegion`. Side CIDRs are not declared, so they stay empty.
+- The requester's owner is not declared, so leave it unset rather than assuming the importing account. Record `peer_owner_id` only when the source states it.
+- Settle `aws_vpc_peering_connection_accepter` first: it declares the same connection ID from the accepter's account, so mapping it as a second peering connection would store one ID twice. The plan assumes it stays an unknown resource with a cited reference to the connection.
+
+**Advice:** A connection is a regional root, as in collection; its two VPCs are references, not parents.
+
+**Acceptance check:** Each source imports the connection with both sides cited and its VPC references resolved; a requester owner is never invented; an accepter resource does not duplicate the connection.
+
+#### Step 51.3: VPC endpoints and managed prefix lists
+**Status:** Planned.
+**Prerequisite:** Step 51.2.
+
+- Write the fixtures first: a gateway endpoint on a route table, an interface endpoint with a subnet and a security group, a customer-managed prefix list with two entries, and one separately declared entry resource, in each source.
+- Terraform `aws_vpc_endpoint` maps `vpc_endpoint_type`, `service_name`, `vpc_id`, `route_table_ids`, `subnet_ids`, `security_group_ids`, and `network_interface_ids` when the state records them. `aws_ec2_managed_prefix_list` maps `address_family`, `version`, and its inline `entry` blocks (CIDRs only; descriptions are not kept). CloudFormation `AWS::EC2::VPCEndpoint` and `AWS::EC2::PrefixList` (`Entries`) map the same fields.
+- A list with a separately declared entry resource keeps `entries` unset, with a limitation naming the child, because its inline entries are not the whole list.
+
+**Advice:** An endpoint type the model does not know is recorded without `endpoint_type`, as the collector does.
+
+**Acceptance check:** Each source imports both types with exact citations and resolved references to the VPC, route table, subnet, and security group; a list with a separate entry resource has `entries` unset and says why.
+
+#### Step 51.4: Transit gateways, attachments, and route tables
+**Status:** Planned.
+**Prerequisite:** Step 51.3.
+
+- Write the fixtures first: a transit gateway, a VPC attachment, a route table, and separately declared association, propagation, and static route resources, in each source.
+- Terraform `aws_ec2_transit_gateway` maps `owner_id` and the default association and propagation route table IDs. `aws_ec2_transit_gateway_vpc_attachment` maps `transit_gateway_id`, `vpc_id` as the attached resource, and `vpc_owner_id`; its attached resource type is `vpc`, cited to the declared Terraform type. `aws_ec2_transit_gateway_route_table` maps `transit_gateway_id`. CloudFormation `AWS::EC2::TransitGateway`, `AWS::EC2::TransitGatewayVpcAttachment` and `AWS::EC2::TransitGatewayAttachment`, and `AWS::EC2::TransitGatewayRouteTable` map the same fields.
+- Associations, propagations, and routes stay child resources, as decided above: the route table records a limitation for each child that names it, and `routes_complete` stays unset.
+- CloudFormation's `AWS::EC2::TransitGatewayVpcAttachment` imports as the model's `AWS::EC2::TransitGatewayAttachment` type. Record the declared type in the evidence so the change of name is cited.
+
+**Advice:** Check snapshot integrity on the fixtures early: an attachment whose associated route table belongs to another transit gateway is rejected (`snapshot_transit_gateway_link_mismatch`), and a declaration can say that.
+
+**Acceptance check:** Each source imports the three types with exact citations; the association, propagation, and route resources reference the table and attachment; the table's associations, propagations, and routes are not claimed as complete.
+
+#### Step 51.5: Compare observed and declared elements
+**Status:** Planned.
+**Prerequisite:** Step 51.4.
+
+- Compare a step 50 collection against a Terraform state declaring the same elements by their physical IDs. Each new type pairs by native type and physical ID only. Fields the state does not declare (such as a NAT gateway's state) are reported as the comparison reports other one-sided fields today, and typed links on the observed side differ from configuration references on the declared side, as they already do for route tables.
+- Confirm a CloudFormation template, which has logical IDs only, never pairs with an observed element, and a plan's unknown-ID element stays unmatched.
+- Change comparison only if a check fails. The plan expects no change, because matching and field comparison are generic over resource types.
+
+**Advice:** Reuse the step 50 collection data (`element_pages()`) for the observed side, so the declared fixtures carry the same IDs.
+
+**Acceptance check:** Observed and declared elements of each new type match by identity and nothing else; template and unknown-ID elements are unmatched; existing comparison tests pass unchanged.
+
+#### Step 51.6: Verify the imports and close the step
+**Status:** Planned.
+**Prerequisite:** Step 51.5.
+
+- Confirm the existing `state.json`, `plan.json`, and `template.yaml` imports are byte-for-byte unchanged, and that every new fixture validates and round-trips.
+- Re-read `docs/terraform-state-mapping.md`, `docs/terraform-plan-mapping.md`, `docs/cloudformation-mapping.md`, and `docs/infrastructure-as-code.md` against the code, including the out-of-scope list above, and update `docs/roadmap.md`'s phase 6 row.
+- Run the focused and full offline tests, the acceptance suite, Ruff, and the whitespace check, then review the full change as the Checks section requires.
+
+**Advice:** Do not describe imported network paths as decided anywhere: the primitives read typed links, which the importers do not record.
+
+**Acceptance check:** Every check passes; existing import output is unchanged; the docs match the code; the plan marks step 51 implemented.
+
 ### Step 52: Decide prefix lists and IPv6 in the primitives
 **Status:** Planned.
 **Prerequisite:** Step 49.

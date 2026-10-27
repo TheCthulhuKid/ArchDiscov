@@ -20,7 +20,16 @@ _PARENT_CANDIDATES = {
     ResourceType.SECURITY_GROUP: (_VPC_PARENT,),
     ResourceType.ROUTE_TABLE: (_VPC_PARENT,),
     ResourceType.INTERNET_GATEWAY: (_VPC_PARENT,),
+    ResourceType.NAT_GATEWAY: (_SUBNET_PARENT, _VPC_PARENT),
+    ResourceType.EGRESS_ONLY_INTERNET_GATEWAY: (_VPC_PARENT,),
 }
+
+
+def _reference(resource: Resource, field: str) -> tuple[object, str]:
+    """A reference field's value and fact pointer: the typed field when the model has one."""
+    if field in type(resource).model_fields:
+        return getattr(resource, field), f"/{field}"
+    return resource.attributes.get(field), f"/attributes/{field}"
 
 
 def place_resources(resources: list[Resource], evidence: dict) -> tuple[dict, list[Resource], dict]:
@@ -37,7 +46,7 @@ def place_resources(resources: list[Resource], evidence: dict) -> tuple[dict, li
         parent = None
         # Scope is explicit configuration, not a reference inferred from module placement.
         for field, expected in _PARENT_CANDIDATES.get(resource.resource_type, ()):
-            reference = resource.attributes.get(field)
+            reference, _ = _reference(resource, field)
             if not isinstance(reference, str):
                 continue
             candidate = index.get((region, reference))
@@ -60,14 +69,12 @@ def place_resources(resources: list[Resource], evidence: dict) -> tuple[dict, li
             ("subnet_id", ResourceType.SUBNET),
             ("security_group_ids", ResourceType.SECURITY_GROUP),
         ):
-            value = resource.attributes.get(field)
+            value, base = _reference(resource, field)
             references = (
                 value if isinstance(value, list) else [value] if isinstance(value, str) else []
             )
             for position, reference in enumerate(references):
-                pointer = f"/attributes/{field}" + (
-                    f"/{position}" if isinstance(value, list) else ""
-                )
+                pointer = base + (f"/{position}" if isinstance(value, list) else "")
                 citations = resource.fact_evidence.get(pointer)
                 if not citations:
                     continue

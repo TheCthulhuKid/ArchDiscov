@@ -6,7 +6,14 @@ from ...models.architecture import Ec2Instance, Subnet, Vpc
 from ...models.enums import AwsService, ResourceType
 from ...models.resource_base import Resource
 from ...models.resources.iam import IamInstanceProfile, IamManagedPolicy, IamRole
-from ...models.resources.network import InternetGateway, NetworkInterface, RouteTable, SecurityGroup
+from ...models.resources.network import (
+    EgressOnlyInternetGateway,
+    InternetGateway,
+    NatGateway,
+    NetworkInterface,
+    RouteTable,
+    SecurityGroup,
+)
 
 
 @dataclass(frozen=True)
@@ -17,6 +24,8 @@ class ResourceMapping:
     string_fields: tuple[tuple[str, str], ...] = ()
     cidr_sources: tuple[str, ...] = ()
     inline_collections: tuple[tuple[str, str], ...] = ()
+    # A single IPv4 address recorded as a one-item list, such as a NAT gateway's public IP.
+    address_lists: tuple[tuple[str, str], ...] = ()
 
 
 RESOURCE_MAPPINGS = {
@@ -85,7 +94,19 @@ RESOURCE_MAPPINGS = {
     "aws_iam_user": ResourceMapping(AwsService.IAM, "AWS::IAM::User"),
     "aws_iam_group": ResourceMapping(AwsService.IAM, "AWS::IAM::Group"),
     "aws_network_acl": ResourceMapping(AwsService.EC2, ResourceType.NETWORK_ACL),
-    "aws_nat_gateway": ResourceMapping(AwsService.EC2, "AWS::EC2::NatGateway"),
+    "aws_nat_gateway": ResourceMapping(
+        AwsService.EC2,
+        ResourceType.NAT_GATEWAY,
+        NatGateway,
+        string_fields=(
+            ("connectivity_type", "connectivity"),
+            ("network_interface_id", "network_interface_id"),
+        ),
+        address_lists=(("public_ip", "public_ips"),),
+    ),
+    "aws_egress_only_internet_gateway": ResourceMapping(
+        AwsService.EC2, ResourceType.EGRESS_ONLY_INTERNET_GATEWAY, EgressOnlyInternetGateway
+    ),
     "aws_eip": ResourceMapping(AwsService.EC2, "AWS::EC2::EIP"),
 }
 

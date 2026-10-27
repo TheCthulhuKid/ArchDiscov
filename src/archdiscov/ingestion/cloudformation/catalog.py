@@ -5,24 +5,40 @@ from dataclasses import dataclass
 from ...models.architecture import Ec2Instance, Subnet, Vpc
 from ...models.enums import ResourceType
 from ...models.resource_base import Resource
-from ...models.resources.network import InternetGateway, NetworkInterface, RouteTable, SecurityGroup
+from ...models.resources.network import (
+    EgressOnlyInternetGateway,
+    InternetGateway,
+    NatGateway,
+    NetworkInterface,
+    RouteTable,
+    SecurityGroup,
+)
 
 
 @dataclass(frozen=True)
 class ResourceMapping:
     model: type[Resource] | None = None
+    # (property, target): a typed field on a typed model, else an attribute.
     string_fields: tuple[tuple[str, str], ...] = ()
     integer_fields: tuple[tuple[str, str, int, int], ...] = ()
 
 
 RESOURCE_MAPPINGS = {
     ResourceType.VPC: ResourceMapping(Vpc),
-    ResourceType.SUBNET: ResourceMapping(Subnet),
-    ResourceType.EC2_INSTANCE: ResourceMapping(Ec2Instance),
+    ResourceType.SUBNET: ResourceMapping(
+        Subnet, string_fields=(("AvailabilityZone", "availability_zone"),)
+    ),
+    ResourceType.EC2_INSTANCE: ResourceMapping(
+        Ec2Instance, string_fields=(("InstanceType", "instance_type"),)
+    ),
     ResourceType.SECURITY_GROUP: ResourceMapping(SecurityGroup),
     ResourceType.INTERNET_GATEWAY: ResourceMapping(InternetGateway),
     ResourceType.ROUTE_TABLE: ResourceMapping(RouteTable),
     ResourceType.NETWORK_INTERFACE: ResourceMapping(NetworkInterface),
+    ResourceType.NAT_GATEWAY: ResourceMapping(
+        NatGateway, string_fields=(("ConnectivityType", "connectivity"),)
+    ),
+    ResourceType.EGRESS_ONLY_INTERNET_GATEWAY: ResourceMapping(EgressOnlyInternetGateway),
     ResourceType.LAMBDA_FUNCTION: ResourceMapping(
         string_fields=(
             ("FunctionName", "function_name"),

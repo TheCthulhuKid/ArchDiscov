@@ -1,5 +1,7 @@
 """Allowlisted field conversion and source pointers for Terraform mappings."""
 
+from ipaddress import AddressValueError, IPv4Address
+
 from pydantic import IPvAnyNetwork, TypeAdapter, ValidationError
 
 from ...models.json_pointer import escape_pointer_token
@@ -131,6 +133,22 @@ class MappingValues:
             self.data["cidr_blocks"] = None
             source = next(source for source in sources if source in self.values)
             self.facts["/cidr_blocks"] = f"/values/{source}"
+
+    def addresses(self, sources: tuple[tuple[str, str], ...]) -> None:
+        """Record each single IPv4 address as a one-item list; an empty value is no address."""
+        for source, target in sources:
+            value = self.values.get(source)
+            if value in (None, ""):
+                continue
+            try:
+                if not is_nonblank_unredacted_string(value):
+                    raise AddressValueError(source)
+                address = IPv4Address(value)
+            except AddressValueError:
+                self.omitted(source)
+                continue
+            self.data[target] = [address]
+            self.facts[f"/{target}/0"] = f"/values/{source}"
 
     def inline_collections(self, collections: tuple[tuple[str, str], ...]) -> None:
         for source, target in collections:

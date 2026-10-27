@@ -71,13 +71,17 @@ are omitted with limitations rather than copied as raw provider data.
 | `aws_internet_gateway` | `InternetGateway` | Shared identity, name, tags, and reference facts only |
 | `aws_route_table` | `RouteTable` | Summary only; inline `route` entries are not mapped |
 | `aws_network_interface` | `NetworkInterface` | Shared identity, name, tags, and reference facts only |
+| `aws_nat_gateway` | `NatGateway` | `connectivity_type` → `connectivity`, `network_interface_id`, a nonempty `public_ip` → `public_ips`, and `subnet_id` (or `vpc_id` for a regional NAT gateway) as typed fields; no state is declared, so `state` stays unset |
+| `aws_egress_only_internet_gateway` | `EgressOnlyInternetGateway` | `vpc_id` as a typed field |
 | `aws_iam_role` | `IamRole` | Source `arn`; `permissions_boundary` → `boundary_arn` |
 | `aws_iam_instance_profile` | `IamInstanceProfile` | Source `arn`; profile role names are not mapped |
 | `aws_iam_policy` | `IamManagedPolicy` | Source `arn`; policy document is not mapped |
 
 Typed mappings share `attributes.terraform_type`, sanitized string-valued `tags`,
 and `name` from a safe `tags.Name`, falling back to `values.name`. When present,
-`vpc_id`, `subnet_id`, and `iam_instance_profile` are retained as attributes.
+`vpc_id`, `subnet_id`, and `iam_instance_profile` are retained as attributes, or as typed
+fields when the model declares them (as the NAT and egress-only gateway models do, matching
+collection).
 `vpc_security_group_ids`, falling back to `security_groups`, supplies the sanitized
 `attributes.security_group_ids` list. These exported strings are configuration
 facts, not proof of a resolved attachment or effective IAM association.
