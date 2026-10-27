@@ -22,7 +22,14 @@ from ...models.enums import (
     ResourceType,
     RouteTargetKind,
 )
-from ...models.resources.network import NatGateway, SecurityGroup, SecurityGroupRule, VpcEndpoint
+from ...models.resources.network import (
+    NatGateway,
+    SecurityGroup,
+    SecurityGroupRule,
+    TransitGatewayAttachment,
+    TransitGatewayRouteTable,
+    VpcEndpoint,
+)
 from ..evidence_builder import EvidenceBuilder
 from ..operations import Ec2Operation as Op
 from .resources import Normalized, classify_route_target, destination
@@ -43,6 +50,9 @@ _COLLECTED_BY = {
     RT.ROUTE_TABLE: Op.DESCRIBE_ROUTE_TABLES,
     RT.VPC_ENDPOINT: Op.DESCRIBE_VPC_ENDPOINTS,
     RT.MANAGED_PREFIX_LIST: Op.DESCRIBE_MANAGED_PREFIX_LISTS,
+    RT.TRANSIT_GATEWAY: Op.DESCRIBE_TRANSIT_GATEWAYS,
+    RT.TRANSIT_GATEWAY_ATTACHMENT: Op.DESCRIBE_TRANSIT_GATEWAY_ATTACHMENTS,
+    RT.TRANSIT_GATEWAY_ROUTE_TABLE: Op.DESCRIBE_TRANSIT_GATEWAY_ROUTE_TABLES,
 }
 _ROUTE_TARGET_TYPES = {
     RK.INTERNET_GATEWAY: RT.INTERNET_GATEWAY,
@@ -70,9 +80,12 @@ class RelationshipBuilder:
         builder: EvidenceBuilder,
         entries: list[Normalized],
         unavailable: Mapping[Op, str],
+        shared: Mapping[tuple[ResourceType, str], str] | None = None,
     ) -> None:
         self.builder = builder
         self.unavailable = unavailable
+        # Resources listed in this account but owned by another, by type and ID: their owner.
+        self.shared = shared or {}
         self.index = {
             (e.resource.resource_type, e.resource.identity.physical_id): e for e in entries
         }
@@ -83,6 +96,8 @@ class RelationshipBuilder:
         op = _COLLECTED_BY.get(kind) if kind is not None else None
         if op is None:
             return self._external(ref, kind)
+        if kind is not None and (kind, ref) in self.shared:
+            return self._external(ref, kind, self.shared[(kind, ref)])
         target = self.index.get((kind, ref))
         if target is not None:
             return LocalTarget(resource_id=target.resource.id)
@@ -268,11 +283,69 @@ class RelationshipBuilder:
         ref: str,
         pointer: str,
         kind: AttachmentKind,
+        owner: str | None = None,
+        **attributes: Any,
     ) -> None:
-        """Link the resource a cited fact names, citing that fact's evidence."""
+        """Link the resource a cited fact names, citing that fact's evidence.
+
+        A target owned by another account is external, carrying that account.
+        """
         evidence_id = entry.resource.fact_evidence[pointer][0]
-        source_path = self.builder.evidence[evidence_id].configuration_path
-        self._add(entry, self._resolve(target_type, ref, source_path), kind, evidence_id, {})
+        if owner not in (None, self.builder.account_id):
+            target = self._external(ref, target_type, owner)
+        else:
+            source_path = self.builder.evidence[evidence_id].configuration_path
+            target = self._resolve(target_type, ref, source_path)
+        self._add(entry, target, kind, evidence_id, attributes)
+
+    def _transit_gateway_attachment(self, entry: Normalized) -> None:
+        attachment = entry.resource
+        if not isinstance(attachment, TransitGatewayAttachment):
+            raise TypeError("a transit gateway attachment entry holds a TransitGatewayAttachment")
+        if attachment.transit_gateway_id is not None:
+            self._fact_link(
+                entry,
+                RT.TRANSIT_GATEWAY,
+                attachment.transit_gateway_id,
+                "/transit_gateway_id",
+                AttachmentKind.TRANSIT_GATEWAY_ATTACHMENT,
+                entry.item.get("TransitGatewayOwnerId"),
+            )
+        if attachment.attached_resource_type == "vpc" and attachment.attached_resource_id:
+            self._fact_link(
+                entry,
+                RT.VPC,
+                attachment.attached_resource_id,
+                "/attached_resource_id",
+                AttachmentKind.TRANSIT_GATEWAY_VPC_ATTACHMENT,
+                attachment.attached_resource_owner_id,
+            )
+
+    def _transit_gateway_route_table(self, entry: Normalized) -> None:
+        table = entry.resource
+        if not isinstance(table, TransitGatewayRouteTable):
+            raise TypeError("a transit gateway route table entry holds a TransitGatewayRouteTable")
+        for name, links, kind in (
+            (
+                "associations",
+                table.associations,
+                AttachmentKind.TRANSIT_GATEWAY_ROUTE_TABLE_ASSOCIATION,
+            ),
+            (
+                "propagations",
+                table.propagations,
+                AttachmentKind.TRANSIT_GATEWAY_ROUTE_TABLE_PROPAGATION,
+            ),
+        ):
+            for n, link in enumerate(links):
+                self._fact_link(
+                    entry,
+                    RT.TRANSIT_GATEWAY_ATTACHMENT,
+                    link.attachment_id,
+                    f"/{name}/{n}",
+                    kind,
+                    state=link.state,
+                )
 
     def _network_acl(self, entry: Normalized) -> None:
         for i, assoc in enumerate(entry.item.get("Associations") or []):
@@ -373,10 +446,15 @@ _HANDLERS: dict[ResourceType, Callable[[RelationshipBuilder, Normalized], None]]
     ResourceType.EGRESS_ONLY_INTERNET_GATEWAY: RelationshipBuilder._egress_only_internet_gateway,
     ResourceType.VPC_PEERING_CONNECTION: RelationshipBuilder._vpc_peering_connection,
     ResourceType.VPC_ENDPOINT: RelationshipBuilder._vpc_endpoint,
+    ResourceType.TRANSIT_GATEWAY_ATTACHMENT: RelationshipBuilder._transit_gateway_attachment,
+    ResourceType.TRANSIT_GATEWAY_ROUTE_TABLE: RelationshipBuilder._transit_gateway_route_table,
 }
 
 
 def build_dependencies(
-    builder: EvidenceBuilder, entries: list[Normalized], unavailable: Mapping[Op, str]
+    builder: EvidenceBuilder,
+    entries: list[Normalized],
+    unavailable: Mapping[Op, str],
+    shared: Mapping[tuple[ResourceType, str], str] | None = None,
 ) -> list[Dependency]:
-    return RelationshipBuilder(builder, entries, unavailable).build()
+    return RelationshipBuilder(builder, entries, unavailable, shared).build()

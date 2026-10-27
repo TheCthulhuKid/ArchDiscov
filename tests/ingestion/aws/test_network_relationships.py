@@ -1,4 +1,5 @@
 from archdiscov.ingestion.detail_execution import DetailCall, DetailResponse
+from archdiscov.ingestion.network.transit import TransitGatewayTableReads
 from archdiscov.ingestion.operations import Ec2Operation as Op
 from archdiscov.models.architecture import ExternalTarget, LocalTarget, UnresolvedTarget
 from archdiscov.models.enums import AttachmentKind as Kind
@@ -19,7 +20,12 @@ from tests.support.network_data import (
     ROUTE_TABLE,
     SG,
     SG_RULES,
+    SHARED_TRANSIT_GATEWAY,
     SUBNET,
+    TRANSIT_GATEWAY,
+    TRANSIT_GATEWAY_ATTACHMENTS,
+    TRANSIT_GATEWAY_ROUTE_TABLE,
+    TRANSIT_GATEWAY_TABLE_PAGES,
     VPC,
     by_id,
     region,
@@ -45,8 +51,8 @@ def deps(result, kind: Kind, source: str | None = None):
     ]
 
 
-def build(items=ITEMS, unavailable=None, prefix_list_entries=None):
-    result = region(items, unavailable, prefix_list_entries)
+def build(items=ITEMS, unavailable=None, **details):
+    result = region(items, unavailable, **details)
     snapshot = snapshot_of(result)  # raises if endpoints or citations are invalid
     return result, snapshot
 
@@ -144,7 +150,7 @@ def test_unsupported_and_unparseable_route_targets():
     assert "nat-1 was not present" in nat.reason
     assert "eigw-1 was not present" in egress_only.reason
     assert routes[3].attributes["target_kind"] == "egress_only_internet_gateway"
-    assert transit.aws_resource_type == "AWS::EC2::TransitGateway"
+    assert "tgw-1 was not present" in transit.reason
     assert "vpce-1 was not present" in endpoint.reason
     (prefix_list,) = deps(result, Kind.PREFIX_LIST_REFERENCE)
     assert "pl-s3 was not present" in prefix_list.target.reason
@@ -233,6 +239,63 @@ def test_endpoints_and_prefix_lists_are_linked_and_entries_read_in_full():
     assert cited.locator == "ec2:GetManagedPrefixListEntries"
     assert cited.value["Description"] == "[REDACTED]"
     assert s3_list.entries is None and s3_list.owner_id == "AWS"  # entries were not read
+
+
+def test_transit_gateway_attachments_and_route_tables_link_or_stay_external():
+    to_gateways = {
+        "RouteTableId": "rtb-tgw",
+        "VpcId": "vpc-1",
+        "Routes": [
+            {"DestinationCidrBlock": "10.9.0.0/16", "TransitGatewayId": "tgw-1"},
+            {"DestinationCidrBlock": "10.10.0.0/16", "TransitGatewayId": "tgw-shared"},
+        ],
+    }
+    items = {
+        **ITEMS,
+        Op.DESCRIBE_ROUTE_TABLES: [*FULL[Op.DESCRIBE_ROUTE_TABLES], to_gateways],
+        Op.DESCRIBE_TRANSIT_GATEWAYS: [TRANSIT_GATEWAY, SHARED_TRANSIT_GATEWAY],
+        Op.DESCRIBE_TRANSIT_GATEWAY_ATTACHMENTS: TRANSIT_GATEWAY_ATTACHMENTS,
+        Op.DESCRIBE_TRANSIT_GATEWAY_ROUTE_TABLES: [TRANSIT_GATEWAY_ROUTE_TABLE],
+    }
+
+    def page(method):
+        call = DetailCall(method, {"TransitGatewayRouteTableId": "tgw-rtb-1"})
+        return DetailResponse(call, TRANSIT_GATEWAY_TABLE_PAGES[method], f"{method}.Page[0]")
+
+    reads = TransitGatewayTableReads(
+        [page("get_transit_gateway_route_table_associations")],
+        [page("get_transit_gateway_route_table_propagations")],
+        page("search_transit_gateway_routes"),
+    )
+    result, _ = build(items, transit_gateway_tables={"tgw-rtb-1": reads})
+    resources = by_id(result)
+    assert "tgw-shared" not in resources  # it belongs to the account that shares it
+    table = resources["tgw-rtb-1"]
+    assert table.routes_complete is True
+    assert [r.state for r in table.routes] == ["active", "blackhole"]
+    assert table.routes[0].attachment_ids == ["tgw-attach-1"]
+
+    def targets(kind, source):
+        return [d.target for d in deps(result, kind, source)]
+
+    local = LocalTarget(resource_id=rid("tgw-attach-1"))
+    assert targets(Kind.TRANSIT_GATEWAY_ATTACHMENT, "tgw-attach-1") == [
+        LocalTarget(resource_id=rid("tgw-1"))
+    ]
+    assert targets(Kind.TRANSIT_GATEWAY_VPC_ATTACHMENT, "tgw-attach-1") == [
+        LocalTarget(resource_id=rid("vpc-1"))
+    ]
+    (association,) = deps(result, Kind.TRANSIT_GATEWAY_ROUTE_TABLE_ASSOCIATION, "tgw-rtb-1")
+    assert association.target == local and association.attributes["state"] == "associated"
+    (propagation,) = deps(result, Kind.TRANSIT_GATEWAY_ROUTE_TABLE_PROPAGATION, "tgw-rtb-1")
+    assert propagation.target == local and propagation.attributes["state"] == "enabled"
+
+    (shared,) = targets(Kind.TRANSIT_GATEWAY_ATTACHMENT, "tgw-attach-2")
+    to_local, to_shared = targets(Kind.ROUTE_TARGET, "rtb-tgw")
+    assert to_local == LocalTarget(resource_id=rid("tgw-1"))
+    for target in (shared, to_shared):
+        assert isinstance(target, ExternalTarget)
+        assert (target.identifier, target.account_id) == ("tgw-shared", "210987654321")
 
 
 def test_security_group_membership_local_and_missing():

@@ -66,6 +66,7 @@ def collect_job(
             reads.items,
             reads.unavailable,
             reads.prefix_list_entries,
+            reads.transit_gateway_tables,
         )
         return CollectedJob(
             job,

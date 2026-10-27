@@ -152,6 +152,75 @@ PREFIX_LIST_ENTRIES = {
     "pl-s3": {"Entries": [{"Cidr": "52.218.0.0/17"}]},
     "pl-office": {"Entries": [{"Cidr": "198.51.100.0/24", "Description": "office"}]},
 }
+TRANSIT_GATEWAY = {
+    "TransitGatewayId": "tgw-1",
+    "State": "available",
+    "OwnerId": ACCOUNT,
+    "Options": {
+        "AssociationDefaultRouteTableId": "tgw-rtb-1",
+        "PropagationDefaultRouteTableId": "tgw-rtb-1",
+    },
+}
+# Shared through AWS RAM: listed in this account, owned by another.
+SHARED_TRANSIT_GATEWAY = {
+    "TransitGatewayId": "tgw-shared",
+    "State": "available",
+    "OwnerId": "210987654321",
+}
+TRANSIT_GATEWAY_ATTACHMENTS = [
+    {
+        "TransitGatewayAttachmentId": "tgw-attach-1",
+        "TransitGatewayId": "tgw-1",
+        "TransitGatewayOwnerId": ACCOUNT,
+        "ResourceType": "vpc",
+        "ResourceId": "vpc-1",
+        "ResourceOwnerId": ACCOUNT,
+        "State": "available",
+        "Association": {"TransitGatewayRouteTableId": "tgw-rtb-1", "State": "associated"},
+    },
+    {
+        "TransitGatewayAttachmentId": "tgw-attach-2",
+        "TransitGatewayId": "tgw-shared",
+        "TransitGatewayOwnerId": "210987654321",
+        "ResourceType": "vpc",
+        "ResourceId": "vpc-1",
+        "ResourceOwnerId": ACCOUNT,
+        "State": "available",
+    },
+]
+TRANSIT_GATEWAY_ROUTE_TABLE = {
+    "TransitGatewayRouteTableId": "tgw-rtb-1",
+    "TransitGatewayId": "tgw-1",
+    "State": "available",
+}
+ATTACHED_VPC = {"ResourceId": "vpc-1", "ResourceType": "vpc"}
+# Each route table detail read's single page, by client method.
+TRANSIT_GATEWAY_TABLE_PAGES = {
+    "get_transit_gateway_route_table_associations": {
+        "Associations": [
+            {"TransitGatewayAttachmentId": "tgw-attach-1", **ATTACHED_VPC, "State": "associated"}
+        ]
+    },
+    "get_transit_gateway_route_table_propagations": {
+        "TransitGatewayRouteTablePropagations": [
+            {"TransitGatewayAttachmentId": "tgw-attach-1", **ATTACHED_VPC, "State": "enabled"}
+        ]
+    },
+    "search_transit_gateway_routes": {
+        "Routes": [
+            {
+                "DestinationCidrBlock": "10.0.0.0/16",
+                "TransitGatewayAttachments": [
+                    {"TransitGatewayAttachmentId": "tgw-attach-1", **ATTACHED_VPC}
+                ],
+                "Type": "propagated",
+                "State": "active",
+            },
+            {"DestinationCidrBlock": "192.168.0.0/16", "Type": "static", "State": "blackhole"},
+        ],
+        "AdditionalRoutesAvailable": False,
+    },
+}
 PRIVATE_ROUTE_TABLE = {
     "RouteTableId": "rtb-private",
     "VpcId": "vpc-1",
@@ -166,8 +235,8 @@ PRIVATE_ROUTE_TABLE = {
 }
 
 
-def region(items, unavailable=None, prefix_list_entries=None) -> RegionResult:
-    return normalize_region(SNAPSHOT_ID, ACCOUNT, REGION, items, unavailable, prefix_list_entries)
+def region(items, unavailable=None, **details) -> RegionResult:
+    return normalize_region(SNAPSHOT_ID, ACCOUNT, REGION, items, unavailable, **details)
 
 
 def snapshot_of(result: RegionResult) -> ArchitectureSnapshot:

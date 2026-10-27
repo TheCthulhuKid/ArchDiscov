@@ -332,12 +332,10 @@ To support another resource type, subclass `Resource`, give it a unique `Literal
 Schemas `2` and `3` accept typed models for the elements a network path crosses beyond a
 subnet's own route table. Every type and field is optional, so a snapshot written before them
 validates unchanged, and an unset field added to an existing model is left out of output.
-The AWS collector reads the IPv6 fields, `Route.prefix_list_id`, NAT gateways, egress-only internet
-gateways, peering connections, VPC endpoints, and managed prefix lists (see [network
-collection](network-mapping.md)); the other new types are contracts only. The Terraform and
-CloudFormation importers produce none of the new types yet, and the [network-path
-primitives](network-path-primitives.md) decide none of these elements, so a path through any of them
-stays `unknown`.
+The AWS collector reads all of these types and fields (see [network
+collection](network-mapping.md)). The Terraform and CloudFormation importers produce none of the new
+types yet, and the [network-path primitives](network-path-primitives.md) decide none of these
+elements, so a path through any of them stays `unknown`.
 
 | Resource type | Model | Recorded for decisions |
 | --- | --- | --- |

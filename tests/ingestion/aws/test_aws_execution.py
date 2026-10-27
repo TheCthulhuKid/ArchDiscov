@@ -198,7 +198,8 @@ def test_allowlist_contains_only_read_and_identity_operations():
     from archdiscov.ingestion.operations import IamOperation
 
     assert all(
-        op.startswith(("Describe", "Get", "List", "AssumeRole")) for _, op in ALLOWED_OPERATIONS
+        op.startswith(("Describe", "Get", "List", "Search", "AssumeRole"))
+        for _, op in ALLOWED_OPERATIONS
     )
     assert {op for service, op in ALLOWED_OPERATIONS if service == AwsService.IAM} == {
         op.value for op in IamOperation

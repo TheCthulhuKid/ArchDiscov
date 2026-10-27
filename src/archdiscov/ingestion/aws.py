@@ -57,6 +57,9 @@ EC2_OPERATIONS = (
     (Ec2Operation.DESCRIBE_VPC_PEERING_CONNECTIONS, "VpcPeeringConnections"),
     (Ec2Operation.DESCRIBE_VPC_ENDPOINTS, "VpcEndpoints"),
     (Ec2Operation.DESCRIBE_MANAGED_PREFIX_LISTS, "PrefixLists"),
+    (Ec2Operation.DESCRIBE_TRANSIT_GATEWAYS, "TransitGateways"),
+    (Ec2Operation.DESCRIBE_TRANSIT_GATEWAY_ATTACHMENTS, "TransitGatewayAttachments"),
+    (Ec2Operation.DESCRIBE_TRANSIT_GATEWAY_ROUTE_TABLES, "TransitGatewayRouteTables"),
 )
 
 

@@ -98,4 +98,7 @@ def empty_network_pages():
         "describe_vpc_peering_connections": [{"VpcPeeringConnections": []}],
         "describe_vpc_endpoints": [{"VpcEndpoints": []}],
         "describe_managed_prefix_lists": [{"PrefixLists": []}],
+        "describe_transit_gateways": [{"TransitGateways": []}],
+        "describe_transit_gateway_attachments": [{"TransitGatewayAttachments": []}],
+        "describe_transit_gateway_route_tables": [{"TransitGatewayRouteTables": []}],
     }

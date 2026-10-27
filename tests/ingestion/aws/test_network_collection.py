@@ -8,7 +8,10 @@ from archdiscov.cli import app
 from archdiscov.ingestion import aws as aws_module
 from archdiscov.ingestion.adapter import AdapterContext, IngestionError
 from archdiscov.ingestion.aws import EC2_OPERATIONS, OperationRunner, OperationTask
-from archdiscov.ingestion.network.collector import PREFIX_LIST_ENTRY_LIMIT
+from archdiscov.ingestion.network.collector import (
+    PREFIX_LIST_ENTRY_LIMIT,
+    TRANSIT_GATEWAY_ROUTE_LIMIT,
+)
 from archdiscov.ingestion.operations import Ec2Operation as Op
 from archdiscov.ingestion.service_catalog import REGIONAL_OPERATIONS
 from archdiscov.models.architecture import UnresolvedTarget
@@ -28,6 +31,10 @@ from tests.support.network_data import (
     PREFIX_LIST_ENTRIES,
     PREFIX_LISTS,
     PRIVATE_ROUTE_TABLE,
+    TRANSIT_GATEWAY,
+    TRANSIT_GATEWAY_ATTACHMENTS,
+    TRANSIT_GATEWAY_ROUTE_TABLE,
+    TRANSIT_GATEWAY_TABLE_PAGES,
 )
 
 KEYS = dict(EC2_OPERATIONS)
@@ -41,6 +48,9 @@ ITEMS = {
     Op.DESCRIBE_VPC_PEERING_CONNECTIONS: [PEERING],
     Op.DESCRIBE_VPC_ENDPOINTS: [GATEWAY_ENDPOINT, INTERFACE_ENDPOINT],
     Op.DESCRIBE_MANAGED_PREFIX_LISTS: PREFIX_LISTS,
+    Op.DESCRIBE_TRANSIT_GATEWAYS: [TRANSIT_GATEWAY],
+    Op.DESCRIBE_TRANSIT_GATEWAY_ATTACHMENTS: TRANSIT_GATEWAY_ATTACHMENTS[:1],
+    Op.DESCRIBE_TRANSIT_GATEWAY_ROUTE_TABLES: [TRANSIT_GATEWAY_ROUTE_TABLE],
 }
 DENIED = ClientError({"Error": {"Code": "UnauthorizedOperation"}}, "DescribeRouteTables")
 
@@ -58,7 +68,10 @@ def pages(overrides=None):
         data = {op: [{KEYS[op]: items}] for op, items in ITEMS.items()}
         data[Op.GET_MANAGED_PREFIX_LIST_ENTRIES] = entries
         data.update(overrides or {})
-        return {snake(op): page for op, page in data.items()}
+        methods = {snake(op): page for op, page in data.items()}
+        for method, page in TRANSIT_GATEWAY_TABLE_PAGES.items():
+            methods.setdefault(method, lambda page=page, **params: page)
+        return methods
 
     return factory
 
@@ -89,6 +102,9 @@ def test_collection_emits_schema_two_with_network_resources_and_relationships():
         "AWS::EC2::VPCPeeringConnection",
         "AWS::EC2::VPCEndpoint",
         "AWS::EC2::PrefixList",
+        "AWS::EC2::TransitGateway",
+        "AWS::EC2::TransitGatewayAttachment",
+        "AWS::EC2::TransitGatewayRouteTable",
     } <= kinds
     assert {o.operation for o in snapshot.coverage.operations} == set(
         REGIONAL_OPERATIONS[AwsService.EC2]
@@ -97,6 +113,7 @@ def test_collection_emits_schema_two_with_network_resources_and_relationships():
     counts = {o.operation: o.result_count for o in snapshot.coverage.operations}
     assert counts["DescribeNatGateways"] == 2  # both pages, the deleted gateway as reported
     assert counts["GetManagedPrefixListEntries"] == 2  # one read per listed prefix list
+    assert counts["SearchTransitGatewayRoutes"] == 1  # one search for the one table
     assert snapshot.dependencies_by_region[AwsRegion.US_EAST_1]
 
 
@@ -162,6 +179,35 @@ def test_denied_or_oversized_entries_reads_leave_entries_unrecorded():
     assert coverage.status == "incomplete"
     assert coverage.failures[0].code == "UnauthorizedOperation"
     assert "stopped at 100 entries and reported more" in coverage.unresolved_values[0].reason
+
+
+def test_route_search_bound_and_denied_associations_keep_the_table():
+    def search(**params):
+        assert params["MaxResults"] == TRANSIT_GATEWAY_ROUTE_LIMIT
+        page = TRANSIT_GATEWAY_TABLE_PAGES["search_transit_gateway_routes"]
+        return {**page, "AdditionalRoutesAvailable": True}
+
+    def denied(**params):
+        return ClientError({"Error": {"Code": "UnauthorizedOperation"}}, "Get")
+
+    overrides = {
+        Op.SEARCH_TRANSIT_GATEWAY_ROUTES: search,
+        Op.GET_TRANSIT_GATEWAY_ROUTE_TABLE_ASSOCIATIONS: denied,
+    }
+    snapshot = collect(pages=pages(overrides))
+    (table,) = (
+        r
+        for r in flatten(snapshot.regions["us-east-1"].resources)
+        if r.identity.physical_id == "tgw-rtb-1"
+    )
+    assert table.routes_complete is False and len(table.routes) == 2
+    assert table.associations == [] and len(table.propagations) == 1
+    assert "Associations were not recorded" in table.attributes["limitations"][0]
+    status = {o.operation: o for o in snapshot.coverage.operations}
+    search = status["SearchTransitGatewayRoutes"]
+    assert search.status == "incomplete"
+    assert "stopped at 1000 routes" in search.unresolved_values[0].reason
+    assert status["GetTransitGatewayRouteTableAssociations"].status == "failed"
 
 
 def test_zero_results_remain_successful():

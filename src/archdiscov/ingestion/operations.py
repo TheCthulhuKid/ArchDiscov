@@ -22,6 +22,12 @@ class Ec2Operation(StrEnum):
     DESCRIBE_VPC_ENDPOINTS = "DescribeVpcEndpoints"
     DESCRIBE_MANAGED_PREFIX_LISTS = "DescribeManagedPrefixLists"
     GET_MANAGED_PREFIX_LIST_ENTRIES = "GetManagedPrefixListEntries"
+    DESCRIBE_TRANSIT_GATEWAYS = "DescribeTransitGateways"
+    DESCRIBE_TRANSIT_GATEWAY_ATTACHMENTS = "DescribeTransitGatewayAttachments"
+    DESCRIBE_TRANSIT_GATEWAY_ROUTE_TABLES = "DescribeTransitGatewayRouteTables"
+    GET_TRANSIT_GATEWAY_ROUTE_TABLE_ASSOCIATIONS = "GetTransitGatewayRouteTableAssociations"
+    GET_TRANSIT_GATEWAY_ROUTE_TABLE_PROPAGATIONS = "GetTransitGatewayRouteTablePropagations"
+    SEARCH_TRANSIT_GATEWAY_ROUTES = "SearchTransitGatewayRoutes"
 
 
 class IamOperation(StrEnum):
