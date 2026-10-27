@@ -54,7 +54,8 @@ use separate implemented adapters and explicit CLI formats.
   names, module placement, or invented parents. An empty export requires explicit
   account and region and produces successful zero-result coverage.
 - Outputs are not architecture resources and are not retained. Data-source entries
-  are skipped and recorded as incomplete coverage, not imported as managed resources.
+  are skipped and recorded as incomplete coverage, not imported as managed resources. An
+  AWS-managed prefix list read through `data.aws_ec2_managed_prefix_list` is therefore not imported.
 
 ## Allowlisted facts
 
@@ -83,14 +84,17 @@ are omitted with limitations rather than copied as raw provider data.
 | `aws_iam_instance_profile` | `IamInstanceProfile` | Source `arn`; profile role names are not mapped |
 | `aws_iam_policy` | `IamManagedPolicy` | Source `arn`; policy document is not mapped |
 
-Typed mappings share `attributes.terraform_type`, sanitized string-valued `tags`,
-and `name` from a safe `tags.Name`, falling back to `values.name`. When present,
-`vpc_id`, `subnet_id`, and `iam_instance_profile` are retained as attributes, or as typed
-fields when the model declares them (as the NAT and egress-only gateway models do, matching
-collection).
+Typed mappings share `attributes.terraform_type`, sanitized string-valued `tags`, and `name` from a
+safe `tags.Name`, falling back to `values.name`. When present, `vpc_id`, `subnet_id`, and
+`iam_instance_profile` are retained as attributes, or as typed fields when the model declares them
+(as the NAT gateway, egress-only gateway, and endpoint models do, matching collection). A mapping
+that names one of these sources itself, such as a peering connection's `vpc_id` → `requester.vpc_id`
+or an attachment's `vpc_id` → `attached_resource_id`, uses its own target instead.
 `vpc_security_group_ids`, falling back to `security_groups`, supplies the sanitized
-`attributes.security_group_ids` list. These exported strings are configuration
-facts, not proof of a resolved attachment or effective IAM association.
+`attributes.security_group_ids` list. These exported strings are configuration facts, not proof of a
+resolved attachment or effective IAM association. Every imported link is a
+`terraform_configuration_reference`, never one of the collector's typed attachment kinds, so the
+network-path primitives answer `unknown` for an imported path.
 
 IAM typed resources require a safe source ARN; without one they become type-only
 `UnknownResource` summaries. IAM trust/inline/managed policy documents and profile

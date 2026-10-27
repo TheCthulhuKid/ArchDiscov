@@ -107,11 +107,11 @@ coverage limitation. Rules, routes, policy documents, workload definitions, auth
 environment values, and other complex configurations are not mapped. Unmapped properties and
 unsupported summaries qualify coverage rather than implying complete configuration.
 
-Containment follows direct local VPC/subnet references of the expected type, without
-inventing missing parents. All resources are stored once. `Ref`, `GetAtt`, and
-`DependsOn` produce source-owned `attached_to` dependencies with
-`AttachmentKind.CLOUDFORMATION_REFERENCE`; these describe configuration references,
-not deployed attachment, successful access, effective permissions, or reachability.
+Containment follows direct local VPC/subnet references of the expected type, without inventing
+missing parents. All resources are stored once. `Ref`, `GetAtt`, and `DependsOn` produce
+source-owned `attached_to` dependencies with `AttachmentKind.CLOUDFORMATION_REFERENCE`; these
+describe configuration references, not deployed attachment, successful access, effective
+permissions, or reachability, so the network-path primitives answer `unknown` for an imported path.
 Missing/conditional targets remain unresolved, and no referenced account is traversed.
 
 ## Evidence, sensitivity, and coverage

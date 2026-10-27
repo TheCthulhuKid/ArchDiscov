@@ -258,7 +258,7 @@ Implement and verify substeps 50.1–50.6 in order. Keep the parent planned unti
 **Acceptance check:** Every check passes; the whole collection includes the new elements with coverage; existing analyzer results are unchanged; the plan marks step 50 implemented.
 
 ### Step 51: Import the new elements from Terraform and CloudFormation
-**Status:** Planned.
+**Status:** Implemented. Substeps 51.1–51.6 are implemented. Terraform state and plans and CloudFormation templates import NAT and egress-only gateways, peering connections, endpoints, managed prefix lists, and transit gateways with their attachments and route tables onto the step 49 models. Separately declared parts stay separate resources that reference their parent, and the parent's list is never claimed complete. Unknown and `!Ref` values stay unset. Imported links stay configuration references, so the primitives answer `unknown` for imported paths. Observed and declared elements match by identity only. Existing import output is unchanged. `PeeringSide.vpc_id` became optional (51.2).
 **Prerequisite:** Step 50.
 
 - Map the Terraform resource types (`aws_nat_gateway`, `aws_vpc_peering_connection`, `aws_ec2_transit_gateway` and its attachment and route-table types, `aws_vpc_endpoint`, `aws_ec2_managed_prefix_list`, `aws_egress_only_internet_gateway`) and the matching CloudFormation types onto the new models, from state, plans, and templates, in place of today's unknown resources.
@@ -339,7 +339,7 @@ Implement and verify substeps 51.1–51.6 in order. Keep the parent planned unti
 **Acceptance check:** Each source imports the three types with exact citations; the association, propagation, and route resources reference the table and attachment; the table's associations, propagations, and routes are not claimed as complete.
 
 #### Step 51.5: Compare observed and declared elements
-**Status:** Planned.
+**Status:** Implemented. No comparison code changed: matching and field comparison are generic over resource types, as expected. `test_collected_network_elements_match_their_declarations_by_identity_only` in `tests/comparison/test_comparison_service.py` collects the step 50 elements (`element_pages()`) and compares them with a Terraform state declaring the same IDs. Every declared element pairs on `physical_identity`, none is ambiguous, and a pair reports the fields one side lacks as differences. The transit gateway template (logical IDs only) and plan (unknown IDs) pair with nothing.
 **Prerequisite:** Step 51.4.
 
 - Compare a step 50 collection against a Terraform state declaring the same elements by their physical IDs. Each new type pairs by native type and physical ID only. Fields the state does not declare (such as a NAT gateway's state) are reported as the comparison reports other one-sided fields today, and typed links on the observed side differ from configuration references on the declared side, as they already do for route tables.
@@ -351,7 +351,7 @@ Implement and verify substeps 51.1–51.6 in order. Keep the parent planned unti
 **Acceptance check:** Observed and declared elements of each new type match by identity and nothing else; template and unknown-ID elements are unmatched; existing comparison tests pass unchanged.
 
 #### Step 51.6: Verify the imports and close the step
-**Status:** Planned.
+**Status:** Implemented. The three original fixtures (`state.json`, `plan.json`, `template.yaml`) import to byte-identical JSON with the code from before step 51 (`0c1a40f~1`) and with the current code. All twelve new fixtures validate, save, and load back equal (checked once rather than by a new test, since persistence is generic and already covered). Re-reading the import docs against the code found three stale statements, now fixed. The state page's note on typed `vpc_id`/`subnet_id` named only the gateway models, and it now also covers the data-source gap for AWS-managed prefix lists. `docs/infrastructure-as-code.md` listed only the original typed resources. Neither the state page nor the CloudFormation page said that configuration references keep imported network paths `unknown`. The out-of-scope list still matches the code: Terraform inline routes and rules remain unavailable fields, `AWS::EC2::Route` has no mapping, and data sources are skipped. `docs/roadmap.md`'s phase 6 row says the elements are now imported. A scan of step 51's source diff found no unused code or leftovers.
 **Prerequisite:** Step 51.5.
 
 - Confirm the existing `state.json`, `plan.json`, and `template.yaml` imports are byte-for-byte unchanged, and that every new fixture validates and round-trips.

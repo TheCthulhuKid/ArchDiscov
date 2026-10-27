@@ -3,18 +3,25 @@ from datetime import UTC, datetime
 
 import pytest
 
+from archdiscov.ingestion.cloudformation import CloudFormationRequest
+from archdiscov.ingestion.terraform import TerraformStateRequest
 from archdiscov.services import (
     ComparisonValidationError,
     SnapshotConflictError,
     SnapshotIOError,
     SnapshotJSONError,
+    collect_snapshots,
     compare_snapshots,
     load_comparison,
     save_comparison,
     validate_comparison_result,
 )
 from tests.comparison.snapshots import aws_resource, aws_snapshot, coverage
+from tests.paths import FIXTURES_ROOT
+from tests.support.aws_fakes import empty_network_pages, make_context, request
 from tests.support.comparison_data import rid, vpc
+from tests.support.network_data import SUBNET, element_pages
+from tests.support.terraform_data import CONTEXT, plan_request
 
 NOW = datetime(2026, 2, 1, tzinfo=UTC)
 DELETE = {"actions": ["delete"], "value_scope": "before"}
@@ -253,3 +260,83 @@ def test_an_unverifiable_result_is_never_written(tmp_path):
     assert error.value.path == target
     assert not target.exists()
     assert validate_comparison_result(result, first, second) == result
+
+
+# ---- phase 6 network elements --------------------------------------------------------------
+
+
+def test_collected_network_elements_match_their_declarations_by_identity_only(tmp_path):
+    region, account = "us-east-1", "123456789012"
+    observed = collect_snapshots(
+        request(account),
+        context=make_context(
+            lambda _: {
+                **empty_network_pages(),
+                "describe_vpcs": [{"Vpcs": [{"VpcId": "vpc-1", "CidrBlock": "10.0.0.0/16"}]}],
+                "describe_subnets": [{"Subnets": [SUBNET]}],
+                "describe_instances": [{"Reservations": []}],
+                **element_pages(),
+            }
+        ),
+    )[0]
+    declared = {
+        "aws_nat_gateway.public": {"id": "nat-1", "subnet_id": "subnet-1", "public_ip": ""},
+        "aws_egress_only_internet_gateway.main": {"id": "eigw-1", "vpc_id": "vpc-1"},
+        "aws_vpc_peering_connection.peer": {
+            "id": "pcx-1",
+            "vpc_id": "vpc-1",
+            "peer_vpc_id": "vpc-2",
+        },
+        "aws_vpc_endpoint.s3": {"id": "vpce-1", "vpc_endpoint_type": "Gateway", "vpc_id": "vpc-1"},
+        "aws_ec2_managed_prefix_list.office": {"id": "pl-office", "address_family": "IPv4"},
+        "aws_ec2_transit_gateway.main": {"id": "tgw-1"},
+        "aws_ec2_transit_gateway_vpc_attachment.app": {"id": "tgw-attach-1", "vpc_id": "vpc-1"},
+        "aws_ec2_transit_gateway_route_table.main": {"id": "tgw-rtb-1"},
+    }
+    state = tmp_path / "state.json"
+    state.write_text(
+        json.dumps(
+            {
+                "format_version": "1.0",
+                "values": {
+                    "root_module": {
+                        "resources": [
+                            {
+                                "address": address,
+                                "mode": "managed",
+                                "type": address.split(".")[0],
+                                "provider_name": "registry.terraform.io/hashicorp/aws",
+                                "values": values,
+                                "sensitive_values": {},
+                            }
+                            for address, values in declared.items()
+                        ]
+                    }
+                },
+            }
+        )
+    )
+    imported = collect_snapshots(
+        TerraformStateRequest(path=state, account_id=account, region=region), context=CONTEXT
+    )[0]
+    result = compare_snapshots(observed, imported, result_limit=1000, now=NOW)
+    elements = {f"{account}/{region}/ec2/physical/{values['id']}" for values in declared.values()}
+    pairs = {pair.left.resource_id: pair for pair in result.matched}
+    assert elements <= set(pairs)
+    assert {str(pairs[resource_id].basis) for resource_id in elements} == {"physical_identity"}
+    assert result.ambiguous == []
+    # A declared field the observation lacks, or the reverse, is a reported difference.
+    assert pairs[f"{account}/{region}/ec2/physical/nat-1"].differences
+
+    # A template's logical IDs and a plan's unknown IDs never pair with an observation.
+    for source in (
+        CloudFormationRequest(
+            path=FIXTURES_ROOT / "cloudformation" / "transit-gateway.yaml",
+            account_id=account,
+            region=region,
+        ),
+        plan_request(FIXTURES_ROOT / "terraform" / "transit-gateway.plan.json"),
+    ):
+        declaration = collect_snapshots(source, context=CONTEXT)[0]
+        compared = compare_snapshots(observed, declaration, result_limit=1000, now=NOW)
+        assert compared.matched == []
