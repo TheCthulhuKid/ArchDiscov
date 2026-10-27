@@ -24,26 +24,28 @@ from ...models.enums import (
 from ...models.resources.network import SecurityGroup, SecurityGroupRule
 from ..evidence_builder import EvidenceBuilder
 from ..operations import Ec2Operation as Op
-from .resources import Normalized, classify_route_target
+from .resources import Normalized, classify_route_target, destination
 
 RT, RK = ResourceType, RouteTargetKind
-_LOCALLY_STORED = {
-    RouteTargetKind.INTERNET_GATEWAY: (
-        ResourceType.INTERNET_GATEWAY,
-        Op.DESCRIBE_INTERNET_GATEWAYS,
-    ),
-    RouteTargetKind.NETWORK_INTERFACE: (
-        ResourceType.NETWORK_INTERFACE,
-        Op.DESCRIBE_NETWORK_INTERFACES,
-    ),
-    RK.INSTANCE: (RT.EC2_INSTANCE, Op.DESCRIBE_INSTANCES),
+# The resource types this collection stores, with the operation that reads each. A reference to
+# any other type names a resource outside the snapshot, so it is external, never unresolved.
+_COLLECTED_BY = {
+    RT.VPC: Op.DESCRIBE_VPCS,
+    RT.SUBNET: Op.DESCRIBE_SUBNETS,
+    RT.EC2_INSTANCE: Op.DESCRIBE_INSTANCES,
+    RT.INTERNET_GATEWAY: Op.DESCRIBE_INTERNET_GATEWAYS,
+    RT.SECURITY_GROUP: Op.DESCRIBE_SECURITY_GROUPS,
+    RT.NETWORK_INTERFACE: Op.DESCRIBE_NETWORK_INTERFACES,
 }
-_AWS_TYPES = {
-    RouteTargetKind.NAT_GATEWAY: "AWS::EC2::NatGateway",
-    RouteTargetKind.TRANSIT_GATEWAY: "AWS::EC2::TransitGateway",
-    RouteTargetKind.VPC_PEERING: "AWS::EC2::VPCPeeringConnection",
-    RouteTargetKind.VPC_ENDPOINT: "AWS::EC2::VPCEndpoint",
-    RouteTargetKind.PREFIX_LIST: "AWS::EC2::PrefixList",
+_ROUTE_TARGET_TYPES = {
+    RK.INTERNET_GATEWAY: RT.INTERNET_GATEWAY,
+    RK.NETWORK_INTERFACE: RT.NETWORK_INTERFACE,
+    RK.INSTANCE: RT.EC2_INSTANCE,
+    RK.NAT_GATEWAY: RT.NAT_GATEWAY,
+    RK.EGRESS_ONLY_INTERNET_GATEWAY: RT.EGRESS_ONLY_INTERNET_GATEWAY,
+    RK.TRANSIT_GATEWAY: RT.TRANSIT_GATEWAY,
+    RK.VPC_PEERING: RT.VPC_PEERING_CONNECTION,
+    RK.VPC_ENDPOINT: RT.VPC_ENDPOINT,
 }
 
 
@@ -61,7 +63,11 @@ class RelationshipBuilder:
         }
         self.dependencies: list[Dependency] = []
 
-    def _resolve(self, kind: ResourceType, op: Op, ref: str, source_path: str) -> DependencyTarget:
+    def _resolve(self, kind: ResourceType | None, ref: str, source_path: str) -> DependencyTarget:
+        """A stored resource, else unresolved when its operation ran, else external."""
+        op = _COLLECTED_BY.get(kind) if kind is not None else None
+        if op is None:
+            return self._external(ref, kind)
         target = self.index.get((kind, ref))
         if target is not None:
             return LocalTarget(resource_id=target.resource.id)
@@ -126,7 +132,7 @@ class RelationshipBuilder:
         )
 
     def _subnet_target(self, subnet_id: str, path: str) -> DependencyTarget:
-        return self._resolve(ResourceType.SUBNET, Op.DESCRIBE_SUBNETS, subnet_id, path)
+        return self._resolve(ResourceType.SUBNET, subnet_id, path)
 
     def _route_table(self, entry: Normalized) -> None:
         for i, assoc in enumerate(entry.item.get("Associations") or []):
@@ -137,9 +143,7 @@ class RelationshipBuilder:
                 target = self._subnet_target(assoc["SubnetId"], f"{path}.SubnetId")
                 self._link(entry, target, kind, path, assoc, **attrs)
             elif assoc.get("Main") and entry.vpc_id:
-                target = self._resolve(
-                    ResourceType.VPC, Op.DESCRIBE_VPCS, entry.vpc_id, f"{entry.path}.VpcId"
-                )
+                target = self._resolve(ResourceType.VPC, entry.vpc_id, f"{entry.path}.VpcId")
                 self._link(entry, target, kind, path, assoc, main=True, **attrs)
         for i, route in enumerate(entry.item.get("Routes") or []):
             self._route(entry, i, route)
@@ -153,16 +157,8 @@ class RelationshipBuilder:
             target: DependencyTarget = UnresolvedTarget(
                 reason="route has no recognizable target", source_path=path
             )
-        elif kind in _LOCALLY_STORED:
-            stored, op = _LOCALLY_STORED[kind]
-            target = self._resolve(stored, op, target_id, f"{path}.{field}")
         else:
-            target = self._external(target_id, _AWS_TYPES.get(kind))
-        destination = (
-            route.get("DestinationCidrBlock")
-            or route.get("DestinationIpv6CidrBlock")
-            or route.get("DestinationPrefixListId")
-        )
+            target = self._resolve(_ROUTE_TARGET_TYPES.get(kind), target_id, f"{path}.{field}")
         self._link(
             entry,
             target,
@@ -170,9 +166,15 @@ class RelationshipBuilder:
             path,
             route,
             target_kind=kind,
-            destination=destination,
+            destination=destination(route),
             state=route.get("State"),
         )
+        prefix_list = route.get("DestinationPrefixListId")
+        if prefix_list:
+            target = self._resolve(
+                ResourceType.MANAGED_PREFIX_LIST, prefix_list, f"{path}.DestinationPrefixListId"
+            )
+            self._link(entry, target, AttachmentKind.PREFIX_LIST_REFERENCE, path, route)
 
     def _internet_gateway(self, entry: Normalized) -> None:
         for i, attachment in enumerate(entry.item.get("Attachments") or []):
@@ -180,7 +182,7 @@ class RelationshipBuilder:
             if not vpc_id:
                 continue
             path = f"{entry.path}.Attachments[{i}]"
-            target = self._resolve(ResourceType.VPC, Op.DESCRIBE_VPCS, vpc_id, f"{path}.VpcId")
+            target = self._resolve(ResourceType.VPC, vpc_id, f"{path}.VpcId")
             self._link(
                 entry,
                 target,
@@ -211,12 +213,7 @@ class RelationshipBuilder:
             if not group_id:
                 continue
             path = f"{entry.path}.{field}[{i}]"
-            target = self._resolve(
-                ResourceType.SECURITY_GROUP,
-                Op.DESCRIBE_SECURITY_GROUPS,
-                group_id,
-                f"{path}.GroupId",
-            )
+            target = self._resolve(ResourceType.SECURITY_GROUP, group_id, f"{path}.GroupId")
             self._link(entry, target, AttachmentKind.SECURITY_GROUP_MEMBERSHIP, path, group)
 
     def _instance(self, entry: Normalized) -> None:
@@ -227,10 +224,7 @@ class RelationshipBuilder:
         if attachment.get("InstanceId"):
             path = f"{entry.path}.Attachment"
             target = self._resolve(
-                ResourceType.EC2_INSTANCE,
-                Op.DESCRIBE_INSTANCES,
-                attachment["InstanceId"],
-                f"{path}.InstanceId",
+                ResourceType.EC2_INSTANCE, attachment["InstanceId"], f"{path}.InstanceId"
             )
             self._link(
                 entry,
@@ -256,11 +250,11 @@ class RelationshipBuilder:
                     continue
                 evidence_id = group.fact_evidence[f"/{name}/{n}"][0]
                 source_path = self.builder.evidence[evidence_id].configuration_path
-                target, target_kind = self._rule_target(rule, source_path)
+                target, kind = self._rule_target(rule, source_path)
                 self._add(
                     entry,
                     target,
-                    AttachmentKind.SECURITY_GROUP_REFERENCE,
+                    kind,
                     evidence_id,
                     {
                         "direction": rule.direction,
@@ -268,24 +262,22 @@ class RelationshipBuilder:
                         "protocol": rule.protocol,
                         "from_port": rule.from_port,
                         "to_port": rule.to_port,
-                        "target_kind": target_kind,
                     },
                 )
 
     def _rule_target(
         self, rule: SecurityGroupRule, source_path: str
-    ) -> tuple[DependencyTarget, RouteTargetKind | None]:
-        """The group or prefix list a rule references, and the kind recorded for a prefix list."""
+    ) -> tuple[DependencyTarget, AttachmentKind]:
+        """The group or prefix list a rule references, and the kind of that reference."""
         ref = rule.referenced_group_id
         if not ref:
-            prefix_list = _AWS_TYPES[RouteTargetKind.PREFIX_LIST]
-            return self._external(rule.prefix_list_id, prefix_list), RouteTargetKind.PREFIX_LIST
+            target = self._resolve(RT.MANAGED_PREFIX_LIST, rule.prefix_list_id, source_path)
+            return target, AttachmentKind.PREFIX_LIST_REFERENCE
         if rule.referenced_account_id not in (None, self.builder.account_id):
-            return self._external(ref, RT.SECURITY_GROUP, rule.referenced_account_id), None
-        target = self._resolve(
-            ResourceType.SECURITY_GROUP, Op.DESCRIBE_SECURITY_GROUPS, ref, source_path
-        )
-        return target, None
+            target = self._external(ref, RT.SECURITY_GROUP, rule.referenced_account_id)
+        else:
+            target = self._resolve(RT.SECURITY_GROUP, ref, source_path)
+        return target, AttachmentKind.SECURITY_GROUP_REFERENCE
 
 
 _HANDLERS: dict[ResourceType, Callable[[RelationshipBuilder, Normalized], None]] = {

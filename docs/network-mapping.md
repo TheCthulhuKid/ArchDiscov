@@ -32,18 +32,19 @@ root) with `attributes.unresolved_parent`.
 | `kind` | Source → target | Source path cited |
 | --- | --- | --- |
 | `route_table_association` | route table → subnet (or VPC for the main association) | `RouteTables[i].Associations[n]` |
-| `route_target` | route table → IGW / network interface / instance (local); NAT, transit gateway, peering, endpoint → external | `RouteTables[i].Routes[n]` |
+| `route_target` | route table → IGW / network interface / instance (local); NAT, egress-only internet gateway, transit gateway, peering, endpoint → external | `RouteTables[i].Routes[n]` |
+| `prefix_list_reference` | route table → prefix list a route's destination names, or security group → prefix list a rule names (external) | the route or rule entry |
 | `internet_gateway_attachment` | IGW → VPC | `InternetGateways[i].Attachments[n]` |
 | `network_acl_association` | NACL → subnet | `NetworkAcls[i].Associations[n]` |
 | `instance_interface` | network interface → instance | `NetworkInterfaces[i].Attachment` |
 | `security_group_membership` | instance or interface → security group | `...SecurityGroups[n]` / `NetworkInterfaces[i].Groups[n]` |
-| `security_group_reference` | security group → referenced group (local, or external when another account) or prefix list (external) | the rule entry |
+| `security_group_reference` | security group → referenced group (local, or external when another account) | the rule entry |
 
 Target kinds: a stored resource is `local`; a known resource outside the collection (other
-account's group, NAT/transit/peering/endpoint targets, prefix lists) is `external` with its AWS
-type; a reference that cannot be resolved is `unresolved` with a reason and source path. When the
-operation that would have produced the target did not complete, the reason says so and no local
-target is guessed.
+account's group, NAT, egress-only, transit gateway, peering, and endpoint targets, prefix lists) is
+`external` with its AWS type; a reference that cannot be resolved is `unresolved` with a reason and
+source path. When the operation that would have produced the target did not complete, the reason
+says so and no local target is guessed.
 
 ## Limitations and redaction
 

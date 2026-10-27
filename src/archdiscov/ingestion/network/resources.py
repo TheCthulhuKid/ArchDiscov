@@ -50,9 +50,9 @@ _ROUTE_TARGET_FIELDS = (
     ("NetworkInterfaceId", RouteTargetKind.NETWORK_INTERFACE),
     ("InstanceId", RouteTargetKind.INSTANCE),
     ("VpcEndpointId", RouteTargetKind.VPC_ENDPOINT),
+    ("EgressOnlyInternetGatewayId", RouteTargetKind.EGRESS_ONLY_INTERNET_GATEWAY),
 )
 _OTHER_TARGET_FIELDS = (
-    "EgressOnlyInternetGatewayId",
     "CarrierGatewayId",
     "LocalGatewayId",
     "CoreNetworkArn",
@@ -78,7 +78,7 @@ def classify_route_target(route: dict[str, Any]) -> tuple[RouteTargetKind, str |
     return RouteTargetKind.UNKNOWN, None, None
 
 
-def _destination(route: dict[str, Any]) -> str | None:
+def destination(route: dict[str, Any]) -> str | None:
     return (
         route.get("DestinationCidrBlock")
         or route.get("DestinationIpv6CidrBlock")
@@ -128,7 +128,7 @@ class NetworkNormalizer(EvidenceBuilder):
                 Route,
                 f"{path}.Routes[{i}]",
                 limitations,
-                destination=_destination(raw),
+                destination=destination(raw),
                 target_kind=kind,
                 target_id=target_id,
                 state=raw.get("State"),

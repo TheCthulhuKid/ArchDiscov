@@ -80,6 +80,36 @@
                   }
                 }
               ]
+            },
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "rtb-private"
+              },
+              "resource_type": "AWS::EC2::RouteTable",
+              "routes": [
+                {
+                  "destination": "10.1.0.0/16",
+                  "target_kind": "local",
+                  "state": "active"
+                },
+                {
+                  "destination": "0.0.0.0/0",
+                  "target_kind": "nat_gateway",
+                  "target_id": "nat-public",
+                  "state": "active"
+                }
+              ],
+              "evidence_ids": [
+                "rtb-private"
+              ],
+              "fact_evidence": {
+                "/routes/1": [
+                  "rtb-private-route-1"
+                ]
+              }
             }
           ]
         },
@@ -104,7 +134,71 @@
       ]
     }
   },
-  "dependencies_by_region": {},
+  "dependencies_by_region": {
+    "eu-west-1": [
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/rtb-private",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/nat-public"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_target",
+          "target_kind": "nat_gateway",
+          "destination": "0.0.0.0/0",
+          "state": "active"
+        },
+        "evidence_ids": [
+          "rtb-private-route-1"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/nat-public",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-public"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "nat_gateway_subnet"
+        },
+        "evidence_ids": [
+          "nat"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/nat-public",
+        "target": {
+          "kind": "unresolved",
+          "reason": "eni-nat was not present in the collected results",
+          "source_path": "NatGateways[0].NatGatewayAddresses[0].NetworkInterfaceId"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "nat_gateway_interface"
+        },
+        "evidence_ids": [
+          "nat-address"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/eigw-main",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/vpc-egress"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "egress_only_internet_gateway_attachment",
+          "state": "attached"
+        },
+        "evidence_ids": [
+          "eigw-attachment"
+        ]
+      }
+    ]
+  },
   "evidence": {
     "nat": {
       "snapshot_id": "00000000-0000-4000-8000-000000000049",
@@ -153,6 +247,29 @@
       "value": {
         "State": "attached",
         "VpcId": "vpc-egress"
+      }
+    },
+    "rtb-private": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000049",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-private",
+      "source": "mock",
+      "locator": "egress-gateways.json",
+      "configuration_path": "RouteTables[0]",
+      "value": {
+        "RouteTableId": "rtb-private",
+        "VpcId": "vpc-egress"
+      }
+    },
+    "rtb-private-route-1": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000049",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-private",
+      "source": "mock",
+      "locator": "egress-gateways.json",
+      "configuration_path": "RouteTables[0].Routes[1]",
+      "value": {
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "NatGatewayId": "nat-public",
+        "State": "active"
       }
     }
   }

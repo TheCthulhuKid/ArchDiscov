@@ -104,21 +104,28 @@ def test_unsupported_and_unparseable_route_targets():
         "Routes": [
             {"DestinationCidrBlock": "10.1.0.0/16", "NatGatewayId": "nat-1"},
             {"DestinationCidrBlock": "10.2.0.0/16", "TransitGatewayId": "tgw-1"},
-            {"DestinationCidrBlock": "10.3.0.0/16", "GatewayId": "vpce-1"},
+            {"DestinationPrefixListId": "pl-s3", "GatewayId": "vpce-1"},
+            {"DestinationIpv6CidrBlock": "::/0", "EgressOnlyInternetGatewayId": "eigw-1"},
             {"DestinationCidrBlock": "10.4.0.0/16", "State": "blackhole"},
             {"DestinationCidrBlock": "10.5.0.0/16", "GatewayId": "igw-missing"},
         ],
     }
     result, _ = build({Op.DESCRIBE_VPCS: [VPC], Op.DESCRIBE_ROUTE_TABLES: [table]})
-    targets = [d.target for d in deps(result, Kind.ROUTE_TARGET)]
-    assert [getattr(t, "aws_resource_type", None) for t in targets[:3]] == [
+    routes = deps(result, Kind.ROUTE_TARGET)
+    targets = [d.target for d in routes]
+    assert [getattr(t, "aws_resource_type", None) for t in targets[:4]] == [
         "AWS::EC2::NatGateway",
         "AWS::EC2::TransitGateway",
         "AWS::EC2::VPCEndpoint",
+        "AWS::EC2::EgressOnlyInternetGateway",
     ]
-    blackhole, missing = targets[3:]
+    assert routes[3].attributes["target_kind"] == "egress_only_internet_gateway"
+    (prefix_list,) = deps(result, Kind.PREFIX_LIST_REFERENCE)
+    assert prefix_list.target.identifier == "pl-s3"
+    assert prefix_list.evidence_ids == routes[2].evidence_ids
+    blackhole, missing = targets[4:]
     assert isinstance(blackhole, UnresolvedTarget)
-    assert blackhole.source_path == "RouteTables[0].Routes[3]"
+    assert blackhole.source_path == "RouteTables[0].Routes[4]"
     assert "no recognizable target" in blackhole.reason
     assert isinstance(missing, UnresolvedTarget)
     assert "igw-missing was not present" in missing.reason
@@ -160,14 +167,16 @@ def test_security_group_references_local_external_and_prefix_list():
         },
         {Op.DESCRIBE_SECURITY_GROUP_RULES: "denied"},
     )
-    local, foreign, prefix = deps(result, Kind.SECURITY_GROUP_REFERENCE, "sg-2")
+    local, foreign = deps(result, Kind.SECURITY_GROUP_REFERENCE, "sg-2")
+    (prefix,) = deps(result, Kind.PREFIX_LIST_REFERENCE, "sg-2")
     assert local.target == LocalTarget(resource_id=rid("sg-1"))
     assert local.attributes["from_port"] == 22 and local.attributes["direction"] == "ingress"
     assert isinstance(foreign.target, ExternalTarget)
     assert foreign.target.account_id == "210987654321"
     assert foreign.target.aws_resource_type == "AWS::EC2::SecurityGroup"
     assert prefix.target.identifier == "pl-1"
-    assert prefix.attributes["target_kind"] == "prefix_list"
+    assert prefix.target.aws_resource_type == "AWS::EC2::PrefixList"
+    assert prefix.attributes["direction"] == "ingress"
     cited = result.evidence[local.evidence_ids[0]]
     assert cited.configuration_path == "SecurityGroups[1].IpPermissions[0]"
     (own,) = deps(result, Kind.SECURITY_GROUP_REFERENCE, "sg-1")

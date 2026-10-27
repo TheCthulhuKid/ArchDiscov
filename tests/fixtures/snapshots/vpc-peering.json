@@ -27,6 +27,38 @@
           "resource_type": "AWS::EC2::VPC",
           "cidr_blocks": [
             "10.2.0.0/16"
+          ],
+          "children": [
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "rtb-app"
+              },
+              "resource_type": "AWS::EC2::RouteTable",
+              "routes": [
+                {
+                  "destination": "10.2.0.0/16",
+                  "target_kind": "local",
+                  "state": "active"
+                },
+                {
+                  "destination": "10.3.0.0/16",
+                  "target_kind": "vpc_peering",
+                  "target_id": "pcx-app-data",
+                  "state": "active"
+                }
+              ],
+              "evidence_ids": [
+                "rtb-app"
+              ],
+              "fact_evidence": {
+                "/routes/1": [
+                  "rtb-app-route-1"
+                ]
+              }
+            }
           ]
         },
         {
@@ -82,7 +114,55 @@
       ]
     }
   },
-  "dependencies_by_region": {},
+  "dependencies_by_region": {
+    "eu-west-1": [
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/rtb-app",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/pcx-app-data"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_target",
+          "target_kind": "vpc_peering",
+          "destination": "10.3.0.0/16",
+          "state": "active"
+        },
+        "evidence_ids": [
+          "rtb-app-route-1"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/pcx-app-data",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/vpc-app"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "peering_requester_vpc"
+        },
+        "evidence_ids": [
+          "pcx-requester"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/pcx-app-data",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/vpc-data"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "peering_accepter_vpc"
+        },
+        "evidence_ids": [
+          "pcx-accepter"
+        ]
+      }
+    ]
+  },
   "evidence": {
     "pcx": {
       "snapshot_id": "00000000-0000-4000-8000-00000000004a",
@@ -129,6 +209,29 @@
         "OwnerId": "123456789012",
         "CidrBlock": "10.3.0.0/16",
         "Region": "eu-west-1"
+      }
+    },
+    "rtb-app": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004a",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-app",
+      "source": "mock",
+      "locator": "vpc-peering.json",
+      "configuration_path": "RouteTables[0]",
+      "value": {
+        "RouteTableId": "rtb-app",
+        "VpcId": "vpc-app"
+      }
+    },
+    "rtb-app-route-1": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004a",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-app",
+      "source": "mock",
+      "locator": "vpc-peering.json",
+      "configuration_path": "RouteTables[0].Routes[1]",
+      "value": {
+        "DestinationCidrBlock": "10.3.0.0/16",
+        "VpcPeeringConnectionId": "pcx-app-data",
+        "State": "active"
       }
     }
   }

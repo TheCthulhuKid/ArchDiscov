@@ -249,7 +249,44 @@
       ]
     }
   },
-  "dependencies_by_region": {},
+  "dependencies_by_region": {
+    "eu-west-1": [
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/rtb-dual-public",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/igw-dual"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_target",
+          "target_kind": "internet_gateway",
+          "destination": "::/0",
+          "state": "active"
+        },
+        "evidence_ids": [
+          "rtb-dual-public-ipv6-default"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/rtb-dual-private",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/eigw-dual"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_target",
+          "target_kind": "egress_only_internet_gateway",
+          "destination": "::/0",
+          "state": "active"
+        },
+        "evidence_ids": [
+          "rtb-dual-private-ipv6-default"
+        ]
+      }
+    ]
+  },
   "evidence": {
     "eni": {
       "snapshot_id": "00000000-0000-4000-8000-00000000004d",

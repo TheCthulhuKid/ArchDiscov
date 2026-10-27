@@ -265,7 +265,150 @@
       ]
     }
   },
-  "dependencies_by_region": {},
+  "dependencies_by_region": {
+    "eu-west-1": [
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/rtb-svc",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/vpce-s3"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_target",
+          "target_kind": "vpc_endpoint",
+          "destination": "pl-s3",
+          "state": "active"
+        },
+        "evidence_ids": [
+          "rtb-s3"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/rtb-svc",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/pl-s3"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "prefix_list_reference"
+        },
+        "evidence_ids": [
+          "rtb-s3"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/rtb-svc",
+        "target": {
+          "kind": "external",
+          "identifier": "tgw-main",
+          "region": "eu-west-1",
+          "service": "ec2",
+          "aws_resource_type": "AWS::EC2::TransitGateway"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_target",
+          "target_kind": "transit_gateway",
+          "destination": "pl-office",
+          "state": "active"
+        },
+        "evidence_ids": [
+          "rtb-office"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/rtb-svc",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/pl-office"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "prefix_list_reference"
+        },
+        "evidence_ids": [
+          "rtb-office"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/sg-endpoint",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/pl-office"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "prefix_list_reference",
+          "direction": "ingress",
+          "rule_id": "sgr-office",
+          "protocol": "tcp",
+          "from_port": 443,
+          "to_port": 443
+        },
+        "evidence_ids": [
+          "sg-office"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/vpce-s3",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-svc"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "endpoint_route_table"
+        },
+        "evidence_ids": [
+          "vpce-s3-route-table"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/vpce-sqs",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-svc"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "endpoint_subnet"
+        },
+        "evidence_ids": [
+          "vpce-sqs-subnet"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/vpce-sqs",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/eni-vpce"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "endpoint_interface"
+        },
+        "evidence_ids": [
+          "vpce-sqs-interface"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/vpce-sqs",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/sg-endpoint"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "endpoint_security_group"
+        },
+        "evidence_ids": [
+          "vpce-sqs-group"
+        ]
+      }
+    ]
+  },
   "evidence": {
     "rtb": {
       "snapshot_id": "00000000-0000-4000-8000-00000000004c",

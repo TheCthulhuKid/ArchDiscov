@@ -12,6 +12,98 @@ from archdiscov.services.snapshots import load_snapshot
 from tests.paths import FIXTURES_ROOT
 
 FIXTURES = FIXTURES_ROOT / "snapshots"
+PHASE_SIX = [
+    "egress-gateways",
+    "vpc-peering",
+    "transit-gateway",
+    "endpoints-and-prefix-lists",
+    "dual-stack",
+]
+K = AttachmentKind
+# (fixture, source, kind, stored target or None for a terminal, cited evidence)
+NETWORK_RELATIONSHIPS = [
+    ("egress-gateways", "rtb-private", K.ROUTE_TARGET, "nat-public", "rtb-private-route-1"),
+    ("vpc-peering", "rtb-app", K.ROUTE_TARGET, "pcx-app-data", "rtb-app-route-1"),
+    ("transit-gateway", "rtb-app", K.ROUTE_TARGET, "tgw-main", "rtb-app-route-1"),
+    ("egress-gateways", "nat-public", K.NAT_GATEWAY_SUBNET, "subnet-public", "nat"),
+    ("egress-gateways", "nat-public", K.NAT_GATEWAY_INTERFACE, None, "nat-address"),
+    (
+        "egress-gateways",
+        "eigw-main",
+        K.EGRESS_ONLY_INTERNET_GATEWAY_ATTACHMENT,
+        "vpc-egress",
+        "eigw-attachment",
+    ),
+    ("vpc-peering", "pcx-app-data", K.PEERING_REQUESTER_VPC, "vpc-app", "pcx-requester"),
+    ("vpc-peering", "pcx-app-data", K.PEERING_ACCEPTER_VPC, "vpc-data", "pcx-accepter"),
+    (
+        "transit-gateway",
+        "tgw-attach-app",
+        K.TRANSIT_GATEWAY_ATTACHMENT,
+        "tgw-main",
+        "tgw-attach-app",
+    ),
+    (
+        "transit-gateway",
+        "tgw-attach-app",
+        K.TRANSIT_GATEWAY_VPC_ATTACHMENT,
+        "vpc-app",
+        "tgw-attach-app",
+    ),
+    (
+        "transit-gateway",
+        "tgw-rtb-main",
+        K.TRANSIT_GATEWAY_ROUTE_TABLE_ASSOCIATION,
+        "tgw-attach-app",
+        "tgw-rtb-association",
+    ),
+    (
+        "transit-gateway",
+        "tgw-rtb-main",
+        K.TRANSIT_GATEWAY_ROUTE_TABLE_PROPAGATION,
+        "tgw-attach-data",
+        "tgw-rtb-propagation",
+    ),
+    ("endpoints-and-prefix-lists", "rtb-svc", K.ROUTE_TARGET, "vpce-s3", "rtb-s3"),
+    ("endpoints-and-prefix-lists", "rtb-svc", K.ROUTE_TARGET, None, "rtb-office"),
+    ("endpoints-and-prefix-lists", "rtb-svc", K.PREFIX_LIST_REFERENCE, "pl-s3", "rtb-s3"),
+    (
+        "endpoints-and-prefix-lists",
+        "sg-endpoint",
+        K.PREFIX_LIST_REFERENCE,
+        "pl-office",
+        "sg-office",
+    ),
+    (
+        "endpoints-and-prefix-lists",
+        "vpce-s3",
+        K.ENDPOINT_ROUTE_TABLE,
+        "rtb-svc",
+        "vpce-s3-route-table",
+    ),
+    ("endpoints-and-prefix-lists", "vpce-sqs", K.ENDPOINT_SUBNET, "subnet-svc", "vpce-sqs-subnet"),
+    (
+        "endpoints-and-prefix-lists",
+        "vpce-sqs",
+        K.ENDPOINT_INTERFACE,
+        "eni-vpce",
+        "vpce-sqs-interface",
+    ),
+    (
+        "endpoints-and-prefix-lists",
+        "vpce-sqs",
+        K.ENDPOINT_SECURITY_GROUP,
+        "sg-endpoint",
+        "vpce-sqs-group",
+    ),
+    (
+        "dual-stack",
+        "rtb-dual-private",
+        K.ROUTE_TARGET,
+        "eigw-dual",
+        "rtb-dual-private-ipv6-default",
+    ),
+]
 
 
 @pytest.mark.parametrize("fixture", ["hierarchy", "network", "dependency-targets"])
@@ -27,7 +119,8 @@ def test_legacy_and_explicit_schema_three_upgrade_have_identical_edge_handles(fi
 
 
 @pytest.mark.parametrize(
-    "fixture", ["hierarchy", "network", "iam", "load-balancing", "dependency-targets", "azure"]
+    "fixture",
+    ["hierarchy", "network", "iam", "load-balancing", "dependency-targets", "azure", *PHASE_SIX],
 )
 def test_fixture_dependencies_preserve_exact_context_and_reverse_adjacency(fixture):
     snapshot = load_snapshot(FIXTURES / f"{fixture}.json")
@@ -106,6 +199,45 @@ def test_network_relationship_and_kind_filters_preserve_direction():
     )
     assert group_edge.target_id == prefix + "sg-db"
     assert group_edge.attributes["from_port"] == 5432
+
+
+def test_network_element_relationships_are_followed_both_ways_with_their_evidence():
+    indexes = {name: GraphIndex(load_snapshot(FIXTURES / f"{name}.json")) for name in PHASE_SIX}
+    prefix = "123456789012/eu-west-1/ec2/physical/"
+    for fixture, source, kind, target, evidence_id in NETWORK_RELATIONSHIPS:
+        index = indexes[fixture]
+        (edge,) = (
+            edge
+            for edge in index.outgoing_edges(prefix + source, attachment_kind=kind)
+            if edge.evidence_ids == (evidence_id,)
+        )
+        assert index.get_evidence(evidence_id).resource_id == prefix + source
+        if target is None:
+            assert index.get_resource(edge.target_id) is None
+        else:
+            assert edge.target_id == prefix + target
+        assert edge in index.incoming_edges(edge.target_id, attachment_kind=kind)
+
+    endpoints = indexes["endpoints-and-prefix-lists"]
+    (office,) = (
+        edge
+        for edge in endpoints.outgoing_edges(prefix + "rtb-svc", attachment_kind=K.ROUTE_TARGET)
+        if edge.evidence_ids == ("rtb-office",)
+    )
+    transit_gateway = endpoints.get_terminal(office.target_id).target
+    assert isinstance(transit_gateway, CloudExternalTarget)
+    assert transit_gateway.identifier == "tgw-main"
+    assert transit_gateway.native_type == "AWS::EC2::TransitGateway"
+    assert office.attributes["destination"] == "pl-office"
+
+    nat = indexes["egress-gateways"]
+    (interface,) = nat.outgoing_edges(
+        prefix + "nat-public", attachment_kind=K.NAT_GATEWAY_INTERFACE
+    )
+    dangling = nat.get_terminal(interface.target_id).target
+    assert isinstance(dangling, UnresolvedTarget)
+    assert dangling.source_path == "NatGateways[0].NatGatewayAddresses[0].NetworkInterfaceId"
+    assert "eni-nat was not present" in dangling.reason
 
 
 def test_iam_global_and_listener_forwarding_edges_are_only_explicit_dependencies():
