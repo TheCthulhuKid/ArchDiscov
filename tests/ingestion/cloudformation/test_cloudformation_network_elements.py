@@ -4,7 +4,9 @@ from archdiscov.ingestion.cloudformation import CloudFormationRequest
 from archdiscov.models.architecture import UnknownResource
 from archdiscov.models.resources.network import (
     EgressOnlyInternetGateway,
+    ManagedPrefixList,
     NatGateway,
+    VpcEndpoint,
     VpcPeeringConnection,
 )
 from archdiscov.services import collect_snapshots
@@ -73,3 +75,25 @@ def test_template_peering_refers_to_both_vpcs_without_inventing_their_ids():
         if d.source_id == connection.id
     }
     assert targets == {resources["App"].id, resources["Data"].id}
+
+
+def test_template_maps_endpoints_and_prefix_lists():
+    snapshot, resources = imported(FIXTURES / "endpoints-and-prefix-lists.yaml")
+    gateway, interface = resources["S3Endpoint"], resources["SqsEndpoint"]
+    assert isinstance(gateway, VpcEndpoint) and gateway.endpoint_type == "gateway"
+    assert interface.endpoint_type == "interface" and interface in resources["Service"].children
+    # `!Ref` items name template resources, not deployed IDs: they are references instead.
+    assert gateway.route_table_ids == [] and interface.subnet_ids == []
+    targets = {
+        d.target.resource_id
+        for deps in snapshot.dependencies_by_region.values()
+        for d in deps
+        if d.source_id == interface.id
+    }
+    assert {resources["ServiceSubnet"].id, resources["EndpointGroup"].id} <= targets
+
+    office = resources["Office"]
+    assert isinstance(office, ManagedPrefixList) and office.name == "office"
+    assert [str(entry.cidr) for entry in office.entries] == ["198.51.100.0/24", "203.0.113.0/24"]
+    cited = snapshot.evidence[office.fact_evidence["/entries/1/cidr"][0]]
+    assert cited.configuration_path == "/Resources/Office/Properties/Entries/1/Cidr"

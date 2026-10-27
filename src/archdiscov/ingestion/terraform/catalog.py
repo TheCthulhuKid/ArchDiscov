@@ -1,6 +1,8 @@
 """Terraform-local type mappings; a known AWS type need not have a typed importer."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import Enum
 
 from ...models.architecture import Ec2Instance, Subnet, Vpc
 from ...models.enums import AwsService, ResourceType
@@ -9,12 +11,15 @@ from ...models.resources.iam import IamInstanceProfile, IamManagedPolicy, IamRol
 from ...models.resources.network import (
     EgressOnlyInternetGateway,
     InternetGateway,
+    ManagedPrefixList,
     NatGateway,
     NetworkInterface,
     RouteTable,
     SecurityGroup,
+    VpcEndpoint,
     VpcPeeringConnection,
 )
+from ..aws_values import ADDRESS_FAMILIES, ENDPOINT_TYPES
 
 
 @dataclass(frozen=True)
@@ -27,6 +32,14 @@ class ResourceMapping:
     inline_collections: tuple[tuple[str, str], ...] = ()
     # A single IPv4 address recorded as a one-item list, such as a NAT gateway's public IP.
     address_lists: tuple[tuple[str, str], ...] = ()
+    # (source, target, AWS spelling -> enum value), such as an endpoint's `Gateway`.
+    choices: tuple[tuple[str, str, Mapping[str, Enum]], ...] = ()
+    # (source, target): a list of identifiers, each cited to its position.
+    string_lists: tuple[tuple[str, str], ...] = ()
+    # (source, target, minimum)
+    integer_fields: tuple[tuple[str, str, int], ...] = ()
+    # (source, target): `{cidr: ...}` blocks recorded whole, or not at all.
+    cidr_entries: tuple[tuple[str, str], ...] = ()
 
 
 RESOURCE_MAPPINGS = {
@@ -116,6 +129,32 @@ RESOURCE_MAPPINGS = {
             ("peer_region", "attributes/peer_region"),
             ("accept_status", "state"),
         ),
+    ),
+    "aws_vpc_endpoint": ResourceMapping(
+        AwsService.EC2,
+        ResourceType.VPC_ENDPOINT,
+        VpcEndpoint,
+        string_fields=(
+            ("service_name", "service_name"),
+            ("state", "state"),
+            ("owner_id", "owner_id"),
+        ),
+        choices=(("vpc_endpoint_type", "endpoint_type", ENDPOINT_TYPES),),
+        string_lists=(
+            ("route_table_ids", "route_table_ids"),
+            ("subnet_ids", "subnet_ids"),
+            ("network_interface_ids", "network_interface_ids"),
+            ("security_group_ids", "security_group_ids"),
+        ),
+    ),
+    "aws_ec2_managed_prefix_list": ResourceMapping(
+        AwsService.EC2,
+        ResourceType.MANAGED_PREFIX_LIST,
+        ManagedPrefixList,
+        string_fields=(("owner_id", "owner_id"),),
+        choices=(("address_family", "address_family", ADDRESS_FAMILIES),),
+        integer_fields=(("version", "version", 1),),
+        cidr_entries=(("entry", "entries"),),
     ),
     "aws_egress_only_internet_gateway": ResourceMapping(
         AwsService.EC2, ResourceType.EGRESS_ONLY_INTERNET_GATEWAY, EgressOnlyInternetGateway

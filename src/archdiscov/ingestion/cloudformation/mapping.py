@@ -13,7 +13,8 @@ from pydantic import ValidationError
 from ...models.architecture import Subnet, UnknownResource, Vpc
 from ...models.enums import AwsService
 from ...models.resource_base import Resource, ResourceIdentity
-from .catalog import RESOURCE_MAPPINGS
+from ..import_fields import TypedFields
+from .catalog import RESOURCE_MAPPINGS, ResourceMapping
 
 
 def service_for_type(aws_type: str) -> AwsService:
@@ -40,12 +41,21 @@ def _is_nonblank_unredacted_string(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip()) and value != "[REDACTED]"
 
 
-class _Properties:
+class _Properties(TypedFields):
     def __init__(self, properties: dict, identity: ResourceIdentity):
         self.values = properties
         self.data: dict = {"identity": identity, "attributes": {}}
         self.facts: dict[str, str] = {}
         self.limitations: list[str] = []
+
+    def source_pointer(self, source: str) -> str:
+        return f"/{source}"
+
+    def usable(self, value: object) -> bool:
+        return _is_nonblank_unredacted_string(value)
+
+    def omit_value(self, source: str) -> None:
+        self.omit(source)
 
     def omit(self, source: str) -> None:
         self.limitations.append(f"Invalid or unresolved {source} omitted.")
@@ -133,21 +143,26 @@ class _Properties:
             self.data["cidr_blocks"] = blocks
 
 
-def _typed(
-    model: type[Resource], string_fields: tuple[tuple[str, str], ...], fields: _Properties
-) -> Resource | None:
+def _typed(model: type[Resource], mapping: ResourceMapping, fields: _Properties) -> Resource | None:
     """The typed resource, or None when its declared values break the model's rules."""
-    claimed = {source for source, _ in string_fields}
+    claimed = {source for source, *_ in (*mapping.string_fields, *mapping.string_lists)}
     for source, target in (("VpcId", "vpc_id"), ("SubnetId", "subnet_id")):
         if source in claimed:
             continue
         # A model that declares the field records it there, as collection does.
         fields.string(source, target, attribute=target not in model.model_fields)
-    fields.security_groups()
+    if "SecurityGroupIds" not in claimed:
+        fields.security_groups()
     if model in (Vpc, Subnet):
         fields.cidrs()
-    for source, target in string_fields:
+    for source, target in mapping.string_fields:
         fields.string(source, target, attribute=False)
+    for source, target, spellings in mapping.choices:
+        fields.choice(source, target, spellings)
+    for source, target in mapping.string_lists:
+        fields.string_list(source, target)
+    for source, target in mapping.cidr_entries:
+        fields.cidr_entries(source, target, "Cidr")
     if any(key in fields.values for key in ("SecurityGroupIngress", "SecurityGroupEgress")):
         fields.limitations.append("Inline security group rules are not mapped.")
     try:
@@ -171,7 +186,7 @@ def map_resource(
     model = mapping.model if mapping is not None else None
     fields.name_tag()
     if model is not None:
-        resource = _typed(model, mapping.string_fields, fields)
+        resource = _typed(model, mapping, fields)
         if resource is not None:
             return resource, fields.facts, list(dict.fromkeys(fields.limitations))
         fields.limitations.append("Typed resource validation failed; only its type is retained.")

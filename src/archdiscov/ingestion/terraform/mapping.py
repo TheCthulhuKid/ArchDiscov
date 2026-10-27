@@ -67,6 +67,14 @@ def map_resource(
         for source, target in mapping.string_fields:
             fields.string(source, target)
     fields.addresses(mapping.address_lists)
+    for source, target, spellings in mapping.choices:
+        fields.choice(source, target, spellings)
+    for source, target in mapping.string_lists:
+        fields.string_list(source, target)
+    for source, target, minimum in mapping.integer_fields:
+        fields.integer(source, target, minimum)
+    for source, target in mapping.cidr_entries:
+        fields.cidr_entries(source, target, "cidr")
     fields.inline_collections(mapping.inline_collections)
 
     try:

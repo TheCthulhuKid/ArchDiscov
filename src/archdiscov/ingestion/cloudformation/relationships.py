@@ -18,6 +18,7 @@ _PARENTS = {
         ("VpcId", ResourceType.VPC),
     ),
     ResourceType.EGRESS_ONLY_INTERNET_GATEWAY: (("VpcId", ResourceType.VPC),),
+    ResourceType.VPC_ENDPOINT: (("VpcId", ResourceType.VPC),),
 }
 
 

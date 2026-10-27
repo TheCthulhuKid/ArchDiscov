@@ -4,7 +4,9 @@ from archdiscov.ingestion.terraform import TerraformStateRequest
 from archdiscov.models.architecture import UnknownResource
 from archdiscov.models.resources.network import (
     EgressOnlyInternetGateway,
+    ManagedPrefixList,
     NatGateway,
+    VpcEndpoint,
     VpcPeeringConnection,
 )
 from archdiscov.services import collect_snapshots
@@ -112,3 +114,51 @@ def test_plan_leaves_unknown_peering_sides_unset_and_references_both_vpcs():
         if source == connection.identity.logical_address
     }
     assert linked == {"aws_vpc.app", "aws_vpc.data"}
+
+
+def test_state_maps_endpoints_and_prefix_lists_and_qualifies_a_separate_entry():
+    snapshot = state("endpoints-and-prefix-lists")
+    resources = by_key(snapshot, lambda r: r.identity.physical_id)
+    gateway, interface = resources["vpce-s3"], resources["vpce-sqs"]
+    assert isinstance(gateway, VpcEndpoint) and gateway.endpoint_type == "gateway"
+    assert gateway in resources["vpc-svc"].children and gateway.route_table_ids == ["rtb-svc"]
+    assert (interface.subnet_ids, interface.security_group_ids) == (["subnet-svc"], ["sg-endpoint"])
+    assert {
+        ("vpce-s3", "rtb-svc", "route_table_ids"),
+        ("vpce-sqs", "subnet-svc", "subnet_ids"),
+        ("vpce-sqs", "sg-endpoint", "security_group_ids"),
+    } <= references(snapshot)
+
+    office = resources["pl-office"]
+    assert isinstance(office, ManagedPrefixList) and office.version == 3
+    assert [str(entry.cidr) for entry in office.entries] == ["198.51.100.0/24", "203.0.113.0/24"]
+    cited = snapshot.evidence[office.fact_evidence["/entries/0/cidr"][0]]
+    assert cited.value == "198.51.100.0/24"  # the CIDR only, never the free-text description
+
+    # A separate entry resource adds to pl-partners, so its own entries are not the whole list.
+    partners = resources["pl-partners"]
+    assert partners.entries is None and "/entries/0/cidr" not in partners.fact_evidence
+    assert ("pl-partners,198.18.0.0/15", "pl-partners", "prefix_list_id") in references(snapshot)
+    reasons = {
+        value.reason
+        for operation in snapshot.coverage.operations
+        for value in operation.unresolved_values
+        if value.resource_id == partners.id
+    }
+    assert any("entries may be incomplete" in reason for reason in reasons)
+
+
+def test_plan_endpoint_lists_unknown_route_tables_as_unresolved_not_empty():
+    snapshot = collect(FIXTURES / "endpoints-and-prefix-lists.plan.json")
+    resources = by_key(snapshot, lambda r: r.identity.logical_address)
+    endpoint = resources["aws_vpc_endpoint.s3"]
+    assert isinstance(endpoint, VpcEndpoint) and endpoint.endpoint_type == "gateway"
+    # The model's default list is not a claim: it is uncited, and the value is unresolved.
+    assert endpoint.route_table_ids == [] and "/route_table_ids" not in endpoint.fact_evidence
+    assert any(
+        item.configuration_path.endswith("/after_unknown/route_table_ids")
+        for item in snapshot.evidence.values()
+        if item.value_status == "unresolved" and item.resource_id == endpoint.id
+    )
+    office = resources["aws_ec2_managed_prefix_list.office"]
+    assert [str(entry.cidr) for entry in office.entries] == ["198.51.100.0/24"]

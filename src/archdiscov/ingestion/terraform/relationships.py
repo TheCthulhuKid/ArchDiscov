@@ -22,6 +22,7 @@ _PARENT_CANDIDATES = {
     ResourceType.INTERNET_GATEWAY: (_VPC_PARENT,),
     ResourceType.NAT_GATEWAY: (_SUBNET_PARENT, _VPC_PARENT),
     ResourceType.EGRESS_ONLY_INTERNET_GATEWAY: (_VPC_PARENT,),
+    ResourceType.VPC_ENDPOINT: (_VPC_PARENT,),
 }
 
 
@@ -30,11 +31,16 @@ _REFERENCES = (
     ("subnet_id", ResourceType.SUBNET),
     ("security_group_ids", ResourceType.SECURITY_GROUP),
 )
-# References held inside a typed model, such as a peering connection's two VPCs.
-_NESTED_REFERENCES = {
+# References only some typed models hold, such as a peering connection's two VPCs. An
+# endpoint's network interfaces are not references: AWS creates them, and no input declares one.
+_TYPE_REFERENCES = {
     ResourceType.VPC_PEERING_CONNECTION: (
         ("requester/vpc_id", ResourceType.VPC),
         ("accepter/vpc_id", ResourceType.VPC),
+    ),
+    ResourceType.VPC_ENDPOINT: (
+        ("route_table_ids", ResourceType.ROUTE_TABLE),
+        ("subnet_ids", ResourceType.SUBNET),
     ),
 }
 
@@ -80,8 +86,8 @@ def place_resources(resources: list[Resource], evidence: dict) -> tuple[dict, li
             globals_.append(resource)
         else:
             regions.setdefault(region, RegionArchitecture()).resources.append(resource)
-        nested = _NESTED_REFERENCES.get(resource.resource_type, ())
-        for field, expected in (*_REFERENCES, *nested):
+        typed = _TYPE_REFERENCES.get(resource.resource_type, ())
+        for field, expected in (*_REFERENCES, *typed):
             value, base = _reference(resource, field)
             references = (
                 value if isinstance(value, list) else [value] if isinstance(value, str) else []

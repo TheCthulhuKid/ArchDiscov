@@ -1,6 +1,8 @@
 """CloudFormation-local models and explicit scalar property allowlists."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import Enum
 
 from ...models.architecture import Ec2Instance, Subnet, Vpc
 from ...models.enums import ResourceType
@@ -8,12 +10,15 @@ from ...models.resource_base import Resource
 from ...models.resources.network import (
     EgressOnlyInternetGateway,
     InternetGateway,
+    ManagedPrefixList,
     NatGateway,
     NetworkInterface,
     RouteTable,
     SecurityGroup,
+    VpcEndpoint,
     VpcPeeringConnection,
 )
+from ..aws_values import ADDRESS_FAMILIES, ENDPOINT_TYPES
 
 
 @dataclass(frozen=True)
@@ -22,6 +27,12 @@ class ResourceMapping:
     # (property, target): a typed field on a typed model, else an attribute.
     string_fields: tuple[tuple[str, str], ...] = ()
     integer_fields: tuple[tuple[str, str, int, int], ...] = ()
+    # Typed models only. (property, target, AWS spelling -> enum value)
+    choices: tuple[tuple[str, str, Mapping[str, Enum]], ...] = ()
+    # (property, target): literal identifiers, each cited; a `!Ref` item is a reference.
+    string_lists: tuple[tuple[str, str], ...] = ()
+    # (property, target): `{Cidr: ...}` entries recorded whole, or not at all.
+    cidr_entries: tuple[tuple[str, str], ...] = ()
 
 
 RESOURCE_MAPPINGS = {
@@ -40,6 +51,22 @@ RESOURCE_MAPPINGS = {
         NatGateway, string_fields=(("ConnectivityType", "connectivity"),)
     ),
     ResourceType.EGRESS_ONLY_INTERNET_GATEWAY: ResourceMapping(EgressOnlyInternetGateway),
+    ResourceType.VPC_ENDPOINT: ResourceMapping(
+        VpcEndpoint,
+        string_fields=(("ServiceName", "service_name"),),
+        choices=(("VpcEndpointType", "endpoint_type", ENDPOINT_TYPES),),
+        string_lists=(
+            ("RouteTableIds", "route_table_ids"),
+            ("SubnetIds", "subnet_ids"),
+            ("SecurityGroupIds", "security_group_ids"),
+        ),
+    ),
+    ResourceType.MANAGED_PREFIX_LIST: ResourceMapping(
+        ManagedPrefixList,
+        string_fields=(("PrefixListName", "name"),),
+        choices=(("AddressFamily", "address_family", ADDRESS_FAMILIES),),
+        cidr_entries=(("Entries", "entries"),),
+    ),
     ResourceType.VPC_PEERING_CONNECTION: ResourceMapping(
         VpcPeeringConnection,
         string_fields=(

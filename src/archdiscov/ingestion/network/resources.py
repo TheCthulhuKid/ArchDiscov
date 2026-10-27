@@ -9,12 +9,10 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ValidationError
 
 from ...models.enums import (
-    AddressFamily,
     NaclAction,
     NatConnectivity,
     RouteTargetKind,
     RuleDirection,
-    VpcEndpointType,
 )
 from ...models.resource_base import Resource
 from ...models.resources.network import (
@@ -35,6 +33,7 @@ from ...models.resources.network import (
     VpcEndpoint,
     VpcPeeringConnection,
 )
+from ..aws_values import ADDRESS_FAMILIES, ENDPOINT_TYPES
 from ..evidence_builder import EvidenceBuilder, tags_of
 from ..operations import Ec2Operation as Op
 
@@ -73,12 +72,6 @@ _ROUTE_TARGET_FIELDS = (
     ("VpcEndpointId", RouteTargetKind.VPC_ENDPOINT),
     ("EgressOnlyInternetGatewayId", RouteTargetKind.EGRESS_ONLY_INTERNET_GATEWAY),
 )
-_ENDPOINT_TYPES = {
-    "Gateway": VpcEndpointType.GATEWAY,
-    "Interface": VpcEndpointType.INTERFACE,
-    "GatewayLoadBalancer": VpcEndpointType.GATEWAY_LOAD_BALANCER,
-}
-_ADDRESS_FAMILIES = {"IPv4": AddressFamily.IPV4, "IPv6": AddressFamily.IPV6}
 _OTHER_TARGET_FIELDS = (
     "CarrierGatewayId",
     "LocalGatewayId",
@@ -673,7 +666,7 @@ class NetworkNormalizer(EvidenceBuilder):
         op = Op.DESCRIBE_VPC_ENDPOINTS
         tags = tags_of(item)
         reported = item.get("VpcEndpointType")
-        endpoint_type = _ENDPOINT_TYPES.get(reported) if isinstance(reported, str) else None
+        endpoint_type = ENDPOINT_TYPES.get(reported) if isinstance(reported, str) else None
         if reported is not None and endpoint_type is None:
             limitations.append(f"{path}: VpcEndpointType is not a modelled type and was omitted")
         facts = {
@@ -734,7 +727,7 @@ class NetworkNormalizer(EvidenceBuilder):
         path, limitations = f"PrefixLists[{index}]", []
         op = Op.DESCRIBE_MANAGED_PREFIX_LISTS
         tags = tags_of(item)
-        family = _ADDRESS_FAMILIES.get(item.get("AddressFamily"))
+        family = ADDRESS_FAMILIES.get(item.get("AddressFamily"))
         version = item.get("Version")
         version = version if isinstance(version, int) and version >= 1 else None
         facts = {

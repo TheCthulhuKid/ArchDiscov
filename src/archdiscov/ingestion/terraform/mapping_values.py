@@ -5,6 +5,7 @@ from ipaddress import AddressValueError, IPv4Address
 from pydantic import IPvAnyNetwork, TypeAdapter, ValidationError
 
 from ...models.json_pointer import escape_pointer_token
+from ..import_fields import TypedFields
 
 _NETWORK = TypeAdapter(IPvAnyNetwork)
 
@@ -13,12 +14,21 @@ def is_nonblank_unredacted_string(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip()) and "[REDACTED]" not in value
 
 
-class MappingValues:
+class MappingValues(TypedFields):
     def __init__(self, values: dict, data: dict, facts: dict[str, str], limitations: list[str]):
         self.values = values
         self.data = data
         self.facts = facts
         self.limitations = limitations
+
+    def source_pointer(self, source: str) -> str:
+        return f"/values/{source}"
+
+    def usable(self, value: object) -> bool:
+        return is_nonblank_unredacted_string(value)
+
+    def omit_value(self, source: str) -> None:
+        self.omitted(source)
 
     def omitted(self, field: str) -> None:
         # Field names here are fixed mapping constants, never provider values or tag keys.
@@ -154,6 +164,16 @@ class MappingValues:
                 continue
             self.data[target] = [address]
             self.facts[f"/{target}/0"] = f"/values/{source}"
+
+    def integer(self, source: str, target: str, minimum: int) -> None:
+        value = self.values.get(source)
+        if value is None:
+            return
+        if type(value) is not int or value < minimum:
+            self.omitted(source)
+            return
+        self.data[target] = value
+        self.facts[f"/{target}"] = f"/values/{source}"
 
     def inline_collections(self, collections: tuple[tuple[str, str], ...]) -> None:
         for source, target in collections:
