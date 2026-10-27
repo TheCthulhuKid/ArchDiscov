@@ -1,0 +1,101 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.11.4",
+  "planned_values": {
+    "root_module": {}
+  },
+  "resource_changes": [
+    {
+      "address": "aws_vpc.app",
+      "mode": "managed",
+      "type": "aws_vpc",
+      "name": "app",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "cidr_block": "10.2.0.0/16"
+        },
+        "after_unknown": {
+          "id": true
+        },
+        "before_sensitive": false,
+        "after_sensitive": {}
+      }
+    },
+    {
+      "address": "aws_ec2_transit_gateway.main",
+      "mode": "managed",
+      "type": "aws_ec2_transit_gateway",
+      "name": "main",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "amazon_side_asn": 64512
+        },
+        "after_unknown": {
+          "id": true,
+          "owner_id": true,
+          "association_default_route_table_id": true,
+          "propagation_default_route_table_id": true
+        },
+        "before_sensitive": false,
+        "after_sensitive": {}
+      }
+    },
+    {
+      "address": "aws_ec2_transit_gateway_vpc_attachment.app",
+      "mode": "managed",
+      "type": "aws_ec2_transit_gateway_vpc_attachment",
+      "name": "app",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {},
+        "after_unknown": {
+          "id": true,
+          "transit_gateway_id": true,
+          "vpc_id": true,
+          "vpc_owner_id": true,
+          "subnet_ids": true
+        },
+        "before_sensitive": false,
+        "after_sensitive": {}
+      }
+    }
+  ],
+  "configuration": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_ec2_transit_gateway_vpc_attachment.app",
+          "mode": "managed",
+          "expressions": {
+            "transit_gateway_id": {
+              "references": [
+                "aws_ec2_transit_gateway.main.id",
+                "aws_ec2_transit_gateway.main"
+              ]
+            },
+            "vpc_id": {
+              "references": [
+                "aws_vpc.app.id",
+                "aws_vpc.app"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

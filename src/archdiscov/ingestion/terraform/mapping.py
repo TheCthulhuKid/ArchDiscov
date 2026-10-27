@@ -73,6 +73,9 @@ def map_resource(
         fields.string_list(source, target)
     for source, target, minimum in mapping.integer_fields:
         fields.integer(source, target, minimum)
+    for target, value in mapping.constants:
+        data[target] = value
+        facts[f"/{target}"] = "/type"
     for source, target in mapping.cidr_entries:
         fields.cidr_entries(source, target, "cidr")
     fields.inline_collections(mapping.inline_collections)

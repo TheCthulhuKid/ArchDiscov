@@ -6,6 +6,8 @@ from archdiscov.models.resources.network import (
     EgressOnlyInternetGateway,
     ManagedPrefixList,
     NatGateway,
+    TransitGatewayAttachment,
+    TransitGatewayRouteTable,
     VpcEndpoint,
     VpcPeeringConnection,
 )
@@ -97,3 +99,29 @@ def test_template_maps_endpoints_and_prefix_lists():
     assert [str(entry.cidr) for entry in office.entries] == ["198.51.100.0/24", "203.0.113.0/24"]
     cited = snapshot.evidence[office.fact_evidence["/entries/1/cidr"][0]]
     assert cited.configuration_path == "/Resources/Office/Properties/Entries/1/Cidr"
+
+
+def test_template_maps_transit_gateways_and_qualifies_their_route_table():
+    snapshot, resources = imported(FIXTURES / "transit-gateway.yaml")
+    attachment, table = resources["AppAttachment"], resources["HubRoutes"]
+    assert isinstance(attachment, TransitGatewayAttachment)
+    assert attachment.attached_resource_type == "vpc"
+    # The template's VpcAttachment imports as the one attachment model; its declared type is cited.
+    declared = snapshot.evidence[attachment.fact_evidence["/resource_type"][0]]
+    assert declared.value == "AWS::EC2::TransitGatewayVpcAttachment"
+    assert isinstance(table, TransitGatewayRouteTable)
+    children = {resources[name].id for name in ("AppAssociation", "AppPropagation", "Blackhole")}
+    to_table = {
+        d.source_id
+        for deps in snapshot.dependencies_by_region.values()
+        for d in deps
+        if d.target.resource_id == table.id
+    }
+    assert children <= to_table
+    reasons = {
+        value.reason
+        for operation in snapshot.coverage.operations
+        for value in operation.unresolved_values
+        if value.resource_id == table.id
+    }
+    assert sum("may be incomplete" in reason for reason in reasons) == 3

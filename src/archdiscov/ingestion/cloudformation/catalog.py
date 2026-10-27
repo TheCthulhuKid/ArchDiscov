@@ -15,6 +15,9 @@ from ...models.resources.network import (
     NetworkInterface,
     RouteTable,
     SecurityGroup,
+    TransitGateway,
+    TransitGatewayAttachment,
+    TransitGatewayRouteTable,
     VpcEndpoint,
     VpcPeeringConnection,
 )
@@ -33,6 +36,19 @@ class ResourceMapping:
     string_lists: tuple[tuple[str, str], ...] = ()
     # (property, target): `{Cidr: ...}` entries recorded whole, or not at all.
     cidr_entries: tuple[tuple[str, str], ...] = ()
+    # (target, value) the declared type itself states, cited to `Type`.
+    constants: tuple[tuple[str, str], ...] = ()
+
+
+# Both attachment types declare a VPC attachment; each imports as the one attachment model.
+_VPC_ATTACHMENT = ResourceMapping(
+    TransitGatewayAttachment,
+    string_fields=(
+        ("TransitGatewayId", "transit_gateway_id"),
+        ("VpcId", "attached_resource_id"),
+    ),
+    constants=(("attached_resource_type", "vpc"),),
+)
 
 
 RESOURCE_MAPPINGS = {
@@ -66,6 +82,19 @@ RESOURCE_MAPPINGS = {
         string_fields=(("PrefixListName", "name"),),
         choices=(("AddressFamily", "address_family", ADDRESS_FAMILIES),),
         cidr_entries=(("Entries", "entries"),),
+    ),
+    ResourceType.TRANSIT_GATEWAY: ResourceMapping(
+        TransitGateway,
+        string_fields=(
+            ("AssociationDefaultRouteTableId", "association_default_route_table_id"),
+            ("PropagationDefaultRouteTableId", "propagation_default_route_table_id"),
+        ),
+    ),
+    ResourceType.TRANSIT_GATEWAY_ATTACHMENT: _VPC_ATTACHMENT,
+    "AWS::EC2::TransitGatewayVpcAttachment": _VPC_ATTACHMENT,
+    ResourceType.TRANSIT_GATEWAY_ROUTE_TABLE: ResourceMapping(
+        TransitGatewayRouteTable,
+        string_fields=(("TransitGatewayId", "transit_gateway_id"),),
     ),
     ResourceType.VPC_PEERING_CONNECTION: ResourceMapping(
         VpcPeeringConnection,

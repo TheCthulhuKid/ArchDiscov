@@ -14,7 +14,7 @@ from ...models.json_pointer import read_pointer
 from ..adapter import IngestionError
 from ..import_records import cite_source, import_coverage
 from .catalog import service_for_type
-from .children import CHILDREN, DeclaredChild, link_children
+from .children import CHILDREN, DeclaredReference, link_children
 from .mapping import map_resource
 from .scope import identifier
 
@@ -31,7 +31,7 @@ class SnapshotBuilder:
         self.counts = defaultdict(int)
         self.limitations = defaultdict(list)
         self.seen = set()
-        self.children: list[DeclaredChild] = []
+        self.children: list[DeclaredReference] = []
 
     def cite(self, resource, path, value, *, redacted=False, unresolved=False):
         return cite_source(
@@ -103,11 +103,17 @@ class SnapshotBuilder:
         for reason in reasons:
             self.limit(resource, entry.path, reason)
         child = CHILDREN.get(entry.terraform_type)
-        parent_id = identifier(entry.values.get(child.field)) if child else None
-        if parent_id is not None:
-            path = f"{values_path}/{child.field}"
-            evidence_ids = self.cite(resource, path, parent_id)
-            self.children.append(DeclaredChild(resource, child, parent_id, path, evidence_ids))
+        for field, target_type in child.fields() if child else ():
+            target_id = identifier(entry.values.get(field))
+            if target_id is None:
+                continue
+            path = f"{values_path}/{field}"
+            evidence_ids = self.cite(resource, path, target_id)
+            self.children.append(
+                DeclaredReference(
+                    resource, child, field, target_type, target_id, path, evidence_ids
+                )
+            )
         self.resources.append(resource)
         return resource
 

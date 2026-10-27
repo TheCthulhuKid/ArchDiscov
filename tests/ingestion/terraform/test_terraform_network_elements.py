@@ -1,11 +1,15 @@
 """Phase 6 network elements imported from Terraform state and plans."""
 
+from archdiscov.ingestion.import_fields import incomplete_list
 from archdiscov.ingestion.terraform import TerraformStateRequest
 from archdiscov.models.architecture import UnknownResource
 from archdiscov.models.resources.network import (
     EgressOnlyInternetGateway,
     ManagedPrefixList,
     NatGateway,
+    TransitGateway,
+    TransitGatewayAttachment,
+    TransitGatewayRouteTable,
     VpcEndpoint,
     VpcPeeringConnection,
 )
@@ -145,7 +149,7 @@ def test_state_maps_endpoints_and_prefix_lists_and_qualifies_a_separate_entry():
         for value in operation.unresolved_values
         if value.resource_id == partners.id
     }
-    assert any("entries may be incomplete" in reason for reason in reasons)
+    assert incomplete_list("entries") in reasons
 
 
 def test_plan_endpoint_lists_unknown_route_tables_as_unresolved_not_empty():
@@ -162,3 +166,54 @@ def test_plan_endpoint_lists_unknown_route_tables_as_unresolved_not_empty():
     )
     office = resources["aws_ec2_managed_prefix_list.office"]
     assert [str(entry.cidr) for entry in office.entries] == ["198.51.100.0/24"]
+
+
+def test_state_maps_transit_gateways_and_keeps_declared_children_separate():
+    snapshot = state("transit-gateway")
+    resources = by_key(snapshot, lambda r: r.identity.physical_id)
+    gateway, attachment = resources["tgw-main"], resources["tgw-attach-app"]
+    table = resources["tgw-rtb-main"]
+    assert isinstance(gateway, TransitGateway)
+    assert gateway.association_default_route_table_id == "tgw-rtb-main"
+    assert isinstance(attachment, TransitGatewayAttachment)
+    assert (attachment.attached_resource_type, attachment.attached_resource_id) == (
+        "vpc",
+        "vpc-app",
+    )
+    cited = snapshot.evidence[attachment.fact_evidence["/attached_resource_type"][0]]
+    assert cited.value == "aws_ec2_transit_gateway_vpc_attachment"  # the type states it
+    assert isinstance(table, TransitGatewayRouteTable) and table.routes_complete is None
+    links = references(snapshot)
+    assert {
+        ("tgw-attach-app", "tgw-main", "transit_gateway_id"),
+        ("tgw-attach-app", "vpc-app", "attached_resource_id"),
+        ("tgw-rtb-main", "tgw-main", "transit_gateway_id"),
+        ("tgw-rtb-main_tgw-attach-app", "tgw-rtb-main", "transit_gateway_route_table_id"),
+        ("tgw-rtb-main_tgw-attach-app", "tgw-attach-app", "transit_gateway_attachment_id"),
+    } <= links
+    # A blackhole route names no attachment, so it references only its table.
+    assert {target for source, target, _ in links if source == "tgw-rtb-main_192.168.0.0/16"} == {
+        "tgw-rtb-main"
+    }
+    # The children are not folded in: the table's lists are not claimed as complete.
+    assert table.associations == table.propagations == table.routes == []
+    reasons = {
+        value.reason
+        for operation in snapshot.coverage.operations
+        for value in operation.unresolved_values
+        if value.resource_id == table.id
+    }
+    lists = ("associations", "propagations", "routes")
+    assert {incomplete_list(name) for name in lists} <= reasons
+
+
+def test_plan_attachment_references_its_planned_gateway_and_vpc():
+    snapshot = collect(FIXTURES / "transit-gateway.plan.json")
+    attachment = by_key(snapshot, lambda r: r.identity.logical_address)[
+        "aws_ec2_transit_gateway_vpc_attachment.app"
+    ]
+    assert isinstance(attachment, TransitGatewayAttachment)
+    assert attachment.transit_gateway_id is None and attachment.attached_resource_id is None
+    address = attachment.identity.logical_address
+    linked = {target for source, target, _ in references(snapshot) if source == address}
+    assert linked == {"aws_ec2_transit_gateway.main", "aws_vpc.app"}

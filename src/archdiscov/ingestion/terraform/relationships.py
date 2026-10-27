@@ -42,6 +42,14 @@ _TYPE_REFERENCES = {
         ("route_table_ids", ResourceType.ROUTE_TABLE),
         ("subnet_ids", ResourceType.SUBNET),
     ),
+    # Only VPC attachments are mapped, so the attached resource is a VPC.
+    ResourceType.TRANSIT_GATEWAY_ATTACHMENT: (
+        ("transit_gateway_id", ResourceType.TRANSIT_GATEWAY),
+        ("attached_resource_id", ResourceType.VPC),
+    ),
+    ResourceType.TRANSIT_GATEWAY_ROUTE_TABLE: (
+        ("transit_gateway_id", ResourceType.TRANSIT_GATEWAY),
+    ),
 }
 
 

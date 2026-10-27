@@ -76,6 +76,9 @@ are omitted with limitations rather than copied as raw provider data.
 | `aws_vpc_peering_connection` | `VpcPeeringConnection` | `vpc_id` → `requester.vpc_id`; `peer_vpc_id`, `peer_owner_id` → the accepter side; `accept_status` → `state`; `peer_region` → `attributes.peer_region`. The requester's owner is not declared, so it stays unset. A regional root, referencing both VPCs. `aws_vpc_peering_connection_accepter`, which declares the same connection from the accepter's account, stays an unknown summary |
 | `aws_vpc_endpoint` | `VpcEndpoint` | `vpc_endpoint_type` (`Gateway`, `Interface`, `GatewayLoadBalancer`; another type is omitted) → `endpoint_type`; `service_name`, `state`, `owner_id`, `vpc_id`; `route_table_ids`, `subnet_ids`, `network_interface_ids`, `security_group_ids`, each ID cited by position. The `policy` document is not mapped |
 | `aws_ec2_managed_prefix_list` | `ManagedPrefixList` | `address_family`, `owner_id`, `version`; each inline `entry` block's `cidr` → `entries`, recorded whole or not at all. Entry descriptions are not kept. A regional root |
+| `aws_ec2_transit_gateway` | `TransitGateway` | `owner_id`, `association_default_route_table_id`, `propagation_default_route_table_id`. A regional root |
+| `aws_ec2_transit_gateway_vpc_attachment` | `TransitGatewayAttachment` | `transit_gateway_id`; `vpc_id`, `vpc_owner_id` → the attached resource's ID and owner; `attached_resource_type` is `vpc`, cited to the Terraform type. A regional root, referencing its transit gateway and VPC |
+| `aws_ec2_transit_gateway_route_table` | `TransitGatewayRouteTable` | `transit_gateway_id`. Its associations, propagations, and routes are separate resources (below). A regional root |
 | `aws_iam_role` | `IamRole` | Source `arn`; `permissions_boundary` → `boundary_arn` |
 | `aws_iam_instance_profile` | `IamInstanceProfile` | Source `arn`; profile role names are not mapped |
 | `aws_iam_policy` | `IamManagedPolicy` | Source `arn`; policy document is not mapped |
@@ -100,13 +103,16 @@ unmapped lists are named in `attributes.unavailable_fields` and qualify coverage
 the typed model's default list must not be treated as evidence of successful absence.
 
 Some elements are declared in parts, as separate resources that each add to a typed element:
-`aws_ec2_managed_prefix_list_entry` adds to a prefix list's entries, and
-`aws_vpc_endpoint_route_table_association`, `_subnet_association`, and
-`_security_group_association` add to an endpoint's lists. Each such child stays an unknown summary
-with a cited `terraform_configuration_reference` to its parent (field `prefix_list_id` or
-`vpc_endpoint_id`), or an unresolved one when the parent is not in the input. The parent records a
-limitation that its list may be incomplete. A prefix list's `entries` is also left unset, never
-partial.
+`aws_ec2_managed_prefix_list_entry` adds to a prefix list's entries;
+`aws_vpc_endpoint_route_table_association`, `_subnet_association`, and `_security_group_association`
+add to an endpoint's lists; and `aws_ec2_transit_gateway_route_table_association`, `_propagation`,
+and `aws_ec2_transit_gateway_route` add to a transit gateway route table's associations,
+propagations, and routes. Each such child stays an unknown summary with a cited
+`terraform_configuration_reference` to its parent (field `prefix_list_id`, `vpc_endpoint_id`, or
+`transit_gateway_route_table_id`), and a transit gateway child also references the attachment it
+names (`transit_gateway_attachment_id`); a reference whose target is not in the input is unresolved.
+The parent records a limitation that its list may be incomplete. A prefix list's `entries` is also
+left unset, never partial, and a transit gateway route table's `routes_complete` stays unset.
 
 Unsupported types remain `UnknownResource`, retaining identity and Terraform type
 only. `aws_resource_type` uses an explicit AWS type mapping where available, otherwise

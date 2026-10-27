@@ -143,6 +143,10 @@ class _Properties(TypedFields):
             self.data["cidr_blocks"] = blocks
 
 
+# A fact source meaning "the declared `Type`", for a value the type itself states.
+TYPE_SOURCE = "#Type"
+
+
 def _typed(model: type[Resource], mapping: ResourceMapping, fields: _Properties) -> Resource | None:
     """The typed resource, or None when its declared values break the model's rules."""
     claimed = {source for source, *_ in (*mapping.string_fields, *mapping.string_lists)}
@@ -163,6 +167,9 @@ def _typed(model: type[Resource], mapping: ResourceMapping, fields: _Properties)
         fields.string_list(source, target)
     for source, target in mapping.cidr_entries:
         fields.cidr_entries(source, target, "Cidr")
+    for target, value in mapping.constants:
+        fields.data[target] = value
+        fields.facts[f"/{target}"] = TYPE_SOURCE
     if any(key in fields.values for key in ("SecurityGroupIngress", "SecurityGroupEgress")):
         fields.limitations.append("Inline security group rules are not mapped.")
     try:

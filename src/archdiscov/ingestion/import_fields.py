@@ -14,6 +14,11 @@ from pydantic import IPvAnyNetwork, TypeAdapter, ValidationError
 _NETWORK = TypeAdapter(IPvAnyNetwork)
 
 
+def incomplete_list(name: str) -> str:
+    """Why a typed list may lack entries that a separately declared resource adds to it."""
+    return f"Its {name} may be incomplete: a separate resource declares part of it."
+
+
 class TypedFields:
     values: dict
     data: dict

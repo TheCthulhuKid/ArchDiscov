@@ -6,7 +6,7 @@ from .context import parameters_for, prepare_template, pseudo_parameters, safe_p
 from .evaluation import evaluate
 from .normalization import normalize_resource
 from .parsing import load_template
-from .relationships import link, place_resources
+from .relationships import link, place_resources, qualify_children
 from .requests import CloudFormationRequest
 from .snapshot import SnapshotBuilder
 
@@ -62,5 +62,6 @@ class CloudFormationAdapter:
             builder.omit("/Transform", "Template transforms and macros are not executed")
         if "Rules" in template:
             builder.omit("/Rules", "Template parameter rules are not evaluated")
+        qualify_children(builder, template, references)
         regions, globals_ = place_resources(builder, references)
         return [builder.finish(template, regions, globals_)]

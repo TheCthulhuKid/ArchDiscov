@@ -16,6 +16,9 @@ from ...models.resources.network import (
     NetworkInterface,
     RouteTable,
     SecurityGroup,
+    TransitGateway,
+    TransitGatewayAttachment,
+    TransitGatewayRouteTable,
     VpcEndpoint,
     VpcPeeringConnection,
 )
@@ -40,6 +43,8 @@ class ResourceMapping:
     integer_fields: tuple[tuple[str, str, int], ...] = ()
     # (source, target): `{cidr: ...}` blocks recorded whole, or not at all.
     cidr_entries: tuple[tuple[str, str], ...] = ()
+    # (target, value) the Terraform type itself states, cited to the type.
+    constants: tuple[tuple[str, str], ...] = ()
 
 
 RESOURCE_MAPPINGS = {
@@ -155,6 +160,33 @@ RESOURCE_MAPPINGS = {
         choices=(("address_family", "address_family", ADDRESS_FAMILIES),),
         integer_fields=(("version", "version", 1),),
         cidr_entries=(("entry", "entries"),),
+    ),
+    "aws_ec2_transit_gateway": ResourceMapping(
+        AwsService.EC2,
+        ResourceType.TRANSIT_GATEWAY,
+        TransitGateway,
+        string_fields=(
+            ("owner_id", "owner_id"),
+            ("association_default_route_table_id", "association_default_route_table_id"),
+            ("propagation_default_route_table_id", "propagation_default_route_table_id"),
+        ),
+    ),
+    "aws_ec2_transit_gateway_vpc_attachment": ResourceMapping(
+        AwsService.EC2,
+        ResourceType.TRANSIT_GATEWAY_ATTACHMENT,
+        TransitGatewayAttachment,
+        string_fields=(
+            ("transit_gateway_id", "transit_gateway_id"),
+            ("vpc_id", "attached_resource_id"),
+            ("vpc_owner_id", "attached_resource_owner_id"),
+        ),
+        constants=(("attached_resource_type", "vpc"),),
+    ),
+    "aws_ec2_transit_gateway_route_table": ResourceMapping(
+        AwsService.EC2,
+        ResourceType.TRANSIT_GATEWAY_ROUTE_TABLE,
+        TransitGatewayRouteTable,
+        string_fields=(("transit_gateway_id", "transit_gateway_id"),),
     ),
     "aws_egress_only_internet_gateway": ResourceMapping(
         AwsService.EC2, ResourceType.EGRESS_ONLY_INTERNET_GATEWAY, EgressOnlyInternetGateway
