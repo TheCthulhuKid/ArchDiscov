@@ -5,8 +5,11 @@ from archdiscov.models.enums import DependencyRelationship
 from tests.support.network_data import (
     ACCOUNT,
     ATTACHED_ENI,
+    EGRESS_ONLY_GATEWAY,
     FULL,
     INSTANCE,
+    NAT_GATEWAY,
+    PRIVATE_ROUTE_TABLE,
     SG,
     SUBNET,
     VPC,
@@ -113,13 +116,13 @@ def test_unsupported_and_unparseable_route_targets():
     result, _ = build({Op.DESCRIBE_VPCS: [VPC], Op.DESCRIBE_ROUTE_TABLES: [table]})
     routes = deps(result, Kind.ROUTE_TARGET)
     targets = [d.target for d in routes]
-    assert [getattr(t, "aws_resource_type", None) for t in targets[:4]] == [
-        "AWS::EC2::NatGateway",
-        "AWS::EC2::TransitGateway",
-        "AWS::EC2::VPCEndpoint",
-        "AWS::EC2::EgressOnlyInternetGateway",
-    ]
+    # NAT and egress-only gateways are collected, so a missing one is unresolved, not external.
+    nat, transit, endpoint, egress_only = targets[:4]
+    assert "nat-1 was not present" in nat.reason
+    assert "eigw-1 was not present" in egress_only.reason
     assert routes[3].attributes["target_kind"] == "egress_only_internet_gateway"
+    assert transit.aws_resource_type == "AWS::EC2::TransitGateway"
+    assert endpoint.aws_resource_type == "AWS::EC2::VPCEndpoint"
     (prefix_list,) = deps(result, Kind.PREFIX_LIST_REFERENCE)
     assert prefix_list.target.identifier == "pl-s3"
     assert prefix_list.evidence_ids == routes[2].evidence_ids
@@ -129,6 +132,35 @@ def test_unsupported_and_unparseable_route_targets():
     assert "no recognizable target" in blackhole.reason
     assert isinstance(missing, UnresolvedTarget)
     assert "igw-missing was not present" in missing.reason
+
+
+def test_nat_and_egress_only_gateways_are_placed_linked_and_reached_by_routes():
+    items = {
+        **ITEMS,
+        Op.DESCRIBE_ROUTE_TABLES: [*FULL[Op.DESCRIBE_ROUTE_TABLES], PRIVATE_ROUTE_TABLE],
+        Op.DESCRIBE_NAT_GATEWAYS: [NAT_GATEWAY],
+        Op.DESCRIBE_EGRESS_ONLY_INTERNET_GATEWAYS: [EGRESS_ONLY_GATEWAY],
+    }
+    result, _ = build(items)
+    resources = by_id(result)
+    nat = resources["nat-1"]
+    assert nat.connectivity == "public" and nat.network_interface_id == "eni-nat"
+    assert [str(ip) for ip in nat.public_ips] == ["198.51.100.20"]
+    assert nat in resources["subnet-1"].children
+    assert resources["eigw-1"] in resources["vpc-1"].children
+
+    (subnet,) = deps(result, Kind.NAT_GATEWAY_SUBNET)
+    assert subnet.target == LocalTarget(resource_id=rid("subnet-1"))
+    (interface,) = deps(result, Kind.NAT_GATEWAY_INTERFACE)
+    assert "eni-nat was not present" in interface.target.reason
+    path = "NatGateways[0].NatGatewayAddresses[0].NetworkInterfaceId"
+    assert interface.target.source_path == path
+    (attachment,) = deps(result, Kind.EGRESS_ONLY_INTERNET_GATEWAY_ATTACHMENT)
+    assert attachment.target == LocalTarget(resource_id=rid("vpc-1"))
+    assert attachment.attributes["state"] == "attached"
+    to_nat, to_egress_only = deps(result, Kind.ROUTE_TARGET, "rtb-private")
+    assert to_nat.target == LocalTarget(resource_id=rid("nat-1"))
+    assert to_egress_only.target == LocalTarget(resource_id=rid("eigw-1"))
 
 
 def test_security_group_membership_local_and_missing():

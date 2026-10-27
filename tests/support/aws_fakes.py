@@ -79,4 +79,6 @@ def empty_network_pages():
         "describe_security_groups": [{"SecurityGroups": []}],
         "describe_security_group_rules": [{"SecurityGroupRules": []}],
         "describe_network_interfaces": [{"NetworkInterfaces": []}],
+        "describe_nat_gateways": [{"NatGateways": []}],
+        "describe_egress_only_internet_gateways": [{"EgressOnlyInternetGateways": []}],
     }

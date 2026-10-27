@@ -52,6 +52,8 @@ EC2_OPERATIONS = (
     (Ec2Operation.DESCRIBE_SECURITY_GROUPS, "SecurityGroups"),
     (Ec2Operation.DESCRIBE_SECURITY_GROUP_RULES, "SecurityGroupRules"),
     (Ec2Operation.DESCRIBE_NETWORK_INTERFACES, "NetworkInterfaces"),
+    (Ec2Operation.DESCRIBE_NAT_GATEWAYS, "NatGateways"),
+    (Ec2Operation.DESCRIBE_EGRESS_ONLY_INTERNET_GATEWAYS, "EgressOnlyInternetGateways"),
 )
 
 

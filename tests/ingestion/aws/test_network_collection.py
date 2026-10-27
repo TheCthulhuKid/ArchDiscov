@@ -14,13 +14,23 @@ from archdiscov.models.enums import AwsRegion, AwsService
 from archdiscov.services import collect_and_save, collect_snapshots, load_snapshot
 from tests.support import aws_fakes
 from tests.support.aws_fakes import ACCOUNT, Session, make_context, request
-from tests.support.network_data import ATTACHED_ENI, FULL, INSTANCE
+from tests.support.network_data import (
+    ATTACHED_ENI,
+    EGRESS_ONLY_GATEWAY,
+    FULL,
+    INSTANCE,
+    NAT_GATEWAY,
+    PRIVATE_ROUTE_TABLE,
+)
 
 KEYS = dict(EC2_OPERATIONS)
 ITEMS = {
     **FULL,
     Op.DESCRIBE_INSTANCES: [{"Instances": [INSTANCE]}],
     Op.DESCRIBE_NETWORK_INTERFACES: [ATTACHED_ENI],
+    Op.DESCRIBE_ROUTE_TABLES: [*FULL[Op.DESCRIBE_ROUTE_TABLES], PRIVATE_ROUTE_TABLE],
+    Op.DESCRIBE_NAT_GATEWAYS: [NAT_GATEWAY],
+    Op.DESCRIBE_EGRESS_ONLY_INTERNET_GATEWAYS: [EGRESS_ONLY_GATEWAY],
 }
 DENIED = ClientError({"Error": {"Code": "UnauthorizedOperation"}}, "DescribeRouteTables")
 
@@ -50,16 +60,22 @@ def flatten(resources):
 
 
 def test_collection_emits_schema_two_with_network_resources_and_relationships():
-    snapshot = collect(pages=pages())
+    second = {**NAT_GATEWAY, "NatGatewayId": "nat-2", "State": "deleted"}
+    nat_pages = [{"NatGateways": [NAT_GATEWAY], "NextToken": "n"}, {"NatGateways": [second]}]
+    snapshot = collect(pages=pages({Op.DESCRIBE_NAT_GATEWAYS: nat_pages}))
     assert snapshot.schema_version == "2"
     kinds = {r.resource_type.value for r in flatten(snapshot.regions["us-east-1"].resources)}
     assert {
         "AWS::EC2::RouteTable",
         "AWS::EC2::SecurityGroup",
         "AWS::EC2::NetworkInterface",
+        "AWS::EC2::NatGateway",
+        "AWS::EC2::EgressOnlyInternetGateway",
     } <= kinds
     assert {o.operation for o in snapshot.coverage.operations} == {o.value for o in KEYS}
     assert {o.status for o in snapshot.coverage.operations} == {"success"}
+    counts = {o.operation: o.result_count for o in snapshot.coverage.operations}
+    assert counts["DescribeNatGateways"] == 2  # both pages, the deleted gateway as reported
     assert snapshot.dependencies_by_region[AwsRegion.US_EAST_1]
 
 
@@ -83,11 +99,14 @@ def test_failed_route_tables_leave_security_groups_and_unresolve_dependents():
 
 
 def test_failed_gateway_operation_makes_route_targets_unresolved():
-    snapshot = collect(pages=pages({Op.DESCRIBE_INTERNET_GATEWAYS: [DENIED]}))
+    denied = {Op.DESCRIBE_INTERNET_GATEWAYS: [DENIED], Op.DESCRIBE_NAT_GATEWAYS: [DENIED]}
+    snapshot = collect(pages=pages(denied))
     deps = snapshot.dependencies_by_region[AwsRegion.US_EAST_1]
     route = next(d for d in deps if d.attributes.get("target_kind") == "internet_gateway")
     assert isinstance(route.target, UnresolvedTarget)
     assert "DescribeInternetGateways did not complete" in route.target.reason
+    nat = next(d for d in deps if d.attributes.get("target_kind") == "nat_gateway")
+    assert "DescribeNatGateways did not complete" in nat.target.reason
 
 
 def test_failed_rule_operation_falls_back_to_group_permissions():

@@ -6,6 +6,7 @@ from typer.testing import CliRunner
 
 from archdiscov.cli import app
 from archdiscov.ingestion import aws as aws_module
+from archdiscov.ingestion.aws import EC2_OPERATIONS
 from archdiscov.services import load_snapshot
 from tests.support.aws_fakes import Session
 from tests.support.iam_data import ACCOUNT, IamClient, IamSession, ec2_pages, responses
@@ -24,7 +25,7 @@ def test_collect_services_then_inspect_evidence_without_overwrite(tmp_path, monk
     assert result.exit_code == 0, result.output
     summary = json.loads(result.output)["accounts"][0]
     assert summary["complete"] is True
-    assert len(summary["operations"]) == (26 if combined else 8)
+    assert len(summary["operations"]) == (2 * len(EC2_OPERATIONS) + 8 if combined else 8)
     snapshot = load_snapshot(output)
     assert len(snapshot.global_resources) == 3
     assert len(snapshot.regions) == (2 if combined else 0)

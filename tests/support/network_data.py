@@ -75,6 +75,38 @@ INSTANCE = {
     "SecurityGroups": [{"GroupId": "sg-1"}, {"GroupId": "sg-gone"}],
 }
 ATTACHED_ENI = {**ENI, "Attachment": {"InstanceId": "i-1", "DeviceIndex": 0, "Status": "attached"}}
+NAT_GATEWAY = {
+    "NatGatewayId": "nat-1",
+    "VpcId": "vpc-1",
+    "SubnetId": "subnet-1",
+    "State": "available",
+    "ConnectivityType": "public",
+    "NatGatewayAddresses": [
+        {
+            "AllocationId": "eipalloc-1",
+            "NetworkInterfaceId": "eni-nat",
+            "PrivateIp": "10.0.1.9",
+            "PublicIp": "198.51.100.20",
+            "IsPrimary": True,
+        }
+    ],
+}
+EGRESS_ONLY_GATEWAY = {
+    "EgressOnlyInternetGatewayId": "eigw-1",
+    "Attachments": [{"State": "attached", "VpcId": "vpc-1"}],
+}
+PRIVATE_ROUTE_TABLE = {
+    "RouteTableId": "rtb-private",
+    "VpcId": "vpc-1",
+    "Routes": [
+        {"DestinationCidrBlock": "0.0.0.0/0", "NatGatewayId": "nat-1", "State": "active"},
+        {
+            "DestinationIpv6CidrBlock": "::/0",
+            "EgressOnlyInternetGatewayId": "eigw-1",
+            "State": "active",
+        },
+    ],
+}
 
 
 def region(items, unavailable=None) -> RegionResult:

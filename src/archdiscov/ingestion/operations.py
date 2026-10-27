@@ -16,6 +16,8 @@ class Ec2Operation(StrEnum):
     DESCRIBE_SECURITY_GROUPS = "DescribeSecurityGroups"
     DESCRIBE_SECURITY_GROUP_RULES = "DescribeSecurityGroupRules"
     DESCRIBE_NETWORK_INTERFACES = "DescribeNetworkInterfaces"
+    DESCRIBE_NAT_GATEWAYS = "DescribeNatGateways"
+    DESCRIBE_EGRESS_ONLY_INTERNET_GATEWAYS = "DescribeEgressOnlyInternetGateways"
 
 
 class IamOperation(StrEnum):

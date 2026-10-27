@@ -1,6 +1,6 @@
 # EC2 network collection mapping (step 13)
 
-`archdiscov collect` reads EC2 network configuration with six extra operations. Each resource is
+`archdiscov collect` reads EC2 network configuration with eight extra operations. Each resource is
 stored once; attachments are `attached_to` dependencies whose `attributes["kind"]` is an
 `AttachmentKind`. Nothing here concludes reachability or internet exposure.
 
@@ -8,8 +8,9 @@ stored once; attachments are `attached_to` dependencies whose `attributes["kind"
 
 `ec2:DescribeVpcs`, `ec2:DescribeSubnets`, `ec2:DescribeInstances`, `ec2:DescribeRouteTables`,
 `ec2:DescribeInternetGateways`, `ec2:DescribeNetworkAcls`, `ec2:DescribeSecurityGroups`,
-`ec2:DescribeSecurityGroupRules`, `ec2:DescribeNetworkInterfaces` (plus `sts:GetCallerIdentity`,
-and `sts:AssumeRole` for configured roles). All are allowlisted in
+`ec2:DescribeSecurityGroupRules`, `ec2:DescribeNetworkInterfaces`, `ec2:DescribeNatGateways`,
+`ec2:DescribeEgressOnlyInternetGateways` (plus `sts:GetCallerIdentity`, and `sts:AssumeRole` for
+configured roles). All are allowlisted in
 `archdiscov.ingestion.operations` and rejected otherwise before any client call. Each region and
 operation has one coverage record; zero results are `success`.
 
@@ -21,6 +22,8 @@ operation has one coverage record; zero results are `success`.
 | Internet gateway | `DescribeInternetGateways` | VPC (`Attachments[0].VpcId`) | `/attributes/attached_vpc_ids` ← `Attachments` |
 | Network ACL | `DescribeNetworkAcls` | VPC (`VpcId`) | `/entries/N` ← `NetworkAcls[i].Entries[n]` |
 | Security group | `DescribeSecurityGroups` + `DescribeSecurityGroupRules` | VPC (`VpcId`) | `/ingress_rules/N`, `/egress_rules/N` ← `SecurityGroupRules[k]` (or `SecurityGroups[i].IpPermissions[j]` as fallback) |
+| NAT gateway | `DescribeNatGateways` | Subnet (`SubnetId`), else VPC (a regional NAT gateway has no subnet) | `/state`, `/connectivity`, `/vpc_id`, `/subnet_id` ← same-named API fields; `/network_interface_id` ← the primary `NatGatewayAddresses[n].NetworkInterfaceId`; `/public_ips/N` ← `NatGatewayAddresses[n].PublicIp` |
+| Egress-only internet gateway | `DescribeEgressOnlyInternetGateways` | VPC (`Attachments[0].VpcId`) | `/vpc_id` ← `EgressOnlyInternetGateways[i].Attachments[n]` |
 | Network interface | `DescribeNetworkInterfaces` | Subnet, else VPC | `/private_ip_addresses`, `/public_ip`, `/mac_address` ← same-named API fields; `/ipv6_addresses/N` ← `NetworkInterfaces[i].Ipv6Addresses[n]` |
 
 VPCs and subnets (from `DescribeVpcs` and `DescribeSubnets`) add each IPv6 CIDR whose association
@@ -39,16 +42,18 @@ root) with `attributes.unresolved_parent`.
 | `kind` | Source → target | Source path cited |
 | --- | --- | --- |
 | `route_table_association` | route table → subnet (or VPC for the main association) | `RouteTables[i].Associations[n]` |
-| `route_target` | route table → IGW / network interface / instance (local); NAT, egress-only internet gateway, transit gateway, peering, endpoint → external | `RouteTables[i].Routes[n]` |
+| `route_target` | route table → IGW / NAT gateway / egress-only internet gateway / network interface / instance (local); transit gateway, peering, endpoint → external | `RouteTables[i].Routes[n]` |
 | `prefix_list_reference` | route table → prefix list a route's destination names, or security group → prefix list a rule names (external) | the route or rule entry |
 | `internet_gateway_attachment` | IGW → VPC | `InternetGateways[i].Attachments[n]` |
+| `egress_only_internet_gateway_attachment` | egress-only internet gateway → VPC, with the attachment `state` | `EgressOnlyInternetGateways[i].Attachments[n]` |
+| `nat_gateway_subnet`, `nat_gateway_interface` | NAT gateway → subnet, and → network interface | `NatGateways[i].SubnetId`, `NatGateways[i].NatGatewayAddresses[n].NetworkInterfaceId` |
 | `network_acl_association` | NACL → subnet | `NetworkAcls[i].Associations[n]` |
 | `instance_interface` | network interface → instance | `NetworkInterfaces[i].Attachment` |
 | `security_group_membership` | instance or interface → security group | `...SecurityGroups[n]` / `NetworkInterfaces[i].Groups[n]` |
 | `security_group_reference` | security group → referenced group (local, or external when another account) | the rule entry |
 
 Target kinds: a stored resource is `local`; a known resource outside the collection (other
-account's group, NAT, egress-only, transit gateway, peering, and endpoint targets, prefix lists) is
+account's group, transit gateway, peering, and endpoint targets, prefix lists) is
 `external` with its AWS type; a reference that cannot be resolved is `unresolved` with a reason and
 source path. When the operation that would have produced the target did not complete, the reason
 says so and no local target is guessed.
@@ -58,7 +63,10 @@ says so and no local target is guessed.
 - Failed operations are coverage failures; resources and facts that depend on them are omitted.
 - If `DescribeSecurityGroupRules` did not complete, rules come from group permissions (no rule
   IDs) and the group records the fallback in `attributes.limitations`.
-- Malformed values (invalid CIDR, port, or IPv6 address) are omitted with an
-  `attributes.limitations` entry.
+- Malformed values (invalid CIDR, port, or IP address) are omitted with an
+  `attributes.limitations` entry. A NAT gateway whose connectivity contradicts its addresses (an
+  available public gateway without one, or a private gateway with one) is recorded without
+  `connectivity`, with a limitation saying why.
+- NAT gateways are recorded in every reported state, including `deleted` and `failed`.
 - Free-text `Description` values in network evidence and tag values under secret-named keys are
   redacted and listed in `redacted_paths`.

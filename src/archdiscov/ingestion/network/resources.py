@@ -1,16 +1,18 @@
 """Normalize route tables, gateways, NACLs, security groups, and network interfaces."""
 
 from dataclasses import dataclass
-from ipaddress import AddressValueError, IPv6Address
+from ipaddress import AddressValueError, IPv4Address, IPv6Address
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from ...models.enums import NaclAction, RouteTargetKind, RuleDirection
+from ...models.enums import NaclAction, NatConnectivity, RouteTargetKind, RuleDirection
 from ...models.resource_base import Resource
 from ...models.resources.network import (
+    EgressOnlyInternetGateway,
     InternetGateway,
     NaclEntry,
+    NatGateway,
     NetworkAcl,
     NetworkInterface,
     PrivateIpAddress,
@@ -105,12 +107,12 @@ def _validated[M: BaseModel](
     return None
 
 
-def _ipv6_address(value: Any) -> IPv6Address | None:
-    # IPv6Address also accepts an integer, which the API never reports.
+def _ip_address[A: (IPv4Address, IPv6Address)](kind: type[A], value: Any) -> A | None:
+    # The address classes also accept an integer, which the API never reports.
     if not isinstance(value, str):
         return None
     try:
-        return IPv6Address(value)
+        return kind(value)
     except AddressValueError:
         return None
 
@@ -397,7 +399,7 @@ class NetworkNormalizer(EvidenceBuilder):
             return None
         out = []
         for i, raw in enumerate(item["Ipv6Addresses"] or []):
-            address = _ipv6_address(raw.get("Ipv6Address"))
+            address = _ip_address(IPv6Address, raw.get("Ipv6Address"))
             if address is None:
                 limitations.append(
                     f"{path}.Ipv6Addresses[{i}]: invalid value for Ipv6Address was omitted"
@@ -477,3 +479,123 @@ class NetworkNormalizer(EvidenceBuilder):
             vpc_id=item.get("VpcId"),
             subnet_id=item.get("SubnetId"),
         )
+
+    def nat_gateway(self, index: int, item: dict[str, Any]) -> Normalized:
+        path, limitations = f"NatGateways[{index}]", []
+        tags = tags_of(item)
+        addresses = list(enumerate(item.get("NatGatewayAddresses") or []))
+        public: list[tuple[int, IPv4Address]] = []
+        for i, raw in addresses:
+            if raw.get("PublicIp") is None:
+                continue
+            address = _ip_address(IPv4Address, raw["PublicIp"])
+            if address is None:
+                limitations.append(
+                    f"{path}.NatGatewayAddresses[{i}]: invalid value for PublicIp was omitted"
+                )
+            else:
+                public.append((i, address))
+        interfaces = [(i, raw) for i, raw in addresses if raw.get("NetworkInterfaceId")]
+        fallback = interfaces[0] if interfaces else None
+        interface = next((x for x in interfaces if x[1].get("IsPrimary")), fallback)
+        connectivity = self._nat_connectivity(path, item, limitations)
+        facts = {
+            pointer: (field, item[field])
+            for pointer, field in (
+                ("/state", "State"),
+                ("/vpc_id", "VpcId"),
+                ("/subnet_id", "SubnetId"),
+            )
+            if item.get(field)
+        }
+        if connectivity is not None:
+            facts["/connectivity"] = ("ConnectivityType", item["ConnectivityType"])
+        if tags:
+            facts["/attributes/tags"] = ("Tags", item.get("Tags"))
+
+        def build(connectivity: NatConnectivity | None) -> Resource:
+            return self._build(
+                NatGateway,
+                operation=Op.DESCRIBE_NAT_GATEWAYS,
+                item_path=path,
+                item=item,
+                physical_id=item["NatGatewayId"],
+                name=tags.get("Name"),
+                attributes={"tags": tags or None},
+                facts=facts,
+                state=item.get("State") or None,
+                connectivity=connectivity,
+                vpc_id=item.get("VpcId") or None,
+                subnet_id=item.get("SubnetId") or None,
+                network_interface_id=interface[1]["NetworkInterfaceId"] if interface else None,
+                public_ips=[address for _, address in public],
+            )
+
+        try:
+            resource = build(connectivity)
+        except ValidationError as error:
+            # A model-level error has no field location; only the public-address rules raise one.
+            if any(detail["loc"] for detail in error.errors()):
+                raise
+            limitations.append(f"{path}: {error.errors()[0]['msg']}; ConnectivityType was omitted")
+            facts.pop("/connectivity", None)
+            resource = build(None)
+        address_path = f"{path}.NatGatewayAddresses"
+        if interface is not None:
+            i, raw = interface
+            field = f"{address_path}[{i}].NetworkInterfaceId"
+            self.cite(
+                resource,
+                "/network_interface_id",
+                Op.DESCRIBE_NAT_GATEWAYS,
+                field,
+                raw["NetworkInterfaceId"],
+            )
+        for n, (i, address) in enumerate(public):
+            field = f"{address_path}[{i}].PublicIp"
+            self.cite(resource, f"/public_ips/{n}", Op.DESCRIBE_NAT_GATEWAYS, field, str(address))
+        self._with_limitations(resource, limitations)
+        return Normalized(
+            resource,
+            item,
+            path,
+            Op.DESCRIBE_NAT_GATEWAYS,
+            vpc_id=item.get("VpcId"),
+            subnet_id=item.get("SubnetId"),
+        )
+
+    @staticmethod
+    def _nat_connectivity(
+        path: str, item: dict[str, Any], limitations: list[str]
+    ) -> NatConnectivity | None:
+        value = item.get("ConnectivityType")
+        if value is None:
+            return None
+        try:
+            return NatConnectivity(value)
+        except ValueError:
+            limitations.append(f"{path}: invalid value for ConnectivityType was omitted")
+            return None
+
+    def egress_only_internet_gateway(self, index: int, item: dict[str, Any]) -> Normalized:
+        path = f"EgressOnlyInternetGateways[{index}]"
+        op = Op.DESCRIBE_EGRESS_ONLY_INTERNET_GATEWAYS
+        tags = tags_of(item)
+        attachments = enumerate(item.get("Attachments") or [])
+        attached = next(((i, a) for i, a in attachments if a.get("VpcId")), None)
+        vpc_id = attached[1]["VpcId"] if attached else None
+        resource = self._build(
+            EgressOnlyInternetGateway,
+            operation=op,
+            item_path=path,
+            item=item,
+            physical_id=item["EgressOnlyInternetGatewayId"],
+            name=tags.get("Name"),
+            attributes={"tags": tags or None},
+            facts={"/attributes/tags": ("Tags", item.get("Tags"))} if tags else {},
+            vpc_id=vpc_id,
+        )
+        if attached is not None:
+            i, attachment = attached
+            self.cite(resource, "/vpc_id", op, f"{path}.Attachments[{i}]", attachment)
+        return Normalized(resource, item, path, op, vpc_id=vpc_id)

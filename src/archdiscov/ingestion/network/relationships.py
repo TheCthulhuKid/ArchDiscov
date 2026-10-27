@@ -21,7 +21,7 @@ from ...models.enums import (
     ResourceType,
     RouteTargetKind,
 )
-from ...models.resources.network import SecurityGroup, SecurityGroupRule
+from ...models.resources.network import NatGateway, SecurityGroup, SecurityGroupRule
 from ..evidence_builder import EvidenceBuilder
 from ..operations import Ec2Operation as Op
 from .resources import Normalized, classify_route_target, destination
@@ -36,6 +36,8 @@ _COLLECTED_BY = {
     RT.INTERNET_GATEWAY: Op.DESCRIBE_INTERNET_GATEWAYS,
     RT.SECURITY_GROUP: Op.DESCRIBE_SECURITY_GROUPS,
     RT.NETWORK_INTERFACE: Op.DESCRIBE_NETWORK_INTERFACES,
+    RT.NAT_GATEWAY: Op.DESCRIBE_NAT_GATEWAYS,
+    RT.EGRESS_ONLY_INTERNET_GATEWAY: Op.DESCRIBE_EGRESS_ONLY_INTERNET_GATEWAYS,
 }
 _ROUTE_TARGET_TYPES = {
     RK.INTERNET_GATEWAY: RT.INTERNET_GATEWAY,
@@ -177,20 +179,38 @@ class RelationshipBuilder:
             self._link(entry, target, AttachmentKind.PREFIX_LIST_REFERENCE, path, route)
 
     def _internet_gateway(self, entry: Normalized) -> None:
+        self._gateway_attachments(entry, AttachmentKind.INTERNET_GATEWAY_ATTACHMENT)
+
+    def _egress_only_internet_gateway(self, entry: Normalized) -> None:
+        self._gateway_attachments(entry, AttachmentKind.EGRESS_ONLY_INTERNET_GATEWAY_ATTACHMENT)
+
+    def _gateway_attachments(self, entry: Normalized, kind: AttachmentKind) -> None:
         for i, attachment in enumerate(entry.item.get("Attachments") or []):
             vpc_id = attachment.get("VpcId")
             if not vpc_id:
                 continue
             path = f"{entry.path}.Attachments[{i}]"
             target = self._resolve(ResourceType.VPC, vpc_id, f"{path}.VpcId")
-            self._link(
-                entry,
-                target,
-                AttachmentKind.INTERNET_GATEWAY_ATTACHMENT,
-                path,
-                attachment,
-                state=attachment.get("State"),
-            )
+            self._link(entry, target, kind, path, attachment, state=attachment.get("State"))
+
+    def _nat_gateway(self, entry: Normalized) -> None:
+        nat = entry.resource
+        if not isinstance(nat, NatGateway):
+            raise TypeError("a NAT gateway entry holds a NatGateway")
+        for ref, target_type, pointer, kind in (
+            (nat.subnet_id, RT.SUBNET, "/subnet_id", AttachmentKind.NAT_GATEWAY_SUBNET),
+            (
+                nat.network_interface_id,
+                RT.NETWORK_INTERFACE,
+                "/network_interface_id",
+                AttachmentKind.NAT_GATEWAY_INTERFACE,
+            ),
+        ):
+            if ref is None:
+                continue
+            evidence_id = nat.fact_evidence[pointer][0]
+            source_path = self.builder.evidence[evidence_id].configuration_path
+            self._add(entry, self._resolve(target_type, ref, source_path), kind, evidence_id, {})
 
     def _network_acl(self, entry: Normalized) -> None:
         for i, assoc in enumerate(entry.item.get("Associations") or []):
@@ -287,6 +307,8 @@ _HANDLERS: dict[ResourceType, Callable[[RelationshipBuilder, Normalized], None]]
     ResourceType.INTERNET_GATEWAY: RelationshipBuilder._internet_gateway,
     ResourceType.NETWORK_ACL: RelationshipBuilder._network_acl,
     ResourceType.EC2_INSTANCE: RelationshipBuilder._instance,
+    ResourceType.NAT_GATEWAY: RelationshipBuilder._nat_gateway,
+    ResourceType.EGRESS_ONLY_INTERNET_GATEWAY: RelationshipBuilder._egress_only_internet_gateway,
 }
 
 

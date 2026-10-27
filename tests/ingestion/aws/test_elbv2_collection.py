@@ -2,6 +2,7 @@ import json
 
 from botocore.exceptions import ClientError
 
+from archdiscov.ingestion.aws import EC2_OPERATIONS
 from archdiscov.ingestion.elbv2.relationships import walk_resources
 from archdiscov.ingestion.requests import AwsCollectionRequest
 from archdiscov.models.enums import AwsService
@@ -38,7 +39,8 @@ def test_combined_services_keep_regional_ec2_and_global_iam_intact(tmp_path):
     result = collect_and_save(request, [tmp_path / "all.json"], context=context(session))[0]
     assert result.error is None
     snap = load_snapshot(result.path)
-    assert len(snap.coverage.operations) == 23
+    # Each EC2 read, six ELBv2 reads, and eight IAM reads.
+    assert len(snap.coverage.operations) == len(EC2_OPERATIONS) + 6 + 8
     assert len(snap.global_resources) == 3
     roots = snap.regions["us-east-1"].resources
     assert len(roots) == 1

@@ -85,6 +85,12 @@ def normalize_region(
         entries.append(net.security_group(i, item, rules))
     for i, item in collect(Op.DESCRIBE_NETWORK_INTERFACES, "NetworkInterfaceId"):
         entries.append(net.network_interface(i, item))
+    for i, item in collect(Op.DESCRIBE_NAT_GATEWAYS, "NatGatewayId"):
+        entries.append(net.nat_gateway(i, item))
+    for i, item in collect(
+        Op.DESCRIBE_EGRESS_ONLY_INTERNET_GATEWAYS, "EgressOnlyInternetGatewayId"
+    ):
+        entries.append(net.egress_only_internet_gateway(i, item))
 
     roots = place(entries)
     dependencies = build_dependencies(net, entries, unavailable)

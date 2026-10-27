@@ -4,6 +4,7 @@ from archdiscov.models.enums import ResourceType, RouteTargetKind, RuleDirection
 from tests.support.network_data import (
     ENI,
     FULL,
+    NAT_GATEWAY,
     SG,
     SUBNET,
     VPC,
@@ -178,15 +179,20 @@ def test_malformed_values_degrade_with_limitations_instead_of_failing():
         ],
     }
     eni = {**ENI, "Ipv6Addresses": [{"Ipv6Address": "10.0.1.6"}]}
+    nat = {**NAT_GATEWAY, "NatGatewayAddresses": []}  # available and public, with no address
     result = region(
         {
             Op.DESCRIBE_VPCS: [VPC],
             Op.DESCRIBE_SECURITY_GROUPS: [group],
             Op.DESCRIBE_SECURITY_GROUP_RULES: [],
             Op.DESCRIBE_NETWORK_INTERFACES: [eni],
+            Op.DESCRIBE_NAT_GATEWAYS: [nat],
         },
         {Op.DESCRIBE_SECURITY_GROUP_RULES: "x"},
     )
+    gateway = by_id(result)["nat-1"]
+    assert gateway.connectivity is None and "/connectivity" not in gateway.fact_evidence
+    assert "ConnectivityType was omitted" in gateway.attributes["limitations"][0]
     interface = by_id(result)["eni-1"]
     assert interface.ipv6_addresses == []
     assert "Ipv6Addresses[0]: invalid value" in interface.attributes["limitations"][0]
