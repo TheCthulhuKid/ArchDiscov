@@ -1,4 +1,4 @@
-# EC2 network collection mapping (step 13)
+# EC2 network collection mapping (steps 13 and 50)
 
 `archdiscov collect` reads EC2 network configuration with eighteen extra operations. Each resource
 is stored once; attachments are `attached_to` dependencies whose `attributes["kind"]` is an
@@ -88,7 +88,8 @@ guessed.
 - Each prefix list's entries are read with one `GetManagedPrefixListEntries` call of at most 100
   entries (the API's largest page). A list with more, a denied or failed read, or any invalid entry
   leaves `entries` unset (not recorded), never a partial list; the first two mark that operation's
-  coverage incomplete. With no list collected, the entries read is `skipped`.
+  coverage incomplete, or failed when no list's read succeeded. With no list collected, the entries
+  read is `skipped`.
 - Each transit gateway route table's routes are read with one `SearchTransitGatewayRoutes` call of
   at most 1000 routes (the API's largest), filtered to static and propagated routes, and never
   repeated to read past it. When the search reports more, the routes returned are kept,

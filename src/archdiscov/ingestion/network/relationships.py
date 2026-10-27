@@ -96,7 +96,7 @@ class RelationshipBuilder:
         op = _COLLECTED_BY.get(kind) if kind is not None else None
         if op is None:
             return self._external(ref, kind)
-        if kind is not None and (kind, ref) in self.shared:
+        if (kind, ref) in self.shared:
             return self._external(ref, kind, self.shared[(kind, ref)])
         target = self.index.get((kind, ref))
         if target is not None:

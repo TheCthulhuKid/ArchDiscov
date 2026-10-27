@@ -5,6 +5,7 @@ from botocore.exceptions import ClientError
 from typer.testing import CliRunner
 
 from archdiscov.cli import app
+from archdiscov.graph import GraphIndex
 from archdiscov.ingestion import aws as aws_module
 from archdiscov.ingestion.adapter import AdapterContext, IngestionError
 from archdiscov.ingestion.aws import EC2_OPERATIONS, OperationRunner, OperationTask
@@ -17,24 +18,18 @@ from archdiscov.ingestion.service_catalog import REGIONAL_OPERATIONS
 from archdiscov.models.architecture import UnresolvedTarget
 from archdiscov.models.enums import AwsRegion, AwsService
 from archdiscov.services import collect_and_save, collect_snapshots, load_snapshot
+from archdiscov.services.analysis_execution import run_analyzer
 from tests.support import aws_fakes
 from tests.support.aws_fakes import ACCOUNT, Session, make_context, request
 from tests.support.network_data import (
     ATTACHED_ENI,
-    EGRESS_ONLY_GATEWAY,
     FULL,
-    GATEWAY_ENDPOINT,
     INSTANCE,
-    INTERFACE_ENDPOINT,
     NAT_GATEWAY,
-    PEERING,
     PREFIX_LIST_ENTRIES,
-    PREFIX_LISTS,
     PRIVATE_ROUTE_TABLE,
-    TRANSIT_GATEWAY,
-    TRANSIT_GATEWAY_ATTACHMENTS,
-    TRANSIT_GATEWAY_ROUTE_TABLE,
     TRANSIT_GATEWAY_TABLE_PAGES,
+    element_pages,
 )
 
 KEYS = dict(EC2_OPERATIONS)
@@ -43,14 +38,6 @@ ITEMS = {
     Op.DESCRIBE_INSTANCES: [{"Instances": [INSTANCE]}],
     Op.DESCRIBE_NETWORK_INTERFACES: [ATTACHED_ENI],
     Op.DESCRIBE_ROUTE_TABLES: [*FULL[Op.DESCRIBE_ROUTE_TABLES], PRIVATE_ROUTE_TABLE],
-    Op.DESCRIBE_NAT_GATEWAYS: [NAT_GATEWAY],
-    Op.DESCRIBE_EGRESS_ONLY_INTERNET_GATEWAYS: [EGRESS_ONLY_GATEWAY],
-    Op.DESCRIBE_VPC_PEERING_CONNECTIONS: [PEERING],
-    Op.DESCRIBE_VPC_ENDPOINTS: [GATEWAY_ENDPOINT, INTERFACE_ENDPOINT],
-    Op.DESCRIBE_MANAGED_PREFIX_LISTS: PREFIX_LISTS,
-    Op.DESCRIBE_TRANSIT_GATEWAYS: [TRANSIT_GATEWAY],
-    Op.DESCRIBE_TRANSIT_GATEWAY_ATTACHMENTS: TRANSIT_GATEWAY_ATTACHMENTS[:1],
-    Op.DESCRIBE_TRANSIT_GATEWAY_ROUTE_TABLES: [TRANSIT_GATEWAY_ROUTE_TABLE],
 }
 DENIED = ClientError({"Error": {"Code": "UnauthorizedOperation"}}, "DescribeRouteTables")
 
@@ -59,19 +46,11 @@ def snake(operation: Op) -> str:
     return "".join(f"_{c.lower()}" if c.isupper() else c for c in operation.value).lstrip("_")
 
 
-def entries(PrefixListId, **params):
-    return PREFIX_LIST_ENTRIES[PrefixListId]
-
-
 def pages(overrides=None):
     def factory(region):
         data = {op: [{KEYS[op]: items}] for op, items in ITEMS.items()}
-        data[Op.GET_MANAGED_PREFIX_LIST_ENTRIES] = entries
         data.update(overrides or {})
-        methods = {snake(op): page for op, page in data.items()}
-        for method, page in TRANSIT_GATEWAY_TABLE_PAGES.items():
-            methods.setdefault(method, lambda page=page, **params: page)
-        return methods
+        return {**element_pages(), **{snake(op): page for op, page in data.items()}}
 
     return factory
 
@@ -208,6 +187,39 @@ def test_route_search_bound_and_denied_associations_keep_the_table():
     assert search.status == "incomplete"
     assert "stopped at 1000 routes" in search.unresolved_values[0].reason
     assert status["GetTransitGatewayRouteTableAssociations"].status == "failed"
+
+
+def test_new_elements_leave_ipv4_analysis_unchanged():
+    """The primitives do not decide the new elements yet, so recording them changes nothing."""
+    without = {
+        op: [{KEYS[op]: []}]
+        for op in (
+            Op.DESCRIBE_NAT_GATEWAYS,
+            Op.DESCRIBE_EGRESS_ONLY_INTERNET_GATEWAYS,
+            Op.DESCRIBE_VPC_PEERING_CONNECTIONS,
+            Op.DESCRIBE_VPC_ENDPOINTS,
+            Op.DESCRIBE_MANAGED_PREFIX_LISTS,
+            Op.DESCRIBE_TRANSIT_GATEWAYS,
+            Op.DESCRIBE_TRANSIT_GATEWAY_ATTACHMENTS,
+            Op.DESCRIBE_TRANSIT_GATEWAY_ROUTE_TABLES,
+        )
+    }
+    group = f"{ACCOUNT}/us-east-1/ec2/physical/sg-1"  # the interface endpoint's group
+    results = []
+    for factory in (pages(), pages(without)):
+        index = GraphIndex(collect(pages=factory))
+        results.append(
+            [
+                run_analyzer(index, parameters).model_dump(mode="json", exclude={"created_at"})
+                for parameters in (
+                    {"kind": "internet_exposure"},
+                    {"kind": "security_group_impact", "resource_id": group},
+                )
+            ]
+        )
+    with_elements, without_elements = results
+    assert with_elements[0]["findings"]  # the public instance is a finding
+    assert with_elements == without_elements
 
 
 def test_zero_results_remain_successful():

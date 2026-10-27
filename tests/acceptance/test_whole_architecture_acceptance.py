@@ -8,7 +8,14 @@ from archdiscov.cli import app
 from archdiscov.ingestion import aws
 from archdiscov.ingestion.configuration_relationships import walk_resources
 from archdiscov.ingestion.requests import COLLECTABLE_SERVICES
-from archdiscov.models.enums import AttachmentKind, AwsRegion, AwsService, CoverageStatus
+from archdiscov.ingestion.service_catalog import REGIONAL_OPERATIONS
+from archdiscov.models.enums import (
+    AttachmentKind,
+    AwsRegion,
+    AwsService,
+    CoverageStatus,
+    ResourceType,
+)
 from archdiscov.models.resources.load_balancing import Listener
 from archdiscov.services import load_snapshot
 from tests.support.account_assembly import Session as AssemblySession
@@ -38,6 +45,18 @@ SECRETS = (
     "acceptance-ecs-secret",
     "acceptance-ec2-secret",
 )
+
+
+NETWORK_ELEMENTS = {
+    ResourceType.NAT_GATEWAY,
+    ResourceType.EGRESS_ONLY_INTERNET_GATEWAY,
+    ResourceType.VPC_PEERING_CONNECTION,
+    ResourceType.VPC_ENDPOINT,
+    ResourceType.MANAGED_PREFIX_LIST,
+    ResourceType.TRANSIT_GATEWAY,
+    ResourceType.TRANSIT_GATEWAY_ATTACHMENT,
+    ResourceType.TRANSIT_GATEWAY_ROUTE_TABLE,
+}
 
 
 def for_account(value, account):
@@ -178,6 +197,7 @@ def assert_inventory(snapshot, account, regions=REGIONS, scope="enabled"):
             AwsService.IAM
         }
         assert all(resource.identity.region == region for resource in resources)
+        assert {resource.resource_type for resource in resources} >= NETWORK_ELEMENTS
         all_resources.extend(resources)
     assert all(resource.identity.account_id == account for resource in all_resources)
     assert len({resource.id for resource in all_resources}) == len(all_resources)
@@ -205,6 +225,8 @@ def assert_inventory(snapshot, account, regions=REGIONS, scope="enabled"):
     assert len({(op.region, op.service, op.operation) for op in operations}) == len(operations)
     assert all(op.region == AwsRegion.GLOBAL for op in operations if op.service == AwsService.IAM)
     for region in regions:
+        ec2 = {op.operation for op in operations if op.region == region and op.service == "ec2"}
+        assert ec2 == set(REGIONAL_OPERATIONS[AwsService.EC2])
         queues = next(
             op for op in operations if op.region == region and op.operation == "ListQueues"
         )

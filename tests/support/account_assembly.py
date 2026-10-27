@@ -11,6 +11,7 @@ from tests.support.elbv2_data import responses as elbv2_responses
 from tests.support.iam_data import PROFILE_ARN, IamClient
 from tests.support.lambda_data import Client as LambdaClient
 from tests.support.lambda_data import configuration
+from tests.support.network_data import element_pages
 from tests.support.rds_data import Client as RdsClient
 from tests.support.rds_data import data as rds_data
 from tests.support.sqs_data import Client as SqsClient
@@ -42,7 +43,7 @@ class Session:
         self.clients = {}
         self.pages = {}
         for region in REGIONS:
-            pages = ec2_pages(region)
+            pages = {**ec2_pages(region), **element_pages()}
             instance = pages["describe_instances"][0]["Reservations"][0]["Instances"][0]
             instance["IamInstanceProfile"] = {"Arn": PROFILE_ARN}
             if partial:

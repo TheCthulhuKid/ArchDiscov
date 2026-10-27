@@ -235,6 +235,34 @@ PRIVATE_ROUTE_TABLE = {
 }
 
 
+def element_pages() -> dict:
+    """Fake-client pages for every element read beyond FULL: NAT and egress-only gateways,
+    peering, endpoints, prefix lists, and transit gateways, with their detail reads."""
+    return {
+        "describe_nat_gateways": [{"NatGateways": [NAT_GATEWAY]}],
+        "describe_egress_only_internet_gateways": [
+            {"EgressOnlyInternetGateways": [EGRESS_ONLY_GATEWAY]}
+        ],
+        "describe_vpc_peering_connections": [{"VpcPeeringConnections": [PEERING]}],
+        "describe_vpc_endpoints": [{"VpcEndpoints": [GATEWAY_ENDPOINT, INTERFACE_ENDPOINT]}],
+        "describe_managed_prefix_lists": [{"PrefixLists": PREFIX_LISTS}],
+        "get_managed_prefix_list_entries": lambda PrefixListId, **_: PREFIX_LIST_ENTRIES[
+            PrefixListId
+        ],
+        "describe_transit_gateways": [{"TransitGateways": [TRANSIT_GATEWAY]}],
+        "describe_transit_gateway_attachments": [
+            {"TransitGatewayAttachments": TRANSIT_GATEWAY_ATTACHMENTS[:1]}
+        ],
+        "describe_transit_gateway_route_tables": [
+            {"TransitGatewayRouteTables": [TRANSIT_GATEWAY_ROUTE_TABLE]}
+        ],
+        **{
+            method: (lambda page=page, **_: page)
+            for method, page in TRANSIT_GATEWAY_TABLE_PAGES.items()
+        },
+    }
+
+
 def region(items, unavailable=None, **details) -> RegionResult:
     return normalize_region(SNAPSHOT_ID, ACCOUNT, REGION, items, unavailable, **details)
 
