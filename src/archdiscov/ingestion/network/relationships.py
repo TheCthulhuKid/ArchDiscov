@@ -16,6 +16,7 @@ from ...models.architecture import (
 )
 from ...models.enums import (
     AttachmentKind,
+    AwsRegion,
     AwsService,
     DependencyRelationship,
     ResourceType,
@@ -38,6 +39,7 @@ _COLLECTED_BY = {
     RT.NETWORK_INTERFACE: Op.DESCRIBE_NETWORK_INTERFACES,
     RT.NAT_GATEWAY: Op.DESCRIBE_NAT_GATEWAYS,
     RT.EGRESS_ONLY_INTERNET_GATEWAY: Op.DESCRIBE_EGRESS_ONLY_INTERNET_GATEWAYS,
+    RT.VPC_PEERING_CONNECTION: Op.DESCRIBE_VPC_PEERING_CONNECTIONS,
 }
 _ROUTE_TARGET_TYPES = {
     RK.INTERNET_GATEWAY: RT.INTERNET_GATEWAY,
@@ -49,6 +51,14 @@ _ROUTE_TARGET_TYPES = {
     RK.VPC_PEERING: RT.VPC_PEERING_CONNECTION,
     RK.VPC_ENDPOINT: RT.VPC_ENDPOINT,
 }
+
+
+def _region(value: Any) -> AwsRegion | None:
+    """A reported region code, or None when absent or not a known region."""
+    try:
+        return AwsRegion(value) if value else None
+    except ValueError:
+        return None
 
 
 class RelationshipBuilder:
@@ -80,12 +90,17 @@ class RelationshipBuilder:
         return UnresolvedTarget(reason=reason, source_path=source_path)
 
     def _external(
-        self, identifier: str, aws_type: str | None, account_id: str | None = None
+        self,
+        identifier: str,
+        aws_type: str | None,
+        account_id: str | None = None,
+        region: AwsRegion | None = None,
     ) -> ExternalTarget:
+        """A target outside the snapshot; its region is this one unless it names an account."""
         return ExternalTarget(
             identifier=identifier,
             account_id=account_id,
-            region=None if account_id else self.builder.region,
+            region=region or (None if account_id else self.builder.region),
             service=AwsService.EC2,
             aws_resource_type=aws_type,
         )
@@ -192,6 +207,27 @@ class RelationshipBuilder:
             path = f"{entry.path}.Attachments[{i}]"
             target = self._resolve(ResourceType.VPC, vpc_id, f"{path}.VpcId")
             self._link(entry, target, kind, path, attachment, state=attachment.get("State"))
+
+    def _vpc_peering_connection(self, entry: Normalized) -> None:
+        """Each side's VPC: stored when in this account and region, else external."""
+        for field, pointer, kind in (
+            ("RequesterVpcInfo", "/requester", AttachmentKind.PEERING_REQUESTER_VPC),
+            ("AccepterVpcInfo", "/accepter", AttachmentKind.PEERING_ACCEPTER_VPC),
+        ):
+            info = entry.item.get(field) or {}
+            vpc_id = info.get("VpcId")
+            if not vpc_id:
+                continue
+            owner, region = info.get("OwnerId"), info.get("Region")
+            # Compare the reported region, so one this code does not know is still elsewhere.
+            if owner not in (None, self.builder.account_id) or region not in (
+                None,
+                self.builder.region.value,
+            ):
+                target = self._external(vpc_id, RT.VPC, owner, _region(region))
+            else:
+                target = self._resolve(RT.VPC, vpc_id, f"{entry.path}.{field}.VpcId")
+            self._add(entry, target, kind, entry.resource.fact_evidence[pointer][0], {})
 
     def _nat_gateway(self, entry: Normalized) -> None:
         nat = entry.resource
@@ -309,6 +345,7 @@ _HANDLERS: dict[ResourceType, Callable[[RelationshipBuilder, Normalized], None]]
     ResourceType.EC2_INSTANCE: RelationshipBuilder._instance,
     ResourceType.NAT_GATEWAY: RelationshipBuilder._nat_gateway,
     ResourceType.EGRESS_ONLY_INTERNET_GATEWAY: RelationshipBuilder._egress_only_internet_gateway,
+    ResourceType.VPC_PEERING_CONNECTION: RelationshipBuilder._vpc_peering_connection,
 }
 
 

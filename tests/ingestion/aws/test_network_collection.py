@@ -20,6 +20,7 @@ from tests.support.network_data import (
     FULL,
     INSTANCE,
     NAT_GATEWAY,
+    PEERING,
     PRIVATE_ROUTE_TABLE,
 )
 
@@ -31,6 +32,7 @@ ITEMS = {
     Op.DESCRIBE_ROUTE_TABLES: [*FULL[Op.DESCRIBE_ROUTE_TABLES], PRIVATE_ROUTE_TABLE],
     Op.DESCRIBE_NAT_GATEWAYS: [NAT_GATEWAY],
     Op.DESCRIBE_EGRESS_ONLY_INTERNET_GATEWAYS: [EGRESS_ONLY_GATEWAY],
+    Op.DESCRIBE_VPC_PEERING_CONNECTIONS: [PEERING],
 }
 DENIED = ClientError({"Error": {"Code": "UnauthorizedOperation"}}, "DescribeRouteTables")
 
@@ -71,6 +73,7 @@ def test_collection_emits_schema_two_with_network_resources_and_relationships():
         "AWS::EC2::NetworkInterface",
         "AWS::EC2::NatGateway",
         "AWS::EC2::EgressOnlyInternetGateway",
+        "AWS::EC2::VPCPeeringConnection",
     } <= kinds
     assert {o.operation for o in snapshot.coverage.operations} == {o.value for o in KEYS}
     assert {o.status for o in snapshot.coverage.operations} == {"success"}

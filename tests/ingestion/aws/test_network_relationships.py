@@ -9,6 +9,7 @@ from tests.support.network_data import (
     FULL,
     INSTANCE,
     NAT_GATEWAY,
+    PEERING,
     PRIVATE_ROUTE_TABLE,
     SG,
     SUBNET,
@@ -86,18 +87,33 @@ def test_network_acl_association_targets_subnet():
     assert dep.attributes["association_id"] == "aclassoc-1"
 
 
-def test_route_targets_local_igw_and_external_peering():
-    result, _ = build()
+def test_route_targets_and_peering_sides_resolve_locally_or_externally():
+    foreign = {
+        **PEERING,
+        "VpcPeeringConnectionId": "pcx-2",
+        "AccepterVpcInfo": {"VpcId": "vpc-9", "OwnerId": "210987654321", "Region": "us-east-1"},
+    }
+    result, _ = build({**ITEMS, Op.DESCRIBE_VPC_PEERING_CONNECTIONS: [PEERING, foreign]})
     routes = {d.attributes["target_kind"]: d for d in deps(result, Kind.ROUTE_TARGET)}
     assert set(routes) == {"internet_gateway", "vpc_peering"}  # "local" routes add no link
     assert routes["internet_gateway"].target == LocalTarget(resource_id=rid("igw-1"))
     assert routes["internet_gateway"].attributes["destination"] == "0.0.0.0/0"
-    peering = routes["vpc_peering"].target
-    assert isinstance(peering, ExternalTarget)
-    assert peering.identifier == "pcx-1"
-    assert peering.aws_resource_type == "AWS::EC2::VPCPeeringConnection"
+    assert routes["vpc_peering"].target == LocalTarget(resource_id=rid("pcx-1"))
     cited = result.evidence[routes["vpc_peering"].evidence_ids[0]]
     assert cited.configuration_path == "RouteTables[0].Routes[2]"
+
+    connection = by_id(result)["pcx-1"]
+    assert connection in result.architecture.resources  # a regional root, in neither VPC
+    assert connection.state == "active"
+    assert [str(c) for c in connection.accepter.cidr_blocks] == ["10.8.0.0/16"]
+    (requester,) = deps(result, Kind.PEERING_REQUESTER_VPC, "pcx-1")
+    assert requester.target == LocalTarget(resource_id=rid("vpc-1"))
+    (accepter,) = deps(result, Kind.PEERING_ACCEPTER_VPC, "pcx-1")
+    assert "vpc-2 was not present" in accepter.target.reason
+    assert accepter.target.source_path == "VpcPeeringConnections[0].AccepterVpcInfo.VpcId"
+    (other,) = deps(result, Kind.PEERING_ACCEPTER_VPC, "pcx-2")
+    assert isinstance(other.target, ExternalTarget)
+    assert (other.target.account_id, other.target.region) == ("210987654321", "us-east-1")
 
 
 def test_unsupported_and_unparseable_route_targets():

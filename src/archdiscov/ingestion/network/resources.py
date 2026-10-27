@@ -15,11 +15,13 @@ from ...models.resources.network import (
     NatGateway,
     NetworkAcl,
     NetworkInterface,
+    PeeringSide,
     PrivateIpAddress,
     Route,
     RouteTable,
     SecurityGroup,
     SecurityGroupRule,
+    VpcPeeringConnection,
 )
 from ..evidence_builder import EvidenceBuilder, tags_of
 from ..operations import Ec2Operation as Op
@@ -115,6 +117,19 @@ def _ip_address[A: (IPv4Address, IPv6Address)](kind: type[A], value: Any) -> A |
         return kind(value)
     except AddressValueError:
         return None
+
+
+def _peering_side(info: dict[str, Any]) -> PeeringSide:
+    """One side of a peering connection; its CIDR sets when reported, else its primary CIDR."""
+    ipv4 = [c["CidrBlock"] for c in info.get("CidrBlockSet") or [] if c.get("CidrBlock")]
+    if not ipv4 and info.get("CidrBlock"):
+        ipv4 = [info["CidrBlock"]]
+    ipv6 = [
+        c["Ipv6CidrBlock"] for c in info.get("Ipv6CidrBlockSet") or [] if c.get("Ipv6CidrBlock")
+    ]
+    return PeeringSide(
+        vpc_id=info.get("VpcId"), owner_id=info.get("OwnerId"), cidr_blocks=[*ipv4, *ipv6]
+    )
 
 
 def _protocol(value: Any) -> str | None:
@@ -599,3 +614,34 @@ class NetworkNormalizer(EvidenceBuilder):
             i, attachment = attached
             self.cite(resource, "/vpc_id", op, f"{path}.Attachments[{i}]", attachment)
         return Normalized(resource, item, path, op, vpc_id=vpc_id)
+
+    def vpc_peering_connection(self, index: int, item: dict[str, Any]) -> Normalized:
+        """A regional root: the connection belongs to neither VPC alone."""
+        path = f"VpcPeeringConnections[{index}]"
+        op = Op.DESCRIBE_VPC_PEERING_CONNECTIONS
+        tags = tags_of(item)
+        status = item.get("Status") or {}
+        requester = item.get("RequesterVpcInfo") or {}
+        accepter = item.get("AccepterVpcInfo") or {}
+        facts = {
+            "/requester": ("RequesterVpcInfo", requester),
+            "/accepter": ("AccepterVpcInfo", accepter),
+        }
+        if status.get("Code"):
+            facts["/state"] = ("Status", status)
+        if tags:
+            facts["/attributes/tags"] = ("Tags", item.get("Tags"))
+        resource = self._build(
+            VpcPeeringConnection,
+            operation=op,
+            item_path=path,
+            item=item,
+            physical_id=item["VpcPeeringConnectionId"],
+            name=tags.get("Name"),
+            attributes={"tags": tags or None},
+            facts=facts,
+            state=status.get("Code") or None,
+            requester=_peering_side(requester),
+            accepter=_peering_side(accepter),
+        )
+        return Normalized(resource, item, path, op)

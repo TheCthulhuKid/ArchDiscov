@@ -54,6 +54,7 @@ EC2_OPERATIONS = (
     (Ec2Operation.DESCRIBE_NETWORK_INTERFACES, "NetworkInterfaces"),
     (Ec2Operation.DESCRIBE_NAT_GATEWAYS, "NatGateways"),
     (Ec2Operation.DESCRIBE_EGRESS_ONLY_INTERNET_GATEWAYS, "EgressOnlyInternetGateways"),
+    (Ec2Operation.DESCRIBE_VPC_PEERING_CONNECTIONS, "VpcPeeringConnections"),
 )
 
 

@@ -1,6 +1,6 @@
 # EC2 network collection mapping (step 13)
 
-`archdiscov collect` reads EC2 network configuration with eight extra operations. Each resource is
+`archdiscov collect` reads EC2 network configuration with nine extra operations. Each resource is
 stored once; attachments are `attached_to` dependencies whose `attributes["kind"]` is an
 `AttachmentKind`. Nothing here concludes reachability or internet exposure.
 
@@ -9,8 +9,8 @@ stored once; attachments are `attached_to` dependencies whose `attributes["kind"
 `ec2:DescribeVpcs`, `ec2:DescribeSubnets`, `ec2:DescribeInstances`, `ec2:DescribeRouteTables`,
 `ec2:DescribeInternetGateways`, `ec2:DescribeNetworkAcls`, `ec2:DescribeSecurityGroups`,
 `ec2:DescribeSecurityGroupRules`, `ec2:DescribeNetworkInterfaces`, `ec2:DescribeNatGateways`,
-`ec2:DescribeEgressOnlyInternetGateways` (plus `sts:GetCallerIdentity`, and `sts:AssumeRole` for
-configured roles). All are allowlisted in
+`ec2:DescribeEgressOnlyInternetGateways`, `ec2:DescribeVpcPeeringConnections` (plus
+`sts:GetCallerIdentity`, and `sts:AssumeRole` for configured roles). All are allowlisted in
 `archdiscov.ingestion.operations` and rejected otherwise before any client call. Each region and
 operation has one coverage record; zero results are `success`.
 
@@ -24,6 +24,7 @@ operation has one coverage record; zero results are `success`.
 | Security group | `DescribeSecurityGroups` + `DescribeSecurityGroupRules` | VPC (`VpcId`) | `/ingress_rules/N`, `/egress_rules/N` ← `SecurityGroupRules[k]` (or `SecurityGroups[i].IpPermissions[j]` as fallback) |
 | NAT gateway | `DescribeNatGateways` | Subnet (`SubnetId`), else VPC (a regional NAT gateway has no subnet) | `/state`, `/connectivity`, `/vpc_id`, `/subnet_id` ← same-named API fields; `/network_interface_id` ← the primary `NatGatewayAddresses[n].NetworkInterfaceId`; `/public_ips/N` ← `NatGatewayAddresses[n].PublicIp` |
 | Egress-only internet gateway | `DescribeEgressOnlyInternetGateways` | VPC (`Attachments[0].VpcId`) | `/vpc_id` ← `EgressOnlyInternetGateways[i].Attachments[n]` |
+| VPC peering connection | `DescribeVpcPeeringConnections` | Regional root (it belongs to neither VPC) | `/state` ← `Status`; `/requester`, `/accepter` ← `RequesterVpcInfo`, `AccepterVpcInfo` (VPC, owner, and the IPv4 and IPv6 CIDR sets, else the primary CIDR) |
 | Network interface | `DescribeNetworkInterfaces` | Subnet, else VPC | `/private_ip_addresses`, `/public_ip`, `/mac_address` ← same-named API fields; `/ipv6_addresses/N` ← `NetworkInterfaces[i].Ipv6Addresses[n]` |
 
 VPCs and subnets (from `DescribeVpcs` and `DescribeSubnets`) add each IPv6 CIDR whose association
@@ -42,21 +43,22 @@ root) with `attributes.unresolved_parent`.
 | `kind` | Source → target | Source path cited |
 | --- | --- | --- |
 | `route_table_association` | route table → subnet (or VPC for the main association) | `RouteTables[i].Associations[n]` |
-| `route_target` | route table → IGW / NAT gateway / egress-only internet gateway / network interface / instance (local); transit gateway, peering, endpoint → external | `RouteTables[i].Routes[n]` |
+| `route_target` | route table → IGW / NAT gateway / egress-only internet gateway / network interface / instance / peering connection (local); transit gateway, endpoint → external | `RouteTables[i].Routes[n]` |
 | `prefix_list_reference` | route table → prefix list a route's destination names, or security group → prefix list a rule names (external) | the route or rule entry |
 | `internet_gateway_attachment` | IGW → VPC | `InternetGateways[i].Attachments[n]` |
 | `egress_only_internet_gateway_attachment` | egress-only internet gateway → VPC, with the attachment `state` | `EgressOnlyInternetGateways[i].Attachments[n]` |
+| `peering_requester_vpc`, `peering_accepter_vpc` | peering connection → each side's VPC; local or unresolved in this account and region, else external with the side's account and region | `VpcPeeringConnections[i].RequesterVpcInfo`, `...AccepterVpcInfo` |
 | `nat_gateway_subnet`, `nat_gateway_interface` | NAT gateway → subnet, and → network interface | `NatGateways[i].SubnetId`, `NatGateways[i].NatGatewayAddresses[n].NetworkInterfaceId` |
 | `network_acl_association` | NACL → subnet | `NetworkAcls[i].Associations[n]` |
 | `instance_interface` | network interface → instance | `NetworkInterfaces[i].Attachment` |
 | `security_group_membership` | instance or interface → security group | `...SecurityGroups[n]` / `NetworkInterfaces[i].Groups[n]` |
 | `security_group_reference` | security group → referenced group (local, or external when another account) | the rule entry |
 
-Target kinds: a stored resource is `local`; a known resource outside the collection (other
-account's group, transit gateway, peering, and endpoint targets, prefix lists) is
-`external` with its AWS type; a reference that cannot be resolved is `unresolved` with a reason and
-source path. When the operation that would have produced the target did not complete, the reason
-says so and no local target is guessed.
+Target kinds: a stored resource is `local`; a known resource outside the collection (other account's
+group, the far side of a cross-account or cross-region peering connection, transit gateway and
+endpoint targets, prefix lists) is `external` with its AWS type; a reference that cannot be resolved
+is `unresolved` with a reason and source path. When the operation that would have produced the
+target did not complete, the reason says so and no local target is guessed.
 
 ## Limitations and redaction
 

@@ -81,4 +81,5 @@ def empty_network_pages():
         "describe_network_interfaces": [{"NetworkInterfaces": []}],
         "describe_nat_gateways": [{"NatGateways": []}],
         "describe_egress_only_internet_gateways": [{"EgressOnlyInternetGateways": []}],
+        "describe_vpc_peering_connections": [{"VpcPeeringConnections": []}],
     }

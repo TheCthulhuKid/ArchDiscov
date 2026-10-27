@@ -91,6 +91,8 @@ def normalize_region(
         Op.DESCRIBE_EGRESS_ONLY_INTERNET_GATEWAYS, "EgressOnlyInternetGatewayId"
     ):
         entries.append(net.egress_only_internet_gateway(i, item))
+    for i, item in collect(Op.DESCRIBE_VPC_PEERING_CONNECTIONS, "VpcPeeringConnectionId"):
+        entries.append(net.vpc_peering_connection(i, item))
 
     roots = place(entries)
     dependencies = build_dependencies(net, entries, unavailable)

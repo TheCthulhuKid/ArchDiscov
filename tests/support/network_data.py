@@ -95,6 +95,22 @@ EGRESS_ONLY_GATEWAY = {
     "EgressOnlyInternetGatewayId": "eigw-1",
     "Attachments": [{"State": "attached", "VpcId": "vpc-1"}],
 }
+PEERING = {
+    "VpcPeeringConnectionId": "pcx-1",
+    "Status": {"Code": "active", "Message": "Active"},
+    "RequesterVpcInfo": {
+        "VpcId": "vpc-1",
+        "OwnerId": ACCOUNT,
+        "CidrBlock": "10.0.0.0/16",
+        "Region": "eu-west-1",
+    },
+    "AccepterVpcInfo": {
+        "VpcId": "vpc-2",
+        "OwnerId": ACCOUNT,
+        "CidrBlockSet": [{"CidrBlock": "10.8.0.0/16"}],
+        "Region": "eu-west-1",
+    },
+}
 PRIVATE_ROUTE_TABLE = {
     "RouteTableId": "rtb-private",
     "VpcId": "vpc-1",

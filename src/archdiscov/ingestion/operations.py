@@ -18,6 +18,7 @@ class Ec2Operation(StrEnum):
     DESCRIBE_NETWORK_INTERFACES = "DescribeNetworkInterfaces"
     DESCRIBE_NAT_GATEWAYS = "DescribeNatGateways"
     DESCRIBE_EGRESS_ONLY_INTERNET_GATEWAYS = "DescribeEgressOnlyInternetGateways"
+    DESCRIBE_VPC_PEERING_CONNECTIONS = "DescribeVpcPeeringConnections"
 
 
 class IamOperation(StrEnum):
