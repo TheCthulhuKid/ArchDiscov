@@ -1,0 +1,19 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Resources:
+  App:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.2.0.0/16
+  Data:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.3.0.0/16
+  AppToData:
+    Type: AWS::EC2::VPCPeeringConnection
+    Properties:
+      VpcId: !Ref App
+      PeerVpcId: !Ref Data
+      PeerRegion: eu-west-1
+      Tags:
+        - Key: Name
+          Value: app-to-data

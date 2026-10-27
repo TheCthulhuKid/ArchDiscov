@@ -13,6 +13,7 @@ from ...models.resources.network import (
     NetworkInterface,
     RouteTable,
     SecurityGroup,
+    VpcPeeringConnection,
 )
 
 
@@ -103,6 +104,18 @@ RESOURCE_MAPPINGS = {
             ("network_interface_id", "network_interface_id"),
         ),
         address_lists=(("public_ip", "public_ips"),),
+    ),
+    "aws_vpc_peering_connection": ResourceMapping(
+        AwsService.EC2,
+        ResourceType.VPC_PEERING_CONNECTION,
+        VpcPeeringConnection,
+        string_fields=(
+            ("vpc_id", "requester/vpc_id"),
+            ("peer_vpc_id", "accepter/vpc_id"),
+            ("peer_owner_id", "accepter/owner_id"),
+            ("peer_region", "attributes/peer_region"),
+            ("accept_status", "state"),
+        ),
     ),
     "aws_egress_only_internet_gateway": ResourceMapping(
         AwsService.EC2, ResourceType.EGRESS_ONLY_INTERNET_GATEWAY, EgressOnlyInternetGateway

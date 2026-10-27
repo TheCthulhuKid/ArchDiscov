@@ -1,7 +1,12 @@
 """Phase 6 network elements imported from Terraform state and plans."""
 
 from archdiscov.ingestion.terraform import TerraformStateRequest
-from archdiscov.models.resources.network import EgressOnlyInternetGateway, NatGateway
+from archdiscov.models.architecture import UnknownResource
+from archdiscov.models.resources.network import (
+    EgressOnlyInternetGateway,
+    NatGateway,
+    VpcPeeringConnection,
+)
 from archdiscov.services import collect_snapshots
 from tests.paths import FIXTURES_ROOT
 from tests.support.network_data import flatten
@@ -70,3 +75,40 @@ def test_plan_keeps_unknown_nat_gateway_values_indeterminate():
         "aws_subnet.public",
         "configuration_expression",
     ) in references(snapshot)
+
+
+def test_state_maps_peering_sides_without_assuming_the_requester_owner():
+    snapshot = state("vpc-peering")
+    resources = [r for tree in snapshot.regions.values() for r in flatten(tree.resources)]
+    (connection,) = [r for r in resources if isinstance(r, VpcPeeringConnection)]
+    assert connection.state == "active" and connection.attributes["peer_region"] == "eu-west-1"
+    assert connection.requester.vpc_id == "vpc-app"
+    assert connection.requester.owner_id is None  # not declared, so not assumed
+    assert (connection.accepter.vpc_id, connection.accepter.owner_id) == (
+        "vpc-data",
+        "123456789012",
+    )
+    cited = snapshot.evidence[connection.fact_evidence["/accepter/vpc_id"][0]]
+    assert cited.configuration_path.endswith("/values/peer_vpc_id")
+    assert {
+        ("pcx-app-data", "vpc-app", "requester/vpc_id"),
+        ("pcx-app-data", "vpc-data", "accepter/vpc_id"),
+    } <= references(snapshot)
+    # The accepter declares the same connection from its side; it stays a separate summary.
+    (accepter,) = [r for r in resources if isinstance(r, UnknownResource)]
+    assert accepter.aws_resource_type == "aws_vpc_peering_connection_accepter"
+
+
+def test_plan_leaves_unknown_peering_sides_unset_and_references_both_vpcs():
+    snapshot = collect(FIXTURES / "vpc-peering.plan.json")
+    connection = by_key(snapshot, lambda r: r.identity.logical_address)[
+        "aws_vpc_peering_connection.app_data"
+    ]
+    assert isinstance(connection, VpcPeeringConnection)
+    assert connection.requester.vpc_id is None and connection.accepter.vpc_id is None
+    linked = {
+        target
+        for source, target, _ in references(snapshot)
+        if source == connection.identity.logical_address
+    }
+    assert linked == {"aws_vpc.app", "aws_vpc.data"}

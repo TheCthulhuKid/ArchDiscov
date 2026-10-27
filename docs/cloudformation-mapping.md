@@ -84,6 +84,7 @@ provider, network, or arbitrary code execution is performed.
 | EC2 instance | Instance type | `InstanceType` |
 | Core EC2/network | Literal VPC/subnet/group identifiers; safe Name tag | `VpcId`, `SubnetId`, `SecurityGroupIds`, `GroupSet`, `Tags[i].Value` |
 | NAT and egress-only gateways | `ConnectivityType` → `connectivity`; literal subnet and VPC identifiers as typed fields | `ConnectivityType`, `SubnetId`, `VpcId` |
+| VPC peering connections | Literal `VpcId` and `PeerVpcId` as each side's VPC, `PeerOwnerId` as the accepter's owner, `PeerRegion` as an attribute; a `!Ref` side stays unset and is a reference | `VpcId`, `PeerVpcId`, `PeerOwnerId`, `PeerRegion` |
 | Lambda summary | Name, runtime, role reference, memory, timeout | `FunctionName`, `Runtime`, `Role`, `MemorySize`, `Timeout` |
 | SQS summary | Name, visibility timeout, retention | `QueueName`, `VisibilityTimeout`, `MessageRetentionPeriod` |
 | RDS summary | Identifier, engine/version, class/port as applicable | Selected scalar configuration only |

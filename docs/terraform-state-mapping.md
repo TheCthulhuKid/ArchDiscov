@@ -73,6 +73,7 @@ are omitted with limitations rather than copied as raw provider data.
 | `aws_network_interface` | `NetworkInterface` | Shared identity, name, tags, and reference facts only |
 | `aws_nat_gateway` | `NatGateway` | `connectivity_type` → `connectivity`, `network_interface_id`, a nonempty `public_ip` → `public_ips`, and `subnet_id` (or `vpc_id` for a regional NAT gateway) as typed fields; no state is declared, so `state` stays unset |
 | `aws_egress_only_internet_gateway` | `EgressOnlyInternetGateway` | `vpc_id` as a typed field |
+| `aws_vpc_peering_connection` | `VpcPeeringConnection` | `vpc_id` → `requester.vpc_id`; `peer_vpc_id`, `peer_owner_id` → the accepter side; `accept_status` → `state`; `peer_region` → `attributes.peer_region`. The requester's owner is not declared, so it stays unset. A regional root, referencing both VPCs. `aws_vpc_peering_connection_accepter`, which declares the same connection from the accepter's account, stays an unknown summary |
 | `aws_iam_role` | `IamRole` | Source `arn`; `permissions_boundary` → `boundary_arn` |
 | `aws_iam_instance_profile` | `IamInstanceProfile` | Source `arn`; profile role names are not mapped |
 | `aws_iam_policy` | `IamManagedPolicy` | Source `arn`; policy document is not mapped |

@@ -12,6 +12,7 @@ from ...models.resources.network import (
     NetworkInterface,
     RouteTable,
     SecurityGroup,
+    VpcPeeringConnection,
 )
 
 
@@ -39,6 +40,15 @@ RESOURCE_MAPPINGS = {
         NatGateway, string_fields=(("ConnectivityType", "connectivity"),)
     ),
     ResourceType.EGRESS_ONLY_INTERNET_GATEWAY: ResourceMapping(EgressOnlyInternetGateway),
+    ResourceType.VPC_PEERING_CONNECTION: ResourceMapping(
+        VpcPeeringConnection,
+        string_fields=(
+            ("VpcId", "requester/vpc_id"),
+            ("PeerVpcId", "accepter/vpc_id"),
+            ("PeerOwnerId", "accepter/owner_id"),
+            ("PeerRegion", "attributes/peer_region"),
+        ),
+    ),
     ResourceType.LAMBDA_FUNCTION: ResourceMapping(
         string_fields=(
             ("FunctionName", "function_name"),

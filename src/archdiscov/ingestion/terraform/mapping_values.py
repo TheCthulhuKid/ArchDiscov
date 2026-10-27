@@ -31,7 +31,12 @@ class MappingValues:
         if value is not None and not is_nonblank_unredacted_string(value):
             self.omitted(source)
             return
-        (self.data["attributes"] if attribute else self.data)[target] = value
+        container = self.data["attributes"] if attribute else self.data
+        # A target may name a nested field, such as a peering side's `requester/vpc_id`.
+        *parents, leaf = target.split("/")
+        for parent in parents:
+            container = container.setdefault(parent, {})
+        container[leaf] = value
         self.facts[f"/attributes/{target}" if attribute else f"/{target}"] = f"/values/{source}"
 
     def iam(self, string_fields: tuple[tuple[str, str], ...]) -> bool:

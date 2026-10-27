@@ -57,10 +57,12 @@ class _Properties:
         if not _is_nonblank_unredacted_string(value):
             self.omit(source)
             return
-        if attribute:
-            self.data["attributes"][target] = value
-        else:
-            self.data[target] = value
+        container = self.data["attributes"] if attribute else self.data
+        # A target may name a nested field, such as a peering side's `requester/vpc_id`.
+        *parents, leaf = target.split("/")
+        for parent in parents:
+            container = container.setdefault(parent, {})
+        container[leaf] = value
         self.facts[f"/attributes/{target}" if attribute else f"/{target}"] = f"/{source}"
 
     def integer(self, source: str, target: str, minimum: int, maximum: int) -> None:
@@ -135,7 +137,10 @@ def _typed(
     model: type[Resource], string_fields: tuple[tuple[str, str], ...], fields: _Properties
 ) -> Resource | None:
     """The typed resource, or None when its declared values break the model's rules."""
+    claimed = {source for source, _ in string_fields}
     for source, target in (("VpcId", "vpc_id"), ("SubnetId", "subnet_id")):
+        if source in claimed:
+            continue
         # A model that declares the field records it there, as collection does.
         fields.string(source, target, attribute=target not in model.model_fields)
     fields.security_groups()

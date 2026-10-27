@@ -341,7 +341,7 @@ elements, so a path through any of them stays `unknown`.
 | --- | --- | --- |
 | `AWS::EC2::NatGateway` | `NatGateway` | state, public or private connectivity, VPC, subnet, network interface, public IPv4 addresses |
 | `AWS::EC2::EgressOnlyInternetGateway` | `EgressOnlyInternetGateway` | VPC |
-| `AWS::EC2::VPCPeeringConnection` | `VpcPeeringConnection` | state; requester and accepter side, each with VPC, owner account, and CIDRs |
+| `AWS::EC2::VPCPeeringConnection` | `VpcPeeringConnection` | state; requester and accepter side, each with VPC, owner account, and CIDRs, unset when not recorded (as for an imported `!Ref` or unknown planned value) |
 | `AWS::EC2::TransitGateway` | `TransitGateway` | state, owner account, default association and propagation route tables |
 | `AWS::EC2::TransitGatewayAttachment` | `TransitGatewayAttachment` | state, transit gateway, attached resource type, ID, and owner, association state and route table |
 | `AWS::EC2::TransitGatewayRouteTable` | `TransitGatewayRouteTable` | state, transit gateway, associations, propagations, routes (destination, attachments, type, state), and `routes_complete` |

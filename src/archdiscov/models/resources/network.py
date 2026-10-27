@@ -130,7 +130,8 @@ class EgressOnlyInternetGateway(Resource):
 
 
 class PeeringSide(Model):
-    vpc_id: NonEmptyString
+    # None when not recorded, such as a template's `!Ref` or a plan's unknown value.
+    vpc_id: NonEmptyString | None = None
     owner_id: str | None = Field(default=None, pattern=_ACCOUNT_ID)
     cidr_blocks: list[IPvAnyNetwork] = Field(default_factory=list)
 
@@ -142,12 +143,14 @@ class VpcPeeringConnection(Resource):
         ResourceType.VPC_PEERING_CONNECTION
     )
     state: NonEmptyString | None = None  # as reported, for example "active"
-    requester: PeeringSide
-    accepter: PeeringSide
+    # A side whose fields are all None was not recorded, as in a template that refers to its VPC.
+    requester: PeeringSide = Field(default_factory=PeeringSide)
+    accepter: PeeringSide = Field(default_factory=PeeringSide)
 
     @model_validator(mode="after")
     def validate_distinct_sides(self) -> Self:
-        if self.requester.vpc_id == self.accepter.vpc_id:
+        recorded = self.requester.vpc_id is not None
+        if recorded and self.requester.vpc_id == self.accepter.vpc_id:
             raise ValueError("a peering connection joins two different VPCs")
         return self
 

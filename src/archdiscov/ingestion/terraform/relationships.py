@@ -25,10 +25,26 @@ _PARENT_CANDIDATES = {
 }
 
 
+_REFERENCES = (
+    ("vpc_id", ResourceType.VPC),
+    ("subnet_id", ResourceType.SUBNET),
+    ("security_group_ids", ResourceType.SECURITY_GROUP),
+)
+# References held inside a typed model, such as a peering connection's two VPCs.
+_NESTED_REFERENCES = {
+    ResourceType.VPC_PEERING_CONNECTION: (
+        ("requester/vpc_id", ResourceType.VPC),
+        ("accepter/vpc_id", ResourceType.VPC),
+    ),
+}
+
+
 def _reference(resource: Resource, field: str) -> tuple[object, str]:
     """A reference field's value and fact pointer: the typed field when the model has one."""
-    if field in type(resource).model_fields:
-        return getattr(resource, field), f"/{field}"
+    head, _, nested = field.partition("/")
+    if head in type(resource).model_fields:
+        value = getattr(resource, head)
+        return (getattr(value, nested, None) if nested else value), f"/{field}"
     return resource.attributes.get(field), f"/attributes/{field}"
 
 
@@ -64,11 +80,8 @@ def place_resources(resources: list[Resource], evidence: dict) -> tuple[dict, li
             globals_.append(resource)
         else:
             regions.setdefault(region, RegionArchitecture()).resources.append(resource)
-        for field, expected in (
-            ("vpc_id", ResourceType.VPC),
-            ("subnet_id", ResourceType.SUBNET),
-            ("security_group_ids", ResourceType.SECURITY_GROUP),
-        ):
+        nested = _NESTED_REFERENCES.get(resource.resource_type, ())
+        for field, expected in (*_REFERENCES, *nested):
             value, base = _reference(resource, field)
             references = (
                 value if isinstance(value, list) else [value] if isinstance(value, str) else []

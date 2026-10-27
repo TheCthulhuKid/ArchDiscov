@@ -2,7 +2,11 @@
 
 from archdiscov.ingestion.cloudformation import CloudFormationRequest
 from archdiscov.models.architecture import UnknownResource
-from archdiscov.models.resources.network import EgressOnlyInternetGateway, NatGateway
+from archdiscov.models.resources.network import (
+    EgressOnlyInternetGateway,
+    NatGateway,
+    VpcPeeringConnection,
+)
 from archdiscov.services import collect_snapshots
 from tests.paths import FIXTURES_ROOT
 from tests.support.network_data import flatten
@@ -52,3 +56,20 @@ def test_template_maps_nat_and_egress_only_gateways_with_their_references(tmp_pa
         if value.resource_id == rejected.id
     }
     assert "Typed resource validation failed; only its type is retained." in reasons
+
+
+def test_template_peering_refers_to_both_vpcs_without_inventing_their_ids():
+    snapshot, resources = imported(FIXTURES / "vpc-peering.yaml")
+    connection = resources["AppToData"]
+    assert isinstance(connection, VpcPeeringConnection)
+    assert connection in snapshot.regions["eu-west-1"].resources  # a root, in neither VPC
+    # `!Ref` names a VPC of the template, not a deployed ID, so the sides stay unset.
+    assert connection.requester.vpc_id is None and connection.accepter.vpc_id is None
+    assert connection.attributes["peer_region"] == "eu-west-1"
+    targets = {
+        d.target.resource_id
+        for deps in snapshot.dependencies_by_region.values()
+        for d in deps
+        if d.source_id == connection.id
+    }
+    assert targets == {resources["App"].id, resources["Data"].id}
