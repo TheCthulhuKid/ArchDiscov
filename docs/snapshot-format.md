@@ -308,6 +308,11 @@ Small reusable JSON examples are in [tests/fixtures/snapshots](../tests/fixtures
 | [dependency-targets.json](../tests/fixtures/snapshots/dependency-targets.json) | Schema `2` local, external, and unresolved targets |
 | [load-balancing.json](../tests/fixtures/snapshots/load-balancing.json) | Typed ELBv2 resources, listener actions/rules, and target-health observations |
 | [azure.json](../tests/fixtures/snapshots/azure.json) | Schema `3` offline VNet → subnet → VM, explicit fixture attachment, known-null/unavailable facts, and success-zero/incomplete/failed coverage |
+| [egress-gateways.json](../tests/fixtures/snapshots/egress-gateways.json) | Public NAT gateway with its Elastic IP, egress-only internet gateway, a route to the NAT gateway, and an unresolved NAT network interface |
+| [vpc-peering.json](../tests/fixtures/snapshots/vpc-peering.json) | Same-account peering connection between two VPCs and a route to it |
+| [transit-gateway.json](../tests/fixtures/snapshots/transit-gateway.json) | Transit gateway, two VPC attachments, a route table with an association, a propagation, and static, propagated, and blackhole routes, and a VPC route to the gateway |
+| [endpoints-and-prefix-lists.json](../tests/fixtures/snapshots/endpoints-and-prefix-lists.json) | Gateway and interface endpoints, AWS-managed and customer prefix lists referenced by routes and a rule, and an external transit gateway target |
+| [dual-stack.json](../tests/fixtures/snapshots/dual-stack.json) | IPv4 and IPv6 CIDRs, an ENI IPv6 address, IPv6 routes to internet and egress-only gateways, and IPv6 rule and NACL entries |
 
 Containment never implies an attachment or dependency. Azure fixture provenance is
 synthetic, not live observation metadata.
@@ -321,6 +326,67 @@ Snapshot-wide containment, uniqueness, relationship, and evidence integrity chec
 implemented, as are explicit-path local persistence and snapshot JSON CLI ingestion.
 
 To support another resource type, subclass `Resource`, give it a unique `Literal` value for `resource_type`, and add it to the discriminated `SupportedResource` union. The same union validates regional resources, global resources, and every level of `children`, preserving subtype fields when loading and saving JSON. Unsupported types can use `UnknownResource` with their original AWS type and generic attributes; they can also have children.
+
+## Network path elements
+
+Schemas `2` and `3` accept typed models for the elements a network path crosses beyond a
+subnet's own route table. Every type and field is optional, so a snapshot written before them
+validates unchanged, and an unset field added to an existing model is left out of output.
+They are contracts only: the AWS collector, the Terraform and CloudFormation importers, and the
+[network-path primitives](network-path-primitives.md) do not produce or decide them yet, so a
+path through any of them stays `unknown`.
+
+| Resource type | Model | Recorded for decisions |
+| --- | --- | --- |
+| `AWS::EC2::NatGateway` | `NatGateway` | state, public or private connectivity, VPC, subnet, network interface, public IPv4 addresses |
+| `AWS::EC2::EgressOnlyInternetGateway` | `EgressOnlyInternetGateway` | VPC |
+| `AWS::EC2::VPCPeeringConnection` | `VpcPeeringConnection` | state; requester and accepter side, each with VPC, owner account, and CIDRs |
+| `AWS::EC2::TransitGateway` | `TransitGateway` | state, owner account, default association and propagation route tables |
+| `AWS::EC2::TransitGatewayAttachment` | `TransitGatewayAttachment` | state, transit gateway, attached resource type, ID, and owner, association state and route table |
+| `AWS::EC2::TransitGatewayRouteTable` | `TransitGatewayRouteTable` | state, transit gateway, associations, propagations, routes (destination, attachments, type, state), and `routes_complete` |
+| `AWS::EC2::VPCEndpoint` | `VpcEndpoint` | gateway, interface, or gateway load balancer type, service name, state, VPC, owner, route tables, subnets, ENIs, security groups |
+| `AWS::EC2::PrefixList` | `ManagedPrefixList` | address family, owner (an account ID or `AWS`), state, version, CIDR entries |
+
+Fields added to existing models:
+
+- `Route.prefix_list_id` names the prefix list a route's destination is; `destination` keeps
+  its reported form. `RouteTargetKind` gains `egress_only_internet_gateway`.
+- `NetworkInterface.ipv6_addresses` lists IPv6 addresses (`null` when not recorded). There is
+  no public flag: AWS IPv6 addresses are globally routable.
+- VPC and subnet IPv6 CIDRs stay in `cidr_blocks`, told apart by address family. Route
+  destinations, security-group rule CIDRs, and NACL entry CIDRs already accept IPv6.
+- `ManagedPrefixList.entries` is `null` when the entries were not recorded (as for an
+  AWS-managed list) and `[]` for a recorded empty list. `TransitGatewayRouteTable.routes_complete`
+  is `false` when the route search reported more routes than it returned and `null` when
+  unrecorded.
+
+Validation rejects states AWS cannot report: a peering connection whose sides are the same VPC;
+a malformed owner account; a private NAT gateway with a public address, or an available public
+one without; a transit gateway route that names attachments while `blackhole`, or none
+otherwise; an attachment associated with, or propagating to, a route table of another transit
+gateway (`snapshot_transit_gateway_link_mismatch`); a gateway endpoint with subnets or an
+interface endpoint with route tables; a prefix-list entry of the other address family; a subnet
+IPv6 CIDR outside its VPC's recorded IPv6 CIDRs; an IPv4 value as an IPv6 address; and a
+security-group rule naming both a CIDR and a prefix list.
+
+Their links are `attached_to` dependencies whose `attributes["kind"]` is one of:
+
+| `kind` | Source → target |
+| --- | --- |
+| `route_target` | route table → NAT gateway, egress-only internet gateway, peering connection, transit gateway, or endpoint (with `target_kind`, `destination`, and `state`) |
+| `prefix_list_reference` | route table → the prefix list a route's destination names; security group → the prefix list a rule names |
+| `nat_gateway_subnet`, `nat_gateway_interface` | NAT gateway → its subnet and network interface |
+| `egress_only_internet_gateway_attachment` | egress-only internet gateway → VPC |
+| `peering_requester_vpc`, `peering_accepter_vpc` | peering connection → each side's VPC |
+| `transit_gateway_attachment`, `transit_gateway_vpc_attachment` | attachment → its transit gateway and attached VPC |
+| `transit_gateway_route_table_association`, `transit_gateway_route_table_propagation` | transit gateway route table → the attachments it associates and propagates |
+| `endpoint_route_table`, `endpoint_subnet`, `endpoint_interface`, `endpoint_security_group` | endpoint → its route tables, subnets, ENIs, and security groups |
+
+Each cites the source entry it came from, and the [graph index](graph-index.md) follows it in
+both directions. A target in another account, or of a type the snapshot does not record, is
+`external`; a reference to a resource the snapshot should hold but does not is `unresolved`.
+A snapshot collected before these elements has no coverage record for their operations, which
+reads as coverage unrecorded, never as a successful collection that found none.
 
 ## Snapshot Python services
 

@@ -85,12 +85,17 @@ Supported, each evaluated for one direction or one question per call:
 |---|---|---|
 | Security-group rules | IPv4 CIDRs, same-account referenced groups, tcp/udp/icmp (names or numbers) and all-protocol, inclusive port ranges | IPv6, prefix lists, cross-account references, other protocols, statefulness |
 | NACLs | IPv4 CIDRs, tcp/udp/icmp and all-protocol, rule-number order with implicit final deny, one direction per call | IPv6 entries, other protocols, ICMP type/code, subnets without an observed association (no default ACL is assumed) |
-| Routes | IPv4 longest prefix to local or internet-gateway targets, explicit table or observed main table | NAT, transit gateway, peering, VPC endpoint, prefix-list, and instance/interface targets; IPv6 routes are ignored |
+| Routes | IPv4 longest prefix to local or internet-gateway targets, explicit table or observed main table | NAT, egress-only internet gateway, transit gateway, peering, VPC endpoint, prefix-list, and instance/interface targets; IPv6 routes are ignored |
 | Public addressing | Recorded public IPv4 on ENIs and instances | IPv6 addresses are ignored |
 | Load balancers | Scheme, listener port and protocol, forward actions, target groups with registered targets | Redirect, fixed-response, and authentication actions; GENEVE (Gateway Load Balancer) listeners; IP and unresolved targets |
 
 Not modelled at all: statefulness, target health meaning, host firewalls, authentication,
 and runtime state.
+
+Snapshots can record NAT gateways, egress-only internet gateways, peering connections, transit
+gateways, endpoints, prefix lists, and IPv6 fields (see the
+[snapshot format](snapshot-format.md#network-path-elements)), but no primitive reads them yet:
+the cases above stay unsupported until the primitives decide them.
 
 ## Bounded addresses
 

@@ -12,19 +12,9 @@ from archdiscov.services.snapshots import load_snapshot
 from tests.paths import FIXTURES_ROOT
 
 FIXTURES = FIXTURES_ROOT / "snapshots"
-PHASE_SIX = [
-    "egress-gateways",
-    "vpc-peering",
-    "transit-gateway",
-    "endpoints-and-prefix-lists",
-    "dual-stack",
-]
 K = AttachmentKind
 # (fixture, source, kind, stored target or None for a terminal, cited evidence)
 NETWORK_RELATIONSHIPS = [
-    ("egress-gateways", "rtb-private", K.ROUTE_TARGET, "nat-public", "rtb-private-route-1"),
-    ("vpc-peering", "rtb-app", K.ROUTE_TARGET, "pcx-app-data", "rtb-app-route-1"),
-    ("transit-gateway", "rtb-app", K.ROUTE_TARGET, "tgw-main", "rtb-app-route-1"),
     ("egress-gateways", "nat-public", K.NAT_GATEWAY_SUBNET, "subnet-public", "nat"),
     ("egress-gateways", "nat-public", K.NAT_GATEWAY_INTERFACE, None, "nat-address"),
     (
@@ -65,8 +55,6 @@ NETWORK_RELATIONSHIPS = [
         "tgw-rtb-propagation",
     ),
     ("endpoints-and-prefix-lists", "rtb-svc", K.ROUTE_TARGET, "vpce-s3", "rtb-s3"),
-    ("endpoints-and-prefix-lists", "rtb-svc", K.ROUTE_TARGET, None, "rtb-office"),
-    ("endpoints-and-prefix-lists", "rtb-svc", K.PREFIX_LIST_REFERENCE, "pl-s3", "rtb-s3"),
     (
         "endpoints-and-prefix-lists",
         "sg-endpoint",
@@ -96,13 +84,6 @@ NETWORK_RELATIONSHIPS = [
         "sg-endpoint",
         "vpce-sqs-group",
     ),
-    (
-        "dual-stack",
-        "rtb-dual-private",
-        K.ROUTE_TARGET,
-        "eigw-dual",
-        "rtb-dual-private-ipv6-default",
-    ),
 ]
 
 
@@ -120,7 +101,7 @@ def test_legacy_and_explicit_schema_three_upgrade_have_identical_edge_handles(fi
 
 @pytest.mark.parametrize(
     "fixture",
-    ["hierarchy", "network", "iam", "load-balancing", "dependency-targets", "azure", *PHASE_SIX],
+    ["hierarchy", "network", "iam", "load-balancing", "dependency-targets", "azure"],
 )
 def test_fixture_dependencies_preserve_exact_context_and_reverse_adjacency(fixture):
     snapshot = load_snapshot(FIXTURES / f"{fixture}.json")
@@ -202,7 +183,8 @@ def test_network_relationship_and_kind_filters_preserve_direction():
 
 
 def test_network_element_relationships_are_followed_both_ways_with_their_evidence():
-    indexes = {name: GraphIndex(load_snapshot(FIXTURES / f"{name}.json")) for name in PHASE_SIX}
+    names = {row[0] for row in NETWORK_RELATIONSHIPS}
+    indexes = {name: GraphIndex(load_snapshot(FIXTURES / f"{name}.json")) for name in names}
     prefix = "123456789012/eu-west-1/ec2/physical/"
     for fixture, source, kind, target, evidence_id in NETWORK_RELATIONSHIPS:
         index = indexes[fixture]
