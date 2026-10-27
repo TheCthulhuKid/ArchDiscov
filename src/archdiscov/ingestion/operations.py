@@ -19,6 +19,9 @@ class Ec2Operation(StrEnum):
     DESCRIBE_NAT_GATEWAYS = "DescribeNatGateways"
     DESCRIBE_EGRESS_ONLY_INTERNET_GATEWAYS = "DescribeEgressOnlyInternetGateways"
     DESCRIBE_VPC_PEERING_CONNECTIONS = "DescribeVpcPeeringConnections"
+    DESCRIBE_VPC_ENDPOINTS = "DescribeVpcEndpoints"
+    DESCRIBE_MANAGED_PREFIX_LISTS = "DescribeManagedPrefixLists"
+    GET_MANAGED_PREFIX_LIST_ENTRIES = "GetManagedPrefixListEntries"
 
 
 class IamOperation(StrEnum):

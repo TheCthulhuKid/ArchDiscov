@@ -22,7 +22,7 @@ from ...models.enums import (
     ResourceType,
     RouteTargetKind,
 )
-from ...models.resources.network import NatGateway, SecurityGroup, SecurityGroupRule
+from ...models.resources.network import NatGateway, SecurityGroup, SecurityGroupRule, VpcEndpoint
 from ..evidence_builder import EvidenceBuilder
 from ..operations import Ec2Operation as Op
 from .resources import Normalized, classify_route_target, destination
@@ -40,6 +40,9 @@ _COLLECTED_BY = {
     RT.NAT_GATEWAY: Op.DESCRIBE_NAT_GATEWAYS,
     RT.EGRESS_ONLY_INTERNET_GATEWAY: Op.DESCRIBE_EGRESS_ONLY_INTERNET_GATEWAYS,
     RT.VPC_PEERING_CONNECTION: Op.DESCRIBE_VPC_PEERING_CONNECTIONS,
+    RT.ROUTE_TABLE: Op.DESCRIBE_ROUTE_TABLES,
+    RT.VPC_ENDPOINT: Op.DESCRIBE_VPC_ENDPOINTS,
+    RT.MANAGED_PREFIX_LIST: Op.DESCRIBE_MANAGED_PREFIX_LISTS,
 }
 _ROUTE_TARGET_TYPES = {
     RK.INTERNET_GATEWAY: RT.INTERNET_GATEWAY,
@@ -242,11 +245,34 @@ class RelationshipBuilder:
                 AttachmentKind.NAT_GATEWAY_INTERFACE,
             ),
         ):
-            if ref is None:
-                continue
-            evidence_id = nat.fact_evidence[pointer][0]
-            source_path = self.builder.evidence[evidence_id].configuration_path
-            self._add(entry, self._resolve(target_type, ref, source_path), kind, evidence_id, {})
+            if ref is not None:
+                self._fact_link(entry, target_type, ref, pointer, kind)
+
+    def _vpc_endpoint(self, entry: Normalized) -> None:
+        endpoint = entry.resource
+        if not isinstance(endpoint, VpcEndpoint):
+            raise TypeError("a VPC endpoint entry holds a VpcEndpoint")
+        for field, target_type, kind in (
+            ("route_table_ids", RT.ROUTE_TABLE, AttachmentKind.ENDPOINT_ROUTE_TABLE),
+            ("subnet_ids", RT.SUBNET, AttachmentKind.ENDPOINT_SUBNET),
+            ("network_interface_ids", RT.NETWORK_INTERFACE, AttachmentKind.ENDPOINT_INTERFACE),
+            ("security_group_ids", RT.SECURITY_GROUP, AttachmentKind.ENDPOINT_SECURITY_GROUP),
+        ):
+            for n, ref in enumerate(getattr(endpoint, field)):
+                self._fact_link(entry, target_type, ref, f"/{field}/{n}", kind)
+
+    def _fact_link(
+        self,
+        entry: Normalized,
+        target_type: ResourceType,
+        ref: str,
+        pointer: str,
+        kind: AttachmentKind,
+    ) -> None:
+        """Link the resource a cited fact names, citing that fact's evidence."""
+        evidence_id = entry.resource.fact_evidence[pointer][0]
+        source_path = self.builder.evidence[evidence_id].configuration_path
+        self._add(entry, self._resolve(target_type, ref, source_path), kind, evidence_id, {})
 
     def _network_acl(self, entry: Normalized) -> None:
         for i, assoc in enumerate(entry.item.get("Associations") or []):
@@ -346,6 +372,7 @@ _HANDLERS: dict[ResourceType, Callable[[RelationshipBuilder, Normalized], None]]
     ResourceType.NAT_GATEWAY: RelationshipBuilder._nat_gateway,
     ResourceType.EGRESS_ONLY_INTERNET_GATEWAY: RelationshipBuilder._egress_only_internet_gateway,
     ResourceType.VPC_PEERING_CONNECTION: RelationshipBuilder._vpc_peering_connection,
+    ResourceType.VPC_ENDPOINT: RelationshipBuilder._vpc_endpoint,
 }
 
 

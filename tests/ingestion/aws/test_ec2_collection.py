@@ -9,6 +9,8 @@ from archdiscov.cli import app
 from archdiscov.ingestion import aws as aws_module
 from archdiscov.ingestion.adapter import AdapterContext, IngestionError
 from archdiscov.ingestion.operations import Ec2Operation
+from archdiscov.ingestion.service_catalog import REGIONAL_OPERATIONS
+from archdiscov.models.enums import AwsService
 from archdiscov.services import (
     SnapshotConflictError,
     collect_and_save,
@@ -119,7 +121,7 @@ def test_multi_region_collection_has_separate_scopes():
         request(ACCOUNT, regions=("us-east-1", "eu-west-1")), context=ec2_context()
     )
     assert set(snapshot.regions) == {"us-east-1", "eu-west-1"}
-    assert len(snapshot.coverage.operations) == 2 * len(aws_module.EC2_OPERATIONS)
+    assert len(snapshot.coverage.operations) == 2 * len(REGIONAL_OPERATIONS[AwsService.EC2])
     assert all(op.operation != Ec2Operation.DESCRIBE_REGIONS for op in snapshot.coverage.operations)
     ids = {r.id for region in snapshot.regions.values() for r in region.resources}
     assert len(ids) == len([r for region in snapshot.regions.values() for r in region.resources])

@@ -111,6 +111,47 @@ PEERING = {
         "Region": "eu-west-1",
     },
 }
+GATEWAY_ENDPOINT = {
+    "VpcEndpointId": "vpce-1",
+    "VpcEndpointType": "Gateway",
+    "ServiceName": "com.amazonaws.eu-west-1.s3",
+    "State": "available",
+    "VpcId": "vpc-1",
+    "OwnerId": ACCOUNT,
+    "RouteTableIds": ["rtb-1"],
+}
+INTERFACE_ENDPOINT = {
+    "VpcEndpointId": "vpce-2",
+    "VpcEndpointType": "Interface",
+    "ServiceName": "com.amazonaws.eu-west-1.sqs",
+    "State": "available",
+    "VpcId": "vpc-1",
+    "OwnerId": ACCOUNT,
+    "SubnetIds": ["subnet-1"],
+    "NetworkInterfaceIds": ["eni-1"],
+    "Groups": [{"GroupId": "sg-1", "GroupName": "web"}],
+}
+PREFIX_LISTS = [
+    {
+        "PrefixListId": "pl-s3",
+        "AddressFamily": "IPv4",
+        "State": "create-complete",
+        "PrefixListName": "com.amazonaws.eu-west-1.s3",
+        "OwnerId": "AWS",
+    },
+    {
+        "PrefixListId": "pl-office",
+        "AddressFamily": "IPv4",
+        "State": "modify-complete",
+        "PrefixListName": "office",
+        "OwnerId": ACCOUNT,
+        "Version": 3,
+    },
+]
+PREFIX_LIST_ENTRIES = {
+    "pl-s3": {"Entries": [{"Cidr": "52.218.0.0/17"}]},
+    "pl-office": {"Entries": [{"Cidr": "198.51.100.0/24", "Description": "office"}]},
+}
 PRIVATE_ROUTE_TABLE = {
     "RouteTableId": "rtb-private",
     "VpcId": "vpc-1",
@@ -125,8 +166,8 @@ PRIVATE_ROUTE_TABLE = {
 }
 
 
-def region(items, unavailable=None) -> RegionResult:
-    return normalize_region(SNAPSHOT_ID, ACCOUNT, REGION, items, unavailable)
+def region(items, unavailable=None, prefix_list_entries=None) -> RegionResult:
+    return normalize_region(SNAPSHOT_ID, ACCOUNT, REGION, items, unavailable, prefix_list_entries)
 
 
 def snapshot_of(result: RegionResult) -> ArchitectureSnapshot:

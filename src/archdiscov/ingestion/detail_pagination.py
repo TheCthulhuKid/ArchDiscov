@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from .execution_common import MalformedResponse
 
-PaginationMode = Literal["iam", "elbv2", "nextToken", "lambda", "rds", "sqs"]
+PaginationMode = Literal["iam", "elbv2", "nextToken", "lambda", "rds", "sqs", "ec2"]
 
 
 @dataclass(frozen=True)
@@ -32,5 +32,6 @@ PAGINATION_POLICIES = {
     "lambda": PaginationPolicy("Marker", "NextMarker"),
     "rds": PaginationPolicy("Marker", "Marker"),
     "sqs": PaginationPolicy("NextToken", "NextToken"),
+    "ec2": PaginationPolicy("NextToken", "NextToken"),
 }
 PAGINATION_TOKENS = frozenset(policy.request_token for policy in PAGINATION_POLICIES.values())

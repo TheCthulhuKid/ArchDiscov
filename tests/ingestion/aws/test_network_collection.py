@@ -8,7 +8,9 @@ from archdiscov.cli import app
 from archdiscov.ingestion import aws as aws_module
 from archdiscov.ingestion.adapter import AdapterContext, IngestionError
 from archdiscov.ingestion.aws import EC2_OPERATIONS, OperationRunner, OperationTask
+from archdiscov.ingestion.network.collector import PREFIX_LIST_ENTRY_LIMIT
 from archdiscov.ingestion.operations import Ec2Operation as Op
+from archdiscov.ingestion.service_catalog import REGIONAL_OPERATIONS
 from archdiscov.models.architecture import UnresolvedTarget
 from archdiscov.models.enums import AwsRegion, AwsService
 from archdiscov.services import collect_and_save, collect_snapshots, load_snapshot
@@ -18,9 +20,13 @@ from tests.support.network_data import (
     ATTACHED_ENI,
     EGRESS_ONLY_GATEWAY,
     FULL,
+    GATEWAY_ENDPOINT,
     INSTANCE,
+    INTERFACE_ENDPOINT,
     NAT_GATEWAY,
     PEERING,
+    PREFIX_LIST_ENTRIES,
+    PREFIX_LISTS,
     PRIVATE_ROUTE_TABLE,
 )
 
@@ -33,6 +39,8 @@ ITEMS = {
     Op.DESCRIBE_NAT_GATEWAYS: [NAT_GATEWAY],
     Op.DESCRIBE_EGRESS_ONLY_INTERNET_GATEWAYS: [EGRESS_ONLY_GATEWAY],
     Op.DESCRIBE_VPC_PEERING_CONNECTIONS: [PEERING],
+    Op.DESCRIBE_VPC_ENDPOINTS: [GATEWAY_ENDPOINT, INTERFACE_ENDPOINT],
+    Op.DESCRIBE_MANAGED_PREFIX_LISTS: PREFIX_LISTS,
 }
 DENIED = ClientError({"Error": {"Code": "UnauthorizedOperation"}}, "DescribeRouteTables")
 
@@ -41,9 +49,14 @@ def snake(operation: Op) -> str:
     return "".join(f"_{c.lower()}" if c.isupper() else c for c in operation.value).lstrip("_")
 
 
+def entries(PrefixListId, **params):
+    return PREFIX_LIST_ENTRIES[PrefixListId]
+
+
 def pages(overrides=None):
     def factory(region):
         data = {op: [{KEYS[op]: items}] for op, items in ITEMS.items()}
+        data[Op.GET_MANAGED_PREFIX_LIST_ENTRIES] = entries
         data.update(overrides or {})
         return {snake(op): page for op, page in data.items()}
 
@@ -74,11 +87,16 @@ def test_collection_emits_schema_two_with_network_resources_and_relationships():
         "AWS::EC2::NatGateway",
         "AWS::EC2::EgressOnlyInternetGateway",
         "AWS::EC2::VPCPeeringConnection",
+        "AWS::EC2::VPCEndpoint",
+        "AWS::EC2::PrefixList",
     } <= kinds
-    assert {o.operation for o in snapshot.coverage.operations} == {o.value for o in KEYS}
+    assert {o.operation for o in snapshot.coverage.operations} == set(
+        REGIONAL_OPERATIONS[AwsService.EC2]
+    )
     assert {o.status for o in snapshot.coverage.operations} == {"success"}
     counts = {o.operation: o.result_count for o in snapshot.coverage.operations}
     assert counts["DescribeNatGateways"] == 2  # both pages, the deleted gateway as reported
+    assert counts["GetManagedPrefixListEntries"] == 2  # one read per listed prefix list
     assert snapshot.dependencies_by_region[AwsRegion.US_EAST_1]
 
 
@@ -124,6 +142,28 @@ def test_failed_rule_operation_falls_back_to_group_permissions():
     assert len(group.ingress_rules) == 2
 
 
+def test_denied_or_oversized_entries_reads_leave_entries_unrecorded():
+    def limited(PrefixListId, **params):
+        if PrefixListId == "pl-s3":
+            return ClientError({"Error": {"Code": "UnauthorizedOperation"}}, "Get")
+        assert params["MaxResults"] == PREFIX_LIST_ENTRY_LIMIT
+        return {**PREFIX_LIST_ENTRIES[PrefixListId], "NextToken": "more"}
+
+    snapshot = collect(pages=pages({Op.GET_MANAGED_PREFIX_LIST_ENTRIES: limited}))
+    lists = [
+        r
+        for r in flatten(snapshot.regions["us-east-1"].resources)
+        if r.resource_type.value == "AWS::EC2::PrefixList"
+    ]
+    assert len(lists) == 2 and all(r.entries is None for r in lists)
+    (coverage,) = (
+        o for o in snapshot.coverage.operations if o.operation == "GetManagedPrefixListEntries"
+    )
+    assert coverage.status == "incomplete"
+    assert coverage.failures[0].code == "UnauthorizedOperation"
+    assert "stopped at 100 entries and reported more" in coverage.unresolved_values[0].reason
+
+
 def test_zero_results_remain_successful():
     empty = {op: [{key: []}] for op, key in KEYS.items()}
     snapshot = collect(pages=lambda region: {snake(op): page for op, page in empty.items()})
@@ -149,7 +189,8 @@ def test_new_operations_are_allowlisted_and_others_rejected_before_any_call():
     with pytest.raises(IngestionError) as exc:
         runner.run(OperationTask(AwsRegion.US_EAST_1, AwsService.EC2, "TerminateInstances"))
     assert exc.value.code == "operation_not_allowed" and calls == []
-    for operation in Op:
+    # The entries read is a detail read, run by DetailRunner rather than OperationRunner.
+    for operation in [Op.DESCRIBE_REGIONS, *KEYS]:
         result = runner.run(OperationTask(AwsRegion.US_EAST_1, AwsService.EC2, operation.value))
         assert result.coverage.status == "success"
 

@@ -1,8 +1,10 @@
 """Region-level normalization of EC2 networking resources."""
 
+from __future__ import annotations
+
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from ...models.architecture import Dependency, Evidence, RegionArchitecture
@@ -12,6 +14,10 @@ from ..operations import Ec2Operation
 from .containment import place
 from .relationships import build_dependencies
 from .resources import NetworkNormalizer, Normalized
+
+if TYPE_CHECKING:
+    # Only annotated: detail_execution loads botocore, which analysis must not import.
+    from ..detail_execution import DetailResponse
 
 Op = Ec2Operation
 
@@ -33,9 +39,12 @@ def normalize_region(
     region: AwsRegion,
     items: Mapping[Ec2Operation, list[dict[str, Any]]],
     unavailable: Mapping[Ec2Operation, str] | None = None,
+    prefix_list_entries: Mapping[str, DetailResponse] | None = None,
 ) -> RegionResult:
-    """Normalize one region. `unavailable` maps operations that did not fully complete to why."""
+    """Normalize one region. `unavailable` maps operations that did not fully complete to why;
+    `prefix_list_entries` holds the entries response of each list read in full, by list ID."""
     unavailable = unavailable or {}
+    prefix_list_entries = prefix_list_entries or {}
     ec2 = Ec2Normalizer(snapshot_id, account_id, region)
     net = NetworkNormalizer(snapshot_id, account_id, region)
     entries: list[Normalized] = []
@@ -93,6 +102,11 @@ def normalize_region(
         entries.append(net.egress_only_internet_gateway(i, item))
     for i, item in collect(Op.DESCRIBE_VPC_PEERING_CONNECTIONS, "VpcPeeringConnectionId"):
         entries.append(net.vpc_peering_connection(i, item))
+    for i, item in collect(Op.DESCRIBE_VPC_ENDPOINTS, "VpcEndpointId"):
+        entries.append(net.vpc_endpoint(i, item))
+    for i, item in collect(Op.DESCRIBE_MANAGED_PREFIX_LISTS, "PrefixListId"):
+        response = prefix_list_entries.get(item["PrefixListId"])
+        entries.append(net.managed_prefix_list(i, item, response))
 
     roots = place(entries)
     dependencies = build_dependencies(net, entries, unavailable)

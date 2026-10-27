@@ -2,10 +2,11 @@ import pytest
 from botocore.exceptions import ClientError
 
 from archdiscov.ingestion.adapter import AdapterContext, IngestionError
-from archdiscov.ingestion.aws import EC2_OPERATIONS, AwsAdapter
+from archdiscov.ingestion.aws import AwsAdapter
 from archdiscov.ingestion.operations import LambdaOperation
 from archdiscov.ingestion.requests import AwsAccountConfig, AwsCollectionRequest
 from archdiscov.ingestion.scope import ResolvedAwsScope
+from archdiscov.ingestion.service_catalog import REGIONAL_OPERATIONS
 from archdiscov.models.enums import AwsService
 from archdiscov.services import collect_and_save, load_snapshot
 from tests.support.aws_fakes import ACCOUNT, Clock, empty_network_pages
@@ -83,7 +84,7 @@ def test_discovery_is_after_sts_and_resolved_scope_survives_persistence(tmp_path
     assert snapshot.coverage.regions == list(scope.regions) == ["us-east-1", "us-west-2"]
     assert set(snapshot.regions) == set(scope.regions)
     assert snapshot.metadata["region_resolution"]["disabled_regions"] == ["ap-east-1"]
-    assert len(snapshot.coverage.operations) == 2 * len(EC2_OPERATIONS)
+    assert len(snapshot.coverage.operations) == 2 * len(REGIONAL_OPERATIONS[AwsService.EC2])
     assert all(op.operation != "DescribeRegions" for op in snapshot.coverage.operations)
     assert cfg.accounts[0].regions == ()  # resolution never mutates caller configuration
 

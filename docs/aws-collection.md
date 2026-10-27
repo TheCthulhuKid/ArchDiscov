@@ -149,7 +149,7 @@ Service-local contracts, exact operations/permissions, source paths, and limitat
 
 | Family | Collected facts | Explicit limits |
 | --- | --- | --- |
-| [EC2/network](network-mapping.md) | VPC/subnet/instance configuration, routes, rules, ENIs, NAT and egress-only gateways, peering connections, attachments | No transit gateway, endpoint, or prefix-list inventory, and no reachability analysis; nonlocal/missing targets remain explicit |
+| [EC2/network](network-mapping.md) | VPC/subnet/instance configuration, routes, rules, ENIs, NAT and egress-only gateways, peering connections, endpoints, prefix lists, attachments | No transit gateway inventory, and no reachability analysis; nonlocal/missing targets remain explicit |
 | [IAM](iam-mapping.md) | Roles, profiles, trust/inline policies, referenced managed policies | Default policy versions only; no users/groups inventory or effective-permission evaluation |
 | [ALB/NLB](load-balancing-mapping.md) | Listeners, rules, ordered forwarding, registrations and reported health | No classic ELB; Gateway LB summaries only; health is not reachability and IP ownership is not inferred |
 | [ECS](ecs-mapping.md) | Clusters, services, desired-running tasks, referenced task definitions | No stopped-task inventory, workload commands, or environment values |

@@ -23,7 +23,9 @@ def test_collect_returns_validated_snapshot_with_failed_operations():
     assert snapshot.source.kind == "aws"
     assert snapshot.schema_version == "2"
     assert {o.operation: o.status for o in snapshot.coverage.operations} == {
-        operation.value: "failed" for operation, _ in EC2_OPERATIONS
+        **{operation.value: "failed" for operation, _ in EC2_OPERATIONS},
+        # With no prefix list listed, there are no entries to read.
+        "GetManagedPrefixListEntries": "skipped",
     }
     assert snapshot.regions["us-east-1"].resources == []
     assert snapshot.coverage.account_wide is False

@@ -1,3 +1,4 @@
+from archdiscov.ingestion.detail_execution import DetailCall, DetailResponse
 from archdiscov.ingestion.operations import Ec2Operation as Op
 from archdiscov.models.architecture import ExternalTarget, LocalTarget, UnresolvedTarget
 from archdiscov.models.enums import AttachmentKind as Kind
@@ -7,11 +8,17 @@ from tests.support.network_data import (
     ATTACHED_ENI,
     EGRESS_ONLY_GATEWAY,
     FULL,
+    GATEWAY_ENDPOINT,
     INSTANCE,
+    INTERFACE_ENDPOINT,
     NAT_GATEWAY,
     PEERING,
+    PREFIX_LIST_ENTRIES,
+    PREFIX_LISTS,
     PRIVATE_ROUTE_TABLE,
+    ROUTE_TABLE,
     SG,
+    SG_RULES,
     SUBNET,
     VPC,
     by_id,
@@ -38,8 +45,8 @@ def deps(result, kind: Kind, source: str | None = None):
     ]
 
 
-def build(items=ITEMS, unavailable=None):
-    result = region(items, unavailable)
+def build(items=ITEMS, unavailable=None, prefix_list_entries=None):
+    result = region(items, unavailable, prefix_list_entries)
     snapshot = snapshot_of(result)  # raises if endpoints or citations are invalid
     return result, snapshot
 
@@ -132,15 +139,15 @@ def test_unsupported_and_unparseable_route_targets():
     result, _ = build({Op.DESCRIBE_VPCS: [VPC], Op.DESCRIBE_ROUTE_TABLES: [table]})
     routes = deps(result, Kind.ROUTE_TARGET)
     targets = [d.target for d in routes]
-    # NAT and egress-only gateways are collected, so a missing one is unresolved, not external.
+    # These target types are collected, so a missing one is unresolved, not external.
     nat, transit, endpoint, egress_only = targets[:4]
     assert "nat-1 was not present" in nat.reason
     assert "eigw-1 was not present" in egress_only.reason
     assert routes[3].attributes["target_kind"] == "egress_only_internet_gateway"
     assert transit.aws_resource_type == "AWS::EC2::TransitGateway"
-    assert endpoint.aws_resource_type == "AWS::EC2::VPCEndpoint"
+    assert "vpce-1 was not present" in endpoint.reason
     (prefix_list,) = deps(result, Kind.PREFIX_LIST_REFERENCE)
-    assert prefix_list.target.identifier == "pl-s3"
+    assert "pl-s3 was not present" in prefix_list.target.reason
     assert prefix_list.evidence_ids == routes[2].evidence_ids
     blackhole, missing = targets[4:]
     assert isinstance(blackhole, UnresolvedTarget)
@@ -177,6 +184,55 @@ def test_nat_and_egress_only_gateways_are_placed_linked_and_reached_by_routes():
     to_nat, to_egress_only = deps(result, Kind.ROUTE_TARGET, "rtb-private")
     assert to_nat.target == LocalTarget(resource_id=rid("nat-1"))
     assert to_egress_only.target == LocalTarget(resource_id=rid("eigw-1"))
+
+
+def test_endpoints_and_prefix_lists_are_linked_and_entries_read_in_full():
+    to_endpoint = {"DestinationPrefixListId": "pl-s3", "GatewayId": "vpce-1", "State": "active"}
+    rule = {
+        "SecurityGroupRuleId": "sgr-pl",
+        "GroupId": "sg-1",
+        "IsEgress": False,
+        "IpProtocol": "tcp",
+        "FromPort": 443,
+        "ToPort": 443,
+        "PrefixListId": "pl-office",
+    }
+    items = {
+        **ITEMS,
+        Op.DESCRIBE_ROUTE_TABLES: [
+            {**ROUTE_TABLE, "Routes": [*ROUTE_TABLE["Routes"], to_endpoint]}
+        ],
+        Op.DESCRIBE_SECURITY_GROUP_RULES: [*SG_RULES, rule],
+        Op.DESCRIBE_VPC_ENDPOINTS: [GATEWAY_ENDPOINT, INTERFACE_ENDPOINT],
+        Op.DESCRIBE_MANAGED_PREFIX_LISTS: PREFIX_LISTS,
+    }
+    call = DetailCall(Op.GET_MANAGED_PREFIX_LIST_ENTRIES, {"PrefixListId": "pl-office"})
+    office = DetailResponse(call, PREFIX_LIST_ENTRIES["pl-office"], "Request[pl-office].Page[0]")
+    result, _ = build(items, prefix_list_entries={"pl-office": office})
+    resources = by_id(result)
+    assert {"vpce-1", "vpce-2"} <= {c.identity.physical_id for c in resources["vpc-1"].children}
+    assert resources["vpce-1"].endpoint_type == "gateway"
+
+    def target(kind, source):
+        (dependency,) = deps(result, kind, source)
+        return dependency.target
+
+    assert target(Kind.ENDPOINT_ROUTE_TABLE, "vpce-1") == LocalTarget(resource_id=rid("rtb-1"))
+    assert target(Kind.ENDPOINT_SUBNET, "vpce-2") == LocalTarget(resource_id=rid("subnet-1"))
+    assert target(Kind.ENDPOINT_INTERFACE, "vpce-2") == LocalTarget(resource_id=rid("eni-1"))
+    assert target(Kind.ENDPOINT_SECURITY_GROUP, "vpce-2") == LocalTarget(resource_id=rid("sg-1"))
+    assert target(Kind.PREFIX_LIST_REFERENCE, "rtb-1") == LocalTarget(resource_id=rid("pl-s3"))
+    assert target(Kind.PREFIX_LIST_REFERENCE, "sg-1") == LocalTarget(resource_id=rid("pl-office"))
+    routes = deps(result, Kind.ROUTE_TARGET, "rtb-1")
+    assert routes[-1].target == LocalTarget(resource_id=rid("vpce-1"))
+
+    office_list, s3_list = resources["pl-office"], resources["pl-s3"]
+    assert [str(entry.cidr) for entry in office_list.entries] == ["198.51.100.0/24"]
+    cited = result.evidence[office_list.fact_evidence["/entries/0"][0]]
+    assert cited.configuration_path == "Request[pl-office].Page[0].Entries[0]"
+    assert cited.locator == "ec2:GetManagedPrefixListEntries"
+    assert cited.value["Description"] == "[REDACTED]"
+    assert s3_list.entries is None and s3_list.owner_id == "AWS"  # entries were not read
 
 
 def test_security_group_membership_local_and_missing():
@@ -222,8 +278,7 @@ def test_security_group_references_local_external_and_prefix_list():
     assert isinstance(foreign.target, ExternalTarget)
     assert foreign.target.account_id == "210987654321"
     assert foreign.target.aws_resource_type == "AWS::EC2::SecurityGroup"
-    assert prefix.target.identifier == "pl-1"
-    assert prefix.target.aws_resource_type == "AWS::EC2::PrefixList"
+    assert "pl-1 was not present" in prefix.target.reason
     assert prefix.attributes["direction"] == "ingress"
     cited = result.evidence[local.evidence_ids[0]]
     assert cited.configuration_path == "SecurityGroups[1].IpPermissions[0]"

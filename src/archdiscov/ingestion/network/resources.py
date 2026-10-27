@@ -1,30 +1,46 @@
 """Normalize route tables, gateways, NACLs, security groups, and network interfaces."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from ipaddress import AddressValueError, IPv4Address, IPv6Address
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ValidationError
 
-from ...models.enums import NaclAction, NatConnectivity, RouteTargetKind, RuleDirection
+from ...models.enums import (
+    AddressFamily,
+    NaclAction,
+    NatConnectivity,
+    RouteTargetKind,
+    RuleDirection,
+    VpcEndpointType,
+)
 from ...models.resource_base import Resource
 from ...models.resources.network import (
     EgressOnlyInternetGateway,
     InternetGateway,
+    ManagedPrefixList,
     NaclEntry,
     NatGateway,
     NetworkAcl,
     NetworkInterface,
     PeeringSide,
+    PrefixListEntry,
     PrivateIpAddress,
     Route,
     RouteTable,
     SecurityGroup,
     SecurityGroupRule,
+    VpcEndpoint,
     VpcPeeringConnection,
 )
 from ..evidence_builder import EvidenceBuilder, tags_of
 from ..operations import Ec2Operation as Op
+
+if TYPE_CHECKING:
+    # Only annotated: detail_execution loads botocore, which analysis must not import.
+    from ..detail_execution import DetailResponse
 
 FALLBACK_LIMITATION = (
     "Rule IDs are unavailable: DescribeSecurityGroupRules did not complete, "
@@ -57,6 +73,12 @@ _ROUTE_TARGET_FIELDS = (
     ("VpcEndpointId", RouteTargetKind.VPC_ENDPOINT),
     ("EgressOnlyInternetGatewayId", RouteTargetKind.EGRESS_ONLY_INTERNET_GATEWAY),
 )
+_ENDPOINT_TYPES = {
+    "Gateway": VpcEndpointType.GATEWAY,
+    "Interface": VpcEndpointType.INTERFACE,
+    "GatewayLoadBalancer": VpcEndpointType.GATEWAY_LOAD_BALANCER,
+}
+_ADDRESS_FAMILIES = {"IPv4": AddressFamily.IPV4, "IPv6": AddressFamily.IPV6}
 _OTHER_TARGET_FIELDS = (
     "CarrierGatewayId",
     "LocalGatewayId",
@@ -645,3 +667,133 @@ class NetworkNormalizer(EvidenceBuilder):
             accepter=_peering_side(accepter),
         )
         return Normalized(resource, item, path, op)
+
+    def vpc_endpoint(self, index: int, item: dict[str, Any]) -> Normalized:
+        path, limitations = f"VpcEndpoints[{index}]", []
+        op = Op.DESCRIBE_VPC_ENDPOINTS
+        tags = tags_of(item)
+        reported = item.get("VpcEndpointType")
+        endpoint_type = _ENDPOINT_TYPES.get(reported) if isinstance(reported, str) else None
+        if reported is not None and endpoint_type is None:
+            limitations.append(f"{path}: VpcEndpointType is not a modelled type and was omitted")
+        facts = {
+            pointer: (field, item[field])
+            for pointer, field in (
+                ("/service_name", "ServiceName"),
+                ("/state", "State"),
+                ("/vpc_id", "VpcId"),
+                ("/owner_id", "OwnerId"),
+            )
+            if item.get(field)
+        }
+        if endpoint_type is not None:
+            facts["/endpoint_type"] = ("VpcEndpointType", reported)
+        if tags:
+            facts["/attributes/tags"] = ("Tags", item.get("Tags"))
+        # Normalized field -> (source field, [(source position, ID)]).
+        ids = {
+            name: (field, [(i, value) for i, value in enumerate(item.get(field) or []) if value])
+            for name, field in (
+                ("route_table_ids", "RouteTableIds"),
+                ("subnet_ids", "SubnetIds"),
+                ("network_interface_ids", "NetworkInterfaceIds"),
+            )
+        }
+        groups = [
+            (i, group) for i, group in enumerate(item.get("Groups") or []) if group.get("GroupId")
+        ]
+        resource = self._build(
+            VpcEndpoint,
+            operation=op,
+            item_path=path,
+            item=item,
+            physical_id=item["VpcEndpointId"],
+            name=tags.get("Name"),
+            attributes={"tags": tags or None},
+            facts=facts,
+            endpoint_type=endpoint_type,
+            service_name=item.get("ServiceName") or None,
+            state=item.get("State") or None,
+            vpc_id=item.get("VpcId") or None,
+            owner_id=item.get("OwnerId") or None,
+            security_group_ids=[group["GroupId"] for _, group in groups],
+            **{name: [value for _, value in values] for name, (_, values) in ids.items()},
+        )
+        for name, (field, values) in ids.items():
+            for n, (i, value) in enumerate(values):
+                self.cite(resource, f"/{name}/{n}", op, f"{path}.{field}[{i}]", value)
+        for n, (i, group) in enumerate(groups):
+            self.cite(resource, f"/security_group_ids/{n}", op, f"{path}.Groups[{i}]", group)
+        self._with_limitations(resource, limitations)
+        return Normalized(resource, item, path, op, vpc_id=item.get("VpcId"))
+
+    def managed_prefix_list(
+        self, index: int, item: dict[str, Any], response: DetailResponse | None
+    ) -> Normalized:
+        """A regional root; `entries` stays unset unless the whole entries response is valid."""
+        path, limitations = f"PrefixLists[{index}]", []
+        op = Op.DESCRIBE_MANAGED_PREFIX_LISTS
+        tags = tags_of(item)
+        family = _ADDRESS_FAMILIES.get(item.get("AddressFamily"))
+        version = item.get("Version")
+        version = version if isinstance(version, int) and version >= 1 else None
+        facts = {
+            pointer: (field, item[field])
+            for pointer, field in (("/owner_id", "OwnerId"), ("/state", "State"))
+            if item.get(field)
+        }
+        if family is not None:
+            facts["/address_family"] = ("AddressFamily", item["AddressFamily"])
+        if version is not None:
+            facts["/version"] = ("Version", version)
+        if tags:
+            facts["/attributes/tags"] = ("Tags", item.get("Tags"))
+        entries = self._prefix_list_entries(path, response, limitations)
+        resource = self._build(
+            ManagedPrefixList,
+            operation=op,
+            item_path=path,
+            item=item,
+            physical_id=item["PrefixListId"],
+            name=item.get("PrefixListName") or tags.get("Name"),
+            attributes={"tags": tags or None},
+            facts=facts,
+            address_family=family,
+            owner_id=item.get("OwnerId") or None,
+            state=item.get("State") or None,
+            version=version,
+            entries=None if entries is None else [entry for _, _, entry in entries],
+        )
+        if response is not None:
+            for n, (i, raw, _) in enumerate(entries or []):
+                self.cite(
+                    resource,
+                    f"/entries/{n}",
+                    Op.GET_MANAGED_PREFIX_LIST_ENTRIES,
+                    f"{response.path}.Entries[{i}]",
+                    raw,
+                )
+        self._with_limitations(resource, limitations)
+        return Normalized(resource, item, path, op)
+
+    @staticmethod
+    def _prefix_list_entries(
+        path: str, response: DetailResponse | None, limitations: list[str]
+    ) -> list[tuple[int, dict[str, Any], PrefixListEntry]] | None:
+        """Every entry, or None when unread or when any entry is invalid: never a partial list."""
+        if response is None:
+            return None
+        raw_entries = response.value.get("Entries")
+        if not isinstance(raw_entries, list):
+            limitations.append(f"{path}: the entries response holds no list, so none were recorded")
+            return None
+        out = []
+        for i, raw in enumerate(raw_entries):
+            where = f"{response.path}.Entries[{i}]"
+            cidr = raw.get("Cidr") if isinstance(raw, dict) else None
+            entry = _validated(PrefixListEntry, where, limitations, cidr=cidr)
+            if entry is None:
+                limitations.append(f"{path}: an entry is invalid, so no entries were recorded")
+                return None
+            out.append((i, raw, entry))
+        return out
