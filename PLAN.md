@@ -169,6 +169,94 @@ Implement and verify substeps 49.1–49.7 in order. Keep the parent planned unti
 
 **Acceptance check:** Botocore Stubber tests cover each operation's success, pagination, denial, malformed responses, and bounds; the whole-architecture collection includes the new elements with coverage; the permissions page and allowlist list exactly the new read actions; no test needs AWS.
 
+Implement and verify substeps 50.1–50.6 in order. Keep the parent planned until every substep's acceptance checks pass.
+
+**Where things go:**
+- Operation names in `Ec2Operation` (`ingestion/operations.py`). Adding a member allowlists it and puts it in the EC2 service catalog, so it is collected from then on. Add each name only in the substep that normalizes its results. Plain list reads join `EC2_OPERATIONS` in `ingestion/aws.py`; per-item reads (prefix-list entries, transit gateway route-table details) go through `DetailRunner`, as the ELBv2 collector does.
+- Normalizers in `ingestion/network/resources.py`, or a sibling module such as `ingestion/network/transit.py` if it grows past one readable file; placement in `ingestion/network/containment.py`; relationships as one handler per source type in `_HANDLERS`, with each collected type and its operation added to `_COLLECTED_BY`.
+- Stubber tests beside the existing ones in `tests/ingestion/aws/` (`test_network_collection.py`, `test_network_normalization.py`, `test_network_relationships.py`), with shared response data in `tests/support/network_data.py`.
+- Each substep adds its actions to the IAM policy in `docs/aws-permissions.md` and its resources and relationships to `docs/network-mapping.md`, because the change is visible in collected snapshots as soon as it lands.
+
+**What is reused:**
+- `NetworkNormalizer`, `EvidenceBuilder`, `_validated`, the `Normalized` entries, and `normalize_region`; `DetailRunner` with its pagination policies, call budgets, and coverage records.
+- The model contracts from steps 49.2–49.5 and the relationship kinds and fixture shapes from step 49.6: a collected snapshot records each element as the matching fixture does, with the same paths and attributes.
+- The network Stubber helpers and the `unavailable` mapping, so a denied or failed read makes its references unresolved, never absent.
+
+**Advice:** Keep tests to the usual path, as `AGENTS.md` asks. Denial, malformed-response, and budget handling are shared code that existing tests already cover. Each substep needs one normalization-and-relationship test from a representative response, and one Stubber test of the new reads' success and pagination. Add a denial or bound case only where the substep adds behaviour of its own, such as a search bound or an entries read.
+
+#### Step 50.1: IPv6 fields in existing responses
+**Status:** Implemented. `Ec2Normalizer` adds each VPC and subnet IPv6 CIDR whose association state is `associated` to `cidr_blocks`, after the IPv4 CIDRs, citing `/cidr_blocks/N` to its `Ipv6CidrBlockAssociationSet[n]` entry; other states are not recorded. `NetworkNormalizer` reads ENI `Ipv6Addresses` into `ipv6_addresses`, each cited to `NetworkInterfaces[i].Ipv6Addresses[n]`: an absent field leaves it unset, an empty list records none, and an invalid or non-string address is omitted with a limitation. Routes set `prefix_list_id` from `DestinationPrefixListId`. Route IPv6 destinations, security-group `CidrIpv6` and `Ipv6Ranges`, and NACL `Ipv6CidrBlock` were already read and cited per route, rule, or entry like their IPv4 forms, so they are unchanged. Only `subnet_network` reads `cidr_blocks` in the services, and it already keeps IPv4 only, so no decision changes. One new test, `test_dual_stack_fields_are_read_and_cited_to_their_entries`, normalizes a dual-stack response (including a disassociated VPC CIDR) to the shapes and citations of `dual-stack.json`; two existing tests gained an assertion each (an ENI without the field, and an invalid address). Existing network collection tests pass unchanged. `docs/network-mapping.md` describes the fields, and `docs/snapshot-format.md` now says the collector reads them.
+**Prerequisite:** Step 49.
+
+- Read the associated IPv6 CIDRs of VPCs and subnets (`Ipv6CidrBlockAssociationSet`, state `associated` only) into `cidr_blocks`, and ENI `Ipv6Addresses` into `ipv6_addresses`, each cited to its association or address entry, as in `dual-stack.json`.
+- Set `Route.prefix_list_id` from `DestinationPrefixListId`. Route IPv6 destinations, security-group `CidrIpv6` and `Ipv6Ranges`, and NACL `Ipv6CidrBlock` are already read; confirm each is cited like its IPv4 form, and change nothing that already works.
+- An ENI response without the field leaves `ipv6_addresses` unset (not recorded), and one with an empty list records none.
+
+**Advice:** No new operation or permission is needed, so this substep changes only normalization. Recorded IPv4 output must not change: the existing collection tests are the proof.
+
+**Acceptance check:** A dual-stack response normalizes to the shapes and citations of `dual-stack.json`; a disassociated IPv6 CIDR is not recorded; existing network collection tests pass unchanged.
+
+#### Step 50.2: NAT gateways and egress-only internet gateways
+**Status:** Planned.
+**Prerequisite:** Step 50.1.
+
+- Add `DescribeNatGateways` and `DescribeEgressOnlyInternetGateways`. Normalize to `NatGateway` (state, connectivity, VPC, subnet, and, from `NatGatewayAddresses`, the network interface and public IPv4 addresses) and `EgressOnlyInternetGateway` (the VPC from its attachment).
+- Place a NAT gateway under its subnet, and an egress-only gateway under its VPC, never inventing a missing parent.
+- Add `_nat_gateway` and `_egress_only_internet_gateway` handlers: NAT gateway to subnet and network interface; egress-only gateway to VPC, with the attachment state. Add both types to `_COLLECTED_BY`, so route targets naming them resolve locally or are unresolved.
+
+**Advice:** Normalize a deleted or failed NAT gateway as reported rather than dropping it; deciding what its state means is step 53's job. A response that breaks the model's rules (an available public gateway without an address) is malformed: record it as a limitation, as `_validated` does for other entries, never as a valid gateway.
+
+**Acceptance check:** Stubbed responses produce the resources and relationships of `egress-gateways.json`, with a route to the NAT gateway resolving locally; a denied `DescribeNatGateways` makes that route's target unresolved with the "did not complete" reason; the permissions page and allowlist list both actions.
+
+#### Step 50.3: VPC peering connections
+**Status:** Planned.
+**Prerequisite:** Step 50.2.
+
+- Add `DescribeVpcPeeringConnections`. Normalize to `VpcPeeringConnection`, with each side's VPC, owner account, and IPv4 and IPv6 CIDRs, and the reported status code as state.
+- Store a connection as a regional root, since it belongs to neither VPC alone.
+- Add a `_vpc_peering_connection` handler for the requester and accepter VPC. A side in this account and region resolves locally or is unresolved; a side in another account or region is external, carrying that account and region.
+
+**Advice:** A cross-account connection appears in both accounts' collections, as each side's own snapshot records it. Do not try to match them up: composing snapshots is out of scope for this phase (see the open questions).
+
+**Acceptance check:** A same-account response produces `vpc-peering.json`'s resources and relationships; a cross-account response gives an external accepter VPC with its account ID; a route to the connection resolves locally.
+
+#### Step 50.4: VPC endpoints and managed prefix lists
+**Status:** Planned.
+**Prerequisite:** Step 50.3.
+
+- Add `DescribeVpcEndpoints`. Normalize to `VpcEndpoint` and place it under its VPC. Add an `_vpc_endpoint` handler for its route tables, subnets, ENIs, and security groups.
+- Add `DescribeManagedPrefixLists` and `GetManagedPrefixListEntries` (one bounded detail read per list). Normalize to `ManagedPrefixList` as regional roots, with `entries` left unset when the entries read was denied, failed, or hit its bound, and the coverage for that read marked accordingly.
+- Add both types to `_COLLECTED_BY`, so route targets naming an endpoint, and route destinations and security-group rules naming a prefix list, resolve locally or are unresolved.
+
+**Advice:** Read the entries of AWS-managed lists too, since the API allows it; whether they were recorded is still told by `entries`, not assumed from the owner. Decide here how many entries one list may return before it is incomplete, and state the limit in the limitations section of `docs/network-mapping.md`.
+
+**Acceptance check:** Stubbed responses produce `endpoints-and-prefix-lists.json`'s resources and relationships; a denied or bounded entries read leaves `entries` unset with qualified coverage, while the list itself is recorded.
+
+#### Step 50.5: Transit gateways, attachments, and route tables
+**Status:** Planned.
+**Prerequisite:** Step 50.4.
+
+- Settle the open question first: how many routes one transit gateway route table search may return before its coverage is incomplete. Record the bound in the code and in the limitations section of `docs/network-mapping.md`.
+- Add `DescribeTransitGateways`, `DescribeTransitGatewayAttachments`, and `DescribeTransitGatewayRouteTables`, normalized to the step 49.3 models as regional roots.
+- For each route table, through `DetailRunner`: `GetTransitGatewayRouteTableAssociations`, `GetTransitGatewayRouteTablePropagations`, and one `SearchTransitGatewayRoutes` with a bounded `MaxResults` and a `type` filter of `static` and `propagated`. `AdditionalRoutesAvailable` sets `routes_complete` to false and marks that read's coverage incomplete.
+- Add handlers: attachment to transit gateway and attached VPC; route table to the attachments it associates and propagates. A transit gateway or attached resource owned by another account (shared through AWS RAM) is external.
+
+**Advice:** This is the expensive read, so search each table once per collection and never repeat a search to page past the bound. A failed detail read leaves that table's associations, propagations, or routes unrecorded, without dropping the table.
+
+**Acceptance check:** Stubbed responses produce `transit-gateway.json`'s resources and relationships; a search that reports more routes gives `routes_complete: false` and incomplete coverage; a VPC route to the gateway resolves locally.
+
+#### Step 50.6: Verify the whole collection and close the step
+**Status:** Planned.
+**Prerequisite:** Step 50.5.
+
+- Run one whole-architecture Stubber collection over a VPC holding every new element, and confirm the snapshot validates, records coverage for every new operation, and that analyzer results on its IPv4 paths match the same collection without the new elements (the primitives still answer `unknown` for them).
+- Confirm the permissions page's policy and the allowlist list exactly the new read actions (`test_permissions_documentation.py`), and that `docs/network-mapping.md` and `docs/aws-collection.md` describe what is collected.
+- Run the focused and full offline tests, the acceptance suite, Ruff, and the whitespace check, then review the full change as the Checks section requires.
+
+**Advice:** Extend the existing whole-collection test with the new responses rather than writing a second one.
+
+**Acceptance check:** Every check passes; the whole collection includes the new elements with coverage; existing analyzer results are unchanged; the plan marks step 50 implemented.
+
 ### Step 51: Import the new elements from Terraform and CloudFormation
 **Status:** Planned.
 **Prerequisite:** Step 50.
@@ -252,7 +340,7 @@ Implement and verify substeps 49.1–49.7 in order. Keep the parent planned unti
 - Should snapshots of several accounts be composed, so a peering connection or transit gateway that crosses accounts can be decided (step 53)? Collection writes one snapshot per account. The plan assumes not in this phase: a cross-account hop stays `unknown`. Composing snapshots would need a multi-snapshot graph and its own phase.
 - Is the internet egress question added to the README example questions, the assistant prompts, and the evaluation suites (step 55)? Adding it changes the phase 4 and 5 fixtures; the plan assumes the analyzer is available to the tools without becoming a sixth README question.
 - Are AWS Network Firewall and Gateway Load Balancer endpoints in scope (step 53)? The plan assumes not: a route to either stays `unknown`.
-- How many transit gateway routes may one collection read before coverage is marked incomplete (step 50)?
+- How many transit gateway routes may one collection read before coverage is marked incomplete (step 50.5)?
 
 ## 7. Browser UI for results, evidence, and questions
 

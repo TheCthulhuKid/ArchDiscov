@@ -11,8 +11,36 @@ SUBNET_OPERATION = Ec2Operation.DESCRIBE_SUBNETS
 INSTANCE_OPERATION = Ec2Operation.DESCRIBE_INSTANCES
 
 
+def _associated_ipv6(item: dict[str, Any]) -> list[tuple[int, dict[str, Any]]]:
+    """IPv6 CIDR associations in the `associated` state, with their source positions."""
+    return [
+        (i, association)
+        for i, association in enumerate(item.get("Ipv6CidrBlockAssociationSet") or [])
+        if association.get("Ipv6CidrBlock")
+        and (association.get("Ipv6CidrBlockState") or {}).get("State") == "associated"
+    ]
+
+
 class Ec2Normalizer(EvidenceBuilder):
     """Builds VPC, subnet, and instance resources from observed API items."""
+
+    def _cite_ipv6(
+        self,
+        resource: Vpc | Subnet,
+        operation: str,
+        path: str,
+        ipv4_count: int,
+        associations: list[tuple[int, dict[str, Any]]],
+    ) -> None:
+        """Cite each IPv6 CIDR, which follows the IPv4 CIDRs, to its association entry."""
+        for n, (i, association) in enumerate(associations):
+            self.cite(
+                resource,
+                f"/cidr_blocks/{ipv4_count + n}",
+                operation,
+                f"{path}.Ipv6CidrBlockAssociationSet[{i}]",
+                association,
+            )
 
     def vpc(self, index: int, item: dict[str, Any]) -> Vpc:
         tags = tags_of(item)
@@ -21,6 +49,7 @@ class Ec2Normalizer(EvidenceBuilder):
             cidr = association.get("CidrBlock")
             if cidr and cidr not in cidrs:
                 cidrs.append(cidr)
+        ipv6 = _associated_ipv6(item)
         facts: dict[str, tuple[str, Any]] = {}
         if cidrs:
             facts["/cidr_blocks"] = ("CidrBlock", item.get("CidrBlock"))
@@ -28,7 +57,7 @@ class Ec2Normalizer(EvidenceBuilder):
             facts["/attributes/state"] = ("State", item["State"])
         if tags:
             facts["/attributes/tags"] = ("Tags", item.get("Tags"))
-        return self._build(  # type: ignore[return-value]
+        vpc: Vpc = self._build(  # type: ignore[assignment]
             Vpc,
             operation=VPC_OPERATION,
             item_path=f"Vpcs[{index}]",
@@ -43,13 +72,17 @@ class Ec2Normalizer(EvidenceBuilder):
                 "tags": tags or None,
             },
             facts=facts,
-            cidr_blocks=cidrs or None,
+            cidr_blocks=[*cidrs, *(a["Ipv6CidrBlock"] for _, a in ipv6)] or None,
         )
+        self._cite_ipv6(vpc, VPC_OPERATION, f"Vpcs[{index}]", len(cidrs), ipv6)
+        return vpc
 
     def subnet(self, index: int, item: dict[str, Any]) -> Subnet:
         tags = tags_of(item)
+        cidrs = [item["CidrBlock"]] if item.get("CidrBlock") else []
+        ipv6 = _associated_ipv6(item)
         facts: dict[str, tuple[str, Any]] = {}
-        if item.get("CidrBlock"):
+        if cidrs:
             facts["/cidr_blocks"] = ("CidrBlock", item["CidrBlock"])
         if item.get("AvailabilityZone"):
             facts["/availability_zone"] = ("AvailabilityZone", item["AvailabilityZone"])
@@ -57,7 +90,7 @@ class Ec2Normalizer(EvidenceBuilder):
             facts["/attributes/vpc_id"] = ("VpcId", item["VpcId"])
         if tags:
             facts["/attributes/tags"] = ("Tags", item.get("Tags"))
-        return self._build(  # type: ignore[return-value]
+        subnet: Subnet = self._build(  # type: ignore[assignment]
             Subnet,
             operation=SUBNET_OPERATION,
             item_path=f"Subnets[{index}]",
@@ -72,8 +105,10 @@ class Ec2Normalizer(EvidenceBuilder):
             },
             facts=facts,
             availability_zone=item.get("AvailabilityZone"),
-            cidr_blocks=[item["CidrBlock"]] if item.get("CidrBlock") else None,
+            cidr_blocks=[*cidrs, *(a["Ipv6CidrBlock"] for _, a in ipv6)] or None,
         )
+        self._cite_ipv6(subnet, SUBNET_OPERATION, f"Subnets[{index}]", len(cidrs), ipv6)
+        return subnet
 
     def instance(self, path: str, item: dict[str, Any]) -> Ec2Instance:
         tags = tags_of(item)

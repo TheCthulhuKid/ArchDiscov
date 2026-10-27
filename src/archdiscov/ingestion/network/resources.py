@@ -1,6 +1,7 @@
 """Normalize route tables, gateways, NACLs, security groups, and network interfaces."""
 
 from dataclasses import dataclass
+from ipaddress import AddressValueError, IPv6Address
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
@@ -104,6 +105,16 @@ def _validated[M: BaseModel](
     return None
 
 
+def _ipv6_address(value: Any) -> IPv6Address | None:
+    # IPv6Address also accepts an integer, which the API never reports.
+    if not isinstance(value, str):
+        return None
+    try:
+        return IPv6Address(value)
+    except AddressValueError:
+        return None
+
+
 def _protocol(value: Any) -> str | None:
     return None if value is None else str(value)
 
@@ -129,6 +140,7 @@ class NetworkNormalizer(EvidenceBuilder):
                 f"{path}.Routes[{i}]",
                 limitations,
                 destination=destination(raw),
+                prefix_list_id=raw.get("DestinationPrefixListId"),
                 target_kind=kind,
                 target_id=target_id,
                 state=raw.get("State"),
@@ -377,6 +389,23 @@ class NetworkNormalizer(EvidenceBuilder):
                         out.append((rule, Op.DESCRIBE_SECURITY_GROUPS, source_path, permission))
         return out
 
+    def _ipv6_addresses(
+        self, path: str, item: dict[str, Any], limitations: list[str]
+    ) -> list[tuple[int, dict[str, Any], IPv6Address]] | None:
+        """Each valid IPv6 address with its source entry; None when the field is absent."""
+        if "Ipv6Addresses" not in item:
+            return None
+        out = []
+        for i, raw in enumerate(item["Ipv6Addresses"] or []):
+            address = _ipv6_address(raw.get("Ipv6Address"))
+            if address is None:
+                limitations.append(
+                    f"{path}.Ipv6Addresses[{i}]: invalid value for Ipv6Address was omitted"
+                )
+            else:
+                out.append((i, raw, address))
+        return out
+
     def network_interface(self, index: int, item: dict[str, Any]) -> Normalized:
         path, limitations = f"NetworkInterfaces[{index}]", []
         tags = tags_of(item)
@@ -392,6 +421,7 @@ class NetworkNormalizer(EvidenceBuilder):
             )
             if address is not None:
                 addresses.append(address)
+        ipv6 = self._ipv6_addresses(path, item, limitations)
         public_ip = (item.get("Association") or {}).get("PublicIp")
         groups = [g["GroupId"] for g in item.get("Groups") or [] if g.get("GroupId")]
         instance_id = (item.get("Attachment") or {}).get("InstanceId")
@@ -428,7 +458,16 @@ class NetworkNormalizer(EvidenceBuilder):
             private_ip_addresses=addresses,
             public_ip=public_ip,
             mac_address=item.get("MacAddress"),
+            ipv6_addresses=None if ipv6 is None else [address for _, _, address in ipv6],
         )
+        for n, (i, raw, _) in enumerate(ipv6 or []):
+            self.cite(
+                resource,
+                f"/ipv6_addresses/{n}",
+                Op.DESCRIBE_NETWORK_INTERFACES,
+                f"{path}.Ipv6Addresses[{i}]",
+                raw,
+            )
         self._with_limitations(resource, limitations)
         return Normalized(
             resource,
