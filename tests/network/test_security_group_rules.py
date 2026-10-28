@@ -5,6 +5,7 @@ from archdiscov.models.enums import NetworkBlockerCode, NetworkDecision, RuleDir
 from archdiscov.services import load_snapshot
 from archdiscov.services.network_security_groups import Peer, evaluate_security_group
 from tests.paths import FIXTURES_ROOT
+from tests.support.prefix_list_data import prefix_list_index
 from tests.support.sg_rule_data import build, group_id, rule
 
 D = NetworkDecision
@@ -183,16 +184,6 @@ def test_unsupported_rules_never_allow_but_cannot_be_ruled_out(unsupported_rule)
 # ---- prefix lists -------------------------------------------------------------------
 
 
-def prefix_list_index(**office):
-    """The prefix-list fixture, with `office` replacing fields of the pl-office list."""
-    snapshot = load_snapshot(FIXTURES_ROOT / "snapshots" / "endpoints-and-prefix-lists.json")
-    data = snapshot.model_dump(mode="json")
-    for resource in data["regions"]["eu-west-1"]["resources"]:
-        if resource["identity"]["physical_id"] == "pl-office":
-            resource.update(office)
-    return GraphIndex(type(snapshot).model_validate(data))
-
-
 def office_rule(index, peer):
     return evaluate_security_group(
         index, group_id("sg-endpoint"), INGRESS, peer, protocol="tcp", port=443
@@ -206,12 +197,12 @@ def test_a_prefix_list_rule_matches_through_the_lists_recorded_entries():
     assert office_rule(index, Peer.address("192.0.2.1", ())).decision == D.DENY
     partial = office_rule(index, Peer.within("198.51.100.0/23", ()))
     assert (partial.decision, codes(partial)) == (D.UNKNOWN, {B.MISSING_EVIDENCE})
-    empty = prefix_list_index(entries=[], fact_evidence={})
+    empty = prefix_list_index({"pl-office": {"entries": [], "fact_evidence": {}}})
     assert office_rule(empty, Peer.address("198.51.100.7", ())).decision == D.DENY
 
 
 def test_a_prefix_list_without_recorded_entries_is_unknown_and_named():
-    unrecorded = prefix_list_index(entries=None, fact_evidence={})
+    unrecorded = prefix_list_index({"pl-office": {"entries": None, "fact_evidence": {}}})
     for result, name in (
         (office_rule(unrecorded, Peer.address(LOCAL, ())), "pl-office"),
         (check({"sg-app": [rule(prefix_list_id="pl-123")]})[1], "pl-123"),

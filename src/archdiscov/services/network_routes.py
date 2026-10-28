@@ -2,10 +2,11 @@
 
 The subnet's route table is its single observed explicit association, or, only when it has
 none, the VPC's single observed main table. The best route is the longest matching prefix of
-the query's address family; routes of the other family are not considered. A route to an
-internet gateway or egress-only internet gateway is a recorded route, not proof of internet
-reachability. NAT, transit gateway, peering, endpoint, and prefix-list routes are
-unsupported and never allow.
+the query's address family; routes of the other family are not considered. A route whose
+destination is a managed prefix list contributes each recorded entry as a prefix. A route to
+an internet gateway or egress-only internet gateway is a recorded route, not proof of
+internet reachability. NAT, transit gateway, peering, and endpoint targets are unsupported
+and never allow.
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ from .network_matching import (
     require_recorded,
     sole_associate,
 )
+from .network_prefix_lists import PREFIX_LIST_OPERATIONS, resolve_prefix_list
 
 if TYPE_CHECKING:
     from archdiscov.graph import GraphIndex
@@ -98,45 +100,100 @@ def _route_table(
     )
 
 
-def _network(route: Route, version: int) -> IpNetwork | Undecided | None:
-    """The route's destination; None for the other address family, which cannot match."""
+@dataclass(frozen=True)
+class _Candidate:
+    """One prefix a route matches: its CIDR, or one recorded entry of its prefix list."""
+
+    network: IpNetwork
+    position: int
+    route: Route
+    # The prefix-list entry's citations; None for a CIDR route.
+    entry_evidence_ids: tuple[str, ...] | None = None
+
+
+def _prefix_list_id(route: Route) -> str | None:
+    """The list a route's destination names; older snapshots record only its destination."""
+    if route.prefix_list_id is not None:
+        return route.prefix_list_id
+    destination = route.destination or ""
+    return destination if destination.startswith("pl-") else None
+
+
+def _route_candidates(
+    index: GraphIndex, table: RouteTable, position: int, route: Route, version: int
+) -> list[_Candidate] | Undecided:
+    """The prefixes of the query's family the route matches; a list's are its entries."""
+    if (prefix_list_id := _prefix_list_id(route)) is not None:
+        citations = table.fact_evidence.get(f"/routes/{position}", [])
+        entries = resolve_prefix_list(index, table.id, citations, prefix_list_id)
+        if isinstance(entries, Undecided):
+            return entries
+        return [
+            _Candidate(cidr, position, route, cited)
+            for cidr, cited in entries
+            if cidr.version == version
+        ]
     if route.destination is None:
         return Undecided.missing("The route records no destination.")
-    if route.destination.startswith("pl-"):
-        return Undecided.unsupported("Prefix-list routes are unsupported.")
     try:
         network = ip_network(route.destination, strict=False)
     except ValueError:
         return Undecided.missing("The route destination is not a CIDR.")
-    return network if network.version == version else None
+    return [_Candidate(network, position, route)] if network.version == version else []
 
 
-def _best_route(table: RouteTable, target: IpNetwork) -> tuple[int, Route] | Undecided | None:
-    """The longest-prefix route holding the whole target network; None when none does.
+def _tie(best: list[_Candidate]) -> Undecided:
+    """Why routes sharing the longest prefix cannot be ordered.
+
+    AWS prefers a static route, then a prefix-list route, then a propagated one, and picks
+    at random between overlapping prefix lists. The collector does not record whether a
+    route is static or propagated, so only a tie among CIDR routes has its usual reason.
+    """
+    lists = {c.position for c in best if c.entry_evidence_ids is not None}
+    if not lists:
+        return Undecided.missing("Several routes share the longest matching prefix.")
+    if len(lists) > 1:
+        return Undecided.missing(
+            "Several prefix-list routes share the longest matching prefix; AWS chooses "
+            "between overlapping prefix lists at random."
+        )
+    return Undecided.missing(
+        "A route and a prefix-list route share the longest matching prefix, and whether the "
+        "route is static or propagated is not recorded."
+    )
+
+
+def _best_route(
+    index: GraphIndex, table: RouteTable, target: IpNetwork
+) -> _Candidate | Undecided | None:
+    """The longest-prefix candidate holding the whole target network; None when none does.
 
     A target wider than one address only bounds an address not known exactly, so a more
-    specific route covering part of it could take some traffic and makes the result undecided.
+    specific prefix covering part of it could take some traffic and makes the result
+    undecided. A prefix-list route whose entries are not recorded could cover anything, so
+    it makes the result undecided too.
     """
-    containing: list[tuple[int, int, Route]] = []
-    partial: list[int] = []
+    candidates: list[_Candidate] = []
     for position, route in enumerate(table.routes):
-        network = _network(route, target.version)
-        if isinstance(network, Undecided):
-            return network
-        if network is None:
-            continue
-        if target.subnet_of(network):
-            containing.append((network.prefixlen, position, route))
-        elif target.overlaps(network):
-            partial.append(network.prefixlen)
-    longest = max((prefix for prefix, _, _ in containing), default=-1)
+        found = _route_candidates(index, table, position, route, target.version)
+        if isinstance(found, Undecided):
+            return found
+        candidates.extend(found)
+    containing: list[_Candidate] = []
+    partial: list[int] = []
+    for candidate in candidates:
+        if target.subnet_of(candidate.network):
+            containing.append(candidate)
+        elif target.overlaps(candidate.network):
+            partial.append(candidate.network.prefixlen)
+    longest = max((c.network.prefixlen for c in containing), default=-1)
     if any(prefix > longest for prefix in partial):
         return Undecided.missing("A more specific route covers only part of the address range.")
     if not containing:
         return None
-    best = [(position, route) for prefix, position, route in containing if prefix == longest]
-    if len(best) > 1:
-        return Undecided.missing("Several routes share the longest matching prefix.")
+    best = [c for c in containing if c.network.prefixlen == longest]
+    if len({c.position for c in best}) > 1:
+        return _tie(best)
     return best[0]
 
 
@@ -169,7 +226,7 @@ def _attachment_evidence(
 def _inactive_route(
     route: Route,
     citations: list[str],
-    association_evidence_ids: tuple[str, ...],
+    extra_evidence_ids: tuple[str, ...],
     where: str,
     table: RouteTable,
 ) -> NetworkResult | None:
@@ -180,7 +237,7 @@ def _inactive_route(
         return cited_decision(
             False,
             citations,
-            association_evidence_ids,
+            extra_evidence_ids,
             subject="route",
             element=where,
             resource_id=table.id,
@@ -200,7 +257,7 @@ def _decide(
     target: IpNetwork,
     reach: RouteReach,
 ) -> NetworkResult:
-    best = _best_route(table, target)
+    best = _best_route(index, table, target)
     if isinstance(best, Undecided):
         return best.result(element=_ELEMENT, resource_id=table.id)
     if best is None:
@@ -210,10 +267,12 @@ def _decide(
             "No recorded route matches this address.",
             association_evidence_ids,
         )
-    position, route = best
+    position, route = best.position, best.route
     where = f"{_ELEMENT}:/routes/{position}"
     citations = list(table.fact_evidence.get(f"/routes/{position}", []))
-    if inactive := _inactive_route(route, citations, association_evidence_ids, where, table):
+    # A prefix-list route also cites the entry that matched.
+    extra = (*association_evidence_ids, *(best.entry_evidence_ids or ()))
+    if inactive := _inactive_route(route, citations, extra, where, table):
         return inactive
     if route.target_kind not in _REACH_KINDS.values():
         return unsupported(
@@ -221,7 +280,6 @@ def _decide(
             element=where,
             resource_id=table.id,
         )
-    extra = association_evidence_ids
     allowed = route.target_kind == _REACH_KINDS[reach]
     if allowed and reach in _GATEWAYS:
         attachment = _attachment_evidence(
@@ -254,12 +312,19 @@ def evaluate_subnet_route(
     outbound traffic only, so callers ask for it only for outbound traffic. Denies when no
     route matches, the best route is a blackhole, or it leads elsewhere among the supported
     targets. Cites the route, the association, and the gateway attachment. Limited
-    route-table collection (and collection of the queried gateway kind) downgrades any
-    decision to unknown.
+    route-table collection (and collection of the queried gateway kind, and of prefix lists
+    when the table names one) downgrades any decision to unknown.
+
+    A prefix-list route matches through each recorded entry of the address's family and
+    cites the entry it matched. At equal prefix length AWS prefers static routes, then
+    prefix-list routes, then propagated ones; the route origin is not recorded, so a tie
+    involving a prefix-list route is unknown, as is a list whose entries are not recorded.
     """
     subnet = require_recorded(index, subnet_id, Subnet, "subnet")
     if isinstance(subnet, NetworkResult):
         return subnet
+    gateway_kind = _GATEWAYS.get(reach)
+    operations = ROUTE_OPERATIONS | ({gateway_kind.operation} if gateway_kind else set())
     selection = _route_table(index, subnet)
     if isinstance(selection, NetworkResult):
         outcome = selection
@@ -268,6 +333,8 @@ def evaluate_subnet_route(
         outcome = _decide(
             index, subnet, table, association_evidence_ids, parse_network(address), reach
         )
-    gateway_kind = _GATEWAYS.get(reach)
-    operations = ROUTE_OPERATIONS | ({gateway_kind.operation} if gateway_kind else set())
+        # A prefix-list route depends on the list's reads, so a limited read is never taken
+        # for an empty list.
+        if any(_prefix_list_id(route) is not None for route in table.routes):
+            operations |= PREFIX_LIST_OPERATIONS
     return qualify_coverage(index, outcome, [subnet], operations)

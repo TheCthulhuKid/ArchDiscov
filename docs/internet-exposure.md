@@ -29,9 +29,10 @@ entry point, protocol, and uniformly decided port range:
   (203.0.113.10), and the NACLs are checked for the request and for the return path on an
   ephemeral port (49152). A resource with no open range is a cited denial on tcp 1–65535.
   Rules naming only referenced groups, prefix lists, or IPv6 never create an exposure and are
-  reported (`exposure_rule_unsupported`). A resource that merely shares a subnet with a public
-  one is not an entry point, and a resource whose address is not recorded is not listed
-  (limited collection is reported at group level).
+  reported (`exposure_rule_unsupported`); step 54 decides prefix-list and IPv6 candidates. A
+  resource that merely shares a subnet with a public one is not an entry point, and a
+  resource whose address is not recorded is not listed (limited collection is reported at
+  group level).
 - **Load balancers.** Per listener and client protocol: the best subnet's route and NACLs (any
   one node may carry the traffic), the balancer's security groups (omitted for a network
   balancer with none), the listener, and forwarding to registered targets. Within
@@ -42,14 +43,14 @@ entry point, protocol, and uniformly decided port range:
   actions are `unknown`.
 - **Health.** Observed target health states are recorded as `observed_target_health` and never
   required or interpreted.
-- NAT, transit gateway, peering, endpoint, and prefix-list route elements are unsupported:
-  they make a result `unknown`, never an allow. A security-group rule naming a prefix list
-  is evaluated from the list's recorded entries: an entry covering only part of the internet
-  is `unknown`, as a partial CIDR is, and a list without recorded entries is `unknown`.
-  Such rules still never open an exposure range on their own (see above). Exposure is decided over IPv4 only (IPv6 follows in
-  step 54): an IPv6 rule or NACL entry never matches the IPv4 internet, so it is skipped
-  rather than making the result `unknown`. A NACL entry or security-group rule that covers
-  only part of the internet is `unknown`, not a denial.
+- NAT, transit gateway, peering, and endpoint elements are unsupported: they make a result
+  `unknown`, never an allow. Security-group rules and routes naming a prefix list are
+  evaluated from the list's recorded entries: an entry covering only part of the internet is
+  `unknown`, as a partial CIDR is, and a list without recorded entries is `unknown`. Such
+  rules still never open an exposure range on their own (see above). Exposure is decided
+  over IPv4 only (IPv6 follows in step 54): an IPv6 rule or NACL entry never matches the
+  IPv4 internet, so it is skipped rather than making the result `unknown`. A NACL entry or
+  security-group rule that covers only part of the internet is `unknown`, not a denial.
 
 | Decision | Finding status |
 |---|---|

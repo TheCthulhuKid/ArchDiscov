@@ -78,7 +78,16 @@ decided the outcome.
   recorded as available and attached to the VPC. A route to an egress-only internet gateway
   (`RouteReach.EGRESS_ONLY_INTERNET_GATEWAY`) needs the gateway recorded as attached to the
   VPC. It carries outbound traffic only: callers ask for it only for outbound traffic, and
-  inbound exposure, which asks for an internet gateway, never accepts it.
+  inbound exposure, which asks for an internet gateway, never accepts it. A route whose
+  destination is a managed prefix list contributes each recorded entry of the query's
+  family as a prefix, resolved as for security-group rules, and cites the entry it matched;
+  its target still decides reach. AWS prefers, at equal prefix length, a static route, then
+  a prefix-list route, then a propagated one, and picks at random between overlapping prefix
+  lists ([route priority](https://docs.aws.amazon.com/vpc/latest/userguide/route-tables-priority.html)).
+  The route's origin is not recorded, so a tie between a CIDR route and a prefix-list entry,
+  or between two prefix lists, is `unknown` and says why. A prefix-list route whose list is
+  not stored or has unrecorded entries could cover any address, so the table's result is
+  `unknown` naming the list, and the list reads qualify the result as for security groups.
 - `evaluate_public_address` (`services.network_addressing`): one address family per call
   (`family`, IPv4 by default). Over IPv4, a recorded public address on an ENI or instance
   allows and a recorded absence denies. Over IPv6, an ENI's recorded global unicast address
@@ -100,15 +109,16 @@ Supported, each evaluated for one direction or one question per call:
 |---|---|---|
 | Security-group rules | IPv4 and IPv6 CIDRs within the query's address family, same-account referenced groups, managed prefix lists with recorded entries, tcp/udp/icmp (names or numbers) and all-protocol, inclusive port ranges | Prefix lists without recorded entries (`unknown`, named), cross-account references, other protocols (including ICMPv6), statefulness |
 | NACLs | IPv4 and IPv6 CIDRs within the query's address family, tcp/udp/icmp and all-protocol, rule-number order with implicit final deny, one direction per call | Other protocols (including ICMPv6), ICMP type/code, subnets without an observed association (no default ACL is assumed) |
-| Routes | IPv4 and IPv6 longest prefix within the query's address family to local, internet-gateway, or egress-only internet gateway targets, explicit table or observed main table | NAT, transit gateway, peering, VPC endpoint, prefix-list, and instance/interface targets |
+| Routes | IPv4 and IPv6 longest prefix within the query's address family, including prefix-list destinations with recorded entries, to local, internet-gateway, or egress-only internet gateway targets, explicit table or observed main table | NAT, transit gateway, peering, VPC endpoint, and instance/interface targets; prefix-list destinations without recorded entries and ties involving a prefix list (`unknown`, with the reason) |
 | Public addressing | Recorded public IPv4 on ENIs and instances; recorded global IPv6 on ENIs | IPv6 on instances (their ENIs answer) |
 | Load balancers | Scheme, listener port and protocol, forward actions, target groups with registered targets | Redirect, fixed-response, and authentication actions; GENEVE (Gateway Load Balancer) listeners; IP and unresolved targets |
 
-Security groups, NACLs, and routes answer for the address family of the query, an IPv4 or IPv6
-address or CIDR, and public addressing for the family it is asked about. A rule, entry, or
-route of the other family never matches, so it is skipped rather than making the result
+Security groups, NACLs, and routes answer for the address family of the query, an IPv4 or
+IPv6 address or CIDR, and public addressing for the family it is asked about. A rule, entry,
+or route of the other family never matches, so it is skipped rather than making the result
 `unknown`: an IPv6 deny entry ahead of an IPv4 allow no longer hides the allow. Ask once per
-family for a dual-stack resource.
+family for a dual-stack resource. The analyzers still ask IPv4 questions only; they adopt the
+IPv6 and prefix-list decisions in step 54.
 
 Not modelled at all: statefulness, target health meaning, host firewalls, authentication,
 and runtime state.
@@ -116,10 +126,10 @@ and runtime state.
 Snapshots can record NAT gateways, egress-only internet gateways, peering connections, transit
 gateways, endpoints, prefix lists, and IPv6 fields (see the
 [snapshot format](snapshot-format.md#network-path-elements)). Security groups and NACLs
-decide IPv6 rules and entries, security groups decide prefix lists with recorded entries,
-routes decide IPv6 routes and egress-only internet gateways, and public addressing decides
-ENIs' IPv6 addresses; no primitive reads the other elements yet, so the cases above stay
-unsupported until the primitives decide them.
+decide IPv6 rules and entries, security groups and routes decide prefix lists with recorded
+entries, routes decide IPv6 routes and egress-only internet gateways, and public addressing
+decides ENIs' IPv6 addresses; no primitive reads the other elements yet, so the cases above
+stay unsupported until the primitives decide them.
 
 ## Bounded addresses
 

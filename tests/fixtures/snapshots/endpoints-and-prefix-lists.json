@@ -406,6 +406,21 @@
         "evidence_ids": [
           "vpce-sqs-group"
         ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/rtb-svc",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-svc"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_table_association",
+          "association_id": "rtbassoc-svc"
+        },
+        "evidence_ids": [
+          "rtb-association"
+        ]
       }
     ]
   },
@@ -582,6 +597,17 @@
       "configuration_path": "Entries[1]",
       "value": {
         "Cidr": "203.0.113.0/24"
+      }
+    },
+    "rtb-association": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004c",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-svc",
+      "source": "mock",
+      "locator": "endpoints-and-prefix-lists.json",
+      "configuration_path": "RouteTables[0].Associations[0]",
+      "value": {
+        "SubnetId": "subnet-svc",
+        "RouteTableAssociationId": "rtbassoc-svc"
       }
     }
   }

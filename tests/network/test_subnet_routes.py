@@ -6,6 +6,7 @@ from archdiscov.services import load_snapshot
 from archdiscov.services.network_routes import evaluate_subnet_route
 from tests.paths import FIXTURES_ROOT
 from tests.support.network_snapshot import resource_id
+from tests.support.prefix_list_data import prefix_list_index
 from tests.support.route_data import LOCAL, build, egress_only_gateway, gateway, route, table
 
 D = NetworkDecision
@@ -143,14 +144,54 @@ def test_unsupported_targets_never_allow(target):
     assert codes(result) == {B.UNSUPPORTED_ELEMENT}
 
 
-def test_prefix_list_routes_are_unsupported_and_other_family_routes_are_ignored():
-    prefix = {"DestinationPrefixListId": "pl-1", "GatewayId": "vpce-1", "State": "active"}
-    result = check([table("rtb-1", [prefix, route()], "subnet-1")])[1]
-    assert result.decision == D.UNKNOWN
-    assert codes(result) == {B.UNSUPPORTED_ELEMENT}
+def test_routes_of_the_other_address_family_are_ignored():
     ipv6 = {"DestinationIpv6CidrBlock": "::/0", "GatewayId": "igw-1", "State": "active"}
     assert decision([table("rtb-1", [ipv6, LOCAL], "subnet-1")]) == D.DENY
     assert decision([PUBLIC_TABLE], address="2001:db8::1") == D.DENY
+
+
+# ---- prefix-list routes -------------------------------------------------------------
+
+S3_ENTRIES = {"pl-s3": {"entries": [{"cidr": "52.218.0.0/17"}]}}
+# rtb-svc's routes: local, the endpoint's pl-s3, and pl-office to a transit gateway.
+ROUTES = [
+    route.model_dump(mode="json")
+    for route in prefix_list_index().get_resource(resource_id("rtb-svc")).routes
+]
+
+
+def service_route(index, address="198.51.100.7"):
+    return evaluate_subnet_route(index, resource_id("subnet-svc"), address, reach=LOCAL_REACH)
+
+
+def test_a_prefix_list_route_is_selected_through_its_recorded_entries():
+    index = prefix_list_index(S3_ENTRIES)
+    # The selected route leads to a transit gateway, which step 53 decides.
+    [blocker] = service_route(index).blockers
+    assert (blocker.code, blocker.element) == (B.UNSUPPORTED_ELEMENT, "route:/routes/2")
+    assert service_route(index, "192.0.2.1").blockers[0].element == "implicit_deny"
+    blackhole = {"rtb-svc": {"routes": [*ROUTES[:2], {**ROUTES[2], "state": "blackhole"}]}}
+    denied = service_route(prefix_list_index({**S3_ENTRIES, **blackhole}))
+    assert denied.decision == D.DENY
+    assert {"pl-office-entry-0", "rtb-office"} <= set(denied.blockers[0].evidence_ids)
+
+
+def test_an_unrecorded_list_or_a_tie_at_the_longest_prefix_is_unknown_with_its_reason():
+    office = "198.51.100.0/24"
+    static = {"destination": office, "target_kind": "local", "state": "active"}
+    cases = {
+        "entries of prefix list pl-s3 are not recorded": {},
+        "whether the route is static or propagated": {
+            **S3_ENTRIES,
+            "rtb-svc": {"routes": [*ROUTES, static]},
+        },
+        "at random": {"pl-s3": {"entries": [{"cidr": office}]}},
+    }
+    for reason, changes in cases.items():
+        result = service_route(prefix_list_index(changes))
+        [blocker] = result.blockers
+        assert (result.decision, blocker.code) == (D.UNKNOWN, B.MISSING_EVIDENCE)
+        assert reason in blocker.message
 
 
 # ---- internet gateways --------------------------------------------------------------
