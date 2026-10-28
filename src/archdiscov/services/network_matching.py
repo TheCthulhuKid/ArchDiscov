@@ -2,14 +2,15 @@
 
 A screening step answers whether a recorded rule or entry could match a query: True when
 it still might, False when it surely cannot, or `Undecided` when the recorded data cannot
-settle it. Only IPv4 and the protocols tcp, udp, and icmp are supported.
+settle it. Addresses are IPv4 or IPv6 and are compared within one address family; only
+the protocols tcp, udp, and icmp are supported.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from ipaddress import IPv4Network, ip_network
+from ipaddress import IPv4Network, IPv6Network, ip_network
 from typing import TYPE_CHECKING
 
 from archdiscov.ingestion.network.resources import FALLBACK_LIMITATION
@@ -76,30 +77,41 @@ def screen_protocol(
     return from_port == -1 or from_port <= port <= to_port
 
 
+type IpNetwork = IPv4Network | IPv6Network
+
+
+def parse_network(value: str) -> IpNetwork:
+    """An IPv4 or IPv6 address (a /32 or /128) or CIDR; raises ValueError otherwise."""
+    return ip_network(value, strict=False)
+
+
 def parse_ipv4_network(value: str) -> IPv4Network:
     """An IPv4 address (a /32) or CIDR; raises ValueError otherwise."""
-    network = ip_network(value, strict=False)
+    network = parse_network(value)
     if not isinstance(network, IPv4Network):
         raise ValueError("only IPv4 is supported")
     return network
 
 
 def screen_cidr(
-    cidr: object,
-    network: IPv4Network | None,
+    cidr: IpNetwork | None,
+    network: IpNetwork | None,
     unknown_message: str,
     *,
     bounded: bool = False,
 ) -> Screen:
-    """Whether the recorded IPv4 CIDR contains the queried network; IPv6 is unsupported.
+    """Whether the recorded CIDR contains the queried network of the same address family.
 
-    With `bounded`, the network only bounds an address that is not known exactly: a CIDR
-    that covers part of it cannot be matched or ruled out, so it is undecided.
+    A CIDR of the other family can never match. With `bounded`, the network only bounds an
+    address that is not known exactly: a CIDR that covers part of it cannot be matched or
+    ruled out, so it is undecided.
     """
-    if not isinstance(cidr, IPv4Network):
-        return Undecided.unsupported("IPv6 rules and entries are unsupported.")
+    if cidr is None:
+        return Undecided.missing("The rule or entry records no CIDR.")
     if network is None:
         return Undecided.missing(unknown_message)
+    if network.version != cidr.version:
+        return False
     if network.subnet_of(cidr):
         return True
     if bounded and network.overlaps(cidr):

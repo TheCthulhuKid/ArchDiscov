@@ -42,8 +42,10 @@ entry point, protocol, and uniformly decided port range:
   actions are `unknown`.
 - **Health.** Observed target health states are recorded as `observed_target_health` and never
   required or interpreted.
-- NAT, transit gateway, peering, endpoint, prefix-list, and IPv6 elements are unsupported:
-  they make a result `unknown`, never an allow. A NACL entry or security-group rule that covers
+- NAT, transit gateway, peering, endpoint, and prefix-list elements are unsupported: they make
+  a result `unknown`, never an allow. Exposure is decided over IPv4 only (IPv6 follows in
+  step 54): an IPv6 rule or NACL entry never matches the IPv4 internet, so it is skipped
+  rather than making the result `unknown`. A NACL entry or security-group rule that covers
   only part of the internet is `unknown`, not a denial.
 
 | Decision | Finding status |

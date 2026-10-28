@@ -284,6 +284,21 @@
         "evidence_ids": [
           "rtb-dual-private-ipv6-default"
         ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/acl-dual",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-dual-public"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "network_acl_association",
+          "association_id": "aclassoc-dual-public"
+        },
+        "evidence_ids": [
+          "acl-association"
+        ]
       }
     ]
   },
@@ -385,6 +400,17 @@
           "To": 443
         },
         "Ipv6CidrBlock": "::/0"
+      }
+    },
+    "acl-association": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004d",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/acl-dual",
+      "source": "mock",
+      "locator": "dual-stack.json",
+      "configuration_path": "NetworkAcls[0].Associations[0]",
+      "value": {
+        "NetworkAclAssociationId": "aclassoc-dual-public",
+        "SubnetId": "subnet-dual-public"
       }
     },
     "vpc": {

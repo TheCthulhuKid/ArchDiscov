@@ -366,13 +366,98 @@ Implement and verify substeps 51.1–51.6 in order. Keep the parent planned unti
 **Status:** Planned.
 **Prerequisite:** Step 49.
 
-- Expand a managed prefix list referenced by a security-group rule, NACL, or route into its recorded entries, citing the list. An AWS-managed list whose entries are not recorded stays `unknown`.
+- Expand a managed prefix list referenced by a security-group rule or route into its recorded entries, citing the list. NACL entries cannot reference a prefix list (step 49.4). An AWS-managed list whose entries are not recorded stays `unknown`.
 - Evaluate each primitive per address family: IPv6 security-group and NACL entries, IPv6 longest-prefix routes, egress-only internet gateways (outbound only), and recorded public IPv6 addresses on ENIs.
-- Keep the existing IPv4 behaviour and results unchanged.
+- Keep the existing IPv4 behaviour and results unchanged, except where 52.1 decides otherwise.
 
 **Advice:** Treat a dual-stack resource as two questions, one per address family, rather than one merged answer, so a denial over IPv4 never hides an allow over IPv6.
 
-**Acceptance check:** Primitive tests decide each new case from cited configuration, a partially covering prefix-list or IPv6 entry is `unknown`, unrecorded list entries are `unknown`, and every existing primitive test passes unchanged.
+**Acceptance check:** Primitive tests decide each new case from cited configuration, a partially covering prefix-list or IPv6 entry is `unknown`, unrecorded list entries are `unknown`, and every existing primitive test passes unchanged apart from the cases 52.1 lists.
+
+Implement and verify substeps 52.1–52.6 in order. Keep the parent planned until every substep's acceptance checks pass.
+
+**Where things go:**
+- The shared address and CIDR screening in `services/network_matching.py` (`screen_cidr`, `parse_ipv4_network`, `Undecided`); the primitives in `services/network_security_groups.py` (`Peer`), `network_acls.py`, `network_routes.py`, and `network_addressing.py`.
+- Prefix-list resolution, shared by security groups and routes, in a new `services/network_prefix_lists.py`: from a rule or route to its `ManagedPrefixList` through the `prefix_list_reference` edge that cites the same source entry, as `_attachment_evidence` finds a route's target.
+- A `RouteReach` member for an egress-only internet gateway in `models/enums.py`. Tests beside the existing ones in `tests/network/`, built from `dual-stack.json` and `endpoints-and-prefix-lists.json` where they fit.
+- Each substep updates the supported and unsupported table in `docs/network-path-primitives.md` for what it decides, because the analyzers that call these primitives can now return different results.
+
+**What is reused:**
+- `NetworkResult`, `cited_decision`, `missing` and `unsupported`, `qualify_coverage`, `sole_associate`, and the bounded-address handling (`Peer.within` and a CIDR `address`), which already makes partial coverage `unknown`.
+- The relationships and typed fields from steps 49–50: `prefix_list_reference` edges, `Route.prefix_list_id`, `ManagedPrefixList.entries` (`None` when unrecorded), `NetworkInterface.ipv6_addresses`, and `egress_only_internet_gateway_attachment` edges with their state.
+
+**Advice:** A primitive answers for the address family of its query and never merges the two: the caller asks once per family. Keep each primitive's signature: an IPv6 query is an IPv6 address or CIDR where an IPv4 one is accepted today. Add tests only for what each substep decides, as `AGENTS.md` asks: one allow, one deny, and one `unknown` case per new element, and an assertion in an existing test where one already sets up the case.
+
+#### Step 52.1: Address families in the shared screening, security groups, and NACLs
+**Status:** Implemented. `screen_cidr` compares within one address family: the same family decides as before, including bounded partial overlap, and the other family is `False`. The new `parse_network` accepts an IPv4 or IPv6 address or CIDR. `Peer` and `evaluate_network_acl` use it, so both decide IPv6 queries from cited IPv6 rules and entries. `parse_ipv4_network` stays for routes until 52.2. **Changed IPv4 results (the listed cases):** (1) an IPv6 security-group rule was `unsupported` for an IPv4 peer and is now skipped, so a group whose only other rules do not match denies implicitly instead of being `unknown`; (2) an IPv6 NACL entry ahead of the IPv4 match was `unsupported` and is now skipped, so the IPv4 entry decides. (3) A NACL entry with no recorded CIDR (possible from imports) was mislabelled as unsupported IPv6 and is now `missing_evidence`; it stays `unknown`. No analyzer or acceptance fixture contains these cases, so every analyzer result is unchanged. Internet exposure still decides IPv4 only, and `docs/internet-exposure.md`, `docs/database-access.md`, and `docs/analyzers.md` now say that IPv6 rules are skipped rather than making the result `unknown`. `dual-stack.json` gained the cited association of `acl-dual` to `subnet-dual-public`. Tests: the NACL test that asserted the old `unsupported` result now asserts the skip, and the security-group test dropped its IPv6 `unsupported` case. Over IPv6, `dual-stack.json`'s rule and entry allow 443 and deny 22 implicitly, the rule never matches an IPv4 peer, and a bounded IPv6 peer partly covered by a rule is `unknown`. ICMPv6 (protocol 58) stays an unrecognized protocol, so it is `unknown`.
+**Prerequisite:** Step 49.
+
+- Settle first: today an IPv6 rule or NACL entry is `unsupported` even for an IPv4 query. That makes some IPv4 results `unknown`; for example, an IPv6 deny entry ahead of an IPv4 allow in first-match order (`test_network_acls.py`). Evaluating per family means a rule or entry of the other family can never match, so it is skipped and those results become decided. The plan recommends this, because the `unknown` came from an unsupported element rather than missing configuration. That relaxes "IPv4 results unchanged" for exactly these cases: list them in the status, and update the existing tests that assert the old `unsupported` result.
+- `screen_cidr` compares within one family: same family decides as today, including bounded partial overlap; the other family is `False`. `Peer` and the NACL query accept an IPv6 address or CIDR, and `parse_ipv4_network` gains an IPv6 counterpart (or one family-aware parser).
+- Security groups and NACLs then decide IPv6 queries from cited IPv6 rules and entries, with the same blockers and citations as IPv4.
+
+**Advice:** Prefix-list rules stay `unsupported` here; 52.4 decides them.
+
+**Acceptance check:** `dual-stack.json`'s IPv6 rule and NACL entry allow and deny IPv6 queries as recorded; an IPv6 query partly covered by a bounded entry is `unknown`; IPv4 results are unchanged apart from the listed cases.
+
+#### Step 52.2: IPv6 routes and egress-only internet gateways
+**Status:** Planned.
+**Prerequisite:** Step 52.1.
+
+- `evaluate_subnet_route` selects the longest-prefix route of the query's family. An IPv4 query ignores IPv6 routes as today, and an IPv6 query ignores IPv4 routes.
+- Add `RouteReach.EGRESS_ONLY_INTERNET_GATEWAY`. A route to one reaches it only when the gateway is recorded with an `attached` attachment to the subnet's VPC, as an internet gateway route requires an `available` attachment. It is outbound only: the primitive answers what a route reaches; the caller asks for it only for outbound traffic, and inbound exposure never accepts it.
+- An IPv6 route to an internet gateway reaches it under the same attachment rule as IPv4.
+
+**Advice:** Reuse `_attachment_evidence` for both gateway kinds rather than copying it: it already finds the route's target edge by the route's citation.
+
+**Acceptance check:** `dual-stack.json`'s public table reaches the internet gateway over IPv6 and its private table reaches the egress-only gateway; a missing or detached gateway is `unknown`; IPv4 route results are unchanged.
+
+#### Step 52.3: Public IPv6 addresses
+**Status:** Planned.
+**Prerequisite:** Step 52.1.
+
+- `evaluate_public_address` answers per family. For IPv6, an ENI's recorded global unicast `ipv6_addresses` allow, a recorded empty list denies, and an unset field (not recorded) is `unknown`. AWS IPv6 addresses are globally routable, so no separate public flag is needed (step 49.5).
+- The IPv4 answer is unchanged, including that an instance whose only public address is IPv6 has a recorded absence of public IPv4.
+
+**Advice:** Decide "public" from the address itself (`is_global`), not from the subnet; a documentation-range address such as the fixtures' `2001:db8::/32` is not global. Choose whether the fixtures keep it and test with a global address, or the check treats it explicitly: say which in the status.
+
+**Acceptance check:** A recorded global IPv6 address allows, an empty list denies, an unrecorded field is `unknown`, and every existing public-addressing test passes unchanged.
+
+#### Step 52.4: Prefix lists in security-group rules
+**Status:** Planned.
+**Prerequisite:** Step 52.1.
+
+- A rule naming a prefix list resolves the list through its `prefix_list_reference` edge. When the list is stored with recorded `entries`, the rule matches when an entry of the query's family contains the peer. A bounded peer partly covered by an entry is `unknown`, as for a CIDR. The decision cites the rule and each entry it used.
+- A list that is not stored, is external, or has `entries` unset (an AWS-managed list, a list over the entry limit, or an import with separate entry resources) is `unknown`, with a blocker naming the list. Qualify the result by the `DescribeManagedPrefixLists` and `GetManagedPrefixListEntries` coverage, so a limited read is never read as an empty list.
+- An empty recorded list matches nothing.
+
+**Advice:** Put the resolution in `network_prefix_lists.py` so 52.5 reuses it unchanged; it returns the list's entries with their citations, or an `Undecided` saying why not.
+
+**Acceptance check:** `endpoints-and-prefix-lists.json`'s rule naming `pl-office` allows a peer inside an entry and denies one outside; the same rule against an unrecorded list is `unknown` with the list named; partial coverage is `unknown`.
+
+#### Step 52.5: Prefix-list route destinations
+**Status:** Planned.
+**Prerequisite:** Step 52.4.
+
+- A route whose destination is a prefix list contributes each recorded entry of the query's family as a candidate prefix. Longest prefix wins as today.
+- Follow AWS route priority ([How route priority works](https://docs.aws.amazon.com/vpc/latest/userguide/route-tables-priority.html)): at equal length a static route beats a prefix-list route, which beats a propagated route, and overlapping prefix lists with different targets are chosen at random. The collector does not record a route's origin, so a tie between a CIDR route and a prefix-list entry, or between two prefix lists, is `unknown` and says why.
+- A prefix-list route whose list is unresolved or has unrecorded entries is `unknown` when it could cover the query, as any undecidable route is today. The selected route's target still decides reach. An endpoint target stays `unsupported` until step 53.
+
+**Advice:** Check the AWS documentation again when implementing: the ordering above is from the VPC user guide and could change.
+
+**Acceptance check:** `endpoints-and-prefix-lists.json`'s route to `pl-office` is selected for an address in its entries; a tie and an unrecorded list are `unknown` with their reasons; routes without prefix lists are unchanged.
+
+#### Step 52.6: Verify the primitives and close the step
+**Status:** Planned.
+**Prerequisite:** Step 52.5.
+
+- Re-run the phase 3 acceptance fixtures and the analyzer tests. Results that involve no IPv6 or prefix-list element must not change; any change from 52.1's listed cases is named in the status.
+- Confirm `docs/network-path-primitives.md`'s supported table describes exactly what is now decided, and that the internet-exposure, database-access, and security-group-impact pages still state their limits correctly. The analyzers adopt these primitives in step 54, so their pages say so until then.
+- Run the focused and full offline tests, the acceptance suite, Ruff, and the whitespace check, then review the full change as the Checks section requires.
+
+**Advice:** Keep `unknown` the default: an element this step cannot settle from recorded, cited configuration stays `unknown` with a blocker that names it.
+
+**Acceptance check:** Every check passes; analyzer results outside the listed cases are unchanged; the docs match the code; the plan marks step 52 implemented.
 
 ### Step 53: Route through NAT gateways, peering, transit gateways, and endpoints
 **Status:** Planned.

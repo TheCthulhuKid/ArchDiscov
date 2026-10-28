@@ -166,12 +166,11 @@ def test_ingress_and_egress_rules_are_evaluated_independently():
 @pytest.mark.parametrize(
     "unsupported_rule",
     [
-        rule(cidr="2001:db8::/32"),
         rule(prefix_list_id="pl-123"),
         rule(referenced_group_id="sg-partner", referenced_account_id="210987654321"),
         rule(protocol="50", from_port=None, to_port=None, cidr="10.0.0.0/16"),
     ],
-    ids=["ipv6", "prefix-list", "cross-account-group", "unrecognized-protocol"],
+    ids=["prefix-list", "cross-account-group", "unrecognized-protocol"],
 )
 def test_unsupported_rules_never_allow_but_cannot_be_ruled_out(unsupported_rule):
     result = check({"sg-app": [unsupported_rule]}, peer=Peer.address(LOCAL, ()))[1]
@@ -187,9 +186,18 @@ def test_unsupported_query_protocols_are_unknown():
     assert (result.decision, codes(result)) == (D.UNKNOWN, {B.UNSUPPORTED_ELEMENT})
 
 
-def test_ipv6_peers_cannot_be_constructed():
-    with pytest.raises(ValueError):
-        Peer.cidr("2001:db8::/32")
+def test_dual_stack_ipv6_rule_decides_ipv6_peers_and_never_matches_ipv4():
+    index = GraphIndex(load_snapshot(FIXTURES_ROOT / "snapshots" / "dual-stack.json"))
+
+    def evaluate(peer, port=443):
+        return evaluate_security_group(
+            index, group_id("sg-dual"), INGRESS, peer, protocol="tcp", port=port
+        )
+
+    allowed = evaluate(Peer.address("2001:db8::5", ()))
+    assert (allowed.decision, allowed.evidence_ids) == (D.ALLOW, ["sg-https-ipv6"])
+    assert evaluate(Peer.address("2001:db8::5", ()), port=22).decision == D.DENY
+    assert evaluate(Peer.address(LOCAL, ())).decision == D.DENY
 
 
 # ---- missing evidence ---------------------------------------------------------------

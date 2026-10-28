@@ -165,12 +165,22 @@ def test_an_unrecorded_subnet_is_unknown():
 # ---- unsupported and missing entry data ---------------------------------------------
 
 
-def test_an_unsupported_entry_ahead_of_the_match_makes_the_result_unknown():
+def test_an_entry_of_the_other_address_family_is_skipped():
     ipv6 = entry(100, "deny", CidrBlock=None, Ipv6CidrBlock="::/0")
-    result = check([ipv6, entry(110, "allow")])[1]
-    assert result.decision == D.UNKNOWN
-    assert codes(result) == {B.UNSUPPORTED_ELEMENT}
-    assert decision([entry(100, "allow"), ipv6]) == D.ALLOW
+    assert decision([ipv6, entry(110, "allow")]) == D.ALLOW
+    assert decision([entry(100, "allow"), ipv6], address="2001:db8::5") == D.DENY
+
+
+def test_dual_stack_ipv6_entry_decides_ipv6_queries():
+    index = GraphIndex(load_snapshot(FIXTURES_ROOT / "snapshots" / "dual-stack.json"))
+    subnet = resource_id("subnet-dual-public")
+    allowed, denied = (
+        evaluate_network_acl(index, subnet, INGRESS, "2001:db8::5", protocol="tcp", port=port)
+        for port in (443, 22)
+    )
+    assert allowed.decision == D.ALLOW
+    assert allowed.evidence_ids == ["acl-association", "acl-https-ipv6"]
+    assert (denied.decision, denied.blockers[0].element) == (D.DENY, "implicit_deny")
 
 
 def test_an_unrecognized_protocol_entry_is_unsupported():

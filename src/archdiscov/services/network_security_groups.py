@@ -2,14 +2,15 @@
 
 Security groups only allow. A query is allowed when a recorded rule matches, denied
 (implicitly) only when the group's rule collection is observed and no rule could match,
-and unknown otherwise. IPv6, prefix lists, cross-account references, and unrecognized
-protocols are unsupported and never allow. Statefulness is not modelled.
+and unknown otherwise. A rule of the other address family than the peer never matches.
+Prefix lists, cross-account references, and unrecognized protocols are unsupported and
+never allow. Statefulness is not modelled.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from ipaddress import IPv4Address, IPv4Network, ip_network
+from ipaddress import ip_address, ip_network
 from typing import TYPE_CHECKING
 
 from archdiscov.models.enums import RuleDirection
@@ -23,6 +24,7 @@ from .network_decisions import (
     unsupported,
 )
 from .network_matching import (
+    IpNetwork,
     Screen,
     Undecided,
     cited_decision,
@@ -30,7 +32,7 @@ from .network_matching import (
     implicit_deny,
     normalize_protocol,
     omitted_rules,
-    parse_ipv4_network,
+    parse_network,
     require_recorded,
     screen_cidr,
     screen_protocol,
@@ -47,29 +49,29 @@ _ELEMENT = "security_group_rule"
 class Peer:
     """The other end of the traffic: the source for ingress, the destination for egress.
 
-    `network` is an IPv4 address or CIDR, and `group_ids` the stored security groups the
-    peer belongs to. None means unknown, so rules that depend on it become unknown
+    `network` is an IPv4 or IPv6 address or CIDR, and `group_ids` the stored security groups
+    the peer belongs to. None means unknown, so rules that depend on it become unknown
     rather than non-matching; an empty tuple means the peer belongs to no group. With
     `bounded`, the peer is one unknown address somewhere inside `network` (for example a
     subnet), so a rule covering only part of it is unknown, not a non-match.
     """
 
-    network: IPv4Network | None = None
+    network: IpNetwork | None = None
     group_ids: tuple[str, ...] | None = None
     bounded: bool = False
 
     @classmethod
     def address(cls, value: str, group_ids: tuple[str, ...] | None = None) -> Peer:
-        return cls(ip_network(IPv4Address(value)), group_ids)
+        return cls(ip_network(ip_address(value)), group_ids)
 
     @classmethod
     def cidr(cls, value: str, group_ids: tuple[str, ...] | None = None) -> Peer:
-        return cls(parse_ipv4_network(value), group_ids)
+        return cls(parse_network(value), group_ids)
 
     @classmethod
     def within(cls, value: str, group_ids: tuple[str, ...] | None = None) -> Peer:
         """One unknown address somewhere inside the CIDR."""
-        return cls(parse_ipv4_network(value), group_ids, bounded=True)
+        return cls(parse_network(value), group_ids, bounded=True)
 
 
 @dataclass(frozen=True)
