@@ -43,9 +43,9 @@ entry point, protocol, and uniformly decided port range:
   actions are `unknown`.
 - **Health.** Observed target health states are recorded as `observed_target_health` and never
   required or interpreted.
-- Transit gateway, peering, and endpoint elements are unsupported: they make a result
-  `unknown`, never an allow. A subnet whose best route to the probe address leads to a NAT
-  gateway is a cited denial, because a NAT gateway carries no inbound traffic.
+- Transit gateway and endpoint elements are unsupported: they make a result `unknown`,
+  never an allow. A subnet whose best route to the probe address leads to a NAT gateway or
+  a peering connection is a cited denial, because neither is an internet gateway.
   Security-group rules and routes naming a prefix list are evaluated from the list's
   recorded entries: an entry covering only part of the internet is `unknown`, as a partial
   CIDR is, and a list without recorded entries is `unknown`. Such rules still never open an

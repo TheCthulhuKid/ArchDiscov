@@ -14,14 +14,13 @@ from typing import TYPE_CHECKING
 from archdiscov.models.enums import (
     AttachmentKind,
     NatConnectivity,
-    NetworkBlockerCode,
     NetworkDecision,
     RouteReach,
 )
 from archdiscov.models.network_path import NetworkResult
 from archdiscov.models.resources.network import NatGateway
 
-from .network_decisions import blocker, deny, missing
+from .network_decisions import missing
 from .network_matching import cited_target
 
 if TYPE_CHECKING:
@@ -40,35 +39,13 @@ _STATES: dict[str, bool | None] = {
 }
 
 
-def _denied(gateway: NatGateway, hop: RouteHop, message: str, pointer: str) -> NetworkResult:
-    return deny(
-        [
-            blocker(
-                NetworkBlockerCode.DENIED,
-                message,
-                element=_ELEMENT,
-                resource_id=gateway.id,
-                evidence_ids=(*hop.citations, *gateway.fact_evidence.get(pointer, [])),
-            )
-        ]
-    )
-
-
 def _unusable(gateway: NatGateway, hop: RouteHop) -> NetworkResult | None:
     """Why the recorded gateway cannot carry internet traffic, or None when it can."""
-    carries = _STATES.get(gateway.state or "")
-    if carries is False:
-        return _denied(gateway, hop, f"The NAT gateway is {gateway.state}.", "/state")
-    if carries is None:
-        state = gateway.state or "not recorded"
-        return missing(
-            f"The NAT gateway's state ({state}) does not show whether it carries traffic.",
-            element=_ELEMENT,
-            resource_id=gateway.id,
-        )
+    if problem := hop.state_result(gateway, gateway.state, _STATES, "NAT gateway", _ELEMENT):
+        return problem
     if gateway.connectivity is NatConnectivity.PRIVATE:
-        return _denied(
-            gateway, hop, "A private NAT gateway does not reach the internet.", "/connectivity"
+        return hop.denied(
+            gateway, "A private NAT gateway does not reach the internet.", _ELEMENT, "/connectivity"
         )
     if gateway.connectivity is None or not gateway.public_ips:
         return missing(

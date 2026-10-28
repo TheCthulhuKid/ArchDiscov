@@ -1,4 +1,4 @@
-"""Subnet route selection by longest prefix, for local and internet-gateway targets.
+"""Subnet route selection by longest prefix, and where the selected route leads.
 
 The subnet's route table is its single observed explicit association, or, only when it has
 none, the VPC's single observed main table. The best route is the longest matching prefix of
@@ -6,20 +6,26 @@ the query's address family; routes of the other family are not considered. A rou
 destination is a managed prefix list contributes each recorded entry as a prefix. A route to
 an internet gateway or egress-only internet gateway is a recorded route, not proof of
 internet reachability. A route to a NAT gateway reaches the internet only through the
-gateway's own subnet's route to an internet gateway. Transit gateway, peering, and endpoint
-targets are unsupported and never allow.
+gateway's own subnet's route to an internet gateway. A route to an active peering connection
+leads into the peer VPC. Transit gateway and endpoint targets are unsupported and never
+allow.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import partial
 from ipaddress import ip_network
 from typing import TYPE_CHECKING
 
 from archdiscov.models.architecture import Subnet, Vpc
-from archdiscov.models.enums import AttachmentKind, RouteReach, RouteTargetKind
+from archdiscov.models.enums import (
+    AttachmentKind,
+    NetworkBlockerCode,
+    RouteReach,
+    RouteTargetKind,
+)
 from archdiscov.models.network_path import NetworkResult
 from archdiscov.models.resource_base import Resource
 from archdiscov.models.resources.network import (
@@ -29,7 +35,7 @@ from archdiscov.models.resources.network import (
     RouteTable,
 )
 
-from .network_decisions import missing, qualify_coverage, unsupported
+from .network_decisions import blocker, deny, missing, qualify_coverage, unsupported
 from .network_matching import (
     IpNetwork,
     Undecided,
@@ -41,6 +47,7 @@ from .network_matching import (
     sole_associate,
 )
 from .network_nat import NAT_OPERATIONS, nat_gateway_evidence
+from .network_peering import PEERING_OPERATIONS, peering_evidence
 from .network_prefix_lists import PREFIX_LIST_OPERATIONS, resolve_prefix_list
 
 if TYPE_CHECKING:
@@ -103,6 +110,49 @@ class RouteHop:
     def follow(self, subnet_id: str, reach: RouteReach) -> NetworkResult:
         """The same address's route from another subnet, for a target that forwards it."""
         return evaluate_subnet_route(self.index, subnet_id, self.address, reach=reach)
+
+    def denied(
+        self, resource: Resource, message: str, element: str, *pointers: str
+    ) -> NetworkResult:
+        """A deny by the route's target, citing the route and the target's facts."""
+        facts = [e for pointer in pointers for e in resource.fact_evidence.get(pointer, [])]
+        return deny(
+            [
+                blocker(
+                    NetworkBlockerCode.DENIED,
+                    message,
+                    element=element,
+                    resource_id=resource.id,
+                    evidence_ids=(*self.citations, *facts),
+                )
+            ]
+        )
+
+    def state_result(
+        self,
+        resource: Resource,
+        state: str | None,
+        states: Mapping[str, bool | None],
+        label: str,
+        element: str,
+    ) -> NetworkResult | None:
+        """None when the recorded state carries traffic, else the result it ends the hop with.
+
+        `states` maps each recognized state to True (carries traffic), False (carries none,
+        so a cited deny), or None (a transition whose outcome is unknown); a missing or
+        unrecognized state is unknown too.
+        """
+        carries = states.get(state or "")
+        if carries:
+            return None
+        if carries is False:
+            return self.denied(resource, f"The {label} is {state}.", element, "/state")
+        return missing(
+            f"The {label}'s state ({state or 'not recorded'}) does not show whether it carries "
+            "traffic.",
+            element=element,
+            resource_id=resource.id,
+        )
 
 
 # Evidence that the selected route's target is usable, or the result that ends the decision.
@@ -258,6 +308,9 @@ _TARGETS: dict[RouteTargetKind, TargetCheck] = {
     ),
     RouteTargetKind.NAT_GATEWAY: nat_gateway_evidence,
 }
+# Kinds that only a VPC question asks for; any other question's route there leads elsewhere.
+_VPC_KINDS = frozenset({RouteTargetKind.VPC_PEERING})
+_SUPPORTED_KINDS = _TARGETS.keys() | _VPC_KINDS
 
 
 def _inactive_route(
@@ -292,8 +345,9 @@ def _decide(
     table: RouteTable,
     association_evidence_ids: tuple[str, ...],
     address: str,
-    reach: RouteReach,
+    wanted: Mapping[RouteTargetKind, TargetCheck],
 ) -> NetworkResult:
+    """The selected route's decision: allowed when it leads to a kind in `wanted`."""
     best = _best_route(index, table, parse_network(address))
     if isinstance(best, Undecided):
         return best.result(element=_ELEMENT, resource_id=table.id)
@@ -311,21 +365,20 @@ def _decide(
     extra = (*association_evidence_ids, *(best.entry_evidence_ids or ()))
     if inactive := _inactive_route(route, citations, extra, where, table):
         return inactive
-    check = _TARGETS.get(route.target_kind)
-    if check is None:
+    if route.target_kind not in _SUPPORTED_KINDS:
         return unsupported(
             f"A {route.target_kind} route target is unsupported.",
             element=where,
             resource_id=table.id,
         )
-    allowed = route.target_kind == _REACH_KINDS[reach]
-    if allowed:
+    check = wanted.get(route.target_kind)
+    if check is not None:
         confirmed = check(RouteHop(index, subnet, table, citations, where, address))
         if isinstance(confirmed, NetworkResult):
             return confirmed
         extra = (*extra, *confirmed)
     return cited_decision(
-        allowed,
+        check is not None,
         citations,
         extra,
         subject="route",
@@ -357,16 +410,54 @@ def evaluate_subnet_route(
     prefix-list routes, then propagated ones; the route origin is not recorded, so a tie
     involving a prefix-list route is unknown, as is a list whose entries are not recorded.
     """
+    kind = _REACH_KINDS[reach]
+    return _evaluate(
+        index,
+        subnet_id,
+        address,
+        lambda subnet: {kind: _TARGETS[kind]},
+        ROUTE_OPERATIONS | _REACH_OPERATIONS[reach],
+    )
+
+
+def evaluate_vpc_route(
+    index: GraphIndex, subnet_id: str, address: str, vpc_id: str
+) -> NetworkResult:
+    """Decide whether the subnet's best route for the address leads into the VPC `vpc_id`.
+
+    `address` is as for `evaluate_subnet_route`. Allows the local route when `vpc_id` is the
+    subnet's own VPC, or a route to an active peering connection whose other side is
+    `vpc_id`, in the same account, with recorded CIDRs holding the address. Denies when the
+    best route leads elsewhere, is a blackhole, or the connection's state carries no
+    traffic. Return traffic is the reverse question, asked from the other side. Cites the
+    route, the association, and the connection with its two VPC edges.
+    """
+
+    def wanted(subnet: Subnet) -> Mapping[RouteTargetKind, TargetCheck]:
+        if index.parent_id(subnet.id) == vpc_id:
+            return {RouteTargetKind.LOCAL: _TARGETS[RouteTargetKind.LOCAL]}
+        return {RouteTargetKind.VPC_PEERING: partial(peering_evidence, vpc_id)}
+
+    return _evaluate(index, subnet_id, address, wanted, ROUTE_OPERATIONS | PEERING_OPERATIONS)
+
+
+def _evaluate(
+    index: GraphIndex,
+    subnet_id: str,
+    address: str,
+    wanted: Callable[[Subnet], Mapping[RouteTargetKind, TargetCheck]],
+    operations: frozenset[str],
+) -> NetworkResult:
+    """The subnet's table, its decision for the address, and the coverage that qualifies it."""
     subnet = require_recorded(index, subnet_id, Subnet, "subnet")
     if isinstance(subnet, NetworkResult):
         return subnet
-    operations = ROUTE_OPERATIONS | _REACH_OPERATIONS[reach]
     selection = _route_table(index, subnet)
     if isinstance(selection, NetworkResult):
         outcome = selection
     else:
         table, association_evidence_ids = selection
-        outcome = _decide(index, subnet, table, association_evidence_ids, address, reach)
+        outcome = _decide(index, subnet, table, association_evidence_ids, address, wanted(subnet))
         # A prefix-list route depends on the list's reads, so a limited read is never taken
         # for an empty list.
         if any(_prefix_list_id(route) is not None for route in table.routes):

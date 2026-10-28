@@ -40,8 +40,9 @@ port (49152) and security-group statefulness is not modelled.
 Each finding names the source and then the database, cites the rules, entries, routes, and
 placement used, and carries a structured `database_access` block (see the
 [vocabulary](analysis-results.md#database-access-vocabulary)). Missing or unsupported
-elements (prefix lists without recorded entries, cross-account references, peering,
-transit gateways) are `unknown`, never an allow; security-group rules and routes naming
+elements (prefix lists without recorded entries, cross-account references, and sources
+in other VPCs, which step 54 evaluates through peering and transit gateways) are `unknown`,
+never an allow; security-group rules and routes naming
 a prefix list are decided from the list's recorded entries, and IPv6 rules and
 entries never match the IPv4 addresses evaluated. A recorded denial still dominates an
 unknown element.

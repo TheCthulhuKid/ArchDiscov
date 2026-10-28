@@ -97,6 +97,19 @@ decided the outcome.
   or between two prefix lists, is `unknown` and says why. A prefix-list route whose list is
   not stored or has unrecorded entries could cover any address, so the table's result is
   `unknown` naming the list, and the list reads qualify the result as for security groups.
+  A question whose best route leads to a supported kind it did not ask for, such as an
+  internet-gateway question on a NAT or peering route, denies citing the route.
+- `evaluate_vpc_route` (`services.network_routes`, with `services.network_peering`): whether
+  the subnet's best route for an address leads into a given VPC. It allows the local route
+  when that VPC is the subnet's own, or a route to a peering connection that is `active`,
+  joins the subnet's VPC to that VPC in the same account, and records CIDRs on the peer side
+  holding the address; the allow cites the route, the association, the connection's state
+  and both sides, and its two VPC edges. Any other recorded status (`pending-acceptance`,
+  `deleted`, `rejected`, and so on) denies citing the state, as does a peer side whose
+  CIDRs do not hold the address or a connection leading to another VPC. A peer VPC in
+  another account, or not recorded, is `unknown` naming it and the account. Peering is not
+  transitive, so the hop ends in the peer VPC, and return traffic is the reverse question
+  asked from the other side. `DescribeVpcPeeringConnections` qualifies the result.
 - `evaluate_public_address` (`services.network_addressing`): one address family per call
   (`family`, IPv4 by default). Over IPv4, a recorded public address on an ENI or instance
   allows and a recorded absence denies. Over IPv6, an ENI's recorded global unicast address
@@ -118,7 +131,7 @@ Supported, each evaluated for one direction or one question per call:
 |---|---|---|
 | Security-group rules | IPv4 and IPv6 CIDRs within the query's address family, same-account referenced groups, managed prefix lists with recorded entries, tcp/udp/icmp (names or numbers) and all-protocol, inclusive port ranges | Prefix lists without recorded entries (`unknown`, named), cross-account references, other protocols (including ICMPv6), statefulness |
 | NACLs | IPv4 and IPv6 CIDRs within the query's address family, tcp/udp/icmp and all-protocol, rule-number order with implicit final deny, one direction per call | Other protocols (including ICMPv6), ICMP type/code, subnets without an observed association (no default ACL is assumed) |
-| Routes | IPv4 and IPv6 longest prefix within the query's address family, including prefix-list destinations with recorded entries, to local, internet-gateway, egress-only internet gateway, or NAT gateway (outbound only) targets, explicit table or observed main table | Transit gateway, peering, VPC endpoint, and instance/interface targets; prefix-list destinations without recorded entries and ties involving a prefix list (`unknown`, with the reason) |
+| Routes | IPv4 and IPv6 longest prefix within the query's address family, including prefix-list destinations with recorded entries, to local, internet-gateway, egress-only internet gateway, or NAT gateway (outbound only) targets, and peering connections into another VPC of the account (`evaluate_vpc_route`), explicit table or observed main table | Transit gateway, VPC endpoint, and instance/interface targets; another account's peer VPC (`unknown`, named); prefix-list destinations without recorded entries and ties involving a prefix list (`unknown`, with the reason) |
 | Public addressing | Recorded public IPv4 on ENIs and instances; recorded global IPv6 on ENIs | IPv6 on instances (their ENIs answer) |
 | Load balancers | Scheme, listener port and protocol, forward actions, target groups with registered targets | Redirect, fixed-response, and authentication actions; GENEVE (Gateway Load Balancer) listeners; IP and unresolved targets |
 
@@ -136,9 +149,10 @@ Snapshots can record NAT gateways, egress-only internet gateways, peering connec
 gateways, endpoints, prefix lists, and IPv6 fields (see the
 [snapshot format](snapshot-format.md#network-path-elements)). Security groups and NACLs
 decide IPv6 rules and entries, security groups and routes decide prefix lists with recorded
-entries, routes decide IPv6 routes, egress-only internet gateways, and NAT gateways, and
-public addressing decides ENIs' IPv6 addresses; no primitive reads the other elements yet,
-so the cases above stay unsupported until the primitives decide them.
+entries, routes decide IPv6 routes, egress-only internet gateways, NAT gateways, and
+peering connections, and public addressing decides ENIs' IPv6 addresses; no primitive
+reads the other elements yet, so the cases above stay unsupported until the primitives
+decide them.
 
 ## Bounded addresses
 

@@ -138,7 +138,6 @@ def test_an_unrecorded_route_state_is_unknown():
     "target",
     [
         {"target": None, "TransitGatewayId": "tgw-1"},
-        {"target": None, "VpcPeeringConnectionId": "pcx-1"},
         {"target": "vpce-1"},
     ],
 )

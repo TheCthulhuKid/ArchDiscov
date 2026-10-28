@@ -34,6 +34,21 @@
                 "account_id": "123456789012",
                 "region": "eu-west-1",
                 "service": "ec2",
+                "physical_id": "subnet-app"
+              },
+              "resource_type": "AWS::EC2::Subnet",
+              "cidr_blocks": [
+                "10.2.1.0/24"
+              ],
+              "evidence_ids": [
+                "subnet-app"
+              ]
+            },
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
                 "physical_id": "rtb-app"
               },
               "resource_type": "AWS::EC2::RouteTable",
@@ -71,6 +86,53 @@
           "resource_type": "AWS::EC2::VPC",
           "cidr_blocks": [
             "10.3.0.0/16"
+          ],
+          "children": [
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "subnet-data"
+              },
+              "resource_type": "AWS::EC2::Subnet",
+              "cidr_blocks": [
+                "10.3.1.0/24"
+              ],
+              "evidence_ids": [
+                "subnet-data"
+              ]
+            },
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "rtb-data"
+              },
+              "resource_type": "AWS::EC2::RouteTable",
+              "routes": [
+                {
+                  "destination": "10.3.0.0/16",
+                  "target_kind": "local",
+                  "state": "active"
+                },
+                {
+                  "destination": "10.2.0.0/16",
+                  "target_kind": "vpc_peering",
+                  "target_id": "pcx-app-data",
+                  "state": "active"
+                }
+              ],
+              "evidence_ids": [
+                "rtb-data"
+              ],
+              "fact_evidence": {
+                "/routes/1": [
+                  "rtb-data-route-1"
+                ]
+              }
+            }
           ]
         },
         {
@@ -160,6 +222,53 @@
         "evidence_ids": [
           "pcx-accepter"
         ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/rtb-app",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-app"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_table_association",
+          "association_id": "rtbassoc-subnet-app"
+        },
+        "evidence_ids": [
+          "rtb-app-association"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/rtb-data",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-data"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_table_association",
+          "association_id": "rtbassoc-subnet-data"
+        },
+        "evidence_ids": [
+          "rtb-data-association"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/rtb-data",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/pcx-app-data"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_target",
+          "target_kind": "vpc_peering",
+          "destination": "10.2.0.0/16",
+          "state": "active"
+        },
+        "evidence_ids": [
+          "rtb-data-route-1"
+        ]
       }
     ]
   },
@@ -232,6 +341,75 @@
         "DestinationCidrBlock": "10.3.0.0/16",
         "VpcPeeringConnectionId": "pcx-app-data",
         "State": "active"
+      }
+    },
+    "subnet-app": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004a",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-app",
+      "source": "mock",
+      "locator": "vpc-peering.json",
+      "configuration_path": "Subnets[0]",
+      "value": {
+        "SubnetId": "subnet-app",
+        "VpcId": "vpc-app",
+        "CidrBlock": "10.2.1.0/24"
+      }
+    },
+    "subnet-data": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004a",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-data",
+      "source": "mock",
+      "locator": "vpc-peering.json",
+      "configuration_path": "Subnets[1]",
+      "value": {
+        "SubnetId": "subnet-data",
+        "VpcId": "vpc-data",
+        "CidrBlock": "10.3.1.0/24"
+      }
+    },
+    "rtb-data": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004a",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-data",
+      "source": "mock",
+      "locator": "vpc-peering.json",
+      "configuration_path": "RouteTables[1]",
+      "value": {
+        "RouteTableId": "rtb-data",
+        "VpcId": "vpc-data"
+      }
+    },
+    "rtb-data-route-1": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004a",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-data",
+      "source": "mock",
+      "locator": "vpc-peering.json",
+      "configuration_path": "RouteTables[1].Routes[1]",
+      "value": {
+        "DestinationCidrBlock": "10.2.0.0/16",
+        "VpcPeeringConnectionId": "pcx-app-data",
+        "State": "active"
+      }
+    },
+    "rtb-app-association": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004a",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-app",
+      "source": "mock",
+      "locator": "vpc-peering.json",
+      "configuration_path": "RouteTables[0].Associations[0]",
+      "value": {
+        "SubnetId": "subnet-app",
+        "RouteTableAssociationId": "rtbassoc-subnet-app"
+      }
+    },
+    "rtb-data-association": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004a",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-data",
+      "source": "mock",
+      "locator": "vpc-peering.json",
+      "configuration_path": "RouteTables[1].Associations[0]",
+      "value": {
+        "SubnetId": "subnet-data",
+        "RouteTableAssociationId": "rtbassoc-subnet-data"
       }
     }
   }
