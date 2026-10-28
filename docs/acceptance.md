@@ -75,9 +75,11 @@ The phase closes with complementary journeys rather than live-AWS requirements:
 - `tests/acceptance/test_whole_architecture_acceptance.py`: populated seven-family collection
   across accounts/regions, with discovery, isolated failures, redaction and immutable files.
 - `tests/acceptance/test_raw_ingestion_acceptance.py`: the installed `archdiscov` script outside
-  the checkout for every source format, context/format failures, protected parameters, and
-  evidence inspection. No overwrite is checked once, in the ingest stage of
-  `test_installed_end_to_end.py`, and the readable summaries in `tests/cli`.
+  the checkout imports every source format without saving a protected value, inspects a cited
+  fact, and refuses malformed input without creating output. Each format's mapping and context
+  and parameter failures are proven by the ingestion and import-service tests, no overwrite once
+  in the ingest stage of `test_installed_end_to_end.py`, and the readable summaries in
+  `tests/cli`.
 - `tests/acceptance/test_offline_acceptance.py` and the fixture persistence suite preserve
   historical schema `1`, typed children, citations and qualified coverage.
 - `tests/ingestion/aws/test_permissions_documentation.py` prevents the published inventory policy

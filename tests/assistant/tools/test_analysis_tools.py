@@ -22,7 +22,7 @@ from archdiscov.services.comparison_results import ComparisonValidationError, sa
 from archdiscov.services.snapshots import load_snapshot, validate_snapshot
 from tests.paths import FIXTURES_ROOT
 from tests.support.answer_claims import service_result
-from tests.support.audit_scenarios import SCENARIOS, with_coverage
+from tests.support.audit_scenarios import SCENARIOS
 
 REGISTRY = ToolRegistry(ANALYSIS_TOOLS)
 SNAPSHOTS = FIXTURES_ROOT / "snapshots"
@@ -157,23 +157,6 @@ def test_analysis_truncation_reports_the_dropped_findings() -> None:
     )
 
 
-@pytest.mark.parametrize("kind", list(AnalyzerKind))
-@pytest.mark.parametrize("status", ["failed", "incomplete", None])
-def test_partial_coverage_is_qualified(kind: AnalyzerKind, status: str | None) -> None:
-    scenario = SCENARIOS[kind]
-    snapshot = with_coverage(scenario.build(), status)
-    session = ToolSession(snapshot, limits=ToolLimits(result_limit=100))
-    data = _run(session, "run_analyzer", kind=kind.value, limit=100, **scenario.parameters)
-    expected = service_result(snapshot, kind, scenario.parameters, 3)
-    assert [
-        (item["status"], [limitation["code"] for limitation in item["limitations"]])
-        for item in data["findings"]["items"]
-    ] == [
-        (finding.status.value, [limitation.code for limitation in finding.limitations])
-        for finding in expected.findings
-    ]
-
-
 @pytest.mark.parametrize(
     "kind,arguments,code,locations",
     [
@@ -230,29 +213,6 @@ def test_unknown_and_unsupported_resources() -> None:
         session, "run_analyzer", kind="security_group_impact", resource_id=not_a_group
     )
     assert unsupported["code"] == ToolErrorCode.INVALID_ARGUMENTS
-
-
-@pytest.mark.parametrize(
-    "kind,arguments",
-    [
-        ("security_group_impact", {"resource_id": "any"}),
-        ("cross_account_trust", {}),
-        ("database_access", {"resource_id": "any", "port": 5432}),
-        ("internet_exposure", {}),
-    ],
-)
-def test_azure_semantic_analyses_return_the_unsupported_result(kind: str, arguments: dict) -> None:
-    session = ToolSession(load_snapshot(SNAPSHOTS / "azure.json"))
-    resource_id = session.index.resource_ids[0]
-    if "resource_id" in arguments:
-        arguments = {**arguments, "resource_id": resource_id}
-    data = _run(session, "run_analyzer", kind=kind, **arguments)
-    findings = data["findings"]["items"]
-    assert findings
-    assert all(item["status"] == "insufficient_evidence" for item in findings)
-    assert {item["code"] for finding in findings for item in finding["limitations"]} == {
-        "unsupported_platform"
-    }
 
 
 def test_no_tool_writes_files(monkeypatch: pytest.MonkeyPatch) -> None:

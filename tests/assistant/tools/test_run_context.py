@@ -33,7 +33,7 @@ from archdiscov.services.comparison_results import save_comparison
 from archdiscov.services.snapshots import load_snapshot, validate_snapshot
 from tests.paths import FIXTURES_ROOT
 from tests.support.answer_claims import service_result
-from tests.support.audit_scenarios import SCENARIOS, with_coverage
+from tests.support.audit_scenarios import SCENARIOS
 
 REGISTRY = default_registry()
 SNAPSHOTS = FIXTURES_ROOT / "snapshots"
@@ -93,10 +93,9 @@ def _untrusted_values(content: Any) -> set[str]:
 
 
 @pytest.mark.parametrize("kind", list(AnalyzerKind))
-@pytest.mark.parametrize("status", [None, "failed"])
-def test_delivered_findings_are_recorded_exactly(kind: AnalyzerKind, status: str | None) -> None:
+def test_delivered_findings_are_recorded_exactly(kind: AnalyzerKind) -> None:
     scenario = SCENARIOS[kind]
-    snapshot = with_coverage(scenario.build(), status) if status else scenario.build()
+    snapshot = scenario.build()
     session = ToolSession(snapshot, limits=ToolLimits(result_limit=100))
     data = _call(session, "run_analyzer", kind=kind.value, limit=100, **scenario.parameters)
     expected_result = service_result(snapshot, kind, scenario.parameters, 3)

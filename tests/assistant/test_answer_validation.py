@@ -78,8 +78,9 @@ def _ownership() -> tuple[ToolSession, dict]:
 # ---- valid proposals ---------------------------------------------------------------
 
 
-@pytest.mark.parametrize("kind", list(AnalyzerKind))
-def test_citing_delivered_findings_passes_for_every_analyzer(kind: AnalyzerKind) -> None:
+def test_citing_delivered_findings_passes() -> None:
+    # Citations are checked alike for every analyzer; this one's findings are mixed and limited.
+    kind = AnalyzerKind.SECURITY_GROUP_IMPACT
     scenario = SCENARIOS[kind]
     session = ToolSession(scenario.build(), limits=ToolLimits(result_limit=100))
     findings = dispatch_tool(

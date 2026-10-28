@@ -48,20 +48,9 @@ def test_analyze_saves_a_result_that_findings_verifies(tmp_path, snapshot, as_js
         assert str(result.snapshot_id) in shown.stdout
 
 
-def test_ownership_keys_are_configurable_and_findings_cite_evidence(tmp_path):
-    default = tmp_path / "default.json"
-    assert analyze(OWNERSHIP, default, "--json").exit_code == 0
-    [finding] = json.loads(
-        run("findings", str(default), "--snapshot", str(OWNERSHIP), "--json").stdout
-    )["findings"]
-    assert finding["status"] == "supported"
-    assert finding["evidence_ids"] == ["tags"]
-    evidence = run("evidence", "tags", "--snapshot", str(OWNERSHIP), "--json")
-    assert evidence.exit_code == 0, evidence.output
-    assert json.loads(evidence.stdout)["resource"]["id"] == finding["resources"][0]["resource_id"]
-
-    custom = tmp_path / "custom.json"
-    result = analyze(OWNERSHIP, custom, "--ownership-key", "Name", "--ownership-key", "Squad")
+def test_ownership_keys_reach_the_analyzer(tmp_path):
+    output = tmp_path / "custom.json"
+    result = analyze(OWNERSHIP, output, "--ownership-key", "Name", "--ownership-key", "Squad")
     assert result.exit_code == 0, result.output
     assert "Findings: 0" in result.stdout
     assert '"ownership_keys":["Name","Squad"]' in result.stdout
@@ -169,27 +158,6 @@ def test_security_group_findings_show_observed_and_potential_impact(tmp_path, gr
     assert '"max_depth":2' in shown.stdout
 
 
-@pytest.mark.parametrize(
-    "extra",
-    [["--ownership-key", "Owner"], ["--max-depth", "11"], ["--result-limit", "0"]],
-    ids=["ownership-key", "depth-range", "limit-range"],
-)
-def test_security_group_options_out_of_scope_or_range_are_rejected(tmp_path, group_snapshot, extra):
-    output = tmp_path / "result.json"
-    result = run(*group_arguments(group_snapshot, output), *extra, "--json")
-    assert result.exit_code == 2
-    assert json.loads(result.stdout)["error"]["code"] == "invalid_parameters"
-    assert not output.exists()
-
-
-def test_security_group_options_are_rejected_for_the_ownership_analyzer(tmp_path):
-    output = tmp_path / "result.json"
-    result = analyze(OWNERSHIP, output, "--resource-id", "sg", "--json")
-    assert result.exit_code == 2
-    assert json.loads(result.stdout)["error"]["code"] == "invalid_parameters"
-    assert not output.exists()
-
-
 def test_missing_resource_id_and_bad_selections_are_safe_errors(tmp_path, group_snapshot):
     output = tmp_path / "result.json"
     plain = [
@@ -247,26 +215,6 @@ def test_trust_findings_show_classification_effect_and_conditionality(tmp_path, 
     assert '"result_limit":10' in shown.stdout
 
 
-@pytest.mark.parametrize(
-    "extra",
-    [
-        ["--resource-id", "x"],
-        ["--max-depth", "2"],
-        ["--ownership-key", "Owner"],
-        ["--result-limit", "0"],
-    ],
-    ids=["resource-id", "max-depth", "ownership-key", "limit-range"],
-)
-def test_options_for_other_analyzers_or_out_of_range_are_rejected_for_trust(
-    tmp_path, trust_snapshot, extra
-):
-    output = tmp_path / "result.json"
-    result = run(*trust_arguments(trust_snapshot, output, *extra), "--json")
-    assert result.exit_code == 2
-    assert json.loads(result.stdout)["error"]["code"] == "invalid_parameters"
-    assert not output.exists()
-
-
 @pytest.fixture
 def database_snapshot(tmp_path):
     from archdiscov.services import save_snapshot
@@ -310,48 +258,6 @@ def test_database_access_findings_show_source_decision_elements_and_blockers(
     assert result.parameters.port == 5432
 
 
-@pytest.mark.parametrize(
-    "extra",
-    [
-        [],
-        ["--port", "0"],
-        ["--port", "5432", "--result-limit", "0"],
-        ["--port", "5432", "--max-depth", "2"],
-        ["--port", "5432", "--ownership-key", "Owner"],
-    ],
-    ids=["no-port", "port-range", "limit-range", "max-depth", "ownership-key"],
-)
-def test_invalid_database_access_options_are_rejected(tmp_path, database_snapshot, extra):
-    output = tmp_path / "result.json"
-    result = run(*database_arguments(database_snapshot, output, *extra), "--json")
-    assert result.exit_code == 2
-    assert json.loads(result.stdout)["error"]["code"] == "invalid_parameters"
-    assert not output.exists()
-
-
-def test_a_port_for_another_analyzer_is_rejected(tmp_path, database_snapshot):
-    output = tmp_path / "result.json"
-    result = analyze(database_snapshot, output, "--port", "5432", "--json")
-    assert result.exit_code == 2
-    assert json.loads(result.stdout)["error"]["code"] == "invalid_parameters"
-
-
-def test_unknown_or_wrongly_typed_databases_are_safe_errors(tmp_path, database_snapshot):
-    from tests.support.source_data import rid
-
-    output = tmp_path / "result.json"
-    base = database_arguments(database_snapshot, output, "--port", "5432", "--json")
-    index = base.index("--resource-id") + 1
-    for resource, code in (
-        ("absent", "resource_not_found"),
-        (rid("subnet-a"), "unsupported_resource"),
-    ):
-        arguments = [*base[:index], resource, *base[index + 1 :]]
-        failed = run(*arguments)
-        assert json.loads(failed.stdout)["error"]["code"] == code
-    assert not output.exists()
-
-
 @pytest.fixture
 def exposure_snapshot(tmp_path):
     from archdiscov.services import save_snapshot
@@ -390,20 +296,32 @@ def test_exposure_findings_show_entry_decision_elements_and_health(tmp_path, exp
     assert (result.parameters.max_depth, result.parameters.result_limit) == (2, 9)
 
 
-@pytest.mark.parametrize(
-    "extra",
-    [
-        ["--max-depth", "0"],
-        ["--result-limit", "0"],
-        ["--resource-id", "x"],
-        ["--port", "80"],
-        ["--ownership-key", "Owner"],
-    ],
-    ids=["depth-range", "limit-range", "resource-id", "port", "ownership-key"],
-)
-def test_invalid_exposure_options_are_rejected(tmp_path, exposure_snapshot, extra):
+# One option each analyzer does not take or takes out of range, over the snapshot it analyzes;
+# the parameter models prove the rest (`tests/analysis/test_analysis_models.py`).
+REJECTED_OPTIONS = {
+    "ownership": (None, ["--resource-id", "sg"]),
+    "security_group_impact": ("group_snapshot", ["--max-depth", "11"]),
+    "cross_account_trust": ("trust_snapshot", ["--max-depth", "2"]),
+    "database_access": ("database_snapshot", []),
+    "internet_exposure": ("exposure_snapshot", ["--port", "80"]),
+}
+BUILDERS = {
+    "security_group_impact": group_arguments,
+    "cross_account_trust": trust_arguments,
+    "database_access": database_arguments,
+    "internet_exposure": exposure_arguments,
+}
+
+
+@pytest.mark.parametrize("kind", REJECTED_OPTIONS)
+def test_foreign_or_out_of_range_options_exit_2_and_write_nothing(request, tmp_path, kind):
+    fixture, extra = REJECTED_OPTIONS[kind]
     output = tmp_path / "result.json"
-    result = run(*exposure_arguments(exposure_snapshot, output, *extra), "--json")
+    if fixture is None:
+        result = analyze(OWNERSHIP, output, *extra, "--json")
+    else:
+        snapshot = request.getfixturevalue(fixture)
+        result = run(*BUILDERS[kind](snapshot, output), *extra, "--json")
     assert result.exit_code == 2
     assert json.loads(result.stdout)["error"]["code"] == "invalid_parameters"
     assert not output.exists()

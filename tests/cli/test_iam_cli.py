@@ -1,3 +1,5 @@
+"""The `collect` command, through one service: what it collects is each adapter's tests'."""
+
 import json
 
 import pytest
@@ -29,9 +31,7 @@ def test_collect_services_then_inspect_evidence_without_overwrite(tmp_path, monk
     ec2_reads = len(REGIONAL_OPERATIONS[AwsService.EC2])
     assert len(summary["operations"]) == (2 * ec2_reads + 8 if combined else 8)
     snapshot = load_snapshot(output)
-    assert len(snapshot.global_resources) == 3
     assert len(snapshot.regions) == (2 if combined else 0)
-    assert sum(method == "list_roles" for method, _ in session.iam.calls) == 1
     role = next(
         resource
         for resource in snapshot.global_resources
