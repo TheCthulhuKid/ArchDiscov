@@ -98,8 +98,10 @@ decided the outcome.
   not stored or has unrecorded entries could cover any address, so the table's result is
   `unknown` naming the list, and the list reads qualify the result as for security groups.
   A question whose best route leads to a supported kind it did not ask for, such as an
-  internet-gateway question on a NAT or peering route, denies citing the route.
-- `evaluate_vpc_route` (`services.network_routes`, with `services.network_peering`): whether
+  internet-gateway question on a NAT, peering, or transit gateway route, denies citing the
+  route.
+- `evaluate_vpc_route` (`services.network_routes`, with `services.network_peering` and
+  `services.network_transit`): whether
   the subnet's best route for an address leads into a given VPC. It allows the local route
   when that VPC is the subnet's own, or a route to a peering connection that is `active`,
   joins the subnet's VPC to that VPC in the same account, and records CIDRs on the peer side
@@ -109,7 +111,34 @@ decided the outcome.
   CIDRs do not hold the address or a connection leading to another VPC. A peer VPC in
   another account, or not recorded, is `unknown` naming it and the account. Peering is not
   transitive, so the hop ends in the peer VPC, and return traffic is the reverse question
-  asked from the other side. `DescribeVpcPeeringConnections` qualifies the result.
+  asked from the other side.
+
+  A route to a transit gateway leads into the VPC through one hop
+  ([how transit gateways work](https://docs.aws.amazon.com/vpc/latest/tgw/how-transit-gateways-work.html)).
+  The gateway must be stored, owned by the subnet's account, and `available`. The subnet's
+  VPC attachment to it must be `available` and have a recorded subnet in the source
+  subnet's Availability Zone, since only resources in such zones reach the gateway; the
+  destination's zones are not checked, because the gateway delivers into any zone the
+  destination attachment serves. The attachment must have one `associated` route table that
+  records its whole route search (`routes_complete`, with no omitted routes). That table's
+  longest-prefix route, a static route winning a tie with a propagated one, must be
+  `active` and name one `available` VPC attachment of `vpc_id`. The allow cites the VPC
+  route and association, the gateway's state and owner, the source attachment's gateway,
+  VPC, and subnet edges with both subnets' zones, the table association, the route search
+  and selected route, and the destination attachment's edges and state.
+
+  A blackhole, deleting, or deleted route; a `deleting` or `deleted` gateway or table; an
+  attachment that is `failed`, `rejected`, `deleted`, or otherwise not carrying; an
+  attachment with no subnet in the source zone; no matching route; or a route to another
+  VPC's attachment denies, citing the hop so far and the element. `pending` and
+  `modifying` elements are `unknown`, as is an unrecorded state. Also `unknown`, with the
+  reason: a gateway outside the snapshot (shared from another account) or an attachment of
+  another account, named; attachment subnets unrecorded, or an attachment an import left a
+  value out of (an imported `SubnetIds` with a `!Ref` keeps only its literal subnets); a
+  missing association; an incomplete route search; a tie of the same route type; and a
+  deeper chain: several attachments (ECMP), a peering, VPN, or Direct Connect attachment,
+  or a prefix-list destination. `DescribeVpcPeeringConnections` and the transit gateway
+  reads qualify every VPC question.
 - `evaluate_public_address` (`services.network_addressing`): one address family per call
   (`family`, IPv4 by default). Over IPv4, a recorded public address on an ENI or instance
   allows and a recorded absence denies. Over IPv6, an ENI's recorded global unicast address
@@ -131,7 +160,7 @@ Supported, each evaluated for one direction or one question per call:
 |---|---|---|
 | Security-group rules | IPv4 and IPv6 CIDRs within the query's address family, same-account referenced groups, managed prefix lists with recorded entries, tcp/udp/icmp (names or numbers) and all-protocol, inclusive port ranges | Prefix lists without recorded entries (`unknown`, named), cross-account references, other protocols (including ICMPv6), statefulness |
 | NACLs | IPv4 and IPv6 CIDRs within the query's address family, tcp/udp/icmp and all-protocol, rule-number order with implicit final deny, one direction per call | Other protocols (including ICMPv6), ICMP type/code, subnets without an observed association (no default ACL is assumed) |
-| Routes | IPv4 and IPv6 longest prefix within the query's address family, including prefix-list destinations with recorded entries, to local, internet-gateway, egress-only internet gateway, or NAT gateway (outbound only) targets, and peering connections into another VPC of the account (`evaluate_vpc_route`), explicit table or observed main table | Transit gateway, VPC endpoint, and instance/interface targets; another account's peer VPC (`unknown`, named); prefix-list destinations without recorded entries and ties involving a prefix list (`unknown`, with the reason) |
+| Routes | IPv4 and IPv6 longest prefix within the query's address family, including prefix-list destinations with recorded entries, to local, internet-gateway, egress-only internet gateway, or NAT gateway (outbound only) targets, and peering connections or one transit gateway hop into another VPC of the account (`evaluate_vpc_route`), explicit table or observed main table | VPC endpoint and instance/interface targets; another account's peer VPC, transit gateway, or attachment (`unknown`, named); transit gateway routes to several attachments, to non-VPC attachments, or to prefix lists; prefix-list destinations without recorded entries and ties involving a prefix list (`unknown`, with the reason) |
 | Public addressing | Recorded public IPv4 on ENIs and instances; recorded global IPv6 on ENIs | IPv6 on instances (their ENIs answer) |
 | Load balancers | Scheme, listener port and protocol, forward actions, target groups with registered targets | Redirect, fixed-response, and authentication actions; GENEVE (Gateway Load Balancer) listeners; IP and unresolved targets |
 
@@ -149,8 +178,8 @@ Snapshots can record NAT gateways, egress-only internet gateways, peering connec
 gateways, endpoints, prefix lists, and IPv6 fields (see the
 [snapshot format](snapshot-format.md#network-path-elements)). Security groups and NACLs
 decide IPv6 rules and entries, security groups and routes decide prefix lists with recorded
-entries, routes decide IPv6 routes, egress-only internet gateways, NAT gateways, and
-peering connections, and public addressing decides ENIs' IPv6 addresses; no primitive
+entries, routes decide IPv6 routes, egress-only internet gateways, NAT gateways,
+peering connections, and transit gateways, and public addressing decides ENIs' IPv6 addresses; no primitive
 reads the other elements yet, so the cases above stay unsupported until the primitives
 decide them.
 

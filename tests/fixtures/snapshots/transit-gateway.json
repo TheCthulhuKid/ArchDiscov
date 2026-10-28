@@ -34,6 +34,48 @@
                 "account_id": "123456789012",
                 "region": "eu-west-1",
                 "service": "ec2",
+                "physical_id": "subnet-app"
+              },
+              "resource_type": "AWS::EC2::Subnet",
+              "availability_zone": "eu-west-1a",
+              "cidr_blocks": [
+                "10.2.1.0/24"
+              ],
+              "evidence_ids": [
+                "subnet-app"
+              ],
+              "fact_evidence": {
+                "/availability_zone": [
+                  "subnet-app"
+                ]
+              }
+            },
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "subnet-app-tgw"
+              },
+              "resource_type": "AWS::EC2::Subnet",
+              "availability_zone": "eu-west-1a",
+              "cidr_blocks": [
+                "10.2.255.0/28"
+              ],
+              "evidence_ids": [
+                "subnet-app-tgw"
+              ],
+              "fact_evidence": {
+                "/availability_zone": [
+                  "subnet-app-tgw"
+                ]
+              }
+            },
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
                 "physical_id": "rtb-app"
               },
               "resource_type": "AWS::EC2::RouteTable",
@@ -71,6 +113,59 @@
           "resource_type": "AWS::EC2::VPC",
           "cidr_blocks": [
             "10.3.0.0/16"
+          ],
+          "children": [
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "subnet-data"
+              },
+              "resource_type": "AWS::EC2::Subnet",
+              "availability_zone": "eu-west-1a",
+              "cidr_blocks": [
+                "10.3.1.0/24"
+              ],
+              "evidence_ids": [
+                "subnet-data"
+              ],
+              "fact_evidence": {
+                "/availability_zone": [
+                  "subnet-data"
+                ]
+              }
+            },
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "rtb-data"
+              },
+              "resource_type": "AWS::EC2::RouteTable",
+              "routes": [
+                {
+                  "destination": "10.3.0.0/16",
+                  "target_kind": "local",
+                  "state": "active"
+                },
+                {
+                  "destination": "10.2.0.0/16",
+                  "target_kind": "transit_gateway",
+                  "target_id": "tgw-main",
+                  "state": "active"
+                }
+              ],
+              "evidence_ids": [
+                "rtb-data"
+              ],
+              "fact_evidence": {
+                "/routes/1": [
+                  "rtb-data-route-1"
+                ]
+              }
+            }
           ]
         },
         {
@@ -140,10 +235,16 @@
             ],
             "/associated_route_table_id": [
               "tgw-attach-app-association"
+            ],
+            "/subnet_ids/0": [
+              "tgw-attach-app-subnet"
             ]
           },
           "association_state": "associated",
-          "associated_route_table_id": "tgw-rtb-main"
+          "associated_route_table_id": "tgw-rtb-main",
+          "subnet_ids": [
+            "subnet-app-tgw"
+          ]
         },
         {
           "identity": {
@@ -176,8 +277,22 @@
             ],
             "/attached_resource_owner_id": [
               "tgw-attach-data"
+            ],
+            "/subnet_ids/0": [
+              "tgw-attach-data-subnet"
+            ],
+            "/association_state": [
+              "tgw-attach-data-association"
+            ],
+            "/associated_route_table_id": [
+              "tgw-attach-data-association"
             ]
-          }
+          },
+          "subnet_ids": [
+            "subnet-data"
+          ],
+          "association_state": "associated",
+          "associated_route_table_id": "tgw-rtb-main"
         },
         {
           "identity": {
@@ -192,6 +307,10 @@
           "associations": [
             {
               "attachment_id": "tgw-attach-app",
+              "state": "associated"
+            },
+            {
+              "attachment_id": "tgw-attach-data",
               "state": "associated"
             }
           ],
@@ -250,6 +369,9 @@
             ],
             "/routes/2": [
               "tgw-rtb-route-2"
+            ],
+            "/associations/1": [
+              "tgw-rtb-association-data"
             ]
           }
         }
@@ -359,6 +481,96 @@
         },
         "evidence_ids": [
           "tgw-rtb-propagation"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/rtb-app",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-app"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_table_association",
+          "association_id": "rtbassoc-subnet-app"
+        },
+        "evidence_ids": [
+          "rtb-app-association"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/rtb-data",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-data"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_table_association",
+          "association_id": "rtbassoc-subnet-data"
+        },
+        "evidence_ids": [
+          "rtb-data-association"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/rtb-data",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/tgw-main"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_target",
+          "target_kind": "transit_gateway",
+          "destination": "10.2.0.0/16",
+          "state": "active"
+        },
+        "evidence_ids": [
+          "rtb-data-route-1"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/tgw-attach-app",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-app-tgw"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "transit_gateway_attachment_subnet"
+        },
+        "evidence_ids": [
+          "tgw-attach-app-subnet"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/tgw-attach-data",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-data"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "transit_gateway_attachment_subnet"
+        },
+        "evidence_ids": [
+          "tgw-attach-data-subnet"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/tgw-rtb-main",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/tgw-attach-data"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "transit_gateway_route_table_association",
+          "state": "associated"
+        },
+        "evidence_ids": [
+          "tgw-rtb-association-data"
         ]
       }
     ]
@@ -544,6 +756,130 @@
         "DestinationCidrBlock": "10.3.0.0/16",
         "TransitGatewayId": "tgw-main",
         "State": "active"
+      }
+    },
+    "subnet-app": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004b",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-app",
+      "source": "mock",
+      "locator": "transit-gateway.json",
+      "configuration_path": "Subnets[0]",
+      "value": {
+        "SubnetId": "subnet-app",
+        "VpcId": "vpc-app",
+        "CidrBlock": "10.2.1.0/24",
+        "AvailabilityZone": "eu-west-1a"
+      }
+    },
+    "subnet-data": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004b",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-data",
+      "source": "mock",
+      "locator": "transit-gateway.json",
+      "configuration_path": "Subnets[1]",
+      "value": {
+        "SubnetId": "subnet-data",
+        "VpcId": "vpc-data",
+        "CidrBlock": "10.3.1.0/24",
+        "AvailabilityZone": "eu-west-1a"
+      }
+    },
+    "rtb-data": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004b",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-data",
+      "source": "mock",
+      "locator": "transit-gateway.json",
+      "configuration_path": "RouteTables[1]",
+      "value": {
+        "RouteTableId": "rtb-data",
+        "VpcId": "vpc-data"
+      }
+    },
+    "rtb-data-route-1": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004b",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-data",
+      "source": "mock",
+      "locator": "transit-gateway.json",
+      "configuration_path": "RouteTables[1].Routes[1]",
+      "value": {
+        "DestinationCidrBlock": "10.2.0.0/16",
+        "TransitGatewayId": "tgw-main",
+        "State": "active"
+      }
+    },
+    "rtb-app-association": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004b",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-app",
+      "source": "mock",
+      "locator": "transit-gateway.json",
+      "configuration_path": "RouteTables[0].Associations[0]",
+      "value": {
+        "SubnetId": "subnet-app",
+        "RouteTableAssociationId": "rtbassoc-subnet-app"
+      }
+    },
+    "rtb-data-association": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004b",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-data",
+      "source": "mock",
+      "locator": "transit-gateway.json",
+      "configuration_path": "RouteTables[1].Associations[0]",
+      "value": {
+        "SubnetId": "subnet-data",
+        "RouteTableAssociationId": "rtbassoc-subnet-data"
+      }
+    },
+    "tgw-attach-app-subnet": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004b",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/tgw-attach-app",
+      "source": "mock",
+      "locator": "transit-gateway.json",
+      "configuration_path": "TransitGatewayVpcAttachments[0].SubnetIds[0]",
+      "value": "subnet-app-tgw"
+    },
+    "tgw-attach-data-subnet": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004b",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/tgw-attach-data",
+      "source": "mock",
+      "locator": "transit-gateway.json",
+      "configuration_path": "TransitGatewayVpcAttachments[1].SubnetIds[0]",
+      "value": "subnet-data"
+    },
+    "tgw-attach-data-association": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004b",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/tgw-attach-data",
+      "source": "mock",
+      "locator": "transit-gateway.json",
+      "configuration_path": "TransitGatewayAttachments[1].Association",
+      "value": {
+        "TransitGatewayRouteTableId": "tgw-rtb-main",
+        "State": "associated"
+      }
+    },
+    "tgw-rtb-association-data": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004b",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/tgw-rtb-main",
+      "source": "mock",
+      "locator": "transit-gateway.json",
+      "configuration_path": "TransitGatewayRouteTableAssociations[1]",
+      "value": {
+        "TransitGatewayAttachmentId": "tgw-attach-data",
+        "ResourceId": "vpc-data",
+        "ResourceType": "vpc",
+        "State": "associated"
+      }
+    },
+    "subnet-app-tgw": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004b",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-app-tgw",
+      "source": "mock",
+      "locator": "transit-gateway.json",
+      "configuration_path": "Subnets[2]",
+      "value": {
+        "SubnetId": "subnet-app-tgw",
+        "VpcId": "vpc-app",
+        "CidrBlock": "10.2.255.0/28",
+        "AvailabilityZone": "eu-west-1a"
       }
     }
   }

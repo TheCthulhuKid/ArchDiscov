@@ -8,7 +8,7 @@ the protocols tcp, udp, and icmp are supported.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Iterable
 from dataclasses import dataclass
 from ipaddress import IPv4Network, IPv6Network, ip_network
 from typing import TYPE_CHECKING
@@ -109,6 +109,28 @@ def screen_cidr(
     if bounded and network.overlaps(cidr):
         return Undecided.missing("The address is only known to lie in a network this overlaps.")
     return False
+
+
+def longest_prefix[C](
+    candidates: Iterable[tuple[IpNetwork, C]], target: IpNetwork
+) -> list[C] | Undecided:
+    """The candidates sharing the longest prefix that holds the whole target; [] when none does.
+
+    Candidates are of the target's address family. A target wider than one address only
+    bounds an address not known exactly, so a more specific prefix covering part of it could
+    take some traffic and leaves the selection undecided.
+    """
+    containing: list[tuple[int, C]] = []
+    partial: list[int] = []
+    for network, candidate in candidates:
+        if target.subnet_of(network):
+            containing.append((network.prefixlen, candidate))
+        elif target.overlaps(network):
+            partial.append(network.prefixlen)
+    longest = max((prefix for prefix, _ in containing), default=-1)
+    if any(prefix > longest for prefix in partial):
+        return Undecided.missing("A more specific route covers only part of the address range.")
+    return [candidate for prefix, candidate in containing if prefix == longest]
 
 
 def omitted_rules(resource: Resource) -> bool:

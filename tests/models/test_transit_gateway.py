@@ -27,7 +27,7 @@ def test_fixture_loads_typed_round_trips_and_cites_exact_entries(tmp_path):
     assert isinstance(app, TransitGatewayAttachment)
     assert isinstance(data, TransitGatewayAttachment)
     assert app.associated_route_table_id == "tgw-rtb-main"
-    assert data.associated_route_table_id is None
+    assert data.associated_route_table_id == "tgw-rtb-main"
     assert isinstance(table, TransitGatewayRouteTable)
     assert [link.attachment_id for link in table.propagations] == ["tgw-attach-data"]
     assert [route.route_type for route in table.routes] == [

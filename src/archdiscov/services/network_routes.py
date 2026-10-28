@@ -7,8 +7,8 @@ destination is a managed prefix list contributes each recorded entry as a prefix
 an internet gateway or egress-only internet gateway is a recorded route, not proof of
 internet reachability. A route to a NAT gateway reaches the internet only through the
 gateway's own subnet's route to an internet gateway. A route to an active peering connection
-leads into the peer VPC. Transit gateway and endpoint targets are unsupported and never
-allow.
+leads into the peer VPC, and a route to a transit gateway leads one hop through it into the
+VPC its route table names. Endpoint targets are unsupported and never allow.
 """
 
 from __future__ import annotations
@@ -42,6 +42,7 @@ from .network_matching import (
     cited_decision,
     cited_target,
     implicit_deny,
+    longest_prefix,
     parse_network,
     require_recorded,
     sole_associate,
@@ -49,6 +50,7 @@ from .network_matching import (
 from .network_nat import NAT_OPERATIONS, nat_gateway_evidence
 from .network_peering import PEERING_OPERATIONS, peering_evidence
 from .network_prefix_lists import PREFIX_LIST_OPERATIONS, resolve_prefix_list
+from .network_transit import TRANSIT_OPERATIONS, transit_evidence
 
 if TYPE_CHECKING:
     from archdiscov.graph import GraphIndex
@@ -112,9 +114,14 @@ class RouteHop:
         return evaluate_subnet_route(self.index, subnet_id, self.address, reach=reach)
 
     def denied(
-        self, resource: Resource, message: str, element: str, *pointers: str
+        self,
+        resource: Resource,
+        message: str,
+        element: str,
+        *pointers: str,
+        trail: tuple[str, ...] = (),
     ) -> NetworkResult:
-        """A deny by the route's target, citing the route and the target's facts."""
+        """A deny by the route's target, citing the route, the hops in `trail`, and the facts."""
         facts = [e for pointer in pointers for e in resource.fact_evidence.get(pointer, [])]
         return deny(
             [
@@ -123,7 +130,7 @@ class RouteHop:
                     message,
                     element=element,
                     resource_id=resource.id,
-                    evidence_ids=(*self.citations, *facts),
+                    evidence_ids=(*self.citations, *trail, *facts),
                 )
             ]
         )
@@ -135,18 +142,22 @@ class RouteHop:
         states: Mapping[str, bool | None],
         label: str,
         element: str,
+        *,
+        pointer: str = "/state",
+        trail: tuple[str, ...] = (),
     ) -> NetworkResult | None:
         """None when the recorded state carries traffic, else the result it ends the hop with.
 
         `states` maps each recognized state to True (carries traffic), False (carries none,
-        so a cited deny), or None (a transition whose outcome is unknown); a missing or
-        unrecognized state is unknown too.
+        so a deny citing the fact at `pointer` and the `trail`), or None (a transition whose
+        outcome is unknown); a missing or unrecognized state is unknown too.
         """
         carries = states.get(state or "")
         if carries:
             return None
         if carries is False:
-            return self.denied(resource, f"The {label} is {state}.", element, "/state")
+            message = f"The {label} is {state}."
+            return self.denied(resource, message, element, pointer, trail=trail)
         return missing(
             f"The {label}'s state ({state or 'not recorded'}) does not show whether it carries "
             "traffic.",
@@ -247,10 +258,8 @@ def _best_route(
 ) -> _Candidate | Undecided | None:
     """The longest-prefix candidate holding the whole target network; None when none does.
 
-    A target wider than one address only bounds an address not known exactly, so a more
-    specific prefix covering part of it could take some traffic and makes the result
-    undecided. A prefix-list route whose entries are not recorded could cover anything, so
-    it makes the result undecided too.
+    A prefix-list route whose entries are not recorded could cover anything, so it makes the
+    result undecided, as does a more specific prefix covering only part of the target.
     """
     candidates: list[_Candidate] = []
     for position, route in enumerate(table.routes):
@@ -258,22 +267,12 @@ def _best_route(
         if isinstance(found, Undecided):
             return found
         candidates.extend(found)
-    containing: list[_Candidate] = []
-    partial: list[int] = []
-    for candidate in candidates:
-        if target.subnet_of(candidate.network):
-            containing.append(candidate)
-        elif target.overlaps(candidate.network):
-            partial.append(candidate.network.prefixlen)
-    longest = max((c.network.prefixlen for c in containing), default=-1)
-    if any(prefix > longest for prefix in partial):
-        return Undecided.missing("A more specific route covers only part of the address range.")
-    if not containing:
-        return None
-    best = [c for c in containing if c.network.prefixlen == longest]
+    best = longest_prefix(((c.network, c) for c in candidates), target)
+    if isinstance(best, Undecided):
+        return best
     if len({c.position for c in best}) > 1:
         return _tie(best)
-    return best[0]
+    return best[0] if best else None
 
 
 def _attachment_evidence(gateway_kind: _Gateway, hop: RouteHop) -> tuple[str, ...] | NetworkResult:
@@ -309,7 +308,7 @@ _TARGETS: dict[RouteTargetKind, TargetCheck] = {
     RouteTargetKind.NAT_GATEWAY: nat_gateway_evidence,
 }
 # Kinds that only a VPC question asks for; any other question's route there leads elsewhere.
-_VPC_KINDS = frozenset({RouteTargetKind.VPC_PEERING})
+_VPC_KINDS = frozenset({RouteTargetKind.VPC_PEERING, RouteTargetKind.TRANSIT_GATEWAY})
 _SUPPORTED_KINDS = _TARGETS.keys() | _VPC_KINDS
 
 
@@ -426,19 +425,26 @@ def evaluate_vpc_route(
     """Decide whether the subnet's best route for the address leads into the VPC `vpc_id`.
 
     `address` is as for `evaluate_subnet_route`. Allows the local route when `vpc_id` is the
-    subnet's own VPC, or a route to an active peering connection whose other side is
-    `vpc_id`, in the same account, with recorded CIDRs holding the address. Denies when the
-    best route leads elsewhere, is a blackhole, or the connection's state carries no
+    subnet's own VPC; a route to an active peering connection whose other side is `vpc_id`,
+    in the same account, with recorded CIDRs holding the address; or a route to an available
+    transit gateway of the same account whose route table, associated with the VPC's
+    attachment from the subnet's zone, routes the address to `vpc_id`'s attachment. Denies
+    when the best route leads elsewhere, is a blackhole, or an element's state carries no
     traffic. Return traffic is the reverse question, asked from the other side. Cites the
-    route, the association, and the connection with its two VPC edges.
+    route, the association, and every element of the hop. Limited peering or transit gateway
+    collection downgrades any decision to unknown.
     """
 
     def wanted(subnet: Subnet) -> Mapping[RouteTargetKind, TargetCheck]:
         if index.parent_id(subnet.id) == vpc_id:
             return {RouteTargetKind.LOCAL: _TARGETS[RouteTargetKind.LOCAL]}
-        return {RouteTargetKind.VPC_PEERING: partial(peering_evidence, vpc_id)}
+        return {
+            RouteTargetKind.VPC_PEERING: partial(peering_evidence, vpc_id),
+            RouteTargetKind.TRANSIT_GATEWAY: partial(transit_evidence, vpc_id),
+        }
 
-    return _evaluate(index, subnet_id, address, wanted, ROUTE_OPERATIONS | PEERING_OPERATIONS)
+    operations = ROUTE_OPERATIONS | PEERING_OPERATIONS | TRANSIT_OPERATIONS
+    return _evaluate(index, subnet_id, address, wanted, operations)
 
 
 def _evaluate(

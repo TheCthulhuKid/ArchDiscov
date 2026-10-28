@@ -134,15 +134,8 @@ def test_an_unrecorded_route_state_is_unknown():
     assert decision([table("rtb-1", [route(state="other")], "subnet-1")]) == D.UNKNOWN
 
 
-@pytest.mark.parametrize(
-    "target",
-    [
-        {"target": None, "TransitGatewayId": "tgw-1"},
-        {"target": "vpce-1"},
-    ],
-)
-def test_unsupported_targets_never_allow(target):
-    result = check([table("rtb-1", [LOCAL, route(**target)], "subnet-1")])[1]
+def test_unsupported_targets_never_allow():
+    result = check([table("rtb-1", [LOCAL, route(target="vpce-1")], "subnet-1")])[1]
     assert result.decision == D.UNKNOWN
     assert codes(result) == {B.UNSUPPORTED_ELEMENT}
 
@@ -169,9 +162,9 @@ def service_route(index, address="198.51.100.7"):
 
 def test_a_prefix_list_route_is_selected_through_its_recorded_entries():
     index = prefix_list_index(S3_ENTRIES)
-    # The selected route leads to a transit gateway, which step 53 decides.
+    # The selected route leads to a transit gateway, not the local route asked for.
     [blocker] = service_route(index).blockers
-    assert (blocker.code, blocker.element) == (B.UNSUPPORTED_ELEMENT, "route:/routes/2")
+    assert (blocker.code, blocker.element) == (B.DENIED, "route:/routes/2")
     assert service_route(index, "192.0.2.1").blockers[0].element == "implicit_deny"
     blackhole = {"rtb-svc": {"routes": [*ROUTES[:2], {**ROUTES[2], "state": "blackhole"}]}}
     denied = service_route(prefix_list_index({**S3_ENTRIES, **blackhole}))

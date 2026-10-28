@@ -14,15 +14,21 @@ def _walk(resources: list[dict]):
 
 
 def edited_index(
-    fixture: str, changes: dict[str, dict] | None = None, *, without: Iterable[str] = ()
+    fixture: str,
+    changes: dict[str, dict] | None = None,
+    *,
+    without: Iterable[str] = (),
+    coverage: Iterable[dict] = (),
 ) -> GraphIndex:
     """The fixture's graph, edited before it is validated again.
 
-    `changes` maps a physical ID to the fields it replaces, and `without` names evidence whose
-    citing dependencies are dropped, so a variant is an edit of the recorded fixture.
+    `changes` maps a physical ID to the fields it replaces, `without` names evidence whose
+    citing dependencies are dropped, and `coverage` adds coverage records, so a variant is an
+    edit of the recorded fixture.
     """
     snapshot = load_snapshot(FIXTURES_ROOT / "snapshots" / fixture)
     data = snapshot.model_dump(mode="json")
+    data["coverage"]["operations"].extend(coverage)
     dropped = set(without)
     for region, region_data in data["regions"].items():
         for resource in _walk(region_data["resources"]):
