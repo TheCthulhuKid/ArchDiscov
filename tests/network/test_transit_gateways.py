@@ -68,6 +68,10 @@ def test_a_transit_gateway_route_leads_into_the_attached_vpc_in_both_directions(
     back = evaluate_vpc_route(index, resource_id("subnet-data"), "10.2.1.5", resource_id("vpc-app"))
     assert back.decision == D.ALLOW
     assert {"rtb-data-route-1", "tgw-rtb-route-0"} <= set(back.evidence_ids)
+    # Into a third VPC, which could forward it on, is a second hop: a deeper chain.
+    third = evaluate_vpc_route(index, resource_id("subnet-app"), "10.3.1.5", resource_id("vpc-x"))
+    assert (third.decision, third.blockers[0].code) == (D.UNKNOWN, B.UNSUPPORTED_ELEMENT)
+    assert "another hop" in third.blockers[0].message
     # A transit gateway route is not an internet gateway.
     internet = evaluate_subnet_route(
         index, resource_id("subnet-app"), "10.3.1.5", reach=RouteReach.INTERNET_GATEWAY

@@ -7,7 +7,7 @@ gateway. That attachment's associated route table must record its whole route se
 the table's longest-prefix route for the address must be active and name one available VPC
 attachment. The gateway delivers into any zone of the destination VPC, so the destination's
 subnets are not checked. A deeper chain (a peering, VPN, or Direct Connect attachment,
-several attachments, or a prefix-list route) is unknown.
+another VPC's attachment, several attachments, or a prefix-list route) is unknown.
 """
 
 from __future__ import annotations
@@ -379,12 +379,15 @@ def _arrival(
         return missing(
             "The attachment's VPC is not recorded.", element=_ATTACHMENT, resource_id=attachment.id
         )
-    if vpc_edge.target_id != vpc_id:
-        message = (
-            f"The transit gateway route leads to {attachment.attached_resource_id}, not the "
-            "VPC asked."
-        )
+    if vpc_edge.target_id == index.parent_id(hop.subnet.id):
+        message = "The transit gateway route leads back to the subnet's own VPC."
         return hop.denied(attachment, message, _ATTACHMENT, "/attached_resource_id", trail=trail)
+    # A third VPC could forward the traffic on, through its own routes: a second hop.
+    if vpc_edge.target_id != vpc_id:
+        return Undecided.unsupported(
+            f"The transit gateway route leads to {attachment.attached_resource_id}; reaching "
+            "the VPC asked from there needs another hop, a deeper chain out of scope."
+        ).result(element=_ATTACHMENT, resource_id=attachment.id)
     return (*edge.evidence_ids, *vpc_edge.evidence_ids, *_facts(attachment, "/state"))
 
 

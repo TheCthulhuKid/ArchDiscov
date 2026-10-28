@@ -144,15 +144,17 @@ decided the outcome.
 
   A blackhole, deleting, or deleted route; a `deleting` or `deleted` gateway or table; an
   attachment that is `failed`, `rejected`, `deleted`, or otherwise not carrying; an
-  attachment with no subnet in the source zone; no matching route; or a route to another
-  VPC's attachment denies, citing the hop so far and the element. `pending` and
+  attachment with no subnet in the source zone; no matching route; or a route back to the
+  subnet's own VPC's attachment denies, citing the hop so far and the element. `pending` and
   `modifying` elements are `unknown`, as is an unrecorded state. Also `unknown`, with the
   reason: a gateway outside the snapshot (shared from another account) or an attachment of
   another account, named; attachment subnets unrecorded, or an attachment an import left a
   value out of (an imported `SubnetIds` with a `!Ref` keeps only its literal subnets); a
   missing association; an incomplete route search; a tie of the same route type; and a
   deeper chain: several attachments (ECMP), a peering, VPN, or Direct Connect attachment,
-  or a prefix-list destination. `DescribeVpcPeeringConnections` and the transit gateway
+  a third VPC's attachment (that VPC could forward the traffic on), or a prefix-list
+  destination. A peering connection to a VPC other than the one asked still denies, because
+  AWS never forwards peered traffic onward. `DescribeVpcPeeringConnections` and the transit gateway
   reads qualify every VPC question.
 - `evaluate_public_address` (`services.network_addressing`): one address family per call
   (`family`, IPv4 by default). Over IPv4, a recorded public address on an ENI or instance
@@ -175,7 +177,7 @@ Supported, each evaluated for one direction or one question per call:
 |---|---|---|
 | Security-group rules | IPv4 and IPv6 CIDRs within the query's address family, same-account referenced groups, managed prefix lists with recorded entries, tcp/udp/icmp (names or numbers) and all-protocol, inclusive port ranges | Prefix lists without recorded entries (`unknown`, named), cross-account references, other protocols (including ICMPv6), statefulness |
 | NACLs | IPv4 and IPv6 CIDRs within the query's address family, tcp/udp/icmp and all-protocol, rule-number order with implicit final deny, one direction per call | Other protocols (including ICMPv6), ICMP type/code, subnets without an observed association (no default ACL is assumed) |
-| Routes | IPv4 and IPv6 longest prefix within the query's address family, including prefix-list destinations with recorded entries, to local, internet-gateway, egress-only internet gateway, NAT gateway (outbound only), or gateway endpoint targets, and peering connections or one transit gateway hop into another VPC of the account (`evaluate_vpc_route`), explicit table or observed main table | Gateway Load Balancer endpoints and endpoints of an unmodelled or unrecorded type, and instance/interface targets; another account's peer VPC, transit gateway, or attachment (`unknown`, named); transit gateway routes to several attachments, to non-VPC attachments, or to prefix lists; prefix-list destinations without recorded entries and ties involving a prefix list (`unknown`, with the reason) |
+| Routes | IPv4 and IPv6 longest prefix within the query's address family, including prefix-list destinations with recorded entries, to local, internet-gateway, egress-only internet gateway, NAT gateway (outbound only), or gateway endpoint targets, and peering connections or one transit gateway hop into another VPC of the account (`evaluate_vpc_route`), explicit table or observed main table | Gateway Load Balancer endpoints and endpoints of an unmodelled or unrecorded type, and instance/interface targets; another account's peer VPC, transit gateway, or attachment (`unknown`, named); transit gateway routes to several attachments, to non-VPC or third-VPC attachments, or to prefix lists (a deeper chain); prefix-list destinations without recorded entries and ties involving a prefix list (`unknown`, with the reason) |
 | Public addressing | Recorded public IPv4 on ENIs and instances; recorded global IPv6 on ENIs | IPv6 on instances (their ENIs answer) |
 | Load balancers | Scheme, listener port and protocol, forward actions, target groups with registered targets | Redirect, fixed-response, and authentication actions; GENEVE (Gateway Load Balancer) listeners; IP and unresolved targets |
 
@@ -184,7 +186,8 @@ IPv6 address or CIDR, and public addressing for the family it is asked about. A 
 or route of the other family never matches, so it is skipped rather than making the result
 `unknown`: an IPv6 deny entry ahead of an IPv4 allow no longer hides the allow. Ask once per
 family for a dual-stack resource. The analyzers still ask IPv4 questions only; they adopt the
-IPv6 and prefix-list decisions in step 54.
+IPv6 and prefix-list decisions, and the NAT, peering, transit gateway, endpoint, and
+two-subnet route decisions, in step 54.
 
 Not modelled at all: statefulness, target health meaning, host firewalls, authentication,
 and runtime state.
@@ -207,8 +210,10 @@ disjoint one does not, and one covering only part of it makes the decision `unkn
 
 ## Composing primitives
 
-Primitives never call each other. A caller composes them explicitly with `all_of` (and
-`any_of` for alternatives), for example an inbound request and its return path:
+Primitives do not compose each other's decisions; the one exception is a route target
+that forwards traffic, where a NAT gateway's check asks its own subnet's route. A caller
+composes them explicitly with `all_of` (and `any_of` for alternatives), for example an
+inbound request and its return path:
 
 ```python
 all_of(
@@ -227,6 +232,19 @@ all_of(
     ]
 )
 ```
+
+`services.network_composition` holds the compositions the analyzers share:
+`groups_allow` (some one of the security groups allows), `nacl_round_trip` (a NACL's
+request and its ephemeral-port reply), and `subnet_routes(index, source_subnet_id,
+destination_subnet_id, *, source_address=None, destination_address=None)`. The last is
+`all_of` two `evaluate_vpc_route` calls: the source subnet's route to the destination
+address must lead into the destination's VPC, and the destination subnet's route back to
+the source address into the source's VPC. An address not given is bounded by its subnet's
+IPv4 CIDR. Within one VPC it gives the local route's result each way; across VPCs it allows
+one peering connection or one transit gateway hop each way, citing every hop of both
+directions, and a path needing a second hop is `unknown` and says so. A missing return
+route denies, and another account's element in either direction is `unknown`, named.
+Security groups and NACLs are not part of it: callers compose them beside it.
 
 A recorded denial dominates an unknown element, so a composed `deny` means some element
 denies even if others could not be evaluated, while failed route, NACL, or other relevant

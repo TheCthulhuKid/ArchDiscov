@@ -69,6 +69,9 @@
                 "rtb-app"
               ],
               "fact_evidence": {
+                "/routes/0": [
+                  "rtb-app-route-0"
+                ],
                 "/routes/1": [
                   "rtb-app-route-1"
                 ]
@@ -410,6 +413,18 @@
       "value": {
         "SubnetId": "subnet-data",
         "RouteTableAssociationId": "rtbassoc-subnet-data"
+      }
+    },
+    "rtb-app-route-0": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004a",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-app",
+      "source": "mock",
+      "locator": "vpc-peering.json",
+      "configuration_path": "RouteTables[0].Routes[0]",
+      "value": {
+        "DestinationCidrBlock": "10.2.0.0/16",
+        "GatewayId": "local",
+        "State": "active"
       }
     }
   }
