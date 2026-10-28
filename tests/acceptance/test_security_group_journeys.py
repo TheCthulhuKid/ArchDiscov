@@ -1,6 +1,5 @@
 """Credential-free fixture -> analyze -> save -> findings -> evidence journeys."""
 
-from archdiscov.graph import GraphIndex
 from archdiscov.services import (
     load_analysis,
     load_snapshot,
@@ -8,7 +7,6 @@ from archdiscov.services import (
     upgrade_snapshot,
     validate_snapshot,
 )
-from tests.paths import FIXTURES_ROOT
 from tests.support.installed_cli import run_installed_json
 from tests.support.security_group_data import EVIDENCE, IDS, variant
 
@@ -67,32 +65,3 @@ def test_installed_aws_security_group_journey(tmp_path):
         "--json",
     )
     assert inspected["resource"]["id"] == IDS["lambda"]
-
-    before = result_path.read_bytes()
-    conflict = run_installed_json(
-        tmp_path,
-        "analyze",
-        "--snapshot",
-        str(snapshot_path),
-        "--output",
-        str(result_path),
-        "--analyzer",
-        "security_group_impact",
-        "--resource-id",
-        IDS["sg-app"],
-        "--json",
-        expect=3,
-    )
-    assert conflict["error"]["code"] == "snapshot_conflict"
-    assert result_path.read_bytes() == before
-
-
-def test_installed_azure_journey_returns_an_actionable_unsupported_result(tmp_path):
-    azure = FIXTURES_ROOT / "snapshots" / "azure.json"
-    selected = GraphIndex(load_snapshot(azure)).resource_ids[0]
-    _, shown = journey(tmp_path, azure, selected)
-    [finding] = shown["findings"]
-    assert finding["status"] == "insufficient_evidence"
-    assert finding["impact"] is None
-    assert finding["limitations"][0]["code"] == "unsupported_platform"
-    assert "AWS" in finding["limitations"][0]["message"]

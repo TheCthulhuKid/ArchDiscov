@@ -1,14 +1,16 @@
-"""Offline installed-entrypoint journeys for snapshots and raw IaC exports."""
+"""Offline installed-entrypoint journeys for snapshots and raw IaC exports.
+
+No overwrite and the readable summaries are left to `tests/cli` and the ingest stage of
+`test_installed_end_to_end.py`.
+"""
 
 import json
-import os
-import subprocess
 
 import pytest
 
 from archdiscov.services import load_snapshot
 from tests.paths import FIXTURES_ROOT
-from tests.support.installed_cli import CLI
+from tests.support.installed_cli import Workspace
 
 FIXTURES = FIXTURES_ROOT
 ACCOUNT = "123456789012"
@@ -34,43 +36,19 @@ SECRETS = (
 
 @pytest.fixture
 def offline_cli(tmp_path):
-    env = {
-        key: value
-        for key, value in os.environ.items()
-        if key != "PYTHONPATH"
-        and not key.startswith(
-            ("AWS_", "AZURE_", "GOOGLE_", "GCLOUD_", "OPENAI_", "ANTHROPIC_", "BOTO_")
-        )
-    }
-    env.update(
-        AWS_EC2_METADATA_DISABLED="true",
-        AWS_SHARED_CREDENTIALS_FILE=str(tmp_path / "no-aws-credentials"),
-        AWS_CONFIG_FILE=str(tmp_path / "no-aws-config"),
-        BOTO_CONFIG=str(tmp_path / "no-boto-config"),
-        NO_COLOR="1",
-        COLUMNS="160",
-    )
-    command = CLI
+    """Run `ingest` or `evidence` with JSON output through the installed CLI, offline; no
+    secret may reach its output."""
+    ws = Workspace(tmp_path)
 
-    def run(*arguments, exit_code=0, json_output=True):
-        result = subprocess.run(
-            [*command, *map(str, arguments), *(["--json"] if json_output else [])],
-            cwd=tmp_path,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-        assert result.returncode == exit_code, (result.stdout, result.stderr)
-        assert "Traceback" not in result.stdout + result.stderr
+    def run(*arguments, exit_code=0):
+        result = ws.run(*arguments, "--json", expect=exit_code)
         for secret in SECRETS:
             assert secret not in result.stdout + result.stderr
-        if json_output:
-            assert result.stderr == ""
-            return json.loads(result.stdout)
-        return result
+        assert result.stderr == ""
+        return json.loads(result.stdout)
 
-    return run
+    yield run
+    assert ws.guard.attempts == []
 
 
 def flatten(resources):
@@ -190,16 +168,6 @@ def test_import_save_load_and_evidence_journey(offline_cli, tmp_path, format_nam
     for fact_path in inspected["fact_paths"]:
         assert evidence_id in inspected["resource"]["fact_evidence"][fact_path]
 
-    conflict = offline_cli(*arguments, exit_code=3)
-    assert conflict["error"]["code"] == "snapshot_conflict"
-    assert output.read_bytes() == saved_bytes
-    text_output = tmp_path / "text-saved.json"
-    readable = offline_cli("ingest", source, "--output", text_output, *options, json_output=False)
-    assert readable.stderr == ""
-    assert "Saved snapshot" in readable.stdout
-    if not imported["complete"]:
-        assert "PARTIAL" in readable.stdout
-    assert load_snapshot(text_output).source == snapshot.source
     assert source.read_bytes() == fixture.read_bytes() == source_bytes
     assert output.read_bytes() == saved_bytes
 

@@ -11,8 +11,8 @@ offline acceptance journeys (`tests/acceptance`, including the installed-CLI jou
 Ruff lint/format checks in separate jobs on every push and pull request, with manual
 runs available too. CI uses Python 3.13, uv 0.5.29, and locked development dependencies;
 the test jobs use eight pytest-xdist workers (`--dist worksteal`, and `--dist loadgroup` for
-acceptance so the installed-CLI journey stays on one worker) to limit nested
-concurrency. The unit-test job reports line coverage of `archdiscov` without gating on it,
+acceptance so each module-scoped journey, such as the installed `ask` and MCP journeys, stays
+on one worker) to limit nested concurrency. The unit-test job reports line coverage of `archdiscov` without gating on it,
 and the quality job audits the locked dependencies for known vulnerabilities with
 `pip-audit`. It requires no AWS/provider secrets. Superseded runs are cancelled automatically.
 

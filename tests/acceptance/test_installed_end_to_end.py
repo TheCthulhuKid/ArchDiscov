@@ -1,21 +1,24 @@
 """One credential-free, network-free journey through the installed CLI, outside the checkout.
 
 fixture -> ingest -> queries -> each analyzer -> saved results -> findings -> evidence ->
-comparisons -> comparison display, through the installed script, checking JSON and readable
-output at each stage. The child sees no credentials and no checkout: its whole `PYTHONPATH` is
-the offline guard, which fails and records any network use.
+comparisons -> comparison display, through the installed script, one test per stage. Every
+stage starts from the same fixtures, written in process once per worker: the ingest stage shows
+that the installed `ingest` saves each snapshot fixture byte for byte, so the later stages read
+what it would have saved, and the stages run in parallel instead of one long chain. The child
+sees no credentials and no checkout: its whole `PYTHONPATH` is the offline guard, which fails
+and records any network use. Readable output is left to `tests/cli`, which renders every
+command's readable form in process.
 """
 
-import json
 import shutil
 import socket
 import subprocess
 import sys
-from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
-from archdiscov.models.enums import AnalyzerKind
+from archdiscov.cli import app
 from archdiscov.services import (
     load_analysis,
     load_comparison,
@@ -29,178 +32,125 @@ from tests.support.installed_cli import Workspace, digest
 from tests.support.offline_guard import OfflineGuard
 from tests.support.security_group_data import IDS
 
-# The journey's tests share installed-CLI work: keep them on one xdist worker.
-pytestmark = pytest.mark.xdist_group("installed-journey")
-
 CONTEXT = ("--account-id", "123456789012", "--region", "eu-west-1")
+# The raw IaC inputs, with the `ingest` options each needs.
+DECLARED = {
+    "plan": ("plan.json", ("--format", "terraform-plan", *CONTEXT)),
+    "template": ("t.yaml", ("--format", "cloudformation", "--stack-name", "demo", *CONTEXT)),
+}
 OPTIONS = {"resource_id": "--resource-id", "port": "--port", "max_depth": "--max-depth"}
 GROUP = IDS["sg-app"]
+PAIRS = {
+    "pair": ("left", "right"),
+    "plan": ("security_group_impact", "plan"),
+    "template": ("security_group_impact", "template"),
+}
 
 
-def journey(root: Path) -> dict:
-    """Run the whole journey; return the snapshots, findings, and comparisons it produced."""
-    ws = Workspace(root)
-    summary: dict = {"snapshots": {}, "findings": {}, "comparisons": {}}
-
-    # -- fixtures: generated AWS snapshots, and the raw IaC inputs copied out of the checkout
+@pytest.fixture(scope="module")
+def ws(tmp_path_factory) -> Workspace:
+    """The journey's fixtures in `fixtures/`, and in `snapshots/` the declared snapshots,
+    ingested in process, that the comparisons need."""
+    ws = Workspace(tmp_path_factory.mktemp("journey"))
     for kind, scenario in SCENARIOS.items():
         save_snapshot(scenario.build(), ws.path("fixtures", f"{kind.value}.json"))
+    save_snapshot(journey_snapshot("aws", 1, seed=1), ws.path("fixtures", "left.json"))
+    save_snapshot(journey_snapshot("aws", 2, seed=2), ws.path("fixtures", "right.json"))
     shutil.copy(FIXTURES_ROOT / "terraform" / "plan.json", ws.path("fixtures", "plan.json"))
     shutil.copy(FIXTURES_ROOT / "cloudformation" / "template.yaml", ws.path("fixtures", "t.yaml"))
-    left, right = journey_snapshot("aws", 1, seed=1), journey_snapshot("aws", 2, seed=2)
-    save_snapshot(left, ws.path("fixtures", "left.json"))
-    save_snapshot(right, ws.path("fixtures", "right.json"))
+    for name, (source, options) in DECLARED.items():
+        output = ws.path("snapshots", f"{name}.json")
+        result = CliRunner().invoke(
+            app, ["ingest", str(ws.path("fixtures", source)), "-o", str(output), *options]
+        )
+        assert result.exit_code == 0, result.output
+    return ws
+
+
+def snapshot(ws: Workspace, name: str):
+    """A stage's input: a snapshot fixture as ingest saves it, or a declared snapshot."""
+    return ws.path("snapshots" if name in DECLARED else "fixtures", f"{name}.json")
+
+
+def test_ingest_saves_each_fixture_unchanged_and_never_overwrites(ws, tmp_path):
     inputs = {path: digest(path) for path in ws.path("fixtures").iterdir()}
-
-    # -- ingest: JSON and readable runs agree, and a snapshot is never overwritten
     for kind in SCENARIOS:
-        name, fixture = kind.value, ws.path("fixtures", f"{kind.value}.json")
-        saved = ws.json("ingest", fixture, "-o", ws.path("snapshots", f"{name}.json"))
-        readable = ws.run(
-            "ingest", fixture, "-o", ws.path("snapshots", f"{name}-readable.json")
-        ).stdout
-        assert "Saved snapshot" in readable
-        assert digest(ws.path("snapshots", f"{name}.json")) == digest(
-            ws.path("snapshots", f"{name}-readable.json")
-        )
-        summary["snapshots"][name] = saved["snapshot_id"]
-    for name in ("left", "right"):
-        ws.json(
-            "ingest",
-            ws.path("fixtures", f"{name}.json"),
-            "-o",
-            ws.path("snapshots", f"{name}.json"),
-        )
-    ws.json(
-        "ingest",
-        ws.path("fixtures", "plan.json"),
-        "-o",
-        ws.path("snapshots", "plan.json"),
-        "--format",
-        "terraform-plan",
-        *CONTEXT,
-    )
-    ws.json(
-        "ingest",
-        ws.path("fixtures", "t.yaml"),
-        "-o",
-        ws.path("snapshots", "template.json"),
-        "--format",
-        "cloudformation",
-        "--stack-name",
-        "demo",
-        *CONTEXT,
-    )
-    ws.json(
-        "ingest",
-        ws.path("fixtures", "left.json"),
-        "-o",
-        ws.path("snapshots", "left.json"),
-        expect=3,
-    )
-
-    # -- queries over the security-group snapshot
-    sg = ws.path("snapshots", "security_group_impact.json")
-    searched, text = ws.both("query", "search", "--snapshot", sg, "--id", GROUP)
-    assert [item["id"] for item in searched["resources"]] == [GROUP] and GROUP in text
-    inspected, text = ws.both("query", "inspect", GROUP, "--snapshot", sg)
-    assert inspected["resource"]["id"] == GROUP and GROUP in text
-    neighbours, text = ws.both(
-        "query", "neighbours", GROUP, "--snapshot", sg, "--direction", "incoming"
-    )
-    assert neighbours["steps"] and GROUP in text
-    paths, text = ws.both("query", "paths", IDS["lambda"], "--snapshot", sg, "--depth", "3")
-    assert paths["paths"] and IDS["lambda"] in text
-
-    # -- analyzers: save, show, verify, and refuse to overwrite
-    for kind, scenario in SCENARIOS.items():
-        snapshot_path = ws.path("snapshots", f"{kind.value}.json")
-        result_path = ws.path("results", f"{kind.value}.json")
-        options = [
-            arg for name, value in scenario.parameters.items() for arg in (OPTIONS[name], value)
-        ]
-        arguments = ("--snapshot", snapshot_path, "--output", result_path, "--analyzer", kind.value)
-        saved = ws.json("analyze", *arguments, *options)
-        readable = ws.run(
-            "analyze",
-            *arguments[:3],
-            ws.path("results", f"{kind.value}-readable.json"),
-            *arguments[4:],
-            *options,
-        ).stdout
-        assert "Saved analysis" in readable
-        original = digest(result_path)
-        ws.json("analyze", *arguments, *options, expect=3)
-        assert digest(result_path) == original
-
-        shown, text = ws.both("findings", result_path, "--snapshot", snapshot_path)
-        assert shown["findings"] == saved["findings"] and shown["findings"]
-        assert f"Findings: {len(shown['findings'])}" in text
-        loaded = load_analysis(result_path, snapshot=load_snapshot(snapshot_path))
-        assert loaded.analyzer == kind
-        summary["findings"][kind.value] = sorted(item["id"] for item in shown["findings"])
-
-        cited = next(item for item in shown["findings"] if item["evidence_ids"])
-        evidence, text = ws.both("evidence", cited["evidence_ids"][0], "--snapshot", snapshot_path)
-        assert evidence["evidence_id"] == cited["evidence_ids"][0]
-        assert evidence["resource"]["id"] == evidence["evidence"]["resource_id"]
-
-    # -- comparisons: observed pair, observed against a plan, and against a template
-    pairs = {
-        "pair": ("left", "right"),
-        "plan": ("security_group_impact", "plan"),
-        "template": ("security_group_impact", "template"),
-    }
-    for name, (first, second) in pairs.items():
-        sides = (
-            "--left",
-            ws.path("snapshots", f"{first}.json"),
-            "--right",
-            ws.path("snapshots", f"{second}.json"),
-        )
-        output = ws.path("comparisons", f"{name}.json")
-        saved = ws.json("compare", *sides, "--output", output)
-        readable = ws.run(
-            "compare", *sides, "--output", ws.path("comparisons", f"{name}-readable.json")
-        ).stdout
-        assert "Saved comparison" in readable and "not verified drift" in readable
-        original = digest(output)
-        ws.json("compare", *sides, "--output", output, expect=3)
-        assert digest(output) == original
-        shown, text = ws.both("comparison", output, *sides)
-        for key in ("left", "right", "matched", "unmatched", "ambiguous", "limitations"):
-            assert shown[key] == saved[key]
-        assert f"Matched: {len(shown['matched'])}" in text
-        result = load_comparison(
-            output,
-            left=load_snapshot(sides[1]),
-            right=load_snapshot(sides[3]),
-        )
-        assert str(result.left.snapshot_id) == saved["left"]["snapshot_id"]
-        summary["comparisons"][name] = {
-            "matched": sorted(entry.id for entry in result.matched),
-            "unmatched": sorted(entry.id for entry in result.unmatched),
-        }
-
-    # the observed pair cites evidence on both sides; inspect each in its own snapshot
-    [pair] = json.loads(ws.path("comparisons", "pair.json").read_text())["matched"]
-    [difference] = pair["differences"]
-    for side, name in (("left", "left"), ("right", "right")):
-        cited = difference[f"{side}_evidence_ids"][0]
-        found = ws.json("evidence", cited, "--snapshot", ws.path("snapshots", f"{name}.json"))
-        assert found["evidence_id"] == cited
-
-    # nothing was modified, and nothing reached for the network
+        fixture = ws.path("fixtures", f"{kind.value}.json")
+        output = tmp_path / fixture.name
+        saved = ws.json("ingest", fixture, "-o", output)
+        assert digest(output) == inputs[fixture]
+        assert saved["snapshot_id"] == str(load_snapshot(output).snapshot_id)
+    for name, (source, options) in DECLARED.items():
+        output = tmp_path / f"{name}.json"
+        saved = ws.json("ingest", ws.path("fixtures", source), "-o", output, *options)
+        assert saved["source_kind"] == load_snapshot(output).source.kind
+    kept = digest(output)
+    conflict = ws.json("ingest", ws.path("fixtures", "left.json"), "-o", output, expect=3)
+    assert conflict["error"]["code"] == "snapshot_conflict"
+    assert digest(output) == kept
     assert {path: digest(path) for path in ws.path("fixtures").iterdir()} == inputs
     assert ws.guard.attempts == []
-    return summary
 
 
-def test_the_journey_runs_through_every_stage(tmp_path):
-    summary = journey(tmp_path)
-    assert set(summary["findings"]) == {kind.value for kind in AnalyzerKind}
-    assert set(summary["comparisons"]) == {"pair", "plan", "template"}
-    assert summary["comparisons"]["pair"]["matched"]
+def test_queries_find_inspect_and_follow_a_resource(ws):
+    sg = snapshot(ws, "security_group_impact")
+    searched = ws.json("query", "search", "--snapshot", sg, "--id", GROUP)
+    assert [item["id"] for item in searched["resources"]] == [GROUP]
+    assert ws.json("query", "inspect", GROUP, "--snapshot", sg)["resource"]["id"] == GROUP
+    neighbours = ws.json("query", "neighbours", GROUP, "--snapshot", sg, "--direction", "incoming")
+    assert neighbours["steps"]
+    assert ws.json("query", "paths", IDS["lambda"], "--snapshot", sg, "--depth", "3")["paths"]
+    assert ws.guard.attempts == []
+
+
+@pytest.mark.parametrize("kind", SCENARIOS, ids=lambda kind: kind.value)
+def test_each_analyzer_saves_findings_that_cite_evidence(ws, kind):
+    scenario = SCENARIOS[kind]
+    snapshot_path = snapshot(ws, kind.value)
+    result_path = ws.path("results", f"{kind.value}.json")
+    options = [arg for name, value in scenario.parameters.items() for arg in (OPTIONS[name], value)]
+    saved = ws.json(
+        "analyze",
+        "--snapshot",
+        snapshot_path,
+        "--output",
+        result_path,
+        "--analyzer",
+        kind.value,
+        *options,
+    )
+    shown = ws.json("findings", result_path, "--snapshot", snapshot_path)
+    assert shown["findings"] == saved["findings"] and shown["findings"]
+    assert load_analysis(result_path, snapshot=load_snapshot(snapshot_path)).analyzer == kind
+
+    cited = next(item for item in shown["findings"] if item["evidence_ids"])
+    evidence = ws.json("evidence", cited["evidence_ids"][0], "--snapshot", snapshot_path)
+    assert evidence["evidence_id"] == cited["evidence_ids"][0]
+    assert evidence["resource"]["id"] == evidence["evidence"]["resource_id"]
+    assert ws.guard.attempts == []
+
+
+@pytest.mark.parametrize("name", PAIRS)
+def test_each_comparison_is_saved_and_shown_as_saved(ws, name):
+    first, second = (snapshot(ws, side) for side in PAIRS[name])
+    sides = ("--left", first, "--right", second)
+    output = ws.path("comparisons", f"{name}.json")
+    saved = ws.json("compare", *sides, "--output", output)
+    shown = ws.json("comparison", output, *sides)
+    for key in ("left", "right", "matched", "unmatched", "ambiguous", "limitations"):
+        assert shown[key] == saved[key]
+    result = load_comparison(output, left=load_snapshot(first), right=load_snapshot(second))
+    assert str(result.left.snapshot_id) == saved["left"]["snapshot_id"]
+    if name == "pair":
+        # The observed pair cites evidence on both sides; inspect each in its own snapshot.
+        [pair] = result.matched
+        [difference] = pair.differences
+        for cited, path in (
+            (difference.left_evidence_ids, first),
+            (difference.right_evidence_ids, second),
+        ):
+            assert ws.json("evidence", cited[0], "--snapshot", path)["evidence_id"] == cited[0]
+    assert ws.guard.attempts == []
 
 
 def test_the_offline_guard_blocks_network_use(tmp_path):

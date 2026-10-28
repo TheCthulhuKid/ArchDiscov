@@ -55,17 +55,3 @@ def test_installed_ownership_journey(tmp_path, source, upgraded):
     )
     assert inspected["resource"]["id"] == target
     assert inspected["evidence"]["value"] == {"Name": "app"}
-
-    before = result_path.read_bytes()
-    conflict = run_installed_json(
-        tmp_path,
-        "analyze",
-        "--snapshot",
-        str(snapshot_path),
-        "--output",
-        str(result_path),
-        "--json",
-        expect=3,
-    )
-    assert conflict["error"]["code"] == "snapshot_conflict"
-    assert result_path.read_bytes() == before

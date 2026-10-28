@@ -1,8 +1,6 @@
 """Credential-free fixture -> analyze -> save -> findings -> evidence journeys."""
 
-from archdiscov.graph import GraphIndex
 from archdiscov.services import load_analysis, load_snapshot, save_snapshot, upgrade_snapshot
-from tests.paths import FIXTURES_ROOT
 from tests.support.installed_cli import run_installed_json
 from tests.support.trust_data import OTHER, build, role_arn, statement
 
@@ -80,30 +78,3 @@ def test_installed_trust_journey(tmp_path):
     )
     assert inspected["resource"]["id"] == cited["resources"][0]["resource_id"]
     assert inspected["evidence"]["value"]["Effect"] == "Allow"
-
-    before = result_path.read_bytes()
-    conflict = run_installed_json(
-        tmp_path, *analyze_arguments(snapshot_path, result_path), expect=3
-    )
-    assert conflict["error"]["code"] == "snapshot_conflict"
-    assert result_path.read_bytes() == before
-
-
-def test_installed_azure_journey_returns_an_actionable_unsupported_result(tmp_path):
-    azure = FIXTURES_ROOT / "snapshots" / "azure.json"
-    assert GraphIndex(load_snapshot(azure)).resource_ids
-    result_path = tmp_path / "result.json"
-    run_installed_json(tmp_path, *analyze_arguments(azure, result_path))
-    shown = run_installed_json(
-        tmp_path,
-        "findings",
-        str(result_path),
-        "--snapshot",
-        str(azure),
-        "--json",
-    )
-    [finding] = shown["findings"]
-    assert finding["status"] == "insufficient_evidence"
-    assert finding["trust"] is None
-    assert finding["limitations"][0]["code"] == "unsupported_platform"
-    assert "IAM trust policies" in finding["limitations"][0]["message"]

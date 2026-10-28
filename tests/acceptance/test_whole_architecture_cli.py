@@ -1,6 +1,4 @@
 import json
-import os
-import subprocess
 
 import pytest
 from click import unstyle
@@ -8,7 +6,8 @@ from typer.testing import CliRunner
 
 from archdiscov import cli, cli_collection
 from archdiscov.ingestion.requests import COLLECTABLE_SERVICES, RegionScope
-from tests.support.installed_cli import CLI
+from tests.support.installed_cli import run_installed
+from tests.support.offline_guard import OfflineGuard
 
 ACCOUNT = "123456789012"
 
@@ -138,24 +137,9 @@ def test_a_rejected_request_names_what_is_wrong_without_its_value(
 
 @pytest.mark.parametrize("styled", [False, True], ids=["plain", "styled"])
 def test_installed_whole_architecture_controls_outside_checkout(tmp_path, styled):
-    command = CLI
-    env = {
-        key: value
-        for key, value in os.environ.items()
-        if key != "PYTHONPATH" and not key.startswith("AWS_")
-    }
-    env.update(AWS_EC2_METADATA_DISABLED="true", NO_COLOR="1", COLUMNS="200")
+    env = OfflineGuard(tmp_path).env
     env.update(TERM="xterm", TTY_COMPATIBLE="1" if styled else "0")
-    help_result = subprocess.run(
-        [*command, "collect", "--help"],
-        cwd=tmp_path,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=20,
-    )
-    assert help_result.returncode == 0, help_result.stderr
-    help_text = unstyle(help_result.stdout)
+    help_text = unstyle(run_installed(tmp_path, "collect", "--help", env=env).stdout)
     for flag in (
         "--all-services",
         "--region-scope",
@@ -164,14 +148,8 @@ def test_installed_whole_architecture_controls_outside_checkout(tmp_path, styled
     ):
         assert flag in help_text
     output = tmp_path / "not-created.json"
-    result = subprocess.run(
-        [*command, *arguments(output), "--all-services", "--service", "iam"],
-        cwd=tmp_path,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=20,
+    result = run_installed(
+        tmp_path, *arguments(output), "--all-services", "--service", "iam", expect=2, env=env
     )
-    assert result.returncode == 2, result.stderr
     assert json.loads(result.stdout)["error"]["code"] == "invalid_request"
     assert not output.exists()

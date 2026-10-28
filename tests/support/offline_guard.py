@@ -13,6 +13,7 @@ given. Without it the child's environment, and so every other journey, is unchan
 """
 
 import os
+import py_compile
 from pathlib import Path
 
 _HOOK = """\
@@ -96,7 +97,16 @@ if _WATCHED:
 
     sys.addaudithook(_audit)
 """
-_REMOVED_PREFIXES = ("AWS_", "AZURE_", "GOOGLE_", "GCLOUD_", "OPENAI_", "ANTHROPIC_", "BOTO_")
+_REMOVED_PREFIXES = (
+    "AWS_",
+    "AZURE_",
+    "ARM_",
+    "GOOGLE_",
+    "GCLOUD_",
+    "OPENAI_",
+    "ANTHROPIC_",
+    "BOTO_",
+)
 
 
 class OfflineGuard:
@@ -107,6 +117,9 @@ class OfflineGuard:
         self.file_log = directory / "file-opens.log"
         self.hook.mkdir(parents=True)
         (self.hook / "sitecustomize.py").write_text(_HOOK, encoding="utf-8")
+        # Compiled here, so that the first child does not write the hook's bytecode into the
+        # workspace that a journey checks for unchanged files.
+        py_compile.compile(str(self.hook / "sitecustomize.py"), doraise=True)
         self.log = directory / "network.log"
         self.env = {
             key: value

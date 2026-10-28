@@ -1,8 +1,8 @@
 """Phase 5 acceptance: an MCP client answers the README questions through the installed server.
 
-fixture -> ingest -> `archdiscov mcp` over stdio -> prompt -> tool calls -> `submit_answer` ->
-cited evidence, through the installed script outside the checkout. The fixtures are the
-checked-in README suite's case files: each case's tool calls and proposal are the ones its
+fixture -> `archdiscov mcp` over stdio -> prompt -> tool calls -> `submit_answer` -> cited
+evidence, through the installed script outside the checkout. The fixtures are the checked-in
+README suite's case files, served as copied: each case's tool calls and proposal are the ones its
 fake transcript makes for `ask`, so `ask` over the same files, run in process, is the
 reference an accepted answer must equal. The adversarial suite's proposals are submitted too:
 each unsupported claim is rejected with its code and a corrected proposal is accepted in the
@@ -30,8 +30,8 @@ from tests.support.evaluation_suites import ADVERSARIAL_SUITE, README_SUITE
 from tests.support.installed_cli import (
     CLI,
     Workspace,
+    case_selection,
     digest,
-    ingest_selection,
     suite_cases,
 )
 from tests.support.mcp_clients import StdioSession, submitted_proposals, transcript_calls
@@ -83,7 +83,7 @@ def _ask(arguments: list[str]) -> dict:
 
 def _answered(ws: Workspace, case: dict) -> dict:
     """What `ask` and the server give for the case's files, and how the server ended."""
-    selection = ingest_selection(ws, "readme", case)
+    selection = case_selection(ws, "readme", case)
     fixtures = ws.path("fixtures", "readme")
     config = fixtures / case["id"] / "provider.toml"
     arguments = [case["question"], *selection, "--config", str(config)]
@@ -273,7 +273,7 @@ Correction = Callable[[dict, StdioSession, list], dict]
 
 def _refused(ws: Workspace, case: dict, correct: Correction) -> dict:
     """Submit the case's proposal, correct it in the same session, and submit it again."""
-    selection = ingest_selection(ws, "adversarial", case)
+    selection = case_selection(ws, "adversarial", case)
     transcript = ws.path("fixtures", "adversarial", case["fake_transcript"])
     [proposal, *_] = submitted_proposals(transcript)
     with _serve(ws, selection) as session:
@@ -303,7 +303,7 @@ def _quoted_and_bare(value: Any, text: str, key: str | None = None) -> tuple[int
 
 def _injected(ws: Workspace, case: dict) -> dict:
     """The injected-text case: the tool replies that hold the text, and the accepted answer."""
-    selection = ingest_selection(ws, "adversarial", case)
+    selection = case_selection(ws, "adversarial", case)
     transcript = ws.path("fixtures", "adversarial", case["fake_transcript"])
     [proposal] = submitted_proposals(transcript)
     with _serve(ws, selection) as session:
@@ -385,10 +385,8 @@ def _boundary(ws: Workspace) -> dict:
     """A full session over one selection, with other snapshots and results beside it."""
     fixtures = ws.path("fixtures", "readme")
     cases = suite_cases(ws, "readme")
-    # Everything else the workspace holds: the other cases' ingested snapshots, and copies of
-    # a snapshot, a saved comparison, and a saved analysis under other names.
-    for other in ("ownership", "internet_exposure"):
-        ingest_selection(ws, "readme", cases[other])
+    # Everything else the workspace holds: the other cases' snapshots in `fixtures`, and copies
+    # of a snapshot, a saved comparison, and a saved analysis under other names.
     decoys = [
         shutil.copy(source, ws.path(directory, "decoy.json"))
         for source, directory in (
@@ -398,7 +396,7 @@ def _boundary(ws: Workspace) -> dict:
         )
     ]
     case = cases["ownership_compared"]
-    selection = ingest_selection(ws, "readme", case)
+    selection = case_selection(ws, "readme", case)
     selected = sorted(Path(path).resolve() for path in selection[1::2])
     transcript = fixtures / case["fake_transcript"]
     [proposal] = submitted_proposals(transcript)

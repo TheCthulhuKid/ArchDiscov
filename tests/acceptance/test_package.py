@@ -1,13 +1,14 @@
 """Check installed entry points without relying on the repository working directory."""
 
 import os
-import subprocess
 import sys
 from importlib.metadata import version
 from pathlib import Path
 
 import pytest
 from click import unstyle
+
+from tests.support.installed_cli import CLI, run_installed
 
 
 @pytest.mark.parametrize("entry_point", ["script", "module"])
@@ -16,21 +17,9 @@ def test_cli_outside_repository(tmp_path: Path, entry_point: str, styled: bool) 
     env = os.environ.copy()
     env.pop("PYTHONPATH", None)
     env.update(TERM="xterm", TTY_COMPATIBLE="1" if styled else "0")
-    command = (
-        [str(Path(sys.executable).with_name("archdiscov"))]
-        if entry_point == "script"
-        else [sys.executable, "-m", "archdiscov"]
-    )
+    command = CLI if entry_point == "script" else [sys.executable, "-m", "archdiscov"]
     for arguments in ([], ["--help"], ["--version"]):
-        result = subprocess.run(
-            [*command, *arguments],
-            cwd=tmp_path,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        assert result.returncode == 0, result.stderr
+        result = run_installed(tmp_path, *arguments, env=env, command=command)
         if arguments == ["--version"]:
             assert result.stdout.strip() == f"archdiscov {version('archdiscov')}"
         else:
@@ -40,30 +29,19 @@ def test_cli_outside_repository(tmp_path: Path, entry_point: str, styled: bool) 
 
 
 def test_model_imports_outside_repository(tmp_path: Path) -> None:
-    env = os.environ.copy()
-    env.pop("PYTHONPATH", None)
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            "from archdiscov.models.architecture import ArchitectureSnapshot; "
-            "from archdiscov.models.enums import AwsRegion, ResourceType; "
-            "ArchitectureSnapshot(account_id='123456789012', schema_version='1', "
-            "snapshot_id='00000000-0000-4000-8000-000000000001', "
-            "collection_started_at='2026-10-13T08:00:00Z', "
-            "collection_completed_at='2026-10-13T08:01:00Z', "
-            "source={'kind': 'mock', 'label': 'packaging-test'}, "
-            "coverage={'regions': ['eu-west-1'], 'account_wide': False}); "
-            "assert AwsRegion.EU_WEST_1 == 'eu-west-1'; "
-            "assert ResourceType.VPC == 'AWS::EC2::VPC'",
-        ],
-        cwd=tmp_path,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=10,
+    code = (
+        "from archdiscov.models.architecture import ArchitectureSnapshot; "
+        "from archdiscov.models.enums import AwsRegion, ResourceType; "
+        "ArchitectureSnapshot(account_id='123456789012', schema_version='1', "
+        "snapshot_id='00000000-0000-4000-8000-000000000001', "
+        "collection_started_at='2026-10-13T08:00:00Z', "
+        "collection_completed_at='2026-10-13T08:01:00Z', "
+        "source={'kind': 'mock', 'label': 'packaging-test'}, "
+        "coverage={'regions': ['eu-west-1'], 'account_wide': False}); "
+        "assert AwsRegion.EU_WEST_1 == 'eu-west-1'; "
+        "assert ResourceType.VPC == 'AWS::EC2::VPC'"
     )
-    assert result.returncode == 0, result.stderr
+    run_installed(tmp_path, command=[sys.executable, "-c", code])
 
 
 @pytest.mark.parametrize(
@@ -77,12 +55,6 @@ def test_model_imports_outside_repository(tmp_path: Path) -> None:
         "archdiscov.cli",
     ],
 )
-def test_every_public_package_imports_first_without_a_cycle(module: str) -> None:
+def test_every_public_package_imports_first_without_a_cycle(tmp_path: Path, module: str) -> None:
     """Each package is the first import of a fresh interpreter, as a library caller would do."""
-    result = subprocess.run(
-        [sys.executable, "-c", f"import {module}"],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    assert result.returncode == 0, result.stderr
+    run_installed(tmp_path, command=[sys.executable, "-c", f"import {module}"])

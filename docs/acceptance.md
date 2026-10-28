@@ -75,8 +75,9 @@ The phase closes with complementary journeys rather than live-AWS requirements:
 - `tests/acceptance/test_whole_architecture_acceptance.py`: populated seven-family collection
   across accounts/regions, with discovery, isolated failures, redaction and immutable files.
 - `tests/acceptance/test_raw_ingestion_acceptance.py`: the installed `archdiscov` script outside
-  the checkout for every source format, context/format failures, protected parameters,
-  partial summaries, evidence inspection and no overwrite.
+  the checkout for every source format, context/format failures, protected parameters, and
+  evidence inspection. No overwrite is checked once, in the ingest stage of
+  `test_installed_end_to_end.py`, and the readable summaries in `tests/cli`.
 - `tests/acceptance/test_offline_acceptance.py` and the fixture persistence suite preserve
   historical schema `1`, typed children, citations and qualified coverage.
 - `tests/ingestion/aws/test_permissions_documentation.py` prevents the published inventory policy
@@ -117,8 +118,11 @@ Phase 3 closes with offline checks that need no credentials or network, on the h
   kinds, a planned side, and both clouds), against the completion criteria (cited evidence and paths, coverage qualification, no
   unqualified conclusion under partial coverage, immutable and verified results).
 - `tests/acceptance/test_installed_end_to_end.py`: one journey outside the checkout through the
-  installed `archdiscov` script (ingest, queries, each analyzer, findings, evidence, comparisons)
-  with an offline guard that fails any network use.
+  installed `archdiscov` script, one test per stage (ingest, queries, each analyzer with its
+  findings and evidence, each comparison), with an offline guard that fails any network use.
+  Every stage starts from the same fixtures, and the ingest stage shows that `ingest` saves each
+  snapshot fixture unchanged, so the stages run in parallel. The AWS-only analyzers' unsupported
+  result on the Azure fixture is checked once per analyzer in `test_cloud_workflows.py`.
 - `tests/acceptance/test_readme_scenarios.py` and `tests/documentation`: the scenarios below,
   and the documentation, command, limit, link, and scenario-mapping checks.
 
@@ -130,8 +134,8 @@ docker run --rm --network none \
   archdiscov-dev /opt/venv/bin/python -m pytest -n 8 --dist loadgroup -q
 ```
 
-`--dist loadgroup` keeps the installed-CLI journey on one worker; `-n 8` can be dropped to run
-serially. The last verified run passed all 4,303 tests on the host and in Docker with networking
+`--dist loadgroup` keeps each module-scoped journey (the installed `ask`, MCP, and evaluation
+journeys) on one worker; `-n 8` can be dropped to run serially. The last verified run passed all 4,303 tests on the host and in Docker with networking
 disabled. Image builds need registry access; test execution does not. The offline Azure fixtures
 validate the generic mechanics (schemas, queries, comparison) and the explicit unsupported
 results of the AWS-only analyzers; they are not Azure discovery or analysis.
@@ -141,14 +145,15 @@ results of the AWS-only analyzers; they are not Azure discovery or analysis.
 Phase 4 closes with offline checks that need no credentials or network, on the host with
 `.venv/bin/python` and in Docker with `/opt/venv/bin/python`:
 
-- `tests/acceptance/test_installed_ask.py`: two journeys outside the checkout through the
-  installed `archdiscov` script. In the first, the checked-in fixtures are ingested, each
-  README example question is asked with a fake transcript and answered from the findings the
-  tools returned, cited evidence is inspected in the answered snapshot, answers short of
-  `supported` state their limitations, a fabricated or unreturned citation is rejected after
-  the one repair (exit 5), a repaired proposal answers, and imported instructions appear only
-  as quoted data. The second covers refusals before a run, provider errors and limits, and
-  each provider adapter against a loopback mock API, described below.
+- `tests/acceptance/test_installed_ask.py`: four journeys outside the checkout through the
+  installed `archdiscov` script. In the first, each README example question is asked over the
+  checked-in fixtures with a fake transcript and answered from the findings the tools
+  returned, cited evidence is recorded in the answered snapshot and inspected through the CLI,
+  and answers short of `supported` state their limitations. In the second, a fabricated or
+  unreturned citation is rejected after the one repair (exit 5), a repaired proposal answers,
+  and imported instructions appear only as quoted data. The third covers refusals before a run
+  and provider errors and limits, and the fourth each provider adapter against a loopback mock
+  API, described below. Readable output is checked once; `tests/cli` renders every outcome.
 - `tests/acceptance/test_installed_evaluation.py`: the README and adversarial evaluation
   suites, described below.
 - `tests/documentation`: the documented tools, limits, provider options, answer and
@@ -172,9 +177,9 @@ Phase 5 closes with offline checks that need no credentials, no provider, and no
 the host with `.venv/bin/python` and in Docker with `/opt/venv/bin/python`:
 
 - `tests/acceptance/test_phase_five_acceptance.py`: two journeys outside the checkout through
-  the installed `archdiscov` script, with no connection allowed at all. In the first, the checked-in README fixtures are
-  ingested and an MCP stdio client starts `archdiscov mcp` over each, lists the tools and the five
-  prompts, answers each example question from its prompt through the tools and `submit_answer`,
+  the installed `archdiscov` script, with no connection allowed at all. In the first, an MCP
+  stdio client starts `archdiscov mcp` over each checked-in README case's files, lists the
+  tools and the five prompts, answers each example question from its prompt through the tools and `submit_answer`,
   and retrieves cited evidence through a tool; each accepted answer equals what `ask` gives for
   the same files. In the second, the adversarial suite's unsupported claims are rejected with
   their codes and corrected in the same session, imported instructions appear only as quoted
