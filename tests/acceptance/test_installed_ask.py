@@ -33,14 +33,6 @@ import pytest
 from archdiscov.assistant.fake import FakeTranscript
 from archdiscov.assistant.runs import RunTranscript
 from archdiscov.services import load_snapshot
-from tests.assistant.provider_harness import (
-    HARNESS_PROFILE,
-    AnthropicHarness,
-    BedrockHarness,
-    ChatCompletionsHarness,
-    MockedHarness,
-    ResponsesHarness,
-)
 from tests.support.answer_claims import INJECTION
 from tests.support.ask_examples import (
     EXAMPLES,
@@ -61,6 +53,14 @@ from tests.support.installed_cli import (
 )
 from tests.support.mock_api import mock_api_server
 from tests.support.provider_data import MISSING_PROFILE, missing_profile_config
+from tests.support.provider_harness import (
+    HARNESS_PROFILE,
+    AnthropicHarness,
+    BedrockHarness,
+    ChatCompletionsHarness,
+    MockedHarness,
+    ResponsesHarness,
+)
 from tests.support.scripted_answers import SEARCH
 from tests.support.scripted_turns import calls_turn, fail_turn
 

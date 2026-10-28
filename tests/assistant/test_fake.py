@@ -30,7 +30,6 @@ from archdiscov.assistant.provider import (
     Provider,
     ProviderCapabilities,
     ProviderError,
-    ProviderErrorCode,
     RequestLimits,
     StopReason,
     UnsupportedCapabilityError,
@@ -167,14 +166,6 @@ def test_retryable_errors_are_retried_within_one_call() -> None:
     assert clock.monotonic() == 0.5
 
 
-def test_retries_stop_at_the_configured_count() -> None:
-    provider, _ = _failures(max_retries=1)
-    with pytest.raises(ProviderError) as raised:
-        provider.complete(_request())
-    assert raised.value.code == ProviderErrorCode.RATE_LIMIT
-    assert provider.remaining_turns == 6
-
-
 def test_failure_transcript_replays_each_outcome() -> None:
     provider, clock = _failures()
     outcomes = []
@@ -195,30 +186,6 @@ def test_failure_transcript_replays_each_outcome() -> None:
         "provider_authentication",
     ]
     assert clock.monotonic() == 30.5
-
-
-def test_non_retryable_errors_are_not_retried() -> None:
-    transcript = FakeTranscript.model_validate(
-        {"turns": [{"kind": "fail", "error": "provider_authentication"}, _text()]}
-    )
-    provider = FakeProvider(transcript, max_retries=3)
-    with pytest.raises(ProviderError) as raised:
-        provider.complete(_request())
-    assert raised.value.code == ProviderErrorCode.AUTHENTICATION
-    assert provider.remaining_turns == 1
-
-
-def test_timeouts_are_not_retried() -> None:
-    transcript = FakeTranscript.model_validate(
-        {"turns": [{**_text(), "delay_seconds": 5}, _text()]}
-    )
-    clock = FakeClock()
-    provider = FakeProvider(transcript, clock=clock, max_retries=3)
-    with pytest.raises(ProviderError) as raised:
-        provider.complete(_request(limits=RequestLimits(timeout_seconds=2)))
-    assert raised.value.code == ProviderErrorCode.TIMEOUT
-    assert clock.monotonic() == 2.0
-    assert provider.remaining_turns == 1
 
 
 def test_exhausted_script_fails_clearly() -> None:

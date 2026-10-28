@@ -16,7 +16,7 @@ from archdiscov.assistant.provider import (
     RequestLimits,
     complete,
 )
-from tests.support.mock_api import MockApi, Waits
+from tests.support.mock_api import MockApi
 from tests.support.provider_data import OPENAI, SEARCH_TOOL
 from tests.support.secrets import SECRET
 
@@ -26,25 +26,14 @@ PARALLEL = ["tool_calling", "parallel_tool_calls"]
 
 
 def openai_adapter(
-    api: MockApi,
-    protocol: OpenAIProtocol = OpenAIProtocol.RESPONSES,
-    *,
-    waits: Waits | None = None,
-    **fields: Any,
+    api: MockApi, protocol: OpenAIProtocol = OpenAIProtocol.RESPONSES, **fields: Any
 ) -> OpenAIProvider:
-    """The adapter over `api`, without retries unless `fields` asks for them."""
+    """The adapter over `api`, without retries; `tests/assistant/test_provider_contract.py`
+    covers the shared retry policy."""
     config = parse_provider_config(
         {**OPENAI, "endpoint": ENDPOINT, "protocol": protocol.value, "max_retries": 0, **fields}
     )
-    waits = Waits() if waits is None else waits
-    return OpenAIProvider(
-        config,
-        SecretStr(SECRET),
-        transport=api,
-        async_transport=api,
-        sleep=waits.sleep,
-        async_sleep=waits.sleep_async,
-    )
+    return OpenAIProvider(config, SecretStr(SECRET), transport=api, async_transport=api)
 
 
 def openai_request(*messages: dict, tools=(SEARCH_TOOL,), **limits: Any) -> CompletionRequest:

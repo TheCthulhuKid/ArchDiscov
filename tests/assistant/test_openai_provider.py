@@ -3,58 +3,35 @@
 Requests go to a mocked API; nothing reaches the network.
 """
 
-import asyncio
 import json
-import logging
-from functools import partial
 from pathlib import Path
 from typing import Any
 
-import httpx2
-import openai
 import pytest
 
-from archdiscov.assistant import openai_provider
-from archdiscov.assistant.adapters import MAX_RETRY_WAIT_SECONDS, RETRY_BACKOFF_SECONDS
 from archdiscov.assistant.config import (
     OpenAIProtocol,
-    ProviderConfigError,
-    ProviderConfigErrorCode,
 )
 from archdiscov.assistant.conversation import (
     AssistantMessage,
     Conversation,
-    MalformedArgumentsReason,
-    MalformedToolArguments,
     ParsedToolArguments,
     TokenUsage,
     ToolCall,
 )
-from archdiscov.assistant.openai_provider import SDK_ERRORS, OpenAIProvider
+from archdiscov.assistant.openai_provider import OpenAIProvider
 from archdiscov.assistant.provider import (
     CompletionRequest,
     CompletionResponse,
-    ProviderAuthenticationError,
     ProviderCapability,
-    ProviderError,
-    ProviderErrorCode,
     ProviderInvalidRequestError,
     ProviderMalformedOutputError,
-    ProviderRateLimitError,
     ProviderRefusalError,
-    ProviderTimeoutError,
-    ProviderTransportError,
-    ProviderTruncatedOutputError,
-    ProviderUnavailableError,
     RequestLimits,
     StopReason,
-    UnsupportedCapabilityError,
-    complete,
 )
 from archdiscov.assistant.providers import load_provider
-from archdiscov.services.ask import ask_question
-from tests.assistant.provider_harness import ChatCompletionsHarness, ResponsesHarness
-from tests.support.mock_api import MockApi, Waits, unparseable_body
+from tests.support.mock_api import MockApi
 from tests.support.openai_exchanges import (
     ENDPOINT,
     PARALLEL,
@@ -66,57 +43,9 @@ from tests.support.openai_exchanges import (
     sent_body,
 )
 from tests.support.provider_data import EXCHANGE, INSPECT_TOOL, SEARCH_TOOL, THINKING
-from tests.support.scripted_turns import SNAPSHOT
 from tests.support.secrets import SECRET, secret_renderings
 
 PROTOCOLS = list(OpenAIProtocol)
-HOSTILE_ENVIRONMENT = {
-    "OPENAI_API_KEY": "sk-proj-environmentKEY0123456789abcdef",
-    "OPENAI_ADMIN_KEY": "sk-admin-environmentKEY0123456789abcdef",
-    "OPENAI_BASE_URL": "https://elsewhere.example.com/v1",
-    "OPENAI_ORG_ID": "org-someone-else",
-    "OPENAI_PROJECT_ID": "proj-someone-else",
-    "OPENAI_CUSTOM_HEADERS": "Authorization: Bearer injected\nX-Injected: 1",
-    "OPENAI_LOG": "debug",
-    "HTTPS_PROXY": "http://proxy.invalid:3128",
-    "ALL_PROXY": "http://proxy.invalid:3128",
-}
-SDK_HEADERS = {
-    "accept",
-    "accept-encoding",
-    "authorization",
-    "connection",
-    "content-length",
-    "content-type",
-    "host",
-    "user-agent",
-}
-# The smallest request each protocol accepts; the mappings (steps 41.3 and 41.4) build more.
-PARAMS: dict[OpenAIProtocol, dict[str, Any]] = {
-    OpenAIProtocol.CHAT_COMPLETIONS: {
-        "model": "gpt-5",
-        "messages": [{"role": "user", "content": QUESTION}],
-    },
-    OpenAIProtocol.RESPONSES: {"model": "gpt-5", "input": QUESTION},
-}
-PATHS = {
-    OpenAIProtocol.CHAT_COMPLETIONS: "/chat/completions",
-    OpenAIProtocol.RESPONSES: "/responses",
-}
-
-
-def _rejected() -> httpx2.Response:
-    return httpx2.Response(400, json={"error": {"message": "Rejected.", "type": "invalid"}})
-
-
-def _create(provider: OpenAIProvider, mode: str = "sync") -> None:
-    """Send the protocol's smallest request; the mocked API refuses it."""
-    params = PARAMS[provider.protocol]
-    with pytest.raises(openai.BadRequestError):
-        if mode == "sync":
-            provider._create(**params)
-        else:
-            asyncio.run(provider._create_async(**params))
 
 
 def _config(tmp_path: Path, protocol: OpenAIProtocol, extra: str = "") -> Path:
@@ -164,108 +93,6 @@ def test_the_adapter_declares_the_configured_capabilities(
     path = _config(tmp_path, OpenAIProtocol.RESPONSES, f"capabilities = {declared}\n")
     _, provider = load_provider(path, environ={"ASK_KEY": SECRET})
     assert provider.capabilities.capabilities == expected
-
-
-@pytest.mark.parametrize(
-    ("environ", "code"),
-    [
-        ({}, ProviderConfigErrorCode.CREDENTIAL_MISSING),
-        ({"ASK_KEY": " "}, ProviderConfigErrorCode.CREDENTIAL_EMPTY),
-    ],
-    ids=["missing", "empty"],
-)
-def test_an_unusable_key_fails_before_the_adapter_exists(
-    tmp_path: Path, monkeypatch, environ, code
-) -> None:
-    def built(*args, **kwargs):
-        raise AssertionError("the adapter was built")
-
-    monkeypatch.setattr(openai_provider, "OpenAIProvider", built)
-    with pytest.raises(ProviderConfigError) as raised:
-        load_provider(_config(tmp_path, OpenAIProtocol.RESPONSES), environ=environ)
-    assert raised.value.code == code and raised.value.variable == "ASK_KEY"
-
-
-@pytest.mark.parametrize("mode", ["sync", "async"])
-@pytest.mark.parametrize("protocol", PROTOCOLS, ids=str)
-def test_only_the_configuration_chooses_the_target_and_credential(
-    monkeypatch, protocol: OpenAIProtocol, mode: str
-) -> None:
-    for name, value in HOSTILE_ENVIRONMENT.items():
-        monkeypatch.setenv(name, value)
-    api = MockApi([_rejected()])
-    _create(openai_adapter(api, protocol), mode)
-    [request] = api.requests
-    assert str(request.url) == f"{ENDPOINT}{PATHS[protocol]}"
-    assert request.headers["authorization"] == f"Bearer {SECRET}"
-    assert {name for name in request.headers if not name.startswith("x-stainless-")} == (
-        SDK_HEADERS
-    )
-    body = request.content.decode()
-    assert not any(value in body for value in HOSTILE_ENVIRONMENT.values())
-
-
-def test_redirects_are_not_followed() -> None:
-    elsewhere = httpx2.Response(307, headers={"location": "https://elsewhere.example.com/v1"})
-    api = MockApi([elsewhere])
-    with pytest.raises(openai.APIStatusError):
-        openai_adapter(api)._create(**PARAMS[OpenAIProtocol.RESPONSES])
-    assert [request.url.host for request in api.requests] == ["gateway.example.com"]
-
-
-def test_no_key_or_request_body_reaches_a_rendering_or_log(monkeypatch, caplog) -> None:
-    monkeypatch.setenv("OPENAI_LOG", "debug")
-    caplog.set_level(logging.DEBUG)
-    for name in openai_provider._SDK_LOGGERS:
-        logging.getLogger(name).setLevel(logging.DEBUG)
-    provider = openai_adapter(MockApi([_rejected()]))
-    _create(provider)
-    for name in openai_provider._SDK_LOGGERS:
-        assert logging.getLogger(name).getEffectiveLevel() == logging.WARNING
-    for rendering in (*secret_renderings(provider), caplog.text):
-        assert SECRET not in rendering and QUESTION not in rendering
-
-
-# ---- capabilities ------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("declared", "limits", "missing"),
-    [
-        ([], {}, ProviderCapability.TOOL_CALLING),
-        (["tool_calling"], {"max_tool_calls_per_turn": 2}, ProviderCapability.PARALLEL_TOOL_CALLS),
-    ],
-    ids=["no-tools", "no-parallel-calls"],
-)
-def test_an_undeclared_capability_is_refused_before_any_request(
-    declared: list[str], limits: dict, missing: ProviderCapability
-) -> None:
-    api = MockApi([])
-    with pytest.raises(UnsupportedCapabilityError) as raised:
-        complete(openai_adapter(api, capabilities=declared), openai_request(**limits))
-    assert raised.value.capability is missing
-    assert api.requests == []
-
-
-def test_an_ask_run_without_declared_tool_calling_fails_before_any_request(
-    tmp_path: Path, monkeypatch
-) -> None:
-    api = MockApi([])
-    monkeypatch.setenv("ASK_KEY", SECRET)
-    monkeypatch.setattr(
-        openai_provider,
-        "OpenAIProvider",
-        partial(OpenAIProvider, transport=api, async_transport=api),
-    )
-    result = ask_question(
-        QUESTION,
-        snapshot_path=SNAPSHOT,
-        config_path=_config(tmp_path, OpenAIProtocol.CHAT_COMPLETIONS, "capabilities = []\n"),
-    )
-    outcome = result.answer.outcome
-    assert outcome.provider_error == ProviderErrorCode.UNSUPPORTED_CAPABILITY
-    assert outcome.exit_code == 6
-    assert api.requests == []
 
 
 # ---- Chat Completions requests ---------------------------------------------------
@@ -411,23 +238,6 @@ def test_a_request_without_tools_sends_no_tool_fields() -> None:
     assert set(sent_body(api)) == {"model", "messages", "max_completion_tokens"}
 
 
-def test_no_key_or_sampling_parameter_is_in_the_body() -> None:
-    api = responding_api(_body())
-    send_request(
-        _chat(api, capabilities=PARALLEL), request=openai_request(max_tool_calls_per_turn=4)
-    )
-    body = api.requests[0].content.decode()
-    assert SECRET not in body
-    assert set(json.loads(body)) == {
-        "model",
-        "messages",
-        "max_completion_tokens",
-        "tools",
-        "tool_choice",
-        "parallel_tool_calls",
-    }
-
-
 @pytest.mark.parametrize("provider_kind", ["openai_compatible", "anthropic"])
 def test_a_continuation_is_refused_before_any_request(provider_kind: str) -> None:
     api = responding_api(_body())
@@ -452,10 +262,6 @@ def _call(call: dict, arguments=None) -> ToolCall:
     return ToolCall(id=call["id"], name=function["name"], arguments=value)
 
 
-def _malformed(reason: MalformedArgumentsReason) -> MalformedToolArguments:
-    return MalformedToolArguments(reason=reason)
-
-
 def _calls_body(*calls: dict) -> dict[str, Any]:
     return _body({"content": None, "tool_calls": list(calls)}, "tool_calls")
 
@@ -467,12 +273,6 @@ def _with_arguments(call: dict, arguments: Any) -> dict:
 @pytest.mark.parametrize(
     ("body", "message", "stop"),
     [
-        (_body(), AssistantMessage(text=TEXT["content"]), StopReason.END),
-        (
-            _body({"content": None, "tool_calls": [LOOKUP]}, "tool_calls"),
-            AssistantMessage(tool_calls=(_call(LOOKUP),)),
-            StopReason.TOOL_USE,
-        ),
         (
             _body({"content": "", "tool_calls": [LOOKUP, INSPECTION]}, "tool_calls"),
             AssistantMessage(tool_calls=(_call(LOOKUP), _call(INSPECTION))),
@@ -484,44 +284,15 @@ def _with_arguments(call: dict, arguments: Any) -> dict:
             StopReason.TOOL_USE,
         ),
         (
-            _body(
-                {
-                    "tool_calls": [
-                        _with_arguments(LOOKUP, "{not json"),
-                        _with_arguments(INSPECTION, "[1]"),
-                    ]
-                },
-                "tool_calls",
-            ),
-            AssistantMessage(
-                tool_calls=(
-                    _call(LOOKUP, _malformed(MalformedArgumentsReason.INVALID_JSON)),
-                    _call(INSPECTION, _malformed(MalformedArgumentsReason.NOT_OBJECT)),
-                )
-            ),
-            StopReason.TOOL_USE,
-        ),
-        (
             _body({"tool_calls": [_with_arguments(LOOKUP, {"type": "x"})]}, "tool_calls"),
             AssistantMessage(tool_calls=(_call(LOOKUP),)),
             StopReason.TOOL_USE,
         ),
-        (_body(TEXT, "length"), AssistantMessage(text=TEXT["content"]), StopReason.LENGTH),
-        (
-            _body({"content": None, "refusal": "I cannot help."}),
-            AssistantMessage(text="I cannot help."),
-            StopReason.REFUSAL,
-        ),
     ],
     ids=[
-        "text",
-        "single-call",
         "parallel-calls",
         "text-and-calls",
-        "malformed-arguments",
         "decoded-arguments",
-        "length-text",
-        "refusal-text",
     ],
 )
 def test_chat_responses_map_to_the_shared_contracts(body, message, stop) -> None:
@@ -534,8 +305,6 @@ def test_chat_responses_map_to_the_shared_contracts(body, message, stop) -> None
 @pytest.mark.parametrize(
     ("body", "error"),
     [
-        (_body({"content": None}, "length"), ProviderTruncatedOutputError),
-        (_body(TEXT, "content_filter"), ProviderRefusalError),
         (_body({"refusal": "No.", "tool_calls": [LOOKUP]}, "tool_calls"), ProviderRefusalError),
         (_body(choices=[]), ProviderMalformedOutputError),
         (_body(TEXT, "improvised"), ProviderMalformedOutputError),
@@ -545,8 +314,6 @@ def test_chat_responses_map_to_the_shared_contracts(body, message, stop) -> None
         ),
     ],
     ids=[
-        "length-empty",
-        "content-filter-text",
         "refusal-with-call",
         "no-choices",
         "unknown-finish",
@@ -560,146 +327,17 @@ def test_unusable_chat_responses_are_typed_errors_without_provider_text(body, er
     assert "None of them" not in "".join(secret_renderings(raised.value))
 
 
-@pytest.mark.parametrize(
-    ("usage", "expected"),
-    [
-        (
-            {
-                "prompt_tokens": 10,
-                "completion_tokens": 5,
-                "total_tokens": 15,
-                "prompt_tokens_details": {"cached_tokens": 3, "cache_write_tokens": 2},
-            },
-            TokenUsage(
-                input_tokens=10,
-                output_tokens=5,
-                cache_read_input_tokens=3,
-                cache_write_input_tokens=2,
-            ),
-        ),
-        (
-            {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
-            TokenUsage(input_tokens=10, output_tokens=5),
-        ),
-    ],
-    ids=["with-cache", "without-cache"],
-)
-def test_chat_usage_maps_cached_tokens(usage, expected) -> None:
-    assert send_request(_chat(responding_api(_body(usage=usage)))).usage == expected
-
-
-def test_a_response_without_usage_reports_none() -> None:
-    body = {key: value for key, value in _body().items() if key != "usage"}
-    assert send_request(_chat(responding_api(body))).usage == TokenUsage()
-
-
-# ---- failures ----------------------------------------------------------------------
-
-
-def _error(status: int, headers: dict | None = None) -> httpx2.Response:
-    """An API error whose message holds the key, a tool result, and the question."""
-    message = f"{SECRET} tool result: db-a reachable; question: {QUESTION}"
-    body = {"error": {"message": message, "type": "server_error", "code": None}}
-    return httpx2.Response(status, json=body, headers=headers)
-
-
-_ANSWER = CompletionResponse(message=AssistantMessage(text="Done."), stop_reason=StopReason.END)
-# A success body in each protocol's shape.
-_BODIES = {
-    harness.protocol: harness.body(_ANSWER)
-    for harness in (ChatCompletionsHarness, ResponsesHarness)
-}
-
-
-@pytest.mark.parametrize("protocol", PROTOCOLS, ids=str)
-@pytest.mark.parametrize(
-    ("status", "error"),
-    [
-        (400, ProviderInvalidRequestError),
-        (401, ProviderAuthenticationError),
-        (429, ProviderRateLimitError),
-        (500, ProviderUnavailableError),
-    ],
-)
-def test_statuses_map_to_fixed_safe_errors(caplog, protocol, status: int, error) -> None:
-    caplog.set_level(logging.DEBUG)
-    with pytest.raises(ProviderError) as raised:
-        send_request(openai_adapter(MockApi([_error(status)]), protocol))
-    assert type(raised.value) is error
-    assert raised.value.retryable is (error is ProviderRateLimitError)
-    rendered = "".join(secret_renderings(raised.value)) + caplog.text
-    for leaked in (SECRET, QUESTION, "db-a reachable"):
-        assert leaked not in rendered
-
-
-@pytest.mark.parametrize(
-    ("served", "error"),
-    [
-        (lambda request: httpx2.ReadTimeout("slow", request=request), ProviderTimeoutError),
-        (lambda request: httpx2.ConnectError("refused", request=request), ProviderTransportError),
-        (unparseable_body, ProviderMalformedOutputError),
-    ],
-    ids=["timeout", "connection", "unparseable"],
-)
-@pytest.mark.parametrize("protocol", PROTOCOLS, ids=str)
-@pytest.mark.parametrize("mode", ["sync", "async"])
-def test_transport_failures_map_to_typed_errors(served, error, protocol, mode: str) -> None:
-    with pytest.raises(error):
-        send_request(openai_adapter(MockApi([served]), protocol), mode)
-
-
-def test_every_sdk_failure_class_has_a_provider_error() -> None:
-    sdk = {
-        cls
-        for cls in list(vars(openai).values())
-        if isinstance(cls, type) and issubclass(cls, openai.APIError)
+def test_chat_usage_maps_cached_tokens() -> None:
+    usage = {
+        "prompt_tokens": 10,
+        "completion_tokens": 5,
+        "total_tokens": 15,
+        "prompt_tokens_details": {"cached_tokens": 3, "cache_write_tokens": 2},
     }
-    for cls in sdk:
-        assert any(base in SDK_ERRORS for base in cls.__mro__), cls
-
-
-@pytest.mark.parametrize("protocol", PROTOCOLS, ids=str)
-@pytest.mark.parametrize("mode", ["sync", "async"])
-def test_rate_limits_are_retried_with_exponential_backoff(mode: str, protocol) -> None:
-    waits = Waits()
-    api = MockApi([_error(429), _error(429), httpx2.Response(200, json=_BODIES[protocol])])
-    send_request(openai_adapter(api, protocol, waits=waits, max_retries=2), mode)
-    assert len(api.requests) == 3
-    assert waits == [RETRY_BACKOFF_SECONDS, RETRY_BACKOFF_SECONDS * 2]
-
-
-@pytest.mark.parametrize("mode", ["sync", "async"])
-def test_retries_stop_at_the_configured_count(mode: str) -> None:
-    waits = Waits()
-    api = MockApi([lambda request: httpx2.ConnectError("refused", request=request)] * 3)
-    with pytest.raises(ProviderTransportError):
-        send_request(openai_adapter(api, CHAT, waits=waits, max_retries=2), mode)
-    assert len(api.requests) == 3 and len(waits) == 2
-
-
-@pytest.mark.parametrize(
-    "served",
-    [_error(503), _error(400), lambda request: httpx2.ReadTimeout("slow", request=request)],
-    ids=["unavailable", "invalid-request", "timeout"],
-)
-def test_other_failures_are_never_retried(served) -> None:
-    waits = Waits()
-    api = MockApi([served, httpx2.Response(200, json=_body())])
-    with pytest.raises(ProviderError):
-        send_request(openai_adapter(api, CHAT, waits=waits, max_retries=3))
-    assert len(api.requests) == 1 and waits == []
-
-
-@pytest.mark.parametrize(
-    ("retry_after", "timeout", "wait"),
-    [("2", 60, 2.0), ("20", 10, 10.0), ("120", 60, MAX_RETRY_WAIT_SECONDS)],
-    ids=["honoured", "request-timeout", "capped"],
-)
-def test_retry_after_is_honoured_within_bounds(retry_after: str, timeout: int, wait) -> None:
-    waits = Waits()
-    api = MockApi([_error(429, {"retry-after": retry_after}), httpx2.Response(200, json=_body())])
-    send_request(
-        openai_adapter(api, CHAT, waits=waits, max_retries=1),
-        request=openai_request(timeout_seconds=timeout),
+    expected = TokenUsage(
+        input_tokens=10,
+        output_tokens=5,
+        cache_read_input_tokens=3,
+        cache_write_input_tokens=2,
     )
-    assert waits == [wait]
+    assert send_request(_chat(responding_api(_body(usage=usage)))).usage == expected

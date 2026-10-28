@@ -24,13 +24,10 @@ from archdiscov.assistant.provider import (
     CompletionRequest,
     ProviderAuthenticationError,
     ProviderCapability,
-    ProviderErrorCode,
     ProviderUnavailableError,
-    UnsupportedCapabilityError,
     complete,
 )
 from archdiscov.assistant.providers import load_provider
-from archdiscov.services.ask import ask_question
 from tests.support.ask_examples import write_provider_config
 from tests.support.bedrock_exchanges import (
     ANSWER,
@@ -47,7 +44,6 @@ from tests.support.bedrock_exchanges import (
 )
 from tests.support.mock_api import AwsResponse, BotocoreApi, mock_api_server
 from tests.support.provider_data import SEARCH_TOOL
-from tests.support.scripted_turns import SNAPSHOT
 from tests.support.secrets import secret_renderings
 
 ACCESS_KEY = "AKIAPROFILEKEY000000"
@@ -260,43 +256,3 @@ def test_no_credential_or_request_body_reaches_a_rendering_or_log(
     for rendering in (*secret_renderings(provider), caplog.text):
         for secret in (SECRET_KEY, ROLE_SECRET, "roleToken", QUESTION):
             assert secret not in rendering
-
-
-# ---- capabilities ------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("declared", "limits", "missing"),
-    [
-        ([], {}, ProviderCapability.TOOL_CALLING),
-        (["tool_calling"], {"max_tool_calls_per_turn": 2}, ProviderCapability.PARALLEL_TOOL_CALLS),
-    ],
-    ids=["no-tools", "no-parallel-calls"],
-)
-def test_an_undeclared_capability_is_refused_before_any_request(
-    tmp_path: Path, monkeypatch, declared: list[str], limits: dict, missing: ProviderCapability
-) -> None:
-    _aws_files(tmp_path, monkeypatch)
-    api = BotocoreApi([])
-    with pytest.raises(UnsupportedCapabilityError) as raised:
-        complete(_provider(api, capabilities=declared), _request(**limits))
-    assert raised.value.capability is missing
-    assert api.requests == []
-
-
-def test_an_ask_run_without_declared_tool_calling_fails_before_any_request(
-    tmp_path: Path, monkeypatch
-) -> None:
-    _aws_files(tmp_path, monkeypatch)
-    api = BotocoreApi([])
-    monkeypatch.setattr(
-        bedrock_provider,
-        "BedrockProvider",
-        partial(BedrockProvider, session_factory=api.session_factory),
-    )
-    config = write_provider_config(tmp_path / "provider.toml", bedrock_fields(capabilities=[]))
-    result = ask_question(QUESTION, snapshot_path=SNAPSHOT, config_path=config)
-    outcome = result.answer.outcome
-    assert outcome.provider_error == ProviderErrorCode.UNSUPPORTED_CAPABILITY
-    assert outcome.exit_code == 6
-    assert api.requests == []

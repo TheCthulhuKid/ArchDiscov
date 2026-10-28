@@ -8,10 +8,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from tests.assistant.provider_harness import MockedHarness
 from tests.support.ask_examples import write_provider_config
 from tests.support.evaluation_suites import SUITE
 from tests.support.offline_guard import OfflineGuard
+from tests.support.provider_harness import MockedHarness
 
 # The installed console script. `tests/acceptance/test_package.py` checks that
 # `python -m archdiscov` starts too; journeys run through the script alone.

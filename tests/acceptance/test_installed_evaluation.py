@@ -23,7 +23,6 @@ from archdiscov.assistant.evaluation import (
     parse_report,
 )
 from archdiscov.assistant.fake import FakeTranscript
-from tests.assistant.provider_harness import AnthropicHarness
 from tests.support.evaluation_suites import (
     ADVERSARIAL_SUITE,
     README_SUITE,
@@ -38,6 +37,7 @@ from tests.support.installed_cli import (
     run_installed,
 )
 from tests.support.mock_api import mock_api_server
+from tests.support.provider_harness import AnthropicHarness
 
 # The journey runs every suite once per module: keep its tests on one xdist worker.
 pytestmark = pytest.mark.xdist_group("installed-evaluation")

@@ -22,7 +22,6 @@ from archdiscov.assistant.config import FakeProviderConfig
 from archdiscov.assistant.evaluation import CaseOutcome
 from archdiscov.assistant.rejections import RejectionCode
 from archdiscov.services import SupportedSnapshot, validate_snapshot
-from tests.assistant.provider_harness import AnthropicHarness
 from tests.paths import FIXTURES_ROOT
 from tests.support.answer_claims import INJECTION
 from tests.support.ask_examples import (
@@ -36,6 +35,7 @@ from tests.support.ask_examples import (
     write_provider_config,
 )
 from tests.support.audit_scenarios import ownership, with_coverage
+from tests.support.provider_harness import AnthropicHarness
 from tests.support.scripted_turns import calls_turn, fail_turn
 from tests.support.tagged_snapshots import all_resources
 

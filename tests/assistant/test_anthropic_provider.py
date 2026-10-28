@@ -5,28 +5,20 @@ Requests go to a mocked Messages API; nothing reaches the network.
 
 import asyncio
 import json
-import logging
 from pathlib import Path
 from typing import Any
 
-import anthropic
 import httpx2
 import pytest
 from pydantic import SecretStr
 
-from archdiscov.assistant import anthropic_provider
-from archdiscov.assistant.adapters import MAX_RETRY_WAIT_SECONDS, RETRY_BACKOFF_SECONDS
-from archdiscov.assistant.anthropic_provider import DEFAULT_BASE_URL, SDK_ERRORS, AnthropicProvider
+from archdiscov.assistant.anthropic_provider import DEFAULT_BASE_URL, AnthropicProvider
 from archdiscov.assistant.config import (
-    ProviderConfigError,
-    ProviderConfigErrorCode,
     parse_provider_config,
 )
 from archdiscov.assistant.conversation import (
     AssistantMessage,
     Conversation,
-    MalformedArgumentsReason,
-    MalformedToolArguments,
     ParsedToolArguments,
     TokenUsage,
     ToolCall,
@@ -35,50 +27,22 @@ from archdiscov.assistant.orchestrator import run_assistant
 from archdiscov.assistant.provider import (
     CompletionRequest,
     CompletionResponse,
-    ProviderAuthenticationError,
     ProviderCapability,
-    ProviderError,
     ProviderInvalidRequestError,
     ProviderMalformedOutputError,
-    ProviderRateLimitError,
-    ProviderRefusalError,
-    ProviderTimeoutError,
-    ProviderTransportError,
-    ProviderTruncatedOutputError,
-    ProviderUnavailableError,
     RequestLimits,
     StopReason,
     complete,
 )
 from archdiscov.assistant.providers import load_provider
 from archdiscov.assistant.tools.session import ToolSession
-from tests.support.mock_api import MockApi, Waits
+from tests.support.mock_api import MockApi
 from tests.support.provider_data import ANTHROPIC, EXCHANGE, INSPECT_TOOL, SEARCH_TOOL, THINKING
 from tests.support.scripted_turns import SNAPSHOT
 from tests.support.secrets import SECRET, secret_renderings
 
 ENDPOINT = "https://gateway.example.com/anthropic"
 QUESTION = "Which databases are reachable?"
-HOSTILE_ENVIRONMENT = {
-    "ANTHROPIC_API_KEY": "sk-ant-api03-environmentKEY0123456789abcdef",
-    "ANTHROPIC_AUTH_TOKEN": "environment-token",
-    "ANTHROPIC_BASE_URL": "https://elsewhere.example.com",
-    "ANTHROPIC_CUSTOM_HEADERS": "Authorization: Bearer injected\nX-Injected: 1",
-    "ANTHROPIC_PROFILE": "someone-else",
-    "HTTPS_PROXY": "http://proxy.invalid:3128",
-    "ALL_PROXY": "http://proxy.invalid:3128",
-}
-SDK_HEADERS = {
-    "accept",
-    "accept-encoding",
-    "anthropic-version",
-    "authorization",
-    "connection",
-    "content-length",
-    "content-type",
-    "host",
-    "user-agent",
-}
 TEXT = {"type": "text", "text": "None of them."}
 LOOKUP = {"type": "tool_use", "id": "toolu_1", "name": "search_resources", "input": {"type": "x"}}
 INSPECTION = {"type": "tool_use", "id": "toolu_2", "name": "inspect_resource", "input": {}}
@@ -104,25 +68,10 @@ def _api(*bodies: dict) -> MockApi:
     return MockApi([httpx2.Response(200, json=body) for body in bodies])
 
 
-def _provider(
-    api: MockApi,
-    endpoint: str | None = ENDPOINT,
-    *,
-    max_retries: int = 0,
-    waits: Waits | None = None,
-) -> AnthropicProvider:
-    data = {**ANTHROPIC, "max_retries": max_retries}
-    if endpoint is not None:
-        data["endpoint"] = endpoint
-    waits = Waits() if waits is None else waits
-    return AnthropicProvider(
-        parse_provider_config(data),
-        SecretStr(SECRET),
-        transport=api,
-        async_transport=api,
-        sleep=waits.sleep,
-        async_sleep=waits.sleep_async,
-    )
+def _provider(api: MockApi) -> AnthropicProvider:
+    """The adapter over `api`, without retries."""
+    config = parse_provider_config({**ANTHROPIC, "max_retries": 0, "endpoint": ENDPOINT})
+    return AnthropicProvider(config, SecretStr(SECRET), transport=api, async_transport=api)
 
 
 def _request(
@@ -172,67 +121,6 @@ def test_a_configuration_builds_the_adapter_without_a_request(tmp_path: Path) ->
     }
     _, default = load_provider(_config(tmp_path), environ={"ASK_KEY": SECRET})
     assert default.base_url == DEFAULT_BASE_URL
-
-
-@pytest.mark.parametrize(
-    ("environ", "code"),
-    [
-        ({}, ProviderConfigErrorCode.CREDENTIAL_MISSING),
-        ({"ASK_KEY": " "}, ProviderConfigErrorCode.CREDENTIAL_EMPTY),
-    ],
-    ids=["missing", "empty"],
-)
-def test_an_unusable_key_fails_before_the_adapter_exists(
-    tmp_path: Path, monkeypatch, environ, code
-) -> None:
-    def built(*args, **kwargs):
-        raise AssertionError("the adapter was built")
-
-    monkeypatch.setattr(anthropic_provider, "AnthropicProvider", built)
-    with pytest.raises(ProviderConfigError) as raised:
-        load_provider(_config(tmp_path), environ=environ)
-    assert raised.value.code == code and raised.value.variable == "ASK_KEY"
-
-
-@pytest.mark.parametrize("mode", ["sync", "async"])
-@pytest.mark.parametrize("endpoint", [ENDPOINT, None], ids=["endpoint", "default"])
-def test_only_the_configuration_chooses_the_target_and_credential(
-    monkeypatch, mode: str, endpoint: str | None
-) -> None:
-    for name, value in HOSTILE_ENVIRONMENT.items():
-        monkeypatch.setenv(name, value)
-    api = _api(_body(TEXT))
-    _send(_provider(api, endpoint), mode)
-    [request] = api.requests
-    assert str(request.url) == f"{endpoint or DEFAULT_BASE_URL}/v1/messages"
-    assert request.headers["authorization"] == f"Bearer {SECRET}"
-    assert {name for name in request.headers if not name.startswith("x-stainless-")} == (
-        SDK_HEADERS
-    )
-    body = request.content.decode()
-    assert not any(value in body for value in HOSTILE_ENVIRONMENT.values())
-
-
-def test_redirects_are_not_followed() -> None:
-    elsewhere = httpx2.Response(307, headers={"location": "https://elsewhere.example.com/v1"})
-    api = MockApi([elsewhere])
-    with pytest.raises(ProviderInvalidRequestError):
-        _send(_provider(api))
-    assert [request.url.host for request in api.requests] == ["gateway.example.com"]
-
-
-def test_no_key_or_request_body_reaches_a_rendering_or_log(caplog) -> None:
-    caplog.set_level(logging.DEBUG)
-    for name in anthropic_provider._SDK_LOGGERS:
-        logging.getLogger(name).setLevel(logging.DEBUG)
-    api = MockApi([httpx2.Response(400, json={"type": "error", "error": {"type": "x"}})])
-    provider = _provider(api)
-    with pytest.raises(ProviderError) as raised:
-        _send(provider)
-    for name in anthropic_provider._SDK_LOGGERS:
-        assert logging.getLogger(name).getEffectiveLevel() == logging.WARNING
-    for rendering in (*secret_renderings(provider), *secret_renderings(raised.value), caplog.text):
-        assert SECRET not in rendering and QUESTION not in rendering
 
 
 # ---- requests ----------------------------------------------------------------------
@@ -311,14 +199,6 @@ def test_one_call_per_turn_disables_parallel_tool_use_and_no_tools_sends_none() 
     assert set(_sent(api, 1)) == {"model", "max_tokens", "messages"}
 
 
-def test_no_key_or_sampling_parameter_is_in_the_body() -> None:
-    api = _api(_body(TEXT))
-    _send(_provider(api), request=_request(max_tool_calls_per_turn=4))
-    body = api.requests[0].content.decode()
-    assert SECRET not in body
-    assert set(json.loads(body)) == {"model", "max_tokens", "messages", "tools", "tool_choice"}
-
-
 # ---- responses ---------------------------------------------------------------------
 
 
@@ -327,25 +207,10 @@ def _call(block: dict, arguments=None) -> ToolCall:
     return ToolCall(id=block["id"], name=block["name"], arguments=value)
 
 
-def _malformed(reason: MalformedArgumentsReason) -> MalformedToolArguments:
-    return MalformedToolArguments(reason=reason)
-
-
 @pytest.mark.parametrize(
     ("body", "message", "stop"),
     [
-        (_body(TEXT), AssistantMessage(text=TEXT["text"]), StopReason.END),
         (_body(TEXT, stop="stop_sequence"), AssistantMessage(text=TEXT["text"]), StopReason.END),
-        (
-            _body(LOOKUP, stop="tool_use"),
-            AssistantMessage(tool_calls=(_call(LOOKUP),)),
-            StopReason.TOOL_USE,
-        ),
-        (
-            _body(LOOKUP, INSPECTION, stop="tool_use"),
-            AssistantMessage(tool_calls=(_call(LOOKUP), _call(INSPECTION))),
-            StopReason.TOOL_USE,
-        ),
         (
             _body(
                 {"type": "text", "text": "Let me "},
@@ -357,33 +222,15 @@ def _malformed(reason: MalformedArgumentsReason) -> MalformedToolArguments:
             StopReason.TOOL_USE,
         ),
         (
-            _body({**LOOKUP, "input": "{not json"}, {**INSPECTION, "input": [1]}, stop="tool_use"),
-            AssistantMessage(
-                tool_calls=(
-                    _call(LOOKUP, _malformed(MalformedArgumentsReason.INVALID_JSON)),
-                    _call(INSPECTION, _malformed(MalformedArgumentsReason.NOT_OBJECT)),
-                )
-            ),
-            StopReason.TOOL_USE,
-        ),
-        (_body(TEXT, stop="max_tokens"), AssistantMessage(text=TEXT["text"]), StopReason.LENGTH),
-        (
             _body(TEXT, stop="model_context_window_exceeded"),
             AssistantMessage(text=TEXT["text"]),
             StopReason.LENGTH,
         ),
-        (_body(TEXT, stop="refusal"), AssistantMessage(text=TEXT["text"]), StopReason.REFUSAL),
     ],
     ids=[
-        "text",
         "stop-sequence",
-        "single-call",
-        "parallel-calls",
         "text-and-calls",
-        "malformed-arguments",
-        "max-tokens-text",
         "context-window-text",
-        "refusal-text",
     ],
 )
 def test_responses_map_to_the_shared_contracts(body, message, stop) -> None:
@@ -396,8 +243,6 @@ def test_responses_map_to_the_shared_contracts(body, message, stop) -> None:
 @pytest.mark.parametrize(
     ("body", "error"),
     [
-        (_body(stop="max_tokens"), ProviderTruncatedOutputError),
-        (_body(stop="refusal"), ProviderRefusalError),
         (
             _body(TEXT, {"type": "server_tool_use", "id": "s", "name": "web_search", "input": {}}),
             ProviderMalformedOutputError,
@@ -410,8 +255,6 @@ def test_responses_map_to_the_shared_contracts(body, message, stop) -> None:
         ),
     ],
     ids=[
-        "max-tokens-empty",
-        "refusal-empty",
         "server-tool-block",
         "unknown-stop",
         "no-calls-at-tool-use",
@@ -425,28 +268,19 @@ def test_unusable_responses_are_typed_errors_without_provider_text(body, error) 
     assert "None of them" not in "".join(secret_renderings(raised.value))
 
 
-@pytest.mark.parametrize(
-    ("usage", "expected"),
-    [
-        (
-            {
-                "input_tokens": 10,
-                "output_tokens": 5,
-                "cache_read_input_tokens": 3,
-                "cache_creation_input_tokens": 2,
-            },
-            TokenUsage(
-                input_tokens=10,
-                output_tokens=5,
-                cache_read_input_tokens=3,
-                cache_write_input_tokens=2,
-            ),
-        ),
-        ({"input_tokens": 10, "output_tokens": 5}, TokenUsage(input_tokens=10, output_tokens=5)),
-    ],
-    ids=["with-cache", "without-cache"],
-)
-def test_usage_maps_cache_creation_to_cache_write(usage, expected) -> None:
+def test_usage_maps_cache_creation_to_cache_write() -> None:
+    usage = {
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "cache_read_input_tokens": 3,
+        "cache_creation_input_tokens": 2,
+    }
+    expected = TokenUsage(
+        input_tokens=10,
+        output_tokens=5,
+        cache_read_input_tokens=3,
+        cache_write_input_tokens=2,
+    )
     assert _send(_provider(_api(_body(TEXT, usage=usage)))).usage == expected
 
 
@@ -490,123 +324,3 @@ def test_another_providers_continuation_is_never_sent() -> None:
     with pytest.raises(ProviderInvalidRequestError):
         _send(_provider(api), request=_request(foreign, {"role": "user", "text": "Go on."}))
     assert api.requests == []
-
-
-# ---- failures ----------------------------------------------------------------------
-
-
-def _error(status: int, headers: dict | None = None) -> httpx2.Response:
-    """An API error whose message holds the key, a tool result, and the question."""
-    message = f"{SECRET} tool result: db-a reachable; question: {QUESTION}"
-    body = {"type": "error", "error": {"type": "api_error", "message": message}}
-    return httpx2.Response(status, json=body, headers=headers)
-
-
-@pytest.mark.parametrize(
-    ("status", "error"),
-    [
-        (400, ProviderInvalidRequestError),
-        (401, ProviderAuthenticationError),
-        (429, ProviderRateLimitError),
-        (500, ProviderUnavailableError),
-        (529, ProviderRateLimitError),
-    ],
-)
-def test_statuses_map_to_fixed_safe_errors(caplog, status: int, error) -> None:
-    caplog.set_level(logging.DEBUG)
-    with pytest.raises(ProviderError) as raised:
-        _send(_provider(MockApi([_error(status)])))
-    assert type(raised.value) is error
-    assert raised.value.retryable is (error is ProviderRateLimitError)
-    rendered = "".join(secret_renderings(raised.value)) + caplog.text
-    for leaked in (SECRET, QUESTION, "db-a reachable"):
-        assert leaked not in rendered
-
-
-@pytest.mark.parametrize(
-    ("served", "error"),
-    [
-        (lambda request: httpx2.ReadTimeout("slow", request=request), ProviderTimeoutError),
-        (lambda request: httpx2.ConnectError("refused", request=request), ProviderTransportError),
-        (
-            lambda request: httpx2.Response(
-                200, content=b"{not json", headers={"content-type": "application/json"}
-            ),
-            ProviderMalformedOutputError,
-        ),
-    ],
-    ids=["timeout", "connection", "unparseable"],
-)
-@pytest.mark.parametrize("mode", ["sync", "async"])
-def test_transport_failures_map_to_typed_errors(served, error, mode: str) -> None:
-    with pytest.raises(error):
-        _send(_provider(MockApi([served])), mode)
-
-
-def test_every_sdk_failure_class_has_a_provider_error() -> None:
-    sdk = {
-        cls
-        for cls in vars(anthropic).values()
-        if isinstance(cls, type) and issubclass(cls, anthropic.APIError)
-    }
-    for cls in sdk:
-        assert any(base in SDK_ERRORS for base in cls.__mro__), cls
-
-
-@pytest.mark.parametrize("mode", ["sync", "async"])
-@pytest.mark.parametrize("status", [429, 529])
-def test_rate_limits_are_retried_with_exponential_backoff(mode: str, status: int) -> None:
-    waits = Waits()
-    api = MockApi([_error(status), _error(status), httpx2.Response(200, json=_body(TEXT))])
-    response = _send(_provider(api, max_retries=2, waits=waits), mode)
-    assert response.message.text == TEXT["text"]
-    assert len(api.requests) == 3
-    assert waits == [RETRY_BACKOFF_SECONDS, RETRY_BACKOFF_SECONDS * 2]
-
-
-@pytest.mark.parametrize("mode", ["sync", "async"])
-def test_retries_stop_at_the_configured_count(mode: str) -> None:
-    waits = Waits()
-    api = MockApi([lambda request: httpx2.ConnectError("refused", request=request)] * 3)
-    with pytest.raises(ProviderTransportError):
-        _send(_provider(api, max_retries=2, waits=waits), mode)
-    assert len(api.requests) == 3 and len(waits) == 2
-
-
-@pytest.mark.parametrize(
-    "served",
-    [
-        _error(503),
-        _error(400),
-        lambda request: httpx2.ReadTimeout("slow", request=request),
-    ],
-    ids=["unavailable", "invalid-request", "timeout"],
-)
-def test_other_failures_are_never_retried(served) -> None:
-    waits = Waits()
-    api = MockApi([served, httpx2.Response(200, json=_body(TEXT))])
-    with pytest.raises(ProviderError):
-        _send(_provider(api, max_retries=3, waits=waits))
-    assert len(api.requests) == 1 and waits == []
-
-
-@pytest.mark.parametrize(
-    ("retry_after", "timeout", "wait"),
-    [
-        ("2", 60, 2.0),
-        ("0", 60, 0.0),
-        ("20", 10, 10.0),
-        ("120", 60, MAX_RETRY_WAIT_SECONDS),
-        ("soon", 60, RETRY_BACKOFF_SECONDS),
-        ("-1", 60, RETRY_BACKOFF_SECONDS),
-        ("nan", 60, RETRY_BACKOFF_SECONDS),
-    ],
-    ids=["honoured", "immediate", "request-timeout", "capped", "not-a-number", "negative", "nan"],
-)
-def test_retry_after_is_honoured_within_bounds(retry_after: str, timeout: int, wait) -> None:
-    waits = Waits()
-    api = MockApi(
-        [_error(429, {"retry-after": retry_after}), httpx2.Response(200, json=_body(TEXT))]
-    )
-    _send(_provider(api, max_retries=1, waits=waits), request=_request(timeout_seconds=timeout))
-    assert waits == [wait]

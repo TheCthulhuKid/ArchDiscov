@@ -89,11 +89,11 @@ class Waits(list):
 
 
 def no_wait(seconds: float) -> None:
-    """Retries in the suites do not wait; the adapter tests check the waits."""
+    """Retries in the suites do not wait; the provider contract checks the waits."""
 
 
 async def no_wait_async(seconds: float) -> None:
-    """Retries in the suites do not wait; the adapter tests check the waits."""
+    """Retries in the suites do not wait; the provider contract checks the waits."""
 
 
 class _RawBody:

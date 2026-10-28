@@ -32,13 +32,13 @@ from archdiscov.assistant.fake import FakeClock
 from archdiscov.assistant.provider import ProviderErrorCode
 from archdiscov.assistant.runs import MalformedOutputReason, RunLimitKind, RunLimits
 from archdiscov.assistant.tools.session import ToolSession
-from tests.assistant.provider_harness import HARNESSES, FakeHarness, ProviderHarness
 from tests.support.orchestration_cases import (
     LOOP_CASES,
     LOOP_QUESTION,
     SECRET_SEARCH,
     case_capabilities,
 )
+from tests.support.provider_harness import HARNESSES, FakeHarness, ProviderHarness
 from tests.support.scripted_answers import (
     PLAIN_TEXT,
     answer_proposal,

@@ -38,7 +38,6 @@ from archdiscov.services.evaluation import (
     run_evaluation_async,
 )
 from archdiscov.services.snapshot_errors import SnapshotIOError
-from tests.assistant.provider_harness import AnthropicHarness
 from tests.support.evaluation_suites import (
     EVALUATION_KEY_VARIABLE,
     SUITE,
@@ -47,6 +46,7 @@ from tests.support.evaluation_suites import (
     write_fake_config,
     write_readme_suite,
 )
+from tests.support.provider_harness import AnthropicHarness
 from tests.support.scripted_turns import SNAPSHOT
 
 NAMES = ["internet_exposure", "ownership", "ownership_compared"]
