@@ -87,7 +87,22 @@ decided the outcome.
   `deleted` gateway denies citing its state, a private one denies citing its connectivity,
   and a `pending` or unrecorded state is `unknown`. A NAT gateway never carries inbound
   traffic: an internet-gateway question whose best route leads to one denies, citing the
-  route. `DescribeNatGateways` qualifies a NAT question. A route whose
+  route. `DescribeNatGateways` qualifies a NAT question. A route to a gateway endpoint
+  (`RouteReach.VPC_ENDPOINT`, `services.network_endpoints`) reaches it when the endpoint is
+  stored, of the `gateway` type, `available`, recorded as associated with the subnet's
+  route table (`endpoint_route_table`), and the route's prefix list is named for the
+  endpoint's service; the allow cites the route and the matched entry, the association, the
+  endpoint's type, service, and state, its table edge, and the list's recorded entry (which
+  holds its name). States are compared in lower case: `pendingAcceptance`, `deleting`,
+  `deleted`, `rejected`, `failed`, and `expired` deny citing the state, and `pending`,
+  `partial`, or an unrecorded state is `unknown`, as is an endpoint not associated with the
+  table or a list not named for its service. A route to a Gateway Load Balancer endpoint,
+  or to one whose type is not modelled (`Resource`, `ServiceNetwork`) or not recorded, is
+  unsupported for every question, because where it leads depends on what lies behind it.
+  `DescribeVpcEndpoints` qualifies an endpoint question. An interface endpoint is no route
+  target: `endpoint_interfaces` returns its stored network interfaces and security groups
+  with citations, for callers to decide with the local route, NACL, and security-group
+  primitives, and a state that carries no traffic denies. A route whose
   destination is a managed prefix list contributes each recorded entry of the query's
   family as a prefix, resolved as for security-group rules, and cites the entry it matched;
   its target still decides reach. AWS prefers, at equal prefix length, a static route, then
@@ -98,8 +113,8 @@ decided the outcome.
   not stored or has unrecorded entries could cover any address, so the table's result is
   `unknown` naming the list, and the list reads qualify the result as for security groups.
   A question whose best route leads to a supported kind it did not ask for, such as an
-  internet-gateway question on a NAT, peering, or transit gateway route, denies citing the
-  route.
+  internet-gateway question on a NAT, peering, transit gateway, or gateway endpoint route,
+  denies citing the route.
 - `evaluate_vpc_route` (`services.network_routes`, with `services.network_peering` and
   `services.network_transit`): whether
   the subnet's best route for an address leads into a given VPC. It allows the local route
@@ -160,7 +175,7 @@ Supported, each evaluated for one direction or one question per call:
 |---|---|---|
 | Security-group rules | IPv4 and IPv6 CIDRs within the query's address family, same-account referenced groups, managed prefix lists with recorded entries, tcp/udp/icmp (names or numbers) and all-protocol, inclusive port ranges | Prefix lists without recorded entries (`unknown`, named), cross-account references, other protocols (including ICMPv6), statefulness |
 | NACLs | IPv4 and IPv6 CIDRs within the query's address family, tcp/udp/icmp and all-protocol, rule-number order with implicit final deny, one direction per call | Other protocols (including ICMPv6), ICMP type/code, subnets without an observed association (no default ACL is assumed) |
-| Routes | IPv4 and IPv6 longest prefix within the query's address family, including prefix-list destinations with recorded entries, to local, internet-gateway, egress-only internet gateway, or NAT gateway (outbound only) targets, and peering connections or one transit gateway hop into another VPC of the account (`evaluate_vpc_route`), explicit table or observed main table | VPC endpoint and instance/interface targets; another account's peer VPC, transit gateway, or attachment (`unknown`, named); transit gateway routes to several attachments, to non-VPC attachments, or to prefix lists; prefix-list destinations without recorded entries and ties involving a prefix list (`unknown`, with the reason) |
+| Routes | IPv4 and IPv6 longest prefix within the query's address family, including prefix-list destinations with recorded entries, to local, internet-gateway, egress-only internet gateway, NAT gateway (outbound only), or gateway endpoint targets, and peering connections or one transit gateway hop into another VPC of the account (`evaluate_vpc_route`), explicit table or observed main table | Gateway Load Balancer endpoints and endpoints of an unmodelled or unrecorded type, and instance/interface targets; another account's peer VPC, transit gateway, or attachment (`unknown`, named); transit gateway routes to several attachments, to non-VPC attachments, or to prefix lists; prefix-list destinations without recorded entries and ties involving a prefix list (`unknown`, with the reason) |
 | Public addressing | Recorded public IPv4 on ENIs and instances; recorded global IPv6 on ENIs | IPv6 on instances (their ENIs answer) |
 | Load balancers | Scheme, listener port and protocol, forward actions, target groups with registered targets | Redirect, fixed-response, and authentication actions; GENEVE (Gateway Load Balancer) listeners; IP and unresolved targets |
 
@@ -179,9 +194,9 @@ gateways, endpoints, prefix lists, and IPv6 fields (see the
 [snapshot format](snapshot-format.md#network-path-elements)). Security groups and NACLs
 decide IPv6 rules and entries, security groups and routes decide prefix lists with recorded
 entries, routes decide IPv6 routes, egress-only internet gateways, NAT gateways,
-peering connections, and transit gateways, and public addressing decides ENIs' IPv6 addresses; no primitive
-reads the other elements yet, so the cases above stay unsupported until the primitives
-decide them.
+peering connections, transit gateways, and gateway endpoints, interface endpoints resolve to
+their interfaces and groups, and public addressing decides ENIs' IPv6 addresses; the cases
+above stay unsupported until the primitives decide them.
 
 ## Bounded addresses
 

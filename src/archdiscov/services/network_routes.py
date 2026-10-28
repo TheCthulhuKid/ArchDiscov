@@ -8,7 +8,8 @@ an internet gateway or egress-only internet gateway is a recorded route, not pro
 internet reachability. A route to a NAT gateway reaches the internet only through the
 gateway's own subnet's route to an internet gateway. A route to an active peering connection
 leads into the peer VPC, and a route to a transit gateway leads one hop through it into the
-VPC its route table names. Endpoint targets are unsupported and never allow.
+VPC its route table names. A route to a gateway endpoint reaches it for its service's prefix
+list; a route to any other endpoint type is unsupported and never allows.
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ from archdiscov.models.resources.network import (
 )
 
 from .network_decisions import blocker, deny, missing, qualify_coverage, unsupported
+from .network_endpoints import ENDPOINT_OPERATIONS, gateway_endpoint_evidence, route_endpoint
 from .network_matching import (
     IpNetwork,
     Undecided,
@@ -62,6 +64,7 @@ _REACH_KINDS = {
     RouteReach.INTERNET_GATEWAY: RouteTargetKind.INTERNET_GATEWAY,
     RouteReach.EGRESS_ONLY_INTERNET_GATEWAY: RouteTargetKind.EGRESS_ONLY_INTERNET_GATEWAY,
     RouteReach.NAT_GATEWAY: RouteTargetKind.NAT_GATEWAY,
+    RouteReach.VPC_ENDPOINT: RouteTargetKind.VPC_ENDPOINT,
 }
 
 
@@ -95,6 +98,7 @@ _REACH_OPERATIONS = {
     RouteReach.INTERNET_GATEWAY: frozenset({"DescribeInternetGateways"}),
     RouteReach.EGRESS_ONLY_INTERNET_GATEWAY: frozenset({"DescribeEgressOnlyInternetGateways"}),
     RouteReach.NAT_GATEWAY: NAT_OPERATIONS,
+    RouteReach.VPC_ENDPOINT: ENDPOINT_OPERATIONS,
 }
 
 
@@ -306,6 +310,7 @@ _TARGETS: dict[RouteTargetKind, TargetCheck] = {
         _attachment_evidence, _GATEWAYS[RouteReach.EGRESS_ONLY_INTERNET_GATEWAY]
     ),
     RouteTargetKind.NAT_GATEWAY: nat_gateway_evidence,
+    RouteTargetKind.VPC_ENDPOINT: gateway_endpoint_evidence,
 }
 # Kinds that only a VPC question asks for; any other question's route there leads elsewhere.
 _VPC_KINDS = frozenset({RouteTargetKind.VPC_PEERING, RouteTargetKind.TRANSIT_GATEWAY})
@@ -370,9 +375,15 @@ def _decide(
             element=where,
             resource_id=table.id,
         )
+    hop = RouteHop(index, subnet, table, citations, where, address)
+    # Only a gateway endpoint's routing is decided, whatever the question asks.
+    if route.target_kind == RouteTargetKind.VPC_ENDPOINT:
+        endpoint = route_endpoint(hop)
+        if isinstance(endpoint, NetworkResult):
+            return endpoint
     check = wanted.get(route.target_kind)
     if check is not None:
-        confirmed = check(RouteHop(index, subnet, table, citations, where, address))
+        confirmed = check(hop)
         if isinstance(confirmed, NetworkResult):
             return confirmed
         extra = (*extra, *confirmed)
@@ -396,9 +407,11 @@ def evaluate_subnet_route(
 
     Allows when the longest-prefix route is active and leads to `reach`: a local target, an
     internet gateway recorded as available and attached to the subnet's VPC, or an
-    egress-only internet gateway recorded as attached to it, or a public NAT gateway whose
-    own subnet routes the address to an internet gateway. Egress-only and NAT gateways carry
-    outbound traffic only, so callers ask for them only for outbound traffic. Denies when no
+    egress-only internet gateway recorded as attached to it, a public NAT gateway whose
+    own subnet routes the address to an internet gateway, or an available gateway endpoint
+    associated with the table whose service's prefix list the route names. Egress-only and
+    NAT gateways carry outbound traffic only, so callers ask for them only for outbound
+    traffic. Denies when no
     route matches, the best route is a blackhole, or it leads elsewhere among the supported
     targets. Cites the route, the association, and the gateway attachment. Limited
     route-table collection (and collection of the queried gateway kind, and of prefix lists

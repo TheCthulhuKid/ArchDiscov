@@ -135,7 +135,8 @@ def test_an_unrecorded_route_state_is_unknown():
 
 
 def test_unsupported_targets_never_allow():
-    result = check([table("rtb-1", [LOCAL, route(target="vpce-1")], "subnet-1")])[1]
+    eni = route(target=None, NetworkInterfaceId="eni-1")
+    result = check([table("rtb-1", [LOCAL, eni], "subnet-1")])[1]
     assert result.decision == D.UNKNOWN
     assert codes(result) == {B.UNSUPPORTED_ELEMENT}
 
