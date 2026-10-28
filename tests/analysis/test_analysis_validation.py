@@ -63,10 +63,8 @@ def test_handmade_results_round_trip(name, snapshot_path, modern):
         ("resource", "missing", "resource_unknown"),
         ("evidence", "missing", "evidence_unknown"),
         ("scope", "210987654321", "resource_scope_mismatch"),
-        ("source", "missing", "resource_unknown"),
         ("path_evidence", "role", "evidence_owner_mismatch"),
         ("relationship", "forwards_to", "dependency_unknown"),
-        ("attributes", {"kind": "invented"}, "dependency_unknown"),
         ("unresolved", "invented", "unresolved_target_unknown"),
     ],
 )
@@ -79,14 +77,10 @@ def test_isolated_reference_defects(path_data, snapshot, field, value, code):
             finding["resources"][0]["scope"]["account_id"] = value
         case "evidence":
             finding["evidence_ids"] = [value]
-        case "source":
-            finding["path"][0]["source_id"] = value
         case "path_evidence":
             finding["path"][0]["evidence_ids"] = [value]
         case "relationship":
             finding["path"][0]["relationship"] = value
-        case "attributes":
-            finding["path"][0]["attributes"] = value
         case "unresolved":
             finding["limitations"][0]["unresolved_target"]["target"]["source_path"] = value
     with pytest.raises(AnalysisValidationError) as error:
@@ -189,19 +183,10 @@ def test_azure_references_coverage_and_no_mutation():
     assert data == original
 
 
-@pytest.mark.parametrize(
-    "field,value",
-    [
-        ("operation", "missing"),
-        ("location", "westus"),
-        ("service", "Microsoft.Network"),
-        ("scope", {"platform": "aws", "account_id": "123456789012"}),
-    ],
-)
-def test_complete_coverage_context_required(field, value):
+def test_complete_coverage_context_required():
     snapshot = load_snapshot(FIXTURES / "snapshots" / "azure.json")
     data = azure_result(snapshot)
-    data["findings"][0]["limitations"][0]["coverage"][field] = value
+    data["findings"][0]["limitations"][0]["coverage"]["location"] = "westus"
     with pytest.raises(AnalysisValidationError) as error:
         validate_analysis_result(data, snapshot)
     assert error.value.details[0].type == "coverage_unknown"

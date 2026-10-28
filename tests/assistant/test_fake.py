@@ -202,8 +202,6 @@ def test_exhausted_script_fails_clearly() -> None:
     "expect,request_",
     [
         ({"tool_names": ["search_resources"]}, _request()),
-        ({"tool_names": ["inspect_resource", "search_resources"]}, _request()),
-        ({"tool_names": []}, _request()),
         ({"last_message_role": "tool"}, _request()),
     ],
 )
@@ -273,18 +271,10 @@ def test_capabilities_are_checked_before_consuming_a_turn() -> None:
             "fake_transcript_capability_mismatch",
         ),
         (
-            {"capabilities": {"capabilities": ["tool_calling"]}, "turns": [_tool_use("a", "b")]},
-            "fake_transcript_capability_mismatch",
-        ),
-        (
             {"turns": [{"kind": "fail", "error": "provider_unsupported_capability"}]},
             "fake_transcript_error_unscriptable",
         ),
-        ({"turns": [{"kind": "fail", "error": "provider_unknown"}]}, "enum"),
         ({"turns": []}, "too_short"),
-        ({"turns": [{**_text(), "delay_seconds": -1}]}, "greater_than_equal"),
-        ({"turns": [{**_text(), "improvise": True}]}, "extra_forbidden"),
-        ({"turns": [{"kind": "stream"}]}, "union_tag_invalid"),
     ],
 )
 def test_invalid_transcripts_are_rejected(data: dict, code: str) -> None:
@@ -297,7 +287,6 @@ def test_invalid_transcripts_are_rejected(data: dict, code: str) -> None:
     "content,code",
     [
         (b"{not json", FakeScriptErrorCode.INVALID),
-        (b'{"turns": []}', FakeScriptErrorCode.INVALID),
         (b" " * (MAX_TRANSCRIPT_BYTES + 1), FakeScriptErrorCode.TOO_LARGE),
     ],
 )

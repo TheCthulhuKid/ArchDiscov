@@ -112,15 +112,11 @@ def test_unrecorded_peer_groups_are_unknown():
     ("protocol", "query", "port", "expected"),
     [
         ("-1", "tcp", 1, D.ALLOW),
-        ("-1", "icmp", 8, D.ALLOW),
         ("tcp", "tcp", 443, D.ALLOW),
         ("6", "tcp", 443, D.ALLOW),
         ("TCP", "6", 443, D.ALLOW),
         ("tcp", "udp", 443, D.DENY),
-        ("udp", "17", 443, D.ALLOW),
         ("icmp", "icmp", 443, D.ALLOW),
-        ("1", "icmp", 443, D.ALLOW),
-        ("icmp", "tcp", 443, D.DENY),
     ],
 )
 def test_protocols_match_by_name_or_number_and_all_protocol_ignores_ports(

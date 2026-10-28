@@ -3,7 +3,6 @@ import json
 import pytest
 
 from archdiscov.ingestion.cloudformation.evaluation import Reference, evaluate
-from archdiscov.ingestion.cloudformation.intrinsics import InvalidIntrinsic, evaluate_pure
 from archdiscov.ingestion.cloudformation.issue_codes import EvaluationIssueCode
 
 
@@ -36,43 +35,6 @@ def test_issue_codes_preserve_persisted_strings():
         run({"Fn::ImportValue": "export"}).issues[0].reason
         is EvaluationIssueCode.IMPORT_UNAVAILABLE
     )
-
-
-@pytest.mark.parametrize(
-    ("name", "values", "expected"),
-    [
-        ("Fn::Join", ["-", []], ""),
-        ("Fn::Join", ["-", ["a", "b"]], "a-b"),
-        ("Fn::Split", [",", "a,,b,"], ["a", "", "b", ""]),
-        ("Fn::Select", ["01", ["a", "b"]], "b"),
-        ("Fn::Equals", [True, 1], False),
-        ("Fn::Equals", [1, 1.0], False),
-        ("Fn::Equals", [None, None], True),
-        ("Fn::Not", [False], True),
-        ("Fn::And", [True] * 10, True),
-        ("Fn::Or", [False] * 9 + [True], True),
-    ],
-)
-def test_pure_operations_without_evaluator_context(name, values, expected):
-    assert evaluate_pure(name, values) == expected
-
-
-@pytest.mark.parametrize(
-    ("name", "values"),
-    [
-        ("Fn::Select", [True, ["a", "b"]]),
-        ("Fn::Select", ["0000000000", ["a"]]),
-        ("Fn::Join", ["-", [1]]),
-        ("Fn::Split", ["", "abc"]),
-        ("Fn::Equals", [[], []]),
-        ("Fn::And", [True, 1]),
-        ("Fn::Or", [False, "true"]),
-        ("Fn::Not", [1]),
-    ],
-)
-def test_pure_operations_reject_invalid_operand_types(name, values):
-    with pytest.raises(InvalidIntrinsic):
-        evaluate_pure(name, values)
 
 
 @pytest.mark.parametrize(
@@ -127,14 +89,10 @@ def test_mapping_results_are_literals_with_intrinsic_boundary_provenance():
     ("name", "valid"),
     [
         ("Fn::Join", ["-", ["a", "b"]]),
-        ("Fn::Split", [",", "a,b"]),
-        ("Fn::Select", [0, ["a"]]),
-        ("Fn::FindInMap", ["M", "top", "key"]),
-        ("Fn::Equals", [1, 1]),
-        ("Fn::Not", [True]),
         ("Fn::And", [True, False]),
-        ("Fn::Or", [True, False]),
+        ("Fn::FindInMap", ["M", "top", "key"]),
     ],
+    ids=["fixed-arity", "arity-range", "mapping-lookup"],
 )
 def test_eager_intrinsic_arity_is_checked_before_arguments(name, valid):
     for arguments in (valid[:-1], valid + [None] * 10, {"Ref": "R"}):

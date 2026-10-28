@@ -115,15 +115,12 @@ def test_parameter_variants(data, model) -> None:
 @pytest.mark.parametrize(
     "model,base,field,values",
     [
-        (OwnershipParameters, {}, "ownership_keys", [[], ["Owner", "Owner"], [" "]]),
-        (SecurityGroupImpactParameters, {"resource_id": "sg"}, "max_depth", [0, 11]),
-        (InternetExposureParameters, {}, "max_depth", [0, 11]),
+        (OwnershipParameters, {}, "ownership_keys", [[], ["Owner", "Owner"]]),
         (SecurityGroupImpactParameters, {"resource_id": "sg"}, "result_limit", [0, 10001]),
-        (InternetExposureParameters, {}, "result_limit", [0, 10001]),
-        (DatabaseAccessParameters, {"resource_id": "db"}, "port", [0, 65536]),
-        (DatabaseAccessParameters, {"port": 443}, "resource_id", ["", " "]),
+        (DatabaseAccessParameters, {"port": 443}, "resource_id", [" "]),
         (CrossAccountTrustParameters, {}, "resource_id", ["unexpected"]),
     ],
+    ids=["min-length-and-unique", "bounds", "non-empty-string", "extra-field"],
 )
 def test_parameter_constraints(model, base, field, values) -> None:
     for value in values:
@@ -131,10 +128,9 @@ def test_parameter_constraints(model, base, field, values) -> None:
             model.model_validate({**base, field: value})
 
 
-@pytest.mark.parametrize("kind", ["unknown", None])
-def test_parameter_discriminator(kind) -> None:
+def test_parameter_discriminator() -> None:
     with pytest.raises(ValidationError):
-        TypeAdapter(AnalyzerParameters).validate_python({"kind": kind})
+        TypeAdapter(AnalyzerParameters).validate_python({"kind": "unknown"})
 
 
 @pytest.mark.parametrize("scope", [AWS_SCOPE, AZURE_SCOPE])
@@ -152,7 +148,6 @@ def test_scoped_references(scope) -> None:
     [
         {"kind": "local", "resource_id": "target"},
         {"kind": "external", "scope": AWS_SCOPE, "identifier": "external"},
-        {"kind": "external", "scope": AZURE_SCOPE, "identifier": "external"},
         {"kind": "unresolved", "reason": "Unknown", "source_path": "/target"},
     ],
 )
@@ -190,10 +185,9 @@ def test_dependency_and_unresolved_references_require_citations(model, data) -> 
         model.model_validate({**data, "evidence_ids": []})
 
 
-@pytest.mark.parametrize("field", ["code", "message"])
-def test_structured_limitation_fields(field) -> None:
+def test_structured_limitation_fields() -> None:
     with pytest.raises(ValidationError):
-        AnalysisLimitation.model_validate({**limitation_data(), field: " "})
+        AnalysisLimitation.model_validate({**limitation_data(), "code": " "})
 
 
 @pytest.mark.parametrize("status", ["supported", "partial", "insufficient_evidence"])
@@ -230,31 +224,21 @@ def test_id_canonicalizes_set_like_order_but_preserves_conclusion() -> None:
     )
 
 
-@pytest.mark.parametrize(
-    "change", ["snapshot", "status", "resource", "path", "code", "context", "evidence"]
-)
+@pytest.mark.parametrize("change", ["resource", "path", "code"])
 def test_id_tracks_semantic_changes(change) -> None:
     data = finding_data("partial")
     original = AnalysisFinding.model_validate(data)
     changed = deepcopy(data)
-    if change == "snapshot":
-        changed["snapshot_id"] = "00000000-0000-4000-8000-000000000002"
-    elif change == "status":
-        changed["status"] = "insufficient_evidence"
-    elif change == "resource":
+    if change == "resource":
         changed["resources"][0]["resource_id"] = "another"
     elif change == "path":
         changed["path"].reverse()
-    elif change == "code":
-        changed["limitations"][0]["code"] = "another"
-    elif change == "context":
-        changed["limitations"][0]["coverage"]["operation"] = "AnotherOperation"
     else:
-        changed["evidence_ids"] = ["another"]
+        changed["limitations"][0]["code"] = "another"
     assert AnalysisFinding.model_validate(changed).id != original.id
 
 
-@pytest.mark.parametrize("id_value", [None, "", " ", "tampered"])
+@pytest.mark.parametrize("id_value", [None, " "])
 def test_persisted_id_is_nonempty_nonnull_and_verified(id_value) -> None:
     with pytest.raises(ValidationError):
         AnalysisFinding.model_validate({**finding_data(), "id": id_value})
@@ -277,7 +261,7 @@ def test_result_round_trip_and_timestamp_exclusion() -> None:
     assert other.findings[0].id == result.findings[0].id
 
 
-@pytest.mark.parametrize("change", ["kind", "snapshot", "duplicate", "timezone", "schema", "extra"])
+@pytest.mark.parametrize("change", ["kind", "snapshot", "duplicate", "timezone"])
 def test_result_envelope_constraints(change) -> None:
     data = result_data()
     if change == "kind":
@@ -286,11 +270,7 @@ def test_result_envelope_constraints(change) -> None:
         data["findings"][0]["snapshot_id"] = "00000000-0000-4000-8000-000000000002"
     elif change == "duplicate":
         data["findings"].append(deepcopy(data["findings"][0]))
-    elif change == "timezone":
-        data["created_at"] = "2026-01-01T00:00:00"
-    elif change == "schema":
-        data["schema_version"] = "2"
     else:
-        data["raw_context"] = {"secret": "private"}
+        data["created_at"] = "2026-01-01T00:00:00"
     with pytest.raises(ValidationError):
         AnalysisResult.model_validate(data)

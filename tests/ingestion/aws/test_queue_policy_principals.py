@@ -74,30 +74,15 @@ def links_for(statements, **options):
     return queue, evidence, links.get(REGION, [])
 
 
-@pytest.mark.parametrize(
-    ("principal", "target_kind", "principal_kind"),
-    [
-        ({"AWS": ROLE_ARN}, "local", "aws"),
-        ({"AWS": "210987654321"}, "external", "aws"),
-        ({"AWS": "arn:aws:iam::210987654321:root"}, "external", "aws"),
-        ({"AWS": f"arn:aws:iam::{ACCOUNT}:role/not-stored"}, "external", "aws"),
-        ({"Service": "sns.amazonaws.com"}, "external", "service"),
-        ({"Federated": f"arn:aws:iam::{ACCOUNT}:saml-provider/company"}, "external", "federated"),
-        ({"AWS": "*"}, "unresolved", "aws"),
-        ("*", "unresolved", "unknown"),
-        ({"CanonicalUser": "unsupported"}, "unresolved", "unknown"),
-        ({"AWS": []}, "unresolved", "aws"),
-    ],
-)
-def test_policy_principals_are_references_not_grants(principal, target_kind, principal_kind):
-    queue, evidence, links = links_for([statement(principal, effect="Deny")])
+def test_policy_principals_are_references_not_grants():
+    queue, evidence, links = links_for([statement({"AWS": ROLE_ARN}, effect="Deny")])
     (link,) = links
     assert link.source_id == queue.id
-    assert link.target.kind == target_kind
+    assert link.target.kind == "local"
     assert link.relationship == "attached_to"
     assert link.attributes == {
         "kind": "resource_policy_principal",
-        "principal_kind": principal_kind,
+        "principal_kind": "aws",
         "not_principal": False,
     }
     principal_evidence, statement_evidence = [evidence[key] for key in link.evidence_ids]

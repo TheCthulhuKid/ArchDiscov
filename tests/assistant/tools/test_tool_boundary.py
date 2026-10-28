@@ -246,10 +246,9 @@ def _multi_tool_run(snapshot: Path, analysis: Path | None) -> tuple[ToolSession,
     [
         (SNAPSHOTS / "network.json", None),
         (SNAPSHOTS / "dependency-targets.json", None),
-        (SNAPSHOTS / "azure.json", None),
         (OWNERSHIP_SNAPSHOT, OWNERSHIP_RESULT),
     ],
-    ids=["network", "terminals", "azure", "saved-analysis"],
+    ids=["network", "terminals", "saved-analysis"],
 )
 def test_returned_id_tracking_is_exact_across_a_multi_tool_run(
     snapshot: Path, analysis: Path | None

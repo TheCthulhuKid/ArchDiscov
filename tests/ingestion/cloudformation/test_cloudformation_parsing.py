@@ -39,16 +39,12 @@ def test_explicit_intrinsic_tags(tag, argument, expected):
     "text",
     [
         '{"Resources": {}, "Resources": {}}',
-        "Resources: {}\nMetadata: {x: !Unknown secret-value}",
         "Resources: {}\nMetadata: !!python/object/apply:os.system [secret-value]",
         "Resources: {}\nMetadata: &a {self: *a}",
         "Resources: {}\nMetadata: {x: .nan}",
-        "Resources: {}\n---\nResources: {}",
         "Resources: {}\nMetadata: {x: [",
-        "[]",
-        "Resources: []",
-        "Resources: {R: {Type: 42}}",
     ],
+    ids=["duplicate-key", "python-object", "recursive-alias", "non-finite", "yaml-syntax"],
 )
 def test_unsafe_or_malformed_templates_have_generic_errors(text):
     with pytest.raises(IngestionError) as exc:

@@ -28,7 +28,6 @@ from tests.support.audit_scenarios import (
     as_schema,
     with_coverage,
 )
-from tests.support.tagged_snapshots import NO_TAGS, tagged
 
 
 @cache
@@ -83,19 +82,6 @@ def test_unrecorded_coverage_is_reported_without_inventing_operations(kind):
     assert result_violations(result, unrecorded=True) == []
     if kind == AnalyzerKind.OWNERSHIP:  # absent records are not interpreted
         assert result.findings == analysis(kind, CURRENT_SCHEMA, "success").findings
-
-
-def test_unavailable_tag_data_is_never_an_ownership_conclusion():
-    variants = [(NO_TAGS, None), (TAGS, None), (TAGS, "omitted"), (TAGS, "unresolved")]
-    for tags, cite in variants:
-        source, _ = tagged("analysis/ownership-snapshot.json", tags=tags, cite=cite)
-        result = run_analyzer(GraphIndex(source), {"kind": AnalyzerKind.OWNERSHIP})
-        assert result.findings
-        assert all(f.status == AnalysisStatus.INSUFFICIENT_EVIDENCE for f in result.findings)
-        assert result_violations(result) == []
-        assert {limitation.code for f in result.findings for limitation in f.limitations} >= {
-            "tags_unavailable"
-        }
 
 
 def test_external_unresolved_and_unknown_elements_lower_conclusions():

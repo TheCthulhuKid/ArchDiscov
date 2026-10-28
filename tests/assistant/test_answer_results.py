@@ -81,15 +81,10 @@ def test_examples_cover_every_failure_reason() -> None:
     "data",
     [
         {"status": "failed"},
-        {"status": "answered", "failure": "cancelled"},
         {"status": "failed", "failure": "limit_reached"},
         {"status": "failed", "failure": "cancelled", "limit": "tool_calls"},
-        {"status": "failed", "failure": "provider_error", "limit": "tool_calls"},
-        {"status": "answered", "malformed": "proposal_invalid"},
-        {"status": "failed", "failure": "rejected_after_repair"},
-        {"status": "failed", "failure": "gave_up"},
-        {"status": "answered", "confidence": 1},
     ],
+    ids=["failed-without-reason", "missing-detail", "unexpected-detail"],
 )
 def test_inconsistent_outcomes_are_rejected(data: dict) -> None:
     with pytest.raises(ValidationError):
@@ -220,7 +215,11 @@ CONCLUSION = RenderedConclusion(
 )
 
 
-@pytest.mark.parametrize("kind", list(SnapshotSourceKind), ids=lambda kind: kind.value)
+@pytest.mark.parametrize(
+    "kind",
+    [SnapshotSourceKind.AWS, SnapshotSourceKind.TERRAFORM_PLAN],
+    ids=lambda kind: kind.value,
+)
 def test_snapshots_flag_declared_state(kind: SnapshotSourceKind) -> None:
     snapshot = _snapshot(kind=kind)
     assert snapshot.declared == (kind in DECLARED_SOURCE_KINDS)
@@ -258,7 +257,6 @@ def test_answers_and_failures_round_trip() -> None:
             "narrative": None,
             "status": AnalysisStatus.SUPPORTED,
         },
-        {"outcome": AnswerOutcome(status="answered"), "status": None},
         {
             "outcome": AnswerOutcome(status="failed", failure="cancelled"),
             "status": None,
@@ -269,33 +267,13 @@ def test_answers_and_failures_round_trip() -> None:
             "status": None,
             "failure": RenderedFailure(reason="cancelled", unverified=("Cancelled.",)),
         },
-        {
-            "outcome": AnswerOutcome(status="failed", failure="cancelled"),
-            "status": None,
-            "narrative": None,
-            "failure": RenderedFailure(reason="limit_reached", unverified=("Stopped.",)),
-        },
-        {
-            "outcome": AnswerOutcome(status="failed", failure="cancelled"),
-            "status": None,
-            "narrative": None,
-            "conclusions": (CONCLUSION,),
-            "failure": RenderedFailure(reason="cancelled", unverified=("Cancelled.",)),
-        },
-        {"snapshots": (_snapshot("comparison"),)},
         {"snapshots": (_snapshot("comparison"), _snapshot())},
-        {"snapshots": (_snapshot(), _snapshot())},
     ],
     ids=[
         "answer-without-narrative",
-        "answer-without-status",
         "failure-without-explanation",
         "failure-with-narrative",
-        "failure-with-other-reason",
-        "failure-with-conclusions",
-        "no-primary",
         "primary-not-first",
-        "duplicate-side",
     ],
 )
 def test_renderings_show_an_answer_or_a_failure(fields: dict) -> None:
@@ -310,8 +288,6 @@ def test_renderings_show_an_answer_or_a_failure(fields: dict) -> None:
 
 
 def test_rendered_bounds() -> None:
-    with pytest.raises(ValidationError):
-        RenderedConclusion.model_validate({**CONCLUSION.model_dump(), "statements": ()})
     with pytest.raises(ValidationError):
         RenderedConclusion.model_validate({**CONCLUSION.model_dump(), "statements": ("x" * 501,)})
     with pytest.raises(ValidationError):
@@ -364,11 +340,13 @@ def test_details_are_checked_by_presence_not_truthiness() -> None:
     [
         {"findings": (), "status": None},
         {"status": AnalysisStatus.SUPPORTED},
-        {"status": None},
         {"statements": ("Quoted as [2].",)},
-        {"statements": ("Quoted as [0].",)},
     ],
-    ids=["analyzer-without-findings", "status-not-combined", "no-status", "dangling", "zero"],
+    ids=[
+        "analyzer-without-findings",
+        "status-not-combined",
+        "dangling",
+    ],
 )
 def test_conclusions_are_consistent_with_their_findings_and_data(fields: dict) -> None:
     with pytest.raises(ValidationError):

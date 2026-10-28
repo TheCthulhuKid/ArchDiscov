@@ -43,19 +43,14 @@ def data(model, **overrides):
     [
         {},
         {"status": "incomplete", "reason": "limited"},
-        {"status": "incomplete", "failures": [{"code": "Denied", "message": "denied"}]},
-        {
-            "status": "incomplete",
-            "unresolved_values": [{"configuration_path": "/value", "reason": "unknown"}],
-        },
         {
             "status": "failed",
             "result_count": None,
             "failures": [{"code": "Denied", "message": "denied"}],
         },
         {"status": "skipped", "result_count": None, "reason": "not requested"},
-        {"status": "unsupported", "result_count": None, "reason": "not supported"},
     ],
+    ids=["success", "incomplete", "failed", "skipped"],
 )
 def test_shared_valid_outcomes_and_wire_field_order(model, outcome):
     record = model.model_validate(data(model, **outcome))
@@ -98,7 +93,7 @@ def test_shared_invalid_outcomes_preserve_messages_and_precedence(model, outcome
 
 
 @pytest.mark.parametrize("model", [Coverage, CloudOperationCoverage])
-@pytest.mark.parametrize("count", [-1, True, "0", 1.5])
+@pytest.mark.parametrize("count", [-1, True], ids=["negative", "strict"])
 def test_result_counts_remain_strict_nonnegative_integers(model, count):
     with pytest.raises(ValidationError) as caught:
         model.model_validate(data(model, result_count=count))

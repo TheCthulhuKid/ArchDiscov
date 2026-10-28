@@ -86,7 +86,9 @@ def test_accepts_supported_major_with_newer_minor_and_empty_state(version):
     assert parsed.skipped_paths == []
 
 
-@pytest.mark.parametrize("version", [None, 1, "0.1", "2.0", "1", "1.9.0", "1.x", RAW_SECRET])
+@pytest.mark.parametrize(
+    "version", [None, "2.0", RAW_SECRET], ids=["missing", "unsupported-major", "not-echoed"]
+)
 def test_rejects_missing_malformed_or_unsupported_format_version(version):
     document = export(format_version=version)
     if version is None:

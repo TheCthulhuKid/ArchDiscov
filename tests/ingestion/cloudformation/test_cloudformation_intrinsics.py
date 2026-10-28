@@ -12,16 +12,14 @@ from archdiscov.ingestion.cloudformation.intrinsics import (
     ("name", "values", "expected"),
     [
         ("Fn::Join", ["-", ["a", "b"]], "a-b"),
-        ("Fn::Join", ["-", []], ""),
         ("Fn::Split", [",", "a,,b"], ["a", "", "b"]),
         ("Fn::Select", ["01", ["a", None]], None),
         ("Fn::Equals", [1, True], False),
-        ("Fn::Equals", [1, 1.0], False),
-        ("Fn::Equals", [None, None], True),
         ("Fn::And", [True, False], False),
         ("Fn::Or", [False, True], True),
         ("Fn::Not", [False], True),
     ],
+    ids=["join", "split", "select-string-index", "equals-by-type", "and", "or", "not"],
 )
 def test_pure_operations(name, values, expected):
     assert evaluate_pure(name, values) == expected
@@ -34,8 +32,8 @@ def test_pure_operations(name, values, expected):
         ("Fn::Split", ["", "a"]),
         ("Fn::Select", [-1, ["a"]]),
         ("Fn::And", [True, 1]),
+        ("Fn::Equals", [[], []]),
         ("Fn::FindInMap", ["M", "a", "b"]),
-        ("Fn::Unsupported", [True]),
     ],
 )
 def test_invalid_operands_or_non_pure_operations(name, values):

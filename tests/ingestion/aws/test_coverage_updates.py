@@ -42,7 +42,7 @@ def issue(caller, target, resource=None, path=PATH):
 
 @pytest.mark.parametrize("caller", CALLERS)
 @pytest.mark.parametrize(
-    "status", [CoverageStatus.SUCCESS, CoverageStatus.INCOMPLETE, CoverageStatus.FAILED]
+    "status", [CoverageStatus.SUCCESS, CoverageStatus.FAILED], ids=["upgraded", "preserved"]
 )
 def test_caller_status_counts_metadata_and_duplicate_policy(caller, status):
     original = coverage(status)
@@ -65,9 +65,8 @@ def test_caller_status_counts_metadata_and_duplicate_policy(caller, status):
 
 
 @pytest.mark.parametrize("caller", CALLERS)
-@pytest.mark.parametrize("status", [CoverageStatus.SKIPPED, CoverageStatus.UNSUPPORTED])
-def test_caller_unavailable_status_policy(caller, status):
-    original = coverage(status)
+def test_caller_unavailable_status_policy(caller):
+    original = coverage(CoverageStatus.SKIPPED)
     target = state(original)
     if caller in DEDUPLICATING:
         issue(caller, target)

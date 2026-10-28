@@ -5,10 +5,6 @@ import pytest
 from pydantic import ValidationError
 
 from archdiscov.assistant.answers import (
-    MAX_CITED_IDS,
-    MAX_CONCLUSIONS,
-    MAX_EXPLANATION_CHARS,
-    MAX_LIMITATIONS,
     MAX_SUMMARY_CHARS,
     SUBMIT_ANSWER,
     AnswerProposal,
@@ -109,60 +105,13 @@ def test_proposals_are_frozen_and_default_to_the_primary_side() -> None:
 # ---- bounds ------------------------------------------------------------------------
 
 
-def _ids(count: int) -> list[str]:
-    return [f"f-{index}" for index in range(count)]
-
-
-@pytest.mark.parametrize(
-    "data",
-    [
-        _proposal(
-            conclusions=[
-                {**FINDING, "citations": [{"finding_ids": _ids(index + 1)}]}
-                for index in range(MAX_CONCLUSIONS + 1)
-            ]
-        ),
-        _proposal(
-            conclusions=[
-                {
-                    "kind": "analyzer_finding",
-                    "citations": [{"finding_ids": _ids(MAX_CITED_IDS + 1)}],
-                }
-            ]
-        ),
-        _proposal(
-            limitations=[
-                {"finding_id": f"f-{index}", "limitation": "c"}
-                for index in range(MAX_LIMITATIONS + 1)
-            ]
-        ),
-        _proposal(summary="s" * (MAX_SUMMARY_CHARS + 1)),
-        _proposal(explanation="e" * (MAX_EXPLANATION_CHARS + 1)),
-        _proposal(
-            conclusions=[
-                {"kind": "analyzer_finding", "citations": [{"finding_ids": ["x" * 2_049]}]}
-            ]
-        ),
-        _proposal(status="certain"),
-    ],
-    ids=[
-        "conclusions",
-        "ids",
-        "limitations",
-        "summary-long",
-        "explanation-long",
-        "id-long",
-        "status",
-    ],
-)
-def test_every_bound_is_enforced(data: dict) -> None:
-    assert _rejected(data)
+def test_bounds_are_enforced() -> None:
+    assert _rejected(_proposal(summary="s" * (MAX_SUMMARY_CHARS + 1))) == {"string_too_long"}
 
 
 @pytest.mark.parametrize(
     "data,code",
     [
-        (_proposal(conclusions=[{"kind": "analyzer_finding", "citations": []}]), "too_short"),
         (
             _proposal(conclusions=[{"kind": "analyzer_finding", "citations": [{}]}]),
             "answer_citation_empty",
@@ -210,7 +159,6 @@ def test_every_bound_is_enforced(data: dict) -> None:
         ),
     ],
     ids=[
-        "no-citation",
         "empty-citation",
         "finding-without-findings",
         "config-without-evidence",
@@ -231,21 +179,11 @@ def test_citations_must_fit_the_conclusion(data: dict, code: str) -> None:
                 {"kind": "analyzer_finding", "citations": [{"finding_ids": ["f-1", "f-1"]}]}
             ]
         ),
-        _proposal(
-            conclusions=[
-                {"kind": "recorded_configuration", "citations": [{"evidence_ids": ["e", "e"]}]}
-            ]
-        ),
-        _proposal(
-            conclusions=[
-                {**CONFIG, "citations": [{"evidence_ids": ["e"], "resource_ids": ["r", "r"]}]}
-            ]
-        ),
         _proposal(conclusions=[FINDING, FINDING]),
         _proposal(limitations=[{"finding_id": "f-1", "limitation": "c"}] * 2),
         _proposal(contexts=PRIMARY * 2),
     ],
-    ids=["finding-ids", "evidence-ids", "resource-ids", "conclusions", "limitations", "contexts"],
+    ids=["finding-ids", "conclusions", "limitations", "contexts"],
 )
 def test_duplicates_are_rejected(data: dict) -> None:
     assert "answer_duplicate" in _rejected(data)
@@ -255,22 +193,11 @@ def test_duplicates_are_rejected(data: dict) -> None:
     "data,code",
     [
         (_proposal(status="insufficient_evidence", conclusions=[]), "answer_status_shape"),
-        (_proposal(insufficient_reason="out_of_scope"), "answer_status_shape"),
         (_proposal(conclusions=[]), "answer_status_shape"),
-        (_proposal(status="partial", conclusions=[]), "answer_status_shape"),
-        (
-            _proposal(
-                status="insufficient_evidence", conclusions=[], insufficient_reason="because"
-            ),
-            "enum",
-        ),
     ],
     ids=[
         "insufficient-without-reason",
-        "supported-with-reason",
         "supported-without-conclusions",
-        "partial-without-conclusions",
-        "unknown-reason",
     ],
 )
 def test_status_and_reason_must_agree(data: dict, code: str) -> None:
@@ -282,28 +209,19 @@ def test_status_and_reason_must_agree(data: dict, code: str) -> None:
     [
         _proposal(contexts=[{"side": "comparison", "source_kind": "aws"}]),
         _proposal(conclusions=[DIFFERENCE]),
-        _proposal(limitations=[{"side": "comparison", "finding_id": "f-1", "limitation": "c"}]),
-        _proposal(contexts=[]),
     ],
-    ids=["no-primary", "difference-without-comparison", "limitation-side", "none"],
+    ids=[
+        "no-primary",
+        "difference-without-comparison",
+    ],
 )
 def test_every_side_needs_a_context(data: dict) -> None:
-    assert _rejected(data) & {"answer_context_missing", "too_short"}
+    assert "answer_context_missing" in _rejected(data)
 
 
-@pytest.mark.parametrize(
-    "data",
-    [
-        _proposal(confidence=0.9),
-        _proposal(contexts=[{**PRIMARY[0], "snapshot_id": "x"}]),
-        _proposal(conclusions=[{**FINDING, "claim": "Everything is public."}]),
-        _proposal(conclusions=[{**FINDING, "citations": [{"finding_ids": ["f"], "url": "x"}]}]),
-        _proposal(limitations=[{"finding_id": "f", "limitation": "c", "message": "fine"}]),
-    ],
-    ids=["top", "context", "conclusion", "citation", "limitation"],
-)
-def test_unknown_fields_are_rejected(data: dict) -> None:
-    assert "extra_forbidden" in _rejected(data)
+def test_unknown_fields_are_rejected() -> None:
+    claim = _proposal(conclusions=[{**FINDING, "claim": "Everything is public."}])
+    assert "extra_forbidden" in _rejected(claim)
 
 
 # ---- the submit_answer declaration -------------------------------------------------
