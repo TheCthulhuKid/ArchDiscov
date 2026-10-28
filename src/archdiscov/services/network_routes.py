@@ -5,13 +5,16 @@ none, the VPC's single observed main table. The best route is the longest matchi
 the query's address family; routes of the other family are not considered. A route whose
 destination is a managed prefix list contributes each recorded entry as a prefix. A route to
 an internet gateway or egress-only internet gateway is a recorded route, not proof of
-internet reachability. NAT, transit gateway, peering, and endpoint targets are unsupported
-and never allow.
+internet reachability. A route to a NAT gateway reaches the internet only through the
+gateway's own subnet's route to an internet gateway. Transit gateway, peering, and endpoint
+targets are unsupported and never allow.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from functools import partial
 from ipaddress import ip_network
 from typing import TYPE_CHECKING
 
@@ -37,6 +40,7 @@ from .network_matching import (
     require_recorded,
     sole_associate,
 )
+from .network_nat import NAT_OPERATIONS, nat_gateway_evidence
 from .network_prefix_lists import PREFIX_LIST_OPERATIONS, resolve_prefix_list
 
 if TYPE_CHECKING:
@@ -48,6 +52,7 @@ _REACH_KINDS = {
     RouteReach.LOCAL: RouteTargetKind.LOCAL,
     RouteReach.INTERNET_GATEWAY: RouteTargetKind.INTERNET_GATEWAY,
     RouteReach.EGRESS_ONLY_INTERNET_GATEWAY: RouteTargetKind.EGRESS_ONLY_INTERNET_GATEWAY,
+    RouteReach.NAT_GATEWAY: RouteTargetKind.NAT_GATEWAY,
 }
 
 
@@ -59,7 +64,6 @@ class _Gateway:
     attachment: AttachmentKind
     state: str
     label: str
-    operation: str
 
 
 _GATEWAYS = {
@@ -68,16 +72,41 @@ _GATEWAYS = {
         AttachmentKind.INTERNET_GATEWAY_ATTACHMENT,
         "available",
         "internet gateway",
-        "DescribeInternetGateways",
     ),
     RouteReach.EGRESS_ONLY_INTERNET_GATEWAY: _Gateway(
         EgressOnlyInternetGateway,
         AttachmentKind.EGRESS_ONLY_INTERNET_GATEWAY_ATTACHMENT,
         "attached",
         "egress-only internet gateway",
-        "DescribeEgressOnlyInternetGateways",
     ),
 }
+# The collection each reach reads beyond the route tables.
+_REACH_OPERATIONS = {
+    RouteReach.LOCAL: frozenset(),
+    RouteReach.INTERNET_GATEWAY: frozenset({"DescribeInternetGateways"}),
+    RouteReach.EGRESS_ONLY_INTERNET_GATEWAY: frozenset({"DescribeEgressOnlyInternetGateways"}),
+    RouteReach.NAT_GATEWAY: NAT_OPERATIONS,
+}
+
+
+@dataclass(frozen=True)
+class RouteHop:
+    """The selected route whose target a handler checks, and what the handler may need."""
+
+    index: GraphIndex
+    subnet: Subnet
+    table: RouteTable
+    citations: list[str]
+    where: str
+    address: str
+
+    def follow(self, subnet_id: str, reach: RouteReach) -> NetworkResult:
+        """The same address's route from another subnet, for a target that forwards it."""
+        return evaluate_subnet_route(self.index, subnet_id, self.address, reach=reach)
+
+
+# Evidence that the selected route's target is usable, or the result that ends the decision.
+type TargetCheck = Callable[[RouteHop], tuple[str, ...] | NetworkResult]
 
 
 def _route_table(
@@ -197,18 +226,13 @@ def _best_route(
     return best[0]
 
 
-def _attachment_evidence(
-    index: GraphIndex,
-    table: RouteTable,
-    citations: list[str],
-    vpc_id: str | None,
-    where: str,
-    gateway_kind: _Gateway,
-) -> tuple[str, ...] | NetworkResult:
-    """Evidence that the route's gateway is recorded as attached to the VPC."""
-    gateway = cited_target(index, table.id, AttachmentKind.ROUTE_TARGET, citations)
+def _attachment_evidence(gateway_kind: _Gateway, hop: RouteHop) -> tuple[str, ...] | NetworkResult:
+    """Evidence that the route's gateway is recorded as attached to the subnet's VPC."""
+    index = hop.index
+    gateway = cited_target(index, hop.table.id, AttachmentKind.ROUTE_TARGET, hop.citations)
     if not isinstance(gateway, gateway_kind.expected):
-        return missing(f"The route's {gateway_kind.label} is not recorded.", element=where)
+        return missing(f"The route's {gateway_kind.label} is not recorded.", element=hop.where)
+    vpc_id = index.parent_id(hop.subnet.id)
     attachments = [
         edge
         for edge in index.outgoing_edges(gateway.id, attachment_kind=gateway_kind.attachment)
@@ -217,10 +241,23 @@ def _attachment_evidence(
     if len(attachments) != 1:
         return missing(
             f"The {gateway_kind.label} is not recorded as {gateway_kind.state} on the VPC.",
-            element=where,
+            element=hop.where,
             resource_id=gateway.id,
         )
     return attachments[0].evidence_ids
+
+
+# How each supported target kind is confirmed; a kind not listed is unsupported.
+_TARGETS: dict[RouteTargetKind, TargetCheck] = {
+    RouteTargetKind.LOCAL: lambda hop: (),
+    RouteTargetKind.INTERNET_GATEWAY: partial(
+        _attachment_evidence, _GATEWAYS[RouteReach.INTERNET_GATEWAY]
+    ),
+    RouteTargetKind.EGRESS_ONLY_INTERNET_GATEWAY: partial(
+        _attachment_evidence, _GATEWAYS[RouteReach.EGRESS_ONLY_INTERNET_GATEWAY]
+    ),
+    RouteTargetKind.NAT_GATEWAY: nat_gateway_evidence,
+}
 
 
 def _inactive_route(
@@ -254,10 +291,10 @@ def _decide(
     subnet: Subnet,
     table: RouteTable,
     association_evidence_ids: tuple[str, ...],
-    target: IpNetwork,
+    address: str,
     reach: RouteReach,
 ) -> NetworkResult:
-    best = _best_route(index, table, target)
+    best = _best_route(index, table, parse_network(address))
     if isinstance(best, Undecided):
         return best.result(element=_ELEMENT, resource_id=table.id)
     if best is None:
@@ -274,20 +311,19 @@ def _decide(
     extra = (*association_evidence_ids, *(best.entry_evidence_ids or ()))
     if inactive := _inactive_route(route, citations, extra, where, table):
         return inactive
-    if route.target_kind not in _REACH_KINDS.values():
+    check = _TARGETS.get(route.target_kind)
+    if check is None:
         return unsupported(
             f"A {route.target_kind} route target is unsupported.",
             element=where,
             resource_id=table.id,
         )
     allowed = route.target_kind == _REACH_KINDS[reach]
-    if allowed and reach in _GATEWAYS:
-        attachment = _attachment_evidence(
-            index, table, citations, index.parent_id(subnet.id), where, _GATEWAYS[reach]
-        )
-        if isinstance(attachment, NetworkResult):
-            return attachment
-        extra = (*extra, *attachment)
+    if allowed:
+        confirmed = check(RouteHop(index, subnet, table, citations, where, address))
+        if isinstance(confirmed, NetworkResult):
+            return confirmed
+        extra = (*extra, *confirmed)
     return cited_decision(
         allowed,
         citations,
@@ -308,8 +344,9 @@ def evaluate_subnet_route(
 
     Allows when the longest-prefix route is active and leads to `reach`: a local target, an
     internet gateway recorded as available and attached to the subnet's VPC, or an
-    egress-only internet gateway recorded as attached to it. An egress-only gateway carries
-    outbound traffic only, so callers ask for it only for outbound traffic. Denies when no
+    egress-only internet gateway recorded as attached to it, or a public NAT gateway whose
+    own subnet routes the address to an internet gateway. Egress-only and NAT gateways carry
+    outbound traffic only, so callers ask for them only for outbound traffic. Denies when no
     route matches, the best route is a blackhole, or it leads elsewhere among the supported
     targets. Cites the route, the association, and the gateway attachment. Limited
     route-table collection (and collection of the queried gateway kind, and of prefix lists
@@ -323,16 +360,13 @@ def evaluate_subnet_route(
     subnet = require_recorded(index, subnet_id, Subnet, "subnet")
     if isinstance(subnet, NetworkResult):
         return subnet
-    gateway_kind = _GATEWAYS.get(reach)
-    operations = ROUTE_OPERATIONS | ({gateway_kind.operation} if gateway_kind else set())
+    operations = ROUTE_OPERATIONS | _REACH_OPERATIONS[reach]
     selection = _route_table(index, subnet)
     if isinstance(selection, NetworkResult):
         outcome = selection
     else:
         table, association_evidence_ids = selection
-        outcome = _decide(
-            index, subnet, table, association_evidence_ids, parse_network(address), reach
-        )
+        outcome = _decide(index, subnet, table, association_evidence_ids, address, reach)
         # A prefix-list route depends on the list's reads, so a limited read is never taken
         # for an empty list.
         if any(_prefix_list_id(route) is not None for route in table.routes):

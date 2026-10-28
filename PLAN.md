@@ -472,7 +472,115 @@ Implement and verify substeps 52.1–52.6 in order. Keep the parent planned unti
 
 **Advice:** Bound the hops: a path crosses at most one transit gateway, or one peering connection, plus local routes. A deeper chain is `unknown` and says so, rather than searching the graph.
 
-**Acceptance check:** Each route kind decides `allow`, `deny`, and `unknown` cases from fixtures with every hop cited; blackhole, pending, and deleted states deny or are `unknown` as recorded; a cross-account hop is `unknown`; existing local and internet-gateway route results are unchanged.
+**Acceptance check:** Each route kind decides `allow`, `deny`, and `unknown` cases from fixtures with every hop cited; blackhole, pending, and deleted states deny or are `unknown` as recorded; a cross-account hop is `unknown`; existing local and internet-gateway route results are unchanged apart from the cases 53.1 lists.
+
+Implement and verify substeps 53.1–53.7 in order. Keep the parent planned until every substep's acceptance checks pass.
+
+**Where things go:**
+- Route selection stays in `services/network_routes.py`. The selected route's target is decided through one table of target handlers keyed by `RouteTargetKind` (local, internet gateway, and egress-only gateway today), so each new kind adds a handler instead of another branch in `_decide`.
+- The handlers for each new kind live in their own modules, because each needs its own state rules: `network_nat.py`, `network_peering.py`, `network_transit.py`, and `network_endpoints.py`. The composed two-subnet route goes in `network_composition.py`.
+- New `RouteReach` members in `models/enums.py` for the questions that name a kind (`NAT_GATEWAY` for outbound internet through NAT, `VPC_ENDPOINT`). A hop into another VPC answers a different question: does the best route for this address lead into VPC V? It is a new primitive, `evaluate_vpc_route(index, subnet_id, address, vpc_id)`, added in 53.2 and extended in 53.4. It allows the local route when V is the subnet's own VPC, or one peering or transit gateway hop into V.
+- Tests beside the existing ones in `tests/network/`, built from `egress-gateways.json`, `vpc-peering.json`, `transit-gateway.json`, and `endpoints-and-prefix-lists.json`. Each fixture records only one direction today, so each substep adds the subnets, associations, return routes, and gateways its decisions need, each one cited. Generalize `tests/support/prefix_list_data.py` into one fixture-editing helper (`edited_index(fixture, changes)`) so state, account, and blackhole variants are edits of the recorded fixture, not new fixtures.
+- Each substep updates `docs/network-path-primitives.md`'s tables and coverage for what it decides.
+
+**What is reused:**
+- `_best_route` and its tie and partial-coverage rules (52.5), `cited_target` to follow a route to its target by citation, `_attachment_evidence` and the `_GATEWAYS` table, `cited_decision`, `qualify_coverage`, `all_of` and `any_of`, and the bounded-address handling.
+- The relationships and fields from steps 49–50: `nat_gateway_subnet`, the two peering VPC edges, the transit gateway attachment, association, and propagation edges with their states, `endpoint_route_table`, `endpoint_interface`, and `endpoint_security_group`, plus `routes_complete` and `TransitGatewayRoute.route_type`.
+
+**Advice:**
+- One rule for every state: a recorded state that carries traffic continues the hop. A recognized state that carries none (blackhole, pending, deleted, rejected, and so on) denies, citing the state. A missing or unrecognized state is `unknown`. Each substep lists its element's states in a lookup table, checked against the AWS API reference when it is implemented, since AWS adds states.
+- Another account's element is `unknown` with a blocker naming it and the account, as is an element outside the snapshot (the open question above stays settled: snapshots are not composed).
+- Qualify each hop by the collection operations it read: `DescribeNatGateways`, `DescribeVpcPeeringConnections`, the transit gateway reads, and `DescribeVpcEndpoints`.
+- Re-run the scratch analyzer comparison from 52.6 after each substep that can change a result. A change is allowed only where 53.1 lists it.
+
+#### Step 53.1: Route-target handlers and NAT gateways
+**Status:** Implemented. **Settled (accepted 2026-10-28):** a supported target kind that a question does not ask for is a cited deny ("leads elsewhere"), not `unknown`. **Refactor:** `_decide` now finds the selected route's target check in `_TARGETS`, a table keyed by `RouteTargetKind`. Each check takes a `RouteHop` (the subnet, table, route citations, element, and address, plus `follow` to ask the same address from another subnet) and returns the evidence confirming the target, or the result that ends the decision. `_attachment_evidence` is the check for both gateway kinds, collection operations per reach come from one `_REACH_OPERATIONS` table, and `_Gateway` lost its `operation` field. With only the existing kinds, the full suite and the analyzer comparison were unchanged. **NAT gateways:** `RouteReach.NAT_GATEWAY` is new. `services/network_nat.py` has `nat_gateway_evidence`. Using the `DescribeNatGateways` state table, `available` carries traffic; `failed`, `deleting`, and `deleted` deny citing `/state`; and `pending` or an unrecorded state is `unknown`. A private gateway denies citing `/connectivity`, and missing connectivity or address is `unknown`. Otherwise the gateway's `nat_gateway_subnet` must route the same address to an available, attached internet gateway (`RouteHop.follow`, one level, which cannot recurse). The allow cites the route, the association, the gateway's state, connectivity, and addresses, the subnet edge, and the onward route, association, and gateway attachment. `DescribeNatGateways` qualifies a NAT question. `network_nat` imports `RouteHop` for type hints only, so the modules do not import each other at runtime. **Listed change:** an internet-gateway or local question whose best route leads to a NAT gateway was `unknown` (`unsupported_element`) and is now a cited deny. In the analyzers, internet exposure of a public address in a subnet routed through NAT is now a denial (`test_exposure_addresses.py`'s test renamed and updated). The scratch analyzer comparison against the code before 53.1 (132 runs) shows no other change: no fixture analyzer run reaches a NAT route. **Fixture and helper:** `egress-gateways.json` gained `subnet-private` on `rtb-private`, `rtb-public` on `subnet-public` with a cited route to the new `igw-egress`, and that gateway's `available` attachment. `tests/support/prefix_list_data.py` became `tests/support/fixture_edits.py` (`edited_index(fixture, changes, without=...)`), where `without` drops dependencies citing given evidence. The two prefix-list test modules bind it with `partial`. **Tests:** `tests/network/test_nat_gateways.py` covers the cited allow from `subnet-private` and the inbound deny; deleted, pending, and private gateways; and a NAT subnet without a route table (`unknown`). In `test_subnet_routes.py`, the NAT case left the unsupported-targets test, and the longest-prefix test now asserts the selected NAT route denies an internet-gateway question. The composition test's call counts rose by one per subnet for the new reach. **Docs:** the primitives page (description, routes row, summary), `docs/internet-exposure.md`, `docs/database-access.md`, and `docs/analyzers.md`.
+**Prerequisite:** Step 52.
+
+- **Settled (accepted 2026-10-28).** Today a best route to a NAT gateway, peering connection, transit gateway, or endpoint is `unsupported`, so an internet-gateway or local question whose best route leads there is `unknown`. Once a kind is supported, the route "leads elsewhere" and the question denies, citing the route. For example, internet exposure of a resource in a private subnet behind NAT changes from `unknown` to a cited deny. The plan recommends this: the `unknown` came from an unsupported element, not from missing configuration, as in 52.1. List each changed case in the substep that adds the kind, and confirm with the analyzer comparison that nothing else changed.
+- Refactor `_decide` so the selected route's target is decided by a handler table keyed by `RouteTargetKind`, with no change in behaviour: the full suite and the analyzer comparison are unchanged before any new kind is added.
+- Add `RouteReach.NAT_GATEWAY` for outbound internet traffic through NAT. A route to a NAT gateway reaches the internet only when the gateway is stored, `public` connectivity, in a carrying state (`available`), and records a public address, and when its own subnet (`nat_gateway_subnet`) routes the same address to an available, attached internet gateway (a nested `evaluate_subnet_route(..., reach=INTERNET_GATEWAY)`, which cannot recurse further). The decision cites the route, the gateway's state and address, and the NAT subnet's route and gateway attachment.
+- A private NAT gateway never reaches the internet: deny, citing its connectivity. A NAT gateway never allows inbound traffic, because inbound questions ask for an internet gateway, and a NAT route then leads elsewhere.
+
+**Advice:** Use the gateway state list from the `DescribeNatGateways` API reference (`pending`, `failed`, `available`, `deleting`, `deleted`): `pending` is `unknown`, and `failed`, `deleting`, and `deleted` deny.
+
+**Acceptance check:** `egress-gateways.json`, extended with a private subnet on `rtb-private` and a public subnet whose table routes to an attached internet gateway, reaches the internet through `nat-public` with every hop cited. A failed or deleted gateway denies, a pending one and a NAT subnet without a recorded route are `unknown`, a private NAT gateway denies, and an internet-gateway question on the private subnet denies (a listed change). Every other existing result is unchanged.
+
+#### Step 53.2: VPC peering hops
+**Status:** Planned.
+**Prerequisite:** Step 53.1.
+
+- Add `evaluate_vpc_route(index, subnet_id, address, vpc_id)`. It allows when the subnet's best route for the address is the local route and `vpc_id` is the subnet's own VPC. Or the route leads to a peering connection whose one side is the subnet's VPC and whose other side is `vpc_id`, and the address lies in that side's recorded CIDRs. The connection must be in a carrying state (`active`). It cites the route, the connection, and its two VPC edges.
+- A connection whose other side is in another account (owner IDs differ) or not stored is `unknown`, naming the connection and account. Peering is not transitive, so traffic is never forwarded out of the peer VPC: the hop ends there.
+- Return traffic is not decided here: the peer side's route back is the reverse question, which 53.6 composes.
+
+**Advice:** Use the `VpcPeeringConnection` status codes from the API reference (`initiating-request`, `pending-acceptance`, `active`, `deleted`, `rejected`, `failed`, `expired`, `provisioning`, `deleting`). Only `active` carries traffic.
+
+**Acceptance check:** `vpc-peering.json`, extended with a subnet in each VPC and `vpc-data`'s return route, allows `vpc-app` to `vpc-data` with the route and connection cited. A `pending-acceptance` or `deleted` connection denies, a cross-account accepter is `unknown` naming the account, and an address outside the peer's CIDRs is not routed into it.
+
+#### Step 53.3: Record transit gateway attachment subnets
+**Status:** Planned.
+**Prerequisite:** Step 50.
+
+- **Settled (accepted 2026-10-28): option (a).** A transit gateway VPC attachment only sends and receives traffic in the Availability Zones where it has a subnet, and the snapshot does not record those subnets (`DescribeTransitGatewayAttachments` does not return them). Without them, a transit gateway allow is not fully cited. The options are: (a) collect `DescribeTransitGatewayVpcAttachments` and record `subnet_ids` on VPC attachments (one more read-only operation, in the allowlist, the published policy, and the importers' `SubnetIds`), or (b) make every transit gateway hop `unknown` for the missing subnet. The plan recommends (a): a hop is then decided from cited configuration, and (b) would leave every transit gateway path `unknown`.
+- With (a): normalize the subnets and cite them, add a `transit_gateway_attachment_subnet` edge from attachment to subnet, and record the operation's coverage. A failed read leaves the subnets unrecorded, never empty.
+
+**Advice:** Follow the 50.5 pattern for a new operation: the allowlist, `docs/aws-permissions.md`, the policy count, and the Stubber-backed collection test. The Terraform resource (`aws_ec2_transit_gateway_vpc_attachment.subnet_ids`) and the CloudFormation property (`SubnetIds`) already carry the subnets for 51.4's importers.
+
+**Acceptance check:** A collected VPC attachment records its subnets with citations, a denied read leaves them unrecorded with limited coverage, the imports record them, and existing collection and import output is otherwise unchanged.
+
+#### Step 53.4: Transit gateway hops
+**Status:** Planned.
+**Prerequisite:** Steps 53.2 and 53.3.
+
+- Extend `evaluate_vpc_route` so it can follow a route to a stored, same-account transit gateway in a carrying state through these steps:
+  - Take the source VPC's attachment to that gateway. It must be in a carrying state and have a subnet in the source subnet's Availability Zone.
+  - Take the attachment's associated transit gateway route table, whose association is recorded as `associated`.
+  - Select the longest-prefix route in that table.
+  - That route must name one VPC attachment to `vpc_id` in a carrying state.
+- The decision cites every element: the VPC route, the attachment, the association, the transit gateway route, and the destination attachment.
+- Transit gateway route priority is recorded (`route_type`), so an equal-length tie follows AWS's order: a static route beats a propagated one. Two routes of the same type at the same length are `unknown`, though rare, since the table shows only each CIDR's preferred route. A blackhole route denies. A table whose `routes_complete` is false is `unknown` unless the selected route is longer than any route the search could have missed, which cannot be known, so it is `unknown`. A route to several attachments (ECMP), to a peering, VPN, or Direct Connect attachment, or a prefix-list destination is `unknown` with the reason: a deeper chain is out of scope.
+- A gateway shared from another account (an external route target) or an attachment owned by another account is `unknown`, naming it.
+
+**Advice:** Check the transit gateway route evaluation order in the AWS documentation again when implementing ([How transit gateways work](https://docs.aws.amazon.com/vpc/latest/tgw/how-transit-gateways-work.html), "Route evaluation order", read 2026-10-28: most specific first, then static, system, prefix-list, and VPC-propagated routes, then the other propagated kinds). The same page states the Availability Zone rule behind 53.3. Reuse `_best_route`'s longest-prefix and partial-coverage logic for transit gateway routes rather than copying it, by extracting the selection over candidate prefixes.
+
+**Acceptance check:** `transit-gateway.json`, extended with subnets, attachment subnets, `vpc-data`'s return route, and its association, allows `vpc-app` to `vpc-data` with every element cited. The fixture's blackhole route denies, an attachment without a subnet in the source zone denies, a missing association or incomplete route search is `unknown`, and `endpoints-and-prefix-lists.json`'s external `tgw-main` is `unknown` naming it.
+
+#### Step 53.5: VPC endpoints
+**Status:** Planned.
+**Prerequisite:** Step 53.1.
+
+- Add `RouteReach.VPC_ENDPOINT`. A route whose destination is a service prefix list and whose target is a stored gateway endpoint reaches it when the following are recorded: the endpoint is in a carrying state (`available`), its type is `gateway`, its `endpoint_route_table` edge names the subnet's route table, and the route's prefix list is that service's list (matching `service_name`). The route is selected by 52.5's prefix-list rules, so an address outside the list's recorded entries does not reach it.
+- An interface endpoint is reached as its ENIs: the endpoint's recorded `network_interface_ids` and `security_group_ids`. Add a small helper that returns them with citations, so callers compose the existing local route, NACL, and security-group primitives; no new route kind is needed.
+- A Gateway Load Balancer, `Resource`, or `ServiceNetwork` endpoint, or one of unknown type, stays `unsupported` (the open question above stays settled for Gateway Load Balancer endpoints; the other two are newer types with no route semantics here).
+
+**Advice:** Use the endpoint state list from the [`VpcEndpoint` API reference](https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_VpcEndpoint.html) (`PendingAcceptance`, `Pending`, `Available`, `Deleting`, `Deleted`, `Rejected`, `Failed`, `Expired`, `Partial`, read 2026-10-28). Compare case-insensitively, because responses are lower-case where the reference capitalizes. `Partial` is `unknown`.
+
+**Acceptance check:** On `endpoints-and-prefix-lists.json` with `pl-s3` entries recorded, an S3 address reaches `vpce-s3` with the route, the entry, the endpoint, and its route-table edge cited. A deleted endpoint denies, an endpoint not associated with the table is `unknown`, and `vpce-sqs` resolves to `eni-vpce` and `sg-endpoint` with citations.
+
+#### Step 53.6: Composed route between two subnets
+**Status:** Planned.
+**Prerequisite:** Step 53.4.
+
+- Add a composition to `network_composition.py`: the source subnet's route to the destination address must lead into the destination VPC, and the destination subnet's route back to the source address must lead into the source VPC. This is `all_of` two `evaluate_vpc_route` calls. Addresses may be exact or bounded by the subnets' CIDRs, as the existing compositions do.
+- Every hop of both directions is cited in the result. A path that would need more than one peering connection or transit gateway is `unknown` and says so.
+- Security groups and NACLs are not part of it: callers compose them, as database access does.
+
+**Advice:** Keep the composition thin: it is two primitive calls and a bound, so the analyzers in step 54 can use it beside `groups_allow` and `nacl_round_trip`.
+
+**Acceptance check:** On the extended peering and transit gateway fixtures, two subnets in different VPCs are allowed in both directions with every hop cited. A missing return route denies, and a cross-account hop in either direction is `unknown`. Two subnets in one VPC give the same result as the local route.
+
+#### Step 53.7: Verify the routes and close the step
+**Status:** Planned.
+**Prerequisite:** Step 53.6.
+
+- Re-run the analyzer comparison against the code before step 53. Every changed result is one 53.1 listed (a question whose best route now leads to a supported kind), and each is named in the status.
+- Confirm that `docs/network-path-primitives.md` describes exactly what is decided, and that the analyzer pages still state their limits (the analyzers adopt these paths in step 54).
+- Run the focused and full offline tests, the acceptance suite, Ruff, and the whitespace check, then review the full change as the Checks section requires.
+
+**Advice:** Keep `unknown` the default: an element these substeps cannot settle from recorded, cited configuration stays `unknown` with a blocker that names it.
+
+**Acceptance check:** Every check passes; analyzer results outside the listed cases are unchanged; the docs match the code; the plan marks step 53 implemented.
 
 ### Step 54: Use the new paths in the existing analyzers
 **Status:** Planned.

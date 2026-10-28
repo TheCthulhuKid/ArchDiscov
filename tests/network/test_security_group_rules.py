@@ -1,3 +1,5 @@
+from functools import partial
+
 import pytest
 
 from archdiscov.graph import GraphIndex
@@ -5,13 +7,14 @@ from archdiscov.models.enums import NetworkBlockerCode, NetworkDecision, RuleDir
 from archdiscov.services import load_snapshot
 from archdiscov.services.network_security_groups import Peer, evaluate_security_group
 from tests.paths import FIXTURES_ROOT
-from tests.support.prefix_list_data import prefix_list_index
+from tests.support.fixture_edits import edited_index
 from tests.support.sg_rule_data import build, group_id, rule
 
 D = NetworkDecision
 B = NetworkBlockerCode
 INGRESS, EGRESS = RuleDirection.INGRESS, RuleDirection.EGRESS
 LOCAL = "10.0.1.5"
+prefix_list_index = partial(edited_index, "endpoints-and-prefix-lists.json")
 
 
 def check(groups, *, direction=INGRESS, peer=None, protocol="tcp", port=443, group="sg-app", **kw):

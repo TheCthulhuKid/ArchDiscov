@@ -184,11 +184,11 @@ def test_load_balancer_scheme_and_forwarding_compose():
 # resources, but the primitives must still not fail).
 AWS_FIXTURES = {
     "aws.json": 0,
-    "network.json": 9,
+    "network.json": 10,
     "load-balancing.json": 2,
-    "hierarchy.json": 5,
+    "hierarchy.json": 6,
     "iam.json": 0,
-    "dependency-targets.json": 5,
+    "dependency-targets.json": 6,
     "partial-coverage.json": 0,
 }
 

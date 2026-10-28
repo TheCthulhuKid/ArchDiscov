@@ -220,13 +220,13 @@ def test_an_acl_entry_covering_only_part_of_the_internet_is_unknown_not_a_denial
 # ---- routing evidence ---------------------------------------------------------------
 
 
-def test_a_public_address_in_a_subnet_routed_through_nat_is_unknown_never_exposed():
+def test_a_public_address_in_a_subnet_routed_through_nat_is_denied_never_exposed():
     enis = [eni("eni-nat", PRIVATE, ["sg-web"], public="198.51.100.40")]
     _, found = evaluate(enis=enis, instances=[{"Instances": []}])
     [only] = [e for e in found["eni-nat"] if e.start == 80]
-    assert decisions(only)[X.ROUTE] == D.UNKNOWN
-    assert only.decision == D.UNKNOWN
-    assert "unsupported_element" in codes(only)
+    # A NAT gateway carries no inbound traffic, so the route is a cited denial.
+    assert decisions(only)[X.ROUTE] == D.DENY
+    assert only.decision == D.DENY
 
 
 def test_missing_route_or_acl_records_are_unknown():

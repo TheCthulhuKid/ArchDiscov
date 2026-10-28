@@ -41,7 +41,7 @@ Each finding names the source and then the database, cites the rules, entries, r
 placement used, and carries a structured `database_access` block (see the
 [vocabulary](analysis-results.md#database-access-vocabulary)). Missing or unsupported
 elements (prefix lists without recorded entries, cross-account references, peering,
-transit gateways, NAT) are `unknown`, never an allow; security-group rules and routes naming
+transit gateways) are `unknown`, never an allow; security-group rules and routes naming
 a prefix list are decided from the list's recorded entries, and IPv6 rules and
 entries never match the IPv4 addresses evaluated. A recorded denial still dominates an
 unknown element.

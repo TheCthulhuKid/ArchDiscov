@@ -277,6 +277,7 @@ class RouteReach(StrEnum):
     LOCAL = "local"
     INTERNET_GATEWAY = "internet_gateway"
     EGRESS_ONLY_INTERNET_GATEWAY = "egress_only_internet_gateway"
+    NAT_GATEWAY = "nat_gateway"
 
 
 class NatConnectivity(StrEnum):

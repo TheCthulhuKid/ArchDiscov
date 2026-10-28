@@ -1,3 +1,5 @@
+from functools import partial
+
 import pytest
 
 from archdiscov.graph import GraphIndex
@@ -5,8 +7,8 @@ from archdiscov.models.enums import NetworkBlockerCode, NetworkDecision, RouteRe
 from archdiscov.services import load_snapshot
 from archdiscov.services.network_routes import evaluate_subnet_route
 from tests.paths import FIXTURES_ROOT
+from tests.support.fixture_edits import edited_index
 from tests.support.network_snapshot import resource_id
-from tests.support.prefix_list_data import prefix_list_index
 from tests.support.route_data import LOCAL, build, egress_only_gateway, gateway, route, table
 
 D = NetworkDecision
@@ -15,6 +17,7 @@ IGW, LOCAL_REACH = RouteReach.INTERNET_GATEWAY, RouteReach.LOCAL
 EIGW = RouteReach.EGRESS_ONLY_INTERNET_GATEWAY
 PUBLIC = "203.0.113.9"
 INSIDE = "10.0.1.5"
+prefix_list_index = partial(edited_index, "endpoints-and-prefix-lists.json")
 
 
 def check(tables, gateways=None, *, address=PUBLIC, reach=IGW, subnet="subnet-1", **kw):
@@ -76,7 +79,9 @@ def test_several_associations_or_main_tables_are_ambiguous():
 
 def test_the_longest_matching_prefix_wins_regardless_of_order():
     nat = route("203.0.113.0/24", None, NatGatewayId="nat-1")
-    assert check([table("rtb-1", [route(), nat], "subnet-1")])[1].decision == D.UNKNOWN
+    # The more specific NAT route is selected, and it does not lead to an internet gateway.
+    selected = check([table("rtb-1", [route(), nat], "subnet-1")])[1]
+    assert (selected.decision, selected.blockers[0].element) == (D.DENY, "route:/routes/1")
     blackhole = route("203.0.113.0/24", "igw-1", "blackhole")
     assert decision([table("rtb-1", [blackhole, route()], "subnet-1")]) == D.DENY
     assert decision([table("rtb-1", [route(), blackhole], "subnet-1")]) == D.DENY
@@ -132,7 +137,6 @@ def test_an_unrecorded_route_state_is_unknown():
 @pytest.mark.parametrize(
     "target",
     [
-        {"target": None, "NatGatewayId": "nat-1"},
         {"target": None, "TransitGatewayId": "tgw-1"},
         {"target": None, "VpcPeeringConnectionId": "pcx-1"},
         {"target": "vpce-1"},
