@@ -2,16 +2,15 @@
 
 A subnet's associated ACL entries are evaluated in rule-number order and the first match
 decides. Traffic matching no entry is denied by the implicit final rule. The ACL must be an
-observed association: no default ACL is assumed. IPv6 entries, unrecognized protocols, and
-entries that could not be recorded give unknown. Both directions of a flow are evaluated
-by separate calls that the caller composes.
+observed association: no default ACL is assumed. Entries of the other address family than
+the query never match. Unrecognized protocols and entries that could not be recorded give
+unknown. Both directions of a flow are evaluated by separate calls that the caller composes.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
-from ipaddress import IPv4Network
 from typing import TYPE_CHECKING
 
 from archdiscov.models.architecture import Subnet
@@ -30,12 +29,13 @@ from .network_decisions import (
     unsupported,
 )
 from .network_matching import (
+    IpNetwork,
     Undecided,
     cited_decision,
     combine,
     implicit_deny,
     normalize_protocol,
-    parse_ipv4_network,
+    parse_network,
     require_recorded,
     screen_cidr,
     screen_protocol,
@@ -55,7 +55,7 @@ class _Query:
 
     acl: NetworkAcl
     association_evidence_ids: tuple[str, ...]
-    network: IPv4Network
+    network: IpNetwork
     protocol: str
     port: int
 
@@ -103,7 +103,7 @@ def evaluate_network_acl(
 ) -> NetworkResult:
     """Decide whether the subnet's associated ACL permits this traffic in one direction.
 
-    `address` is the IPv4 address on the other end (the source for ingress, the
+    `address` is the IPv4 or IPv6 address on the other end (the source for ingress, the
     destination for egress), or a CIDR that bounds an address not known exactly. `protocol`
     is tcp, udp, icmp, or their numbers, and `port` the destination port. Cites the matched
     entry and the association; an implicit deny cites the ACL's own evidence. Limited ACL
@@ -121,7 +121,7 @@ def evaluate_network_acl(
         outcome = association
     else:
         acl, association_evidence_ids = association
-        query = _Query(acl, association_evidence_ids, parse_ipv4_network(address), normalized, port)
+        query = _Query(acl, association_evidence_ids, parse_network(address), normalized, port)
         outcome = first_match(
             query.candidates(direction),
             implicit_deny(

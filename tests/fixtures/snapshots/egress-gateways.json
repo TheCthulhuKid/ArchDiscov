@@ -1,0 +1,474 @@
+{
+  "schema_version": "2",
+  "snapshot_id": "00000000-0000-4000-8000-000000000049",
+  "account_id": "123456789012",
+  "collection_started_at": "2026-10-26T08:00:00Z",
+  "collection_completed_at": "2026-10-26T08:01:00Z",
+  "source": {
+    "kind": "mock",
+    "label": "egress-gateways"
+  },
+  "coverage": {
+    "regions": [
+      "eu-west-1"
+    ],
+    "account_wide": false
+  },
+  "regions": {
+    "eu-west-1": {
+      "resources": [
+        {
+          "identity": {
+            "account_id": "123456789012",
+            "region": "eu-west-1",
+            "service": "ec2",
+            "physical_id": "vpc-egress"
+          },
+          "resource_type": "AWS::EC2::VPC",
+          "cidr_blocks": [
+            "10.1.0.0/16"
+          ],
+          "children": [
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "subnet-public"
+              },
+              "resource_type": "AWS::EC2::Subnet",
+              "availability_zone": "eu-west-1a",
+              "cidr_blocks": [
+                "10.1.0.0/24"
+              ],
+              "children": [
+                {
+                  "identity": {
+                    "account_id": "123456789012",
+                    "region": "eu-west-1",
+                    "service": "ec2",
+                    "physical_id": "nat-public"
+                  },
+                  "resource_type": "AWS::EC2::NatGateway",
+                  "state": "available",
+                  "connectivity": "public",
+                  "vpc_id": "vpc-egress",
+                  "subnet_id": "subnet-public",
+                  "network_interface_id": "eni-nat",
+                  "public_ips": [
+                    "198.51.100.20"
+                  ],
+                  "evidence_ids": [
+                    "nat"
+                  ],
+                  "fact_evidence": {
+                    "/state": [
+                      "nat"
+                    ],
+                    "/connectivity": [
+                      "nat"
+                    ],
+                    "/subnet_id": [
+                      "nat"
+                    ],
+                    "/network_interface_id": [
+                      "nat-address"
+                    ],
+                    "/public_ips/0": [
+                      "nat-address"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "subnet-private"
+              },
+              "resource_type": "AWS::EC2::Subnet",
+              "availability_zone": "eu-west-1a",
+              "cidr_blocks": [
+                "10.1.1.0/24"
+              ],
+              "evidence_ids": [
+                "subnet-private"
+              ]
+            },
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "rtb-private"
+              },
+              "resource_type": "AWS::EC2::RouteTable",
+              "routes": [
+                {
+                  "destination": "10.1.0.0/16",
+                  "target_kind": "local",
+                  "state": "active"
+                },
+                {
+                  "destination": "0.0.0.0/0",
+                  "target_kind": "nat_gateway",
+                  "target_id": "nat-public",
+                  "state": "active"
+                }
+              ],
+              "evidence_ids": [
+                "rtb-private"
+              ],
+              "fact_evidence": {
+                "/routes/1": [
+                  "rtb-private-route-1"
+                ]
+              }
+            },
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "rtb-public"
+              },
+              "resource_type": "AWS::EC2::RouteTable",
+              "routes": [
+                {
+                  "destination": "10.1.0.0/16",
+                  "target_kind": "local",
+                  "state": "active"
+                },
+                {
+                  "destination": "0.0.0.0/0",
+                  "target_kind": "internet_gateway",
+                  "target_id": "igw-egress",
+                  "state": "active"
+                }
+              ],
+              "evidence_ids": [
+                "rtb-public"
+              ],
+              "fact_evidence": {
+                "/routes/1": [
+                  "rtb-public-route-1"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "identity": {
+            "account_id": "123456789012",
+            "region": "eu-west-1",
+            "service": "ec2",
+            "physical_id": "eigw-main"
+          },
+          "resource_type": "AWS::EC2::EgressOnlyInternetGateway",
+          "vpc_id": "vpc-egress",
+          "evidence_ids": [
+            "eigw"
+          ],
+          "fact_evidence": {
+            "/vpc_id": [
+              "eigw-attachment"
+            ]
+          }
+        },
+        {
+          "identity": {
+            "account_id": "123456789012",
+            "region": "eu-west-1",
+            "service": "ec2",
+            "physical_id": "igw-egress"
+          },
+          "resource_type": "AWS::EC2::InternetGateway",
+          "evidence_ids": [
+            "igw"
+          ]
+        }
+      ]
+    }
+  },
+  "dependencies_by_region": {
+    "eu-west-1": [
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/rtb-private",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/nat-public"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_target",
+          "target_kind": "nat_gateway",
+          "destination": "0.0.0.0/0",
+          "state": "active"
+        },
+        "evidence_ids": [
+          "rtb-private-route-1"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/nat-public",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-public"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "nat_gateway_subnet"
+        },
+        "evidence_ids": [
+          "nat"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/nat-public",
+        "target": {
+          "kind": "unresolved",
+          "reason": "eni-nat was not present in the collected results",
+          "source_path": "NatGateways[0].NatGatewayAddresses[0].NetworkInterfaceId"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "nat_gateway_interface"
+        },
+        "evidence_ids": [
+          "nat-address"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/eigw-main",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/vpc-egress"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "egress_only_internet_gateway_attachment",
+          "state": "attached"
+        },
+        "evidence_ids": [
+          "eigw-attachment"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/rtb-private",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-private"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_table_association",
+          "association_id": "rtbassoc-private"
+        },
+        "evidence_ids": [
+          "rtb-private-association"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/rtb-public",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-public"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_table_association",
+          "association_id": "rtbassoc-public"
+        },
+        "evidence_ids": [
+          "rtb-public-association"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/rtb-public",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/igw-egress"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_target",
+          "target_kind": "internet_gateway",
+          "destination": "0.0.0.0/0",
+          "state": "active"
+        },
+        "evidence_ids": [
+          "rtb-public-route-1"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/igw-egress",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/vpc-egress"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "internet_gateway_attachment",
+          "state": "available"
+        },
+        "evidence_ids": [
+          "igw-attachment"
+        ]
+      }
+    ]
+  },
+  "evidence": {
+    "nat": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000049",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/nat-public",
+      "source": "mock",
+      "locator": "egress-gateways.json",
+      "configuration_path": "NatGateways[0]",
+      "value": {
+        "NatGatewayId": "nat-public",
+        "State": "available",
+        "ConnectivityType": "public",
+        "VpcId": "vpc-egress",
+        "SubnetId": "subnet-public"
+      }
+    },
+    "nat-address": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000049",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/nat-public",
+      "source": "mock",
+      "locator": "egress-gateways.json",
+      "configuration_path": "NatGateways[0].NatGatewayAddresses[0]",
+      "value": {
+        "AllocationId": "eipalloc-nat",
+        "NetworkInterfaceId": "eni-nat",
+        "PrivateIp": "10.1.0.10",
+        "PublicIp": "198.51.100.20",
+        "IsPrimary": true
+      }
+    },
+    "eigw": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000049",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/eigw-main",
+      "source": "mock",
+      "locator": "egress-gateways.json",
+      "configuration_path": "EgressOnlyInternetGateways[0]",
+      "value": {
+        "EgressOnlyInternetGatewayId": "eigw-main"
+      }
+    },
+    "eigw-attachment": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000049",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/eigw-main",
+      "source": "mock",
+      "locator": "egress-gateways.json",
+      "configuration_path": "EgressOnlyInternetGateways[0].Attachments[0]",
+      "value": {
+        "State": "attached",
+        "VpcId": "vpc-egress"
+      }
+    },
+    "rtb-private": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000049",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-private",
+      "source": "mock",
+      "locator": "egress-gateways.json",
+      "configuration_path": "RouteTables[0]",
+      "value": {
+        "RouteTableId": "rtb-private",
+        "VpcId": "vpc-egress"
+      }
+    },
+    "rtb-private-route-1": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000049",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-private",
+      "source": "mock",
+      "locator": "egress-gateways.json",
+      "configuration_path": "RouteTables[0].Routes[1]",
+      "value": {
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "NatGatewayId": "nat-public",
+        "State": "active"
+      }
+    },
+    "subnet-private": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000049",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-private",
+      "source": "mock",
+      "locator": "egress-gateways.json",
+      "configuration_path": "Subnets[1]",
+      "value": {
+        "SubnetId": "subnet-private",
+        "VpcId": "vpc-egress",
+        "CidrBlock": "10.1.1.0/24"
+      }
+    },
+    "rtb-private-association": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000049",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-private",
+      "source": "mock",
+      "locator": "egress-gateways.json",
+      "configuration_path": "RouteTables[0].Associations[0]",
+      "value": {
+        "SubnetId": "subnet-private",
+        "RouteTableAssociationId": "rtbassoc-private"
+      }
+    },
+    "rtb-public": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000049",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-public",
+      "source": "mock",
+      "locator": "egress-gateways.json",
+      "configuration_path": "RouteTables[1]",
+      "value": {
+        "RouteTableId": "rtb-public",
+        "VpcId": "vpc-egress"
+      }
+    },
+    "rtb-public-route-1": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000049",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-public",
+      "source": "mock",
+      "locator": "egress-gateways.json",
+      "configuration_path": "RouteTables[1].Routes[1]",
+      "value": {
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "GatewayId": "igw-egress",
+        "State": "active"
+      }
+    },
+    "rtb-public-association": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000049",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-public",
+      "source": "mock",
+      "locator": "egress-gateways.json",
+      "configuration_path": "RouteTables[1].Associations[0]",
+      "value": {
+        "SubnetId": "subnet-public",
+        "RouteTableAssociationId": "rtbassoc-public"
+      }
+    },
+    "igw": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000049",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/igw-egress",
+      "source": "mock",
+      "locator": "egress-gateways.json",
+      "configuration_path": "InternetGateways[0]",
+      "value": {
+        "InternetGatewayId": "igw-egress"
+      }
+    },
+    "igw-attachment": {
+      "snapshot_id": "00000000-0000-4000-8000-000000000049",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/igw-egress",
+      "source": "mock",
+      "locator": "egress-gateways.json",
+      "configuration_path": "InternetGateways[0].Attachments[0]",
+      "value": {
+        "VpcId": "vpc-egress",
+        "State": "available"
+      }
+    }
+  }
+}

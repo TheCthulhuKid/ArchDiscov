@@ -26,8 +26,8 @@ Rules:
 - Attachment is only an explicit membership edge. VPC or subnet containment never
   implies attachment.
 - A group referencing itself is reported once. Prefix-list references are not groups
-  and are skipped. A reference with no recorded rule direction cannot be labelled and
-  becomes a `rule_direction_unrecorded` limitation.
+  and are skipped (step 54 names them with their entries). A reference with no recorded
+  rule direction cannot be labelled and becomes a `rule_direction_unrecorded` limitation.
 - Cross-account or otherwise external references and unresolved references stay
   terminals with `external_target` / `unresolved_target` limitations; no resource is
   invented, and a chain stops at them.

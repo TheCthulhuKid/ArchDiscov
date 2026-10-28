@@ -1,3 +1,5 @@
+from functools import partial
+
 import pytest
 
 from archdiscov.graph import GraphIndex
@@ -5,14 +7,17 @@ from archdiscov.models.enums import NetworkBlockerCode, NetworkDecision, RouteRe
 from archdiscov.services import load_snapshot
 from archdiscov.services.network_routes import evaluate_subnet_route
 from tests.paths import FIXTURES_ROOT
+from tests.support.fixture_edits import edited_index
 from tests.support.network_snapshot import resource_id
-from tests.support.route_data import LOCAL, build, gateway, route, table
+from tests.support.route_data import LOCAL, build, egress_only_gateway, gateway, route, table
 
 D = NetworkDecision
 B = NetworkBlockerCode
 IGW, LOCAL_REACH = RouteReach.INTERNET_GATEWAY, RouteReach.LOCAL
+EIGW = RouteReach.EGRESS_ONLY_INTERNET_GATEWAY
 PUBLIC = "203.0.113.9"
 INSIDE = "10.0.1.5"
+prefix_list_index = partial(edited_index, "endpoints-and-prefix-lists.json")
 
 
 def check(tables, gateways=None, *, address=PUBLIC, reach=IGW, subnet="subnet-1", **kw):
@@ -74,7 +79,9 @@ def test_several_associations_or_main_tables_are_ambiguous():
 
 def test_the_longest_matching_prefix_wins_regardless_of_order():
     nat = route("203.0.113.0/24", None, NatGatewayId="nat-1")
-    assert check([table("rtb-1", [route(), nat], "subnet-1")])[1].decision == D.UNKNOWN
+    # The more specific NAT route is selected, and it does not lead to an internet gateway.
+    selected = check([table("rtb-1", [route(), nat], "subnet-1")])[1]
+    assert (selected.decision, selected.blockers[0].element) == (D.DENY, "route:/routes/1")
     blackhole = route("203.0.113.0/24", "igw-1", "blackhole")
     assert decision([table("rtb-1", [blackhole, route()], "subnet-1")]) == D.DENY
     assert decision([table("rtb-1", [route(), blackhole], "subnet-1")]) == D.DENY
@@ -127,28 +134,61 @@ def test_an_unrecorded_route_state_is_unknown():
     assert decision([table("rtb-1", [route(state="other")], "subnet-1")]) == D.UNKNOWN
 
 
-@pytest.mark.parametrize(
-    "target",
-    [
-        {"target": None, "NatGatewayId": "nat-1"},
-        {"target": None, "TransitGatewayId": "tgw-1"},
-        {"target": None, "VpcPeeringConnectionId": "pcx-1"},
-        {"target": "vpce-1"},
-    ],
-)
-def test_unsupported_targets_never_allow(target):
-    result = check([table("rtb-1", [LOCAL, route(**target)], "subnet-1")])[1]
+def test_unsupported_targets_never_allow():
+    eni = route(target=None, NetworkInterfaceId="eni-1")
+    result = check([table("rtb-1", [LOCAL, eni], "subnet-1")])[1]
     assert result.decision == D.UNKNOWN
     assert codes(result) == {B.UNSUPPORTED_ELEMENT}
 
 
-def test_prefix_list_routes_are_unsupported_and_ipv6_routes_are_ignored():
-    prefix = {"DestinationPrefixListId": "pl-1", "GatewayId": "vpce-1", "State": "active"}
-    result = check([table("rtb-1", [prefix, route()], "subnet-1")])[1]
-    assert result.decision == D.UNKNOWN
-    assert codes(result) == {B.UNSUPPORTED_ELEMENT}
+def test_routes_of_the_other_address_family_are_ignored():
     ipv6 = {"DestinationIpv6CidrBlock": "::/0", "GatewayId": "igw-1", "State": "active"}
     assert decision([table("rtb-1", [ipv6, LOCAL], "subnet-1")]) == D.DENY
+    assert decision([PUBLIC_TABLE], address="2001:db8::1") == D.DENY
+
+
+# ---- prefix-list routes -------------------------------------------------------------
+
+S3_ENTRIES = {"pl-s3": {"entries": [{"cidr": "52.218.0.0/17"}]}}
+# rtb-svc's routes: local, the endpoint's pl-s3, and pl-office to a transit gateway.
+ROUTES = [
+    route.model_dump(mode="json")
+    for route in prefix_list_index().get_resource(resource_id("rtb-svc")).routes
+]
+
+
+def service_route(index, address="198.51.100.7"):
+    return evaluate_subnet_route(index, resource_id("subnet-svc"), address, reach=LOCAL_REACH)
+
+
+def test_a_prefix_list_route_is_selected_through_its_recorded_entries():
+    index = prefix_list_index(S3_ENTRIES)
+    # The selected route leads to a transit gateway, not the local route asked for.
+    [blocker] = service_route(index).blockers
+    assert (blocker.code, blocker.element) == (B.DENIED, "route:/routes/2")
+    assert service_route(index, "192.0.2.1").blockers[0].element == "implicit_deny"
+    blackhole = {"rtb-svc": {"routes": [*ROUTES[:2], {**ROUTES[2], "state": "blackhole"}]}}
+    denied = service_route(prefix_list_index({**S3_ENTRIES, **blackhole}))
+    assert denied.decision == D.DENY
+    assert {"pl-office-entry-0", "rtb-office"} <= set(denied.blockers[0].evidence_ids)
+
+
+def test_an_unrecorded_list_or_a_tie_at_the_longest_prefix_is_unknown_with_its_reason():
+    office = "198.51.100.0/24"
+    static = {"destination": office, "target_kind": "local", "state": "active"}
+    cases = {
+        "entries of prefix list pl-s3 are not recorded": {},
+        "whether the route is static or propagated": {
+            **S3_ENTRIES,
+            "rtb-svc": {"routes": [*ROUTES, static]},
+        },
+        "at random": {"pl-s3": {"entries": [{"cidr": office}]}},
+    }
+    for reason, changes in cases.items():
+        result = service_route(prefix_list_index(changes))
+        [blocker] = result.blockers
+        assert (result.decision, blocker.code) == (D.UNKNOWN, B.MISSING_EVIDENCE)
+        assert reason in blocker.message
 
 
 # ---- internet gateways --------------------------------------------------------------
@@ -163,6 +203,50 @@ def test_a_gateway_route_needs_an_available_attachment_to_the_vpc(gateways):
     result = check([PUBLIC_TABLE], gateways)[1]
     assert result.decision == D.UNKNOWN
     assert codes(result) == {B.MISSING_EVIDENCE}
+
+
+# ---- IPv6 and egress-only internet gateways -----------------------------------------
+
+
+def test_dual_stack_ipv6_routes_reach_the_internet_and_egress_only_gateways():
+    index = GraphIndex(load_snapshot(FIXTURES_ROOT / "snapshots" / "dual-stack.json"))
+
+    def evaluate(subnet, address, reach):
+        return evaluate_subnet_route(index, resource_id(subnet), address, reach=reach)
+
+    public = evaluate("subnet-dual-public", "2001:db8:ffff::1", IGW)
+    assert public.decision == D.ALLOW
+    assert public.evidence_ids == [
+        "igw-attachment",
+        "rtb-dual-public-association",
+        "rtb-dual-public-ipv6-default",
+    ]
+    private = evaluate("subnet-dual-private", "2001:db8:ffff::1", EIGW)
+    assert private.decision == D.ALLOW
+    assert "eigw-attachment" in private.evidence_ids
+    # An egress-only gateway is not an internet gateway, so inbound exposure never accepts it.
+    assert evaluate("subnet-dual-private", "2001:db8:ffff::1", IGW).decision == D.DENY
+
+
+@pytest.mark.parametrize(
+    "gateways",
+    [[], [egress_only_gateway(state="detached")]],
+    ids=["unrecorded", "detached"],
+)
+def test_an_egress_only_route_needs_an_attached_gateway(gateways):
+    ipv6 = {
+        "DestinationIpv6CidrBlock": "::/0",
+        "EgressOnlyInternetGatewayId": "eigw-1",
+        "State": "active",
+    }
+    tables = [table("rtb-1", [ipv6], "subnet-1")]
+    result = check(tables, address="2001:db8::1", reach=EIGW, egress_only_gateways=gateways)[1]
+    assert result.decision == D.UNKNOWN
+    assert codes(result) == {B.MISSING_EVIDENCE}
+    attached = [egress_only_gateway()]
+    assert decision(tables, address="2001:db8::1", reach=EIGW, egress_only_gateways=attached) == (
+        D.ALLOW
+    )
 
 
 # ---- coverage and platform ----------------------------------------------------------

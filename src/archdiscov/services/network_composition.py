@@ -1,4 +1,4 @@
-"""Compositions of the step 29 primitives shared by the path-composing analyzers."""
+"""Compositions of the network primitives shared by the path-composing analyzers."""
 
 from __future__ import annotations
 
@@ -11,8 +11,9 @@ from archdiscov.models.enums import NetworkDecision, RuleDirection
 from archdiscov.models.network_path import NetworkResult, compose_decisions
 
 from .network_acls import evaluate_network_acl
-from .network_decisions import all_of, any_of
+from .network_decisions import all_of, any_of, missing
 from .network_probes import EPHEMERAL_PORT
+from .network_routes import evaluate_vpc_route
 from .network_security_groups import Peer, evaluate_security_group
 
 if TYPE_CHECKING:
@@ -62,6 +63,42 @@ def nacl_round_trip(
         evaluate_network_acl(index, subnet_id, direction, address, protocol=protocol, port=p)
         for direction, p in ((first, port), (reply, EPHEMERAL_PORT))
     )
+
+
+def subnet_routes(
+    index: GraphIndex,
+    source_subnet_id: str,
+    destination_subnet_id: str,
+    *,
+    source_address: str | None = None,
+    destination_address: str | None = None,
+) -> NetworkResult:
+    """Whether each subnet's route to the other's address leads into the other's VPC.
+
+    The request needs the source subnet's route to `destination_address` to lead into the
+    destination's VPC, and the reply the destination subnet's route back to `source_address`
+    to lead into the source's VPC. An address not given is bounded by its subnet's IPv4
+    CIDR. Within one VPC that is the local route each way; across VPCs it is one peering
+    connection or one transit gateway hop each way, every hop cited, and a path needing a
+    second hop is unknown. Security groups and NACLs are the caller's to compose.
+    """
+    source_vpc = index.parent_id(source_subnet_id)
+    destination_vpc = index.parent_id(destination_subnet_id)
+    source = source_address or _bound(index, source_subnet_id)
+    destination = destination_address or _bound(index, destination_subnet_id)
+    if source_vpc is None or destination_vpc is None or source is None or destination is None:
+        return missing("The subnets' VPCs or addresses are not recorded.")
+    return all_of(
+        [
+            evaluate_vpc_route(index, source_subnet_id, destination, destination_vpc),
+            evaluate_vpc_route(index, destination_subnet_id, source, source_vpc),
+        ]
+    )
+
+
+def _bound(index: GraphIndex, subnet_id: str) -> str | None:
+    network = subnet_network(index, subnet_id)
+    return str(network) if network is not None else None
 
 
 _RANK = {NetworkDecision.ALLOW: 0, NetworkDecision.UNKNOWN: 1, NetworkDecision.DENY: 2}

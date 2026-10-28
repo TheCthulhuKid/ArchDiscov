@@ -1,3 +1,5 @@
+from functools import partial
+
 import pytest
 
 from archdiscov.graph import GraphIndex
@@ -5,12 +7,14 @@ from archdiscov.models.enums import NetworkBlockerCode, NetworkDecision, RuleDir
 from archdiscov.services import load_snapshot
 from archdiscov.services.network_security_groups import Peer, evaluate_security_group
 from tests.paths import FIXTURES_ROOT
+from tests.support.fixture_edits import edited_index
 from tests.support.sg_rule_data import build, group_id, rule
 
 D = NetworkDecision
 B = NetworkBlockerCode
 INGRESS, EGRESS = RuleDirection.INGRESS, RuleDirection.EGRESS
 LOCAL = "10.0.1.5"
+prefix_list_index = partial(edited_index, "endpoints-and-prefix-lists.json")
 
 
 def check(groups, *, direction=INGRESS, peer=None, protocol="tcp", port=443, group="sg-app", **kw):
@@ -166,12 +170,10 @@ def test_ingress_and_egress_rules_are_evaluated_independently():
 @pytest.mark.parametrize(
     "unsupported_rule",
     [
-        rule(cidr="2001:db8::/32"),
-        rule(prefix_list_id="pl-123"),
         rule(referenced_group_id="sg-partner", referenced_account_id="210987654321"),
         rule(protocol="50", from_port=None, to_port=None, cidr="10.0.0.0/16"),
     ],
-    ids=["ipv6", "prefix-list", "cross-account-group", "unrecognized-protocol"],
+    ids=["cross-account-group", "unrecognized-protocol"],
 )
 def test_unsupported_rules_never_allow_but_cannot_be_ruled_out(unsupported_rule):
     result = check({"sg-app": [unsupported_rule]}, peer=Peer.address(LOCAL, ()))[1]
@@ -182,14 +184,54 @@ def test_unsupported_rules_never_allow_but_cannot_be_ruled_out(unsupported_rule)
     assert allowed.decision == D.ALLOW
 
 
+# ---- prefix lists -------------------------------------------------------------------
+
+
+def office_rule(index, peer):
+    return evaluate_security_group(
+        index, group_id("sg-endpoint"), INGRESS, peer, protocol="tcp", port=443
+    )
+
+
+def test_a_prefix_list_rule_matches_through_the_lists_recorded_entries():
+    index = prefix_list_index()
+    allowed = office_rule(index, Peer.address("198.51.100.7", ()))
+    assert (allowed.decision, allowed.evidence_ids) == (D.ALLOW, ["pl-office-entry-0", "sg-office"])
+    assert office_rule(index, Peer.address("192.0.2.1", ())).decision == D.DENY
+    partial = office_rule(index, Peer.within("198.51.100.0/23", ()))
+    assert (partial.decision, codes(partial)) == (D.UNKNOWN, {B.MISSING_EVIDENCE})
+    empty = prefix_list_index({"pl-office": {"entries": [], "fact_evidence": {}}})
+    assert office_rule(empty, Peer.address("198.51.100.7", ())).decision == D.DENY
+
+
+def test_a_prefix_list_without_recorded_entries_is_unknown_and_named():
+    unrecorded = prefix_list_index({"pl-office": {"entries": None, "fact_evidence": {}}})
+    for result, name in (
+        (office_rule(unrecorded, Peer.address(LOCAL, ())), "pl-office"),
+        (check({"sg-app": [rule(prefix_list_id="pl-123")]})[1], "pl-123"),
+    ):
+        [blocker] = result.blockers
+        assert (result.decision, blocker.code) == (D.UNKNOWN, B.MISSING_EVIDENCE)
+        assert name in blocker.message
+
+
 def test_unsupported_query_protocols_are_unknown():
     result = check({"sg-app": [rule(protocol="-1", cidr="0.0.0.0/0")]}, protocol="gre")[1]
     assert (result.decision, codes(result)) == (D.UNKNOWN, {B.UNSUPPORTED_ELEMENT})
 
 
-def test_ipv6_peers_cannot_be_constructed():
-    with pytest.raises(ValueError):
-        Peer.cidr("2001:db8::/32")
+def test_dual_stack_ipv6_rule_decides_ipv6_peers_and_never_matches_ipv4():
+    index = GraphIndex(load_snapshot(FIXTURES_ROOT / "snapshots" / "dual-stack.json"))
+
+    def evaluate(peer, port=443):
+        return evaluate_security_group(
+            index, group_id("sg-dual"), INGRESS, peer, protocol="tcp", port=port
+        )
+
+    allowed = evaluate(Peer.address("2001:db8::5", ()))
+    assert (allowed.decision, allowed.evidence_ids) == (D.ALLOW, ["sg-https-ipv6"])
+    assert evaluate(Peer.address("2001:db8::5", ()), port=22).decision == D.DENY
+    assert evaluate(Peer.address(LOCAL, ())).decision == D.DENY
 
 
 # ---- missing evidence ---------------------------------------------------------------

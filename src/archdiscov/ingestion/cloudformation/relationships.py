@@ -2,7 +2,9 @@
 
 from ...models.architecture import Dependency, LocalTarget, RegionArchitecture, UnresolvedTarget
 from ...models.enums import AttachmentKind, AwsRegion, DependencyRelationship, ResourceType
+from ...models.json_pointer import escape_pointer_token
 from ...models.sanitization import is_sensitive_path
+from ..import_fields import incomplete_list
 
 _PARENTS = {
     ResourceType.SUBNET: (("VpcId", ResourceType.VPC),),
@@ -13,7 +15,52 @@ _PARENTS = {
         ("SubnetId", ResourceType.SUBNET),
         ("VpcId", ResourceType.VPC),
     ),
+    ResourceType.NAT_GATEWAY: (
+        ("SubnetId", ResourceType.SUBNET),
+        ("VpcId", ResourceType.VPC),
+    ),
+    ResourceType.EGRESS_ONLY_INTERNET_GATEWAY: (("VpcId", ResourceType.VPC),),
+    ResourceType.VPC_ENDPOINT: (("VpcId", ResourceType.VPC),),
 }
+
+
+# Declared type -> (property naming the parent, parent type, the parent's list it adds to).
+_CHILDREN = {
+    "AWS::EC2::TransitGatewayRouteTableAssociation": (
+        "TransitGatewayRouteTableId",
+        ResourceType.TRANSIT_GATEWAY_ROUTE_TABLE,
+        "associations",
+    ),
+    "AWS::EC2::TransitGatewayRouteTablePropagation": (
+        "TransitGatewayRouteTableId",
+        ResourceType.TRANSIT_GATEWAY_ROUTE_TABLE,
+        "propagations",
+    ),
+    "AWS::EC2::TransitGatewayRoute": (
+        "TransitGatewayRouteTableId",
+        ResourceType.TRANSIT_GATEWAY_ROUTE_TABLE,
+        "routes",
+    ),
+}
+
+
+def qualify_children(builder, template, references):
+    """A parent a separately declared child adds to records that its list may be incomplete.
+
+    The child stays an unsupported summary; its `Ref` to the parent is already a reference.
+    """
+    for logical_id in builder.resources:
+        spec = _CHILDREN.get(template["Resources"][logical_id].get("Type"))
+        if spec is None:
+            continue
+        field, parent_type, name = spec
+        for ref in references[logical_id]:
+            parent = builder.resources.get(ref.logical_id)
+            if ref.path != f"/{field}" or ref.attribute or parent is None:
+                continue
+            if parent.resource_type == parent_type:
+                path = f"/Resources/{escape_pointer_token(logical_id)}/Properties/{field}"
+                builder.limit(parent, path, incomplete_list(name))
 
 
 def link(builder, source, path, logical_id=None, *, reason=None, attribute=None):

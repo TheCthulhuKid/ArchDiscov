@@ -5,6 +5,8 @@ import pytest
 from archdiscov.ingestion.adapter import IngestionError
 from archdiscov.ingestion.aws import EC2_OPERATIONS, AwsAdapter
 from archdiscov.ingestion.requests import SourceRequest
+from archdiscov.ingestion.service_catalog import REGIONAL_OPERATIONS
+from archdiscov.models.enums import AwsService
 from archdiscov.services import collect_snapshots, select_adapter
 from tests.support.ingestion_service import ACCOUNT, context, request
 
@@ -22,8 +24,12 @@ def test_collect_returns_validated_snapshot_with_failed_operations():
     assert snapshot.snapshot_id == UUID(int=1)
     assert snapshot.source.kind == "aws"
     assert snapshot.schema_version == "2"
+    reads = {operation.value for operation, _ in EC2_OPERATIONS}
+    # A detail read whose list read failed has nothing to read, so it is skipped.
+    details = set(REGIONAL_OPERATIONS[AwsService.EC2]) - reads
     assert {o.operation: o.status for o in snapshot.coverage.operations} == {
-        operation.value: "failed" for operation, _ in EC2_OPERATIONS
+        **dict.fromkeys(reads, "failed"),
+        **dict.fromkeys(details, "skipped"),
     }
     assert snapshot.regions["us-east-1"].resources == []
     assert snapshot.coverage.account_wide is False

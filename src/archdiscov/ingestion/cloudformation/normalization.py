@@ -6,7 +6,7 @@ from ...models.resource_base import ResourceIdentity
 from .context import safe_properties
 from .evaluation import evaluate
 from .issue_codes import EvaluationIssueCode
-from .mapping import map_resource, service_for_type
+from .mapping import TYPE_SOURCE, map_resource, service_for_type
 from .relationships import link
 
 
@@ -20,6 +20,9 @@ def _record_facts(builder, resource, logical_id, entry, values, pointers, evalua
     )
     resource.fact_evidence[pointer] = builder.cite(resource, path + "/Type", entry["Type"])
     for pointer, source in sorted(pointers.items()):
+        if source == TYPE_SOURCE:
+            resource.fact_evidence[pointer] = builder.cite(resource, path + "/Type", entry["Type"])
+            continue
         resource.fact_evidence[pointer] = builder.cite(
             resource,
             path + "/Properties" + evaluated.sources.get(source, source),
@@ -28,7 +31,7 @@ def _record_facts(builder, resource, logical_id, entry, values, pointers, evalua
 
 
 def _record_limitations(builder, resource, path, values, pointers, evaluated, redactions, reasons):
-    retained = {pointer.split("/")[1] for pointer in pointers.values()}
+    retained = {source.split("/")[1] for source in pointers.values() if source != TYPE_SOURCE}
     for field in values:
         if escape_pointer_token(field) not in retained:
             builder.limit(

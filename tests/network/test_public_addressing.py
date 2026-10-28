@@ -2,7 +2,7 @@ import pytest
 
 from archdiscov.graph import GraphIndex
 from archdiscov.ingestion.operations import Ec2Operation as Op
-from archdiscov.models.enums import NetworkBlockerCode, NetworkDecision
+from archdiscov.models.enums import AddressFamily, NetworkBlockerCode, NetworkDecision
 from archdiscov.services import load_snapshot
 from archdiscov.services.network_addressing import evaluate_public_address
 from tests.paths import FIXTURES_ROOT
@@ -17,12 +17,12 @@ PUBLIC_INSTANCE = {**INSTANCE, "PublicIpAddress": "198.51.100.7"}
 COVERED = {"DescribeNetworkInterfaces": "success", "DescribeInstances": "success"}
 
 
-def check(target, *, enis=(), instances=(), covered=COVERED):
+def check(target, *, enis=(), instances=(), covered=COVERED, family=AddressFamily.IPV4):
     items = {Op.DESCRIBE_NETWORK_INTERFACES: list(enis)}
     if instances:
         items[Op.DESCRIBE_INSTANCES] = [{"Instances": list(instances)}]
     index = GraphIndex(build_network(items, covered=covered))
-    return index, evaluate_public_address(index, resource_id(target))
+    return index, evaluate_public_address(index, resource_id(target), family=family)
 
 
 def codes(result):
@@ -69,6 +69,25 @@ def test_public_and_private_instances():
 def test_an_ipv6_only_resource_is_a_recorded_absence_of_ipv4():
     ipv6 = {**INSTANCE, "PublicIpAddress": "2001:db8::1"}
     assert check("i-1", instances=[ipv6])[1].decision == D.DENY
+
+
+def test_ipv6_answers_from_the_interfaces_recorded_global_addresses():
+    v6 = AddressFamily.IPV6
+    addresses = [{"Ipv6Address": "fd00::5"}, {"Ipv6Address": "2600:1f18:1234:5601::10"}]
+    index, result = check("eni-1", enis=[{**PRIVATE_ENI, "Ipv6Addresses": addresses}], family=v6)
+    eni = index.get_resource(resource_id("eni-1"))
+    assert result.decision == D.ALLOW
+    assert result.evidence_ids == sorted(eni.fact_evidence["/ipv6_addresses/1"])
+    empty = {**PRIVATE_ENI, "Ipv6Addresses": []}
+    assert check("eni-1", enis=[empty], family=v6)[1].decision == D.DENY
+    # A public IPv4 address says nothing about IPv6, and instances record no IPv6 addresses.
+    for target, kwargs in (("eni-1", {"enis": [ENI]}), ("i-1", {"instances": [INSTANCE]})):
+        unrecorded = check(target, family=v6, **kwargs)[1]
+        assert (unrecorded.decision, codes(unrecorded)) == (D.UNKNOWN, {B.MISSING_EVIDENCE})
+    # The fixture's documentation-range address is not global, so it is not public.
+    dual_stack = GraphIndex(load_snapshot(FIXTURES_ROOT / "snapshots" / "dual-stack.json"))
+    eni_dual = evaluate_public_address(dual_stack, resource_id("eni-dual"), family=v6)
+    assert eni_dual.decision == D.DENY
 
 
 def test_an_unparsable_address_is_unsupported():

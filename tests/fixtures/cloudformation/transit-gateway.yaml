@@ -1,0 +1,42 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Resources:
+  App:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.2.0.0/16
+  AppSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref App
+      CidrBlock: 10.2.1.0/24
+  Hub:
+    Type: AWS::EC2::TransitGateway
+    Properties:
+      AmazonSideAsn: 64512
+  AppAttachment:
+    Type: AWS::EC2::TransitGatewayVpcAttachment
+    Properties:
+      TransitGatewayId: !Ref Hub
+      VpcId: !Ref App
+      SubnetIds:
+        - !Ref AppSubnet
+  HubRoutes:
+    Type: AWS::EC2::TransitGatewayRouteTable
+    Properties:
+      TransitGatewayId: !Ref Hub
+  AppAssociation:
+    Type: AWS::EC2::TransitGatewayRouteTableAssociation
+    Properties:
+      TransitGatewayAttachmentId: !Ref AppAttachment
+      TransitGatewayRouteTableId: !Ref HubRoutes
+  AppPropagation:
+    Type: AWS::EC2::TransitGatewayRouteTablePropagation
+    Properties:
+      TransitGatewayAttachmentId: !Ref AppAttachment
+      TransitGatewayRouteTableId: !Ref HubRoutes
+  Blackhole:
+    Type: AWS::EC2::TransitGatewayRoute
+    Properties:
+      TransitGatewayRouteTableId: !Ref HubRoutes
+      DestinationCidrBlock: 192.168.0.0/16
+      Blackhole: true

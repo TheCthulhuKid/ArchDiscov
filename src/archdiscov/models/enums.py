@@ -219,6 +219,7 @@ class AttachmentKind(StrEnum):
     PEERING_ACCEPTER_VPC = "peering_accepter_vpc"
     TRANSIT_GATEWAY_ATTACHMENT = "transit_gateway_attachment"
     TRANSIT_GATEWAY_VPC_ATTACHMENT = "transit_gateway_vpc_attachment"
+    TRANSIT_GATEWAY_ATTACHMENT_SUBNET = "transit_gateway_attachment_subnet"
     TRANSIT_GATEWAY_ROUTE_TABLE_ASSOCIATION = "transit_gateway_route_table_association"
     TRANSIT_GATEWAY_ROUTE_TABLE_PROPAGATION = "transit_gateway_route_table_propagation"
     ENDPOINT_ROUTE_TABLE = "endpoint_route_table"
@@ -276,6 +277,30 @@ class RouteReach(StrEnum):
 
     LOCAL = "local"
     INTERNET_GATEWAY = "internet_gateway"
+    EGRESS_ONLY_INTERNET_GATEWAY = "egress_only_internet_gateway"
+    NAT_GATEWAY = "nat_gateway"
+    VPC_ENDPOINT = "vpc_endpoint"
+
+
+class NatConnectivity(StrEnum):
+    PUBLIC = "public"
+    PRIVATE = "private"
+
+
+class TransitGatewayRouteType(StrEnum):
+    STATIC = "static"
+    PROPAGATED = "propagated"
+
+
+class VpcEndpointType(StrEnum):
+    GATEWAY = "gateway"
+    INTERFACE = "interface"
+    GATEWAY_LOAD_BALANCER = "gateway_load_balancer"
+
+
+class AddressFamily(StrEnum):
+    IPV4 = "ipv4"
+    IPV6 = "ipv6"
 
 
 class RuleDirection(StrEnum):

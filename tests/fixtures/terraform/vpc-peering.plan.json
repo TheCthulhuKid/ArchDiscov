@@ -1,0 +1,101 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.11.4",
+  "planned_values": {
+    "root_module": {}
+  },
+  "resource_changes": [
+    {
+      "address": "aws_vpc.app",
+      "mode": "managed",
+      "type": "aws_vpc",
+      "name": "app",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "cidr_block": "10.2.0.0/16"
+        },
+        "after_unknown": {
+          "id": true
+        },
+        "before_sensitive": false,
+        "after_sensitive": {}
+      }
+    },
+    {
+      "address": "aws_vpc.data",
+      "mode": "managed",
+      "type": "aws_vpc",
+      "name": "data",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "cidr_block": "10.3.0.0/16"
+        },
+        "after_unknown": {
+          "id": true
+        },
+        "before_sensitive": false,
+        "after_sensitive": {}
+      }
+    },
+    {
+      "address": "aws_vpc_peering_connection.app_data",
+      "mode": "managed",
+      "type": "aws_vpc_peering_connection",
+      "name": "app_data",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "auto_accept": true
+        },
+        "after_unknown": {
+          "id": true,
+          "vpc_id": true,
+          "peer_vpc_id": true,
+          "peer_owner_id": true,
+          "peer_region": true,
+          "accept_status": true
+        },
+        "before_sensitive": false,
+        "after_sensitive": {}
+      }
+    }
+  ],
+  "configuration": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_vpc_peering_connection.app_data",
+          "mode": "managed",
+          "expressions": {
+            "vpc_id": {
+              "references": [
+                "aws_vpc.app.id",
+                "aws_vpc.app"
+              ]
+            },
+            "peer_vpc_id": {
+              "references": [
+                "aws_vpc.data.id",
+                "aws_vpc.data"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

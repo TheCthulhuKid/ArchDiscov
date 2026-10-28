@@ -1,25 +1,45 @@
 """Normalize route tables, gateways, NACLs, security groups, and network interfaces."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Any
+from ipaddress import AddressValueError, IPv4Address, IPv6Address
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ValidationError
 
-from ...models.enums import NaclAction, RouteTargetKind, RuleDirection
+from ...models.enums import (
+    NaclAction,
+    NatConnectivity,
+    RouteTargetKind,
+    RuleDirection,
+)
 from ...models.resource_base import Resource
 from ...models.resources.network import (
+    EgressOnlyInternetGateway,
     InternetGateway,
+    ManagedPrefixList,
     NaclEntry,
+    NatGateway,
     NetworkAcl,
     NetworkInterface,
+    PeeringSide,
+    PrefixListEntry,
     PrivateIpAddress,
     Route,
     RouteTable,
     SecurityGroup,
     SecurityGroupRule,
+    VpcEndpoint,
+    VpcPeeringConnection,
 )
+from ..aws_values import ADDRESS_FAMILIES, ENDPOINT_TYPES
 from ..evidence_builder import EvidenceBuilder, tags_of
 from ..operations import Ec2Operation as Op
+
+if TYPE_CHECKING:
+    # Only annotated: detail_execution loads botocore, which analysis must not import.
+    from ..detail_execution import DetailResponse
 
 FALLBACK_LIMITATION = (
     "Rule IDs are unavailable: DescribeSecurityGroupRules did not complete, "
@@ -50,9 +70,9 @@ _ROUTE_TARGET_FIELDS = (
     ("NetworkInterfaceId", RouteTargetKind.NETWORK_INTERFACE),
     ("InstanceId", RouteTargetKind.INSTANCE),
     ("VpcEndpointId", RouteTargetKind.VPC_ENDPOINT),
+    ("EgressOnlyInternetGatewayId", RouteTargetKind.EGRESS_ONLY_INTERNET_GATEWAY),
 )
 _OTHER_TARGET_FIELDS = (
-    "EgressOnlyInternetGatewayId",
     "CarrierGatewayId",
     "LocalGatewayId",
     "CoreNetworkArn",
@@ -78,7 +98,7 @@ def classify_route_target(route: dict[str, Any]) -> tuple[RouteTargetKind, str |
     return RouteTargetKind.UNKNOWN, None, None
 
 
-def _destination(route: dict[str, Any]) -> str | None:
+def destination(route: dict[str, Any]) -> str | None:
     return (
         route.get("DestinationCidrBlock")
         or route.get("DestinationIpv6CidrBlock")
@@ -102,6 +122,29 @@ def _validated[M: BaseModel](
             clean = {k: v for k, v in clean.items() if k not in bad}
     limitations.append(f"{path}: entry could not be normalized and was omitted")
     return None
+
+
+def _ip_address[A: (IPv4Address, IPv6Address)](kind: type[A], value: Any) -> A | None:
+    # The address classes also accept an integer, which the API never reports.
+    if not isinstance(value, str):
+        return None
+    try:
+        return kind(value)
+    except AddressValueError:
+        return None
+
+
+def _peering_side(info: dict[str, Any]) -> PeeringSide:
+    """One side of a peering connection; its CIDR sets when reported, else its primary CIDR."""
+    ipv4 = [c["CidrBlock"] for c in info.get("CidrBlockSet") or [] if c.get("CidrBlock")]
+    if not ipv4 and info.get("CidrBlock"):
+        ipv4 = [info["CidrBlock"]]
+    ipv6 = [
+        c["Ipv6CidrBlock"] for c in info.get("Ipv6CidrBlockSet") or [] if c.get("Ipv6CidrBlock")
+    ]
+    return PeeringSide(
+        vpc_id=info.get("VpcId"), owner_id=info.get("OwnerId"), cidr_blocks=[*ipv4, *ipv6]
+    )
 
 
 def _protocol(value: Any) -> str | None:
@@ -128,7 +171,8 @@ class NetworkNormalizer(EvidenceBuilder):
                 Route,
                 f"{path}.Routes[{i}]",
                 limitations,
-                destination=_destination(raw),
+                destination=destination(raw),
+                prefix_list_id=raw.get("DestinationPrefixListId"),
                 target_kind=kind,
                 target_id=target_id,
                 state=raw.get("State"),
@@ -377,6 +421,23 @@ class NetworkNormalizer(EvidenceBuilder):
                         out.append((rule, Op.DESCRIBE_SECURITY_GROUPS, source_path, permission))
         return out
 
+    def _ipv6_addresses(
+        self, path: str, item: dict[str, Any], limitations: list[str]
+    ) -> list[tuple[int, dict[str, Any], IPv6Address]] | None:
+        """Each valid IPv6 address with its source entry; None when the field is absent."""
+        if "Ipv6Addresses" not in item:
+            return None
+        out = []
+        for i, raw in enumerate(item["Ipv6Addresses"] or []):
+            address = _ip_address(IPv6Address, raw.get("Ipv6Address"))
+            if address is None:
+                limitations.append(
+                    f"{path}.Ipv6Addresses[{i}]: invalid value for Ipv6Address was omitted"
+                )
+            else:
+                out.append((i, raw, address))
+        return out
+
     def network_interface(self, index: int, item: dict[str, Any]) -> Normalized:
         path, limitations = f"NetworkInterfaces[{index}]", []
         tags = tags_of(item)
@@ -392,6 +453,7 @@ class NetworkNormalizer(EvidenceBuilder):
             )
             if address is not None:
                 addresses.append(address)
+        ipv6 = self._ipv6_addresses(path, item, limitations)
         public_ip = (item.get("Association") or {}).get("PublicIp")
         groups = [g["GroupId"] for g in item.get("Groups") or [] if g.get("GroupId")]
         instance_id = (item.get("Attachment") or {}).get("InstanceId")
@@ -428,7 +490,16 @@ class NetworkNormalizer(EvidenceBuilder):
             private_ip_addresses=addresses,
             public_ip=public_ip,
             mac_address=item.get("MacAddress"),
+            ipv6_addresses=None if ipv6 is None else [address for _, _, address in ipv6],
         )
+        for n, (i, raw, _) in enumerate(ipv6 or []):
+            self.cite(
+                resource,
+                f"/ipv6_addresses/{n}",
+                Op.DESCRIBE_NETWORK_INTERFACES,
+                f"{path}.Ipv6Addresses[{i}]",
+                raw,
+            )
         self._with_limitations(resource, limitations)
         return Normalized(
             resource,
@@ -438,3 +509,284 @@ class NetworkNormalizer(EvidenceBuilder):
             vpc_id=item.get("VpcId"),
             subnet_id=item.get("SubnetId"),
         )
+
+    def nat_gateway(self, index: int, item: dict[str, Any]) -> Normalized:
+        path, limitations = f"NatGateways[{index}]", []
+        tags = tags_of(item)
+        addresses = list(enumerate(item.get("NatGatewayAddresses") or []))
+        public: list[tuple[int, IPv4Address]] = []
+        for i, raw in addresses:
+            if raw.get("PublicIp") is None:
+                continue
+            address = _ip_address(IPv4Address, raw["PublicIp"])
+            if address is None:
+                limitations.append(
+                    f"{path}.NatGatewayAddresses[{i}]: invalid value for PublicIp was omitted"
+                )
+            else:
+                public.append((i, address))
+        interfaces = [(i, raw) for i, raw in addresses if raw.get("NetworkInterfaceId")]
+        fallback = interfaces[0] if interfaces else None
+        interface = next((x for x in interfaces if x[1].get("IsPrimary")), fallback)
+        connectivity = self._nat_connectivity(path, item, limitations)
+        facts = {
+            pointer: (field, item[field])
+            for pointer, field in (
+                ("/state", "State"),
+                ("/vpc_id", "VpcId"),
+                ("/subnet_id", "SubnetId"),
+            )
+            if item.get(field)
+        }
+        if connectivity is not None:
+            facts["/connectivity"] = ("ConnectivityType", item["ConnectivityType"])
+        if tags:
+            facts["/attributes/tags"] = ("Tags", item.get("Tags"))
+
+        def build(connectivity: NatConnectivity | None) -> Resource:
+            return self._build(
+                NatGateway,
+                operation=Op.DESCRIBE_NAT_GATEWAYS,
+                item_path=path,
+                item=item,
+                physical_id=item["NatGatewayId"],
+                name=tags.get("Name"),
+                attributes={"tags": tags or None},
+                facts=facts,
+                state=item.get("State") or None,
+                connectivity=connectivity,
+                vpc_id=item.get("VpcId") or None,
+                subnet_id=item.get("SubnetId") or None,
+                network_interface_id=interface[1]["NetworkInterfaceId"] if interface else None,
+                public_ips=[address for _, address in public],
+            )
+
+        try:
+            resource = build(connectivity)
+        except ValidationError as error:
+            # A model-level error has no field location; only the public-address rules raise one.
+            if any(detail["loc"] for detail in error.errors()):
+                raise
+            limitations.append(f"{path}: {error.errors()[0]['msg']}; ConnectivityType was omitted")
+            facts.pop("/connectivity", None)
+            resource = build(None)
+        address_path = f"{path}.NatGatewayAddresses"
+        if interface is not None:
+            i, raw = interface
+            field = f"{address_path}[{i}].NetworkInterfaceId"
+            self.cite(
+                resource,
+                "/network_interface_id",
+                Op.DESCRIBE_NAT_GATEWAYS,
+                field,
+                raw["NetworkInterfaceId"],
+            )
+        for n, (i, address) in enumerate(public):
+            field = f"{address_path}[{i}].PublicIp"
+            self.cite(resource, f"/public_ips/{n}", Op.DESCRIBE_NAT_GATEWAYS, field, str(address))
+        self._with_limitations(resource, limitations)
+        return Normalized(
+            resource,
+            item,
+            path,
+            Op.DESCRIBE_NAT_GATEWAYS,
+            vpc_id=item.get("VpcId"),
+            subnet_id=item.get("SubnetId"),
+        )
+
+    @staticmethod
+    def _nat_connectivity(
+        path: str, item: dict[str, Any], limitations: list[str]
+    ) -> NatConnectivity | None:
+        value = item.get("ConnectivityType")
+        if value is None:
+            return None
+        try:
+            return NatConnectivity(value)
+        except ValueError:
+            limitations.append(f"{path}: invalid value for ConnectivityType was omitted")
+            return None
+
+    def egress_only_internet_gateway(self, index: int, item: dict[str, Any]) -> Normalized:
+        path = f"EgressOnlyInternetGateways[{index}]"
+        op = Op.DESCRIBE_EGRESS_ONLY_INTERNET_GATEWAYS
+        tags = tags_of(item)
+        attachments = enumerate(item.get("Attachments") or [])
+        attached = next(((i, a) for i, a in attachments if a.get("VpcId")), None)
+        vpc_id = attached[1]["VpcId"] if attached else None
+        resource = self._build(
+            EgressOnlyInternetGateway,
+            operation=op,
+            item_path=path,
+            item=item,
+            physical_id=item["EgressOnlyInternetGatewayId"],
+            name=tags.get("Name"),
+            attributes={"tags": tags or None},
+            facts={"/attributes/tags": ("Tags", item.get("Tags"))} if tags else {},
+            vpc_id=vpc_id,
+        )
+        if attached is not None:
+            i, attachment = attached
+            self.cite(resource, "/vpc_id", op, f"{path}.Attachments[{i}]", attachment)
+        return Normalized(resource, item, path, op, vpc_id=vpc_id)
+
+    def vpc_peering_connection(self, index: int, item: dict[str, Any]) -> Normalized:
+        """A regional root: the connection belongs to neither VPC alone."""
+        path = f"VpcPeeringConnections[{index}]"
+        op = Op.DESCRIBE_VPC_PEERING_CONNECTIONS
+        tags = tags_of(item)
+        status = item.get("Status") or {}
+        requester = item.get("RequesterVpcInfo") or {}
+        accepter = item.get("AccepterVpcInfo") or {}
+        facts = {
+            "/requester": ("RequesterVpcInfo", requester),
+            "/accepter": ("AccepterVpcInfo", accepter),
+        }
+        if status.get("Code"):
+            facts["/state"] = ("Status", status)
+        if tags:
+            facts["/attributes/tags"] = ("Tags", item.get("Tags"))
+        resource = self._build(
+            VpcPeeringConnection,
+            operation=op,
+            item_path=path,
+            item=item,
+            physical_id=item["VpcPeeringConnectionId"],
+            name=tags.get("Name"),
+            attributes={"tags": tags or None},
+            facts=facts,
+            state=status.get("Code") or None,
+            requester=_peering_side(requester),
+            accepter=_peering_side(accepter),
+        )
+        return Normalized(resource, item, path, op)
+
+    def vpc_endpoint(self, index: int, item: dict[str, Any]) -> Normalized:
+        path, limitations = f"VpcEndpoints[{index}]", []
+        op = Op.DESCRIBE_VPC_ENDPOINTS
+        tags = tags_of(item)
+        reported = item.get("VpcEndpointType")
+        endpoint_type = ENDPOINT_TYPES.get(reported) if isinstance(reported, str) else None
+        if reported is not None and endpoint_type is None:
+            limitations.append(f"{path}: VpcEndpointType is not a modelled type and was omitted")
+        facts = {
+            pointer: (field, item[field])
+            for pointer, field in (
+                ("/service_name", "ServiceName"),
+                ("/state", "State"),
+                ("/vpc_id", "VpcId"),
+                ("/owner_id", "OwnerId"),
+            )
+            if item.get(field)
+        }
+        if endpoint_type is not None:
+            facts["/endpoint_type"] = ("VpcEndpointType", reported)
+        if tags:
+            facts["/attributes/tags"] = ("Tags", item.get("Tags"))
+        # Normalized field -> (source field, [(source position, ID)]).
+        ids = {
+            name: (field, [(i, value) for i, value in enumerate(item.get(field) or []) if value])
+            for name, field in (
+                ("route_table_ids", "RouteTableIds"),
+                ("subnet_ids", "SubnetIds"),
+                ("network_interface_ids", "NetworkInterfaceIds"),
+            )
+        }
+        groups = [
+            (i, group) for i, group in enumerate(item.get("Groups") or []) if group.get("GroupId")
+        ]
+        resource = self._build(
+            VpcEndpoint,
+            operation=op,
+            item_path=path,
+            item=item,
+            physical_id=item["VpcEndpointId"],
+            name=tags.get("Name"),
+            attributes={"tags": tags or None},
+            facts=facts,
+            endpoint_type=endpoint_type,
+            service_name=item.get("ServiceName") or None,
+            state=item.get("State") or None,
+            vpc_id=item.get("VpcId") or None,
+            owner_id=item.get("OwnerId") or None,
+            security_group_ids=[group["GroupId"] for _, group in groups],
+            **{name: [value for _, value in values] for name, (_, values) in ids.items()},
+        )
+        for name, (field, values) in ids.items():
+            for n, (i, value) in enumerate(values):
+                self.cite(resource, f"/{name}/{n}", op, f"{path}.{field}[{i}]", value)
+        for n, (i, group) in enumerate(groups):
+            self.cite(resource, f"/security_group_ids/{n}", op, f"{path}.Groups[{i}]", group)
+        self._with_limitations(resource, limitations)
+        return Normalized(resource, item, path, op, vpc_id=item.get("VpcId"))
+
+    def managed_prefix_list(
+        self, index: int, item: dict[str, Any], response: DetailResponse | None
+    ) -> Normalized:
+        """A regional root; `entries` stays unset unless the whole entries response is valid."""
+        path, limitations = f"PrefixLists[{index}]", []
+        op = Op.DESCRIBE_MANAGED_PREFIX_LISTS
+        tags = tags_of(item)
+        family = ADDRESS_FAMILIES.get(item.get("AddressFamily"))
+        version = item.get("Version")
+        version = version if isinstance(version, int) and version >= 1 else None
+        facts = {
+            pointer: (field, item[field])
+            for pointer, field in (("/owner_id", "OwnerId"), ("/state", "State"))
+            if item.get(field)
+        }
+        if family is not None:
+            facts["/address_family"] = ("AddressFamily", item["AddressFamily"])
+        if version is not None:
+            facts["/version"] = ("Version", version)
+        if tags:
+            facts["/attributes/tags"] = ("Tags", item.get("Tags"))
+        entries = self._prefix_list_entries(path, response, limitations)
+        resource = self._build(
+            ManagedPrefixList,
+            operation=op,
+            item_path=path,
+            item=item,
+            physical_id=item["PrefixListId"],
+            name=item.get("PrefixListName") or tags.get("Name"),
+            attributes={"tags": tags or None},
+            facts=facts,
+            address_family=family,
+            owner_id=item.get("OwnerId") or None,
+            state=item.get("State") or None,
+            version=version,
+            entries=None if entries is None else [entry for _, _, entry in entries],
+        )
+        if response is not None:
+            for n, (i, raw, _) in enumerate(entries or []):
+                self.cite(
+                    resource,
+                    f"/entries/{n}",
+                    Op.GET_MANAGED_PREFIX_LIST_ENTRIES,
+                    f"{response.path}.Entries[{i}]",
+                    raw,
+                )
+        self._with_limitations(resource, limitations)
+        return Normalized(resource, item, path, op)
+
+    @staticmethod
+    def _prefix_list_entries(
+        path: str, response: DetailResponse | None, limitations: list[str]
+    ) -> list[tuple[int, dict[str, Any], PrefixListEntry]] | None:
+        """Every entry, or None when unread or when any entry is invalid: never a partial list."""
+        if response is None:
+            return None
+        raw_entries = response.value.get("Entries")
+        if not isinstance(raw_entries, list):
+            limitations.append(f"{path}: the entries response holds no list, so none were recorded")
+            return None
+        out = []
+        for i, raw in enumerate(raw_entries):
+            where = f"{response.path}.Entries[{i}]"
+            cidr = raw.get("Cidr") if isinstance(raw, dict) else None
+            entry = _validated(PrefixListEntry, where, limitations, cidr=cidr)
+            if entry is None:
+                limitations.append(f"{path}: an entry is invalid, so no entries were recorded")
+                return None
+            out.append((i, raw, entry))
+        return out

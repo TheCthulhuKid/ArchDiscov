@@ -44,7 +44,7 @@ def _direction(edge: DependencyEdge) -> RuleDirection | None:
 
 
 def _is_group_reference(edge: DependencyEdge) -> bool:
-    """Prefix-list references share the edge kind but do not name a security group."""
+    """Older snapshots record prefix-list references under this kind; they name no group."""
     return edge.attributes.get("target_kind") != RouteTargetKind.PREFIX_LIST
 
 

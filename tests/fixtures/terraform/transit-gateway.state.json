@@ -1,0 +1,136 @@
+{
+  "format_version": "1.0",
+  "terraform_version": "1.11.4",
+  "values": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_vpc.app",
+          "mode": "managed",
+          "type": "aws_vpc",
+          "name": "app",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "vpc-app",
+            "cidr_block": "10.2.0.0/16"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_vpc.data",
+          "mode": "managed",
+          "type": "aws_vpc",
+          "name": "data",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "vpc-data",
+            "cidr_block": "10.3.0.0/16"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_ec2_transit_gateway.main",
+          "mode": "managed",
+          "type": "aws_ec2_transit_gateway",
+          "name": "main",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "tgw-main",
+            "owner_id": "123456789012",
+            "amazon_side_asn": 64512,
+            "association_default_route_table_id": "tgw-rtb-main",
+            "propagation_default_route_table_id": "tgw-rtb-main"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_ec2_transit_gateway_vpc_attachment.app",
+          "mode": "managed",
+          "type": "aws_ec2_transit_gateway_vpc_attachment",
+          "name": "app",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "tgw-attach-app",
+            "transit_gateway_id": "tgw-main",
+            "vpc_id": "vpc-app",
+            "vpc_owner_id": "123456789012",
+            "subnet_ids": [
+              "subnet-app"
+            ]
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_ec2_transit_gateway_vpc_attachment.data",
+          "mode": "managed",
+          "type": "aws_ec2_transit_gateway_vpc_attachment",
+          "name": "data",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "tgw-attach-data",
+            "transit_gateway_id": "tgw-main",
+            "vpc_id": "vpc-data",
+            "vpc_owner_id": "123456789012",
+            "subnet_ids": [
+              "subnet-data"
+            ]
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_ec2_transit_gateway_route_table.main",
+          "mode": "managed",
+          "type": "aws_ec2_transit_gateway_route_table",
+          "name": "main",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "tgw-rtb-main",
+            "transit_gateway_id": "tgw-main"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_ec2_transit_gateway_route_table_association.app",
+          "mode": "managed",
+          "type": "aws_ec2_transit_gateway_route_table_association",
+          "name": "app",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "tgw-rtb-main_tgw-attach-app",
+            "transit_gateway_attachment_id": "tgw-attach-app",
+            "transit_gateway_route_table_id": "tgw-rtb-main"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_ec2_transit_gateway_route_table_propagation.data",
+          "mode": "managed",
+          "type": "aws_ec2_transit_gateway_route_table_propagation",
+          "name": "data",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "tgw-rtb-main_tgw-attach-data",
+            "transit_gateway_attachment_id": "tgw-attach-data",
+            "transit_gateway_route_table_id": "tgw-rtb-main"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_ec2_transit_gateway_route.blackhole",
+          "mode": "managed",
+          "type": "aws_ec2_transit_gateway_route",
+          "name": "blackhole",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "tgw-rtb-main_192.168.0.0/16",
+            "destination_cidr_block": "192.168.0.0/16",
+            "blackhole": true,
+            "transit_gateway_attachment_id": "",
+            "transit_gateway_route_table_id": "tgw-rtb-main"
+          },
+          "sensitive_values": {}
+        }
+      ]
+    }
+  }
+}

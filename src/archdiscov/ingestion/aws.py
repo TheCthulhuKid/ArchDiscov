@@ -52,6 +52,15 @@ EC2_OPERATIONS = (
     (Ec2Operation.DESCRIBE_SECURITY_GROUPS, "SecurityGroups"),
     (Ec2Operation.DESCRIBE_SECURITY_GROUP_RULES, "SecurityGroupRules"),
     (Ec2Operation.DESCRIBE_NETWORK_INTERFACES, "NetworkInterfaces"),
+    (Ec2Operation.DESCRIBE_NAT_GATEWAYS, "NatGateways"),
+    (Ec2Operation.DESCRIBE_EGRESS_ONLY_INTERNET_GATEWAYS, "EgressOnlyInternetGateways"),
+    (Ec2Operation.DESCRIBE_VPC_PEERING_CONNECTIONS, "VpcPeeringConnections"),
+    (Ec2Operation.DESCRIBE_VPC_ENDPOINTS, "VpcEndpoints"),
+    (Ec2Operation.DESCRIBE_MANAGED_PREFIX_LISTS, "PrefixLists"),
+    (Ec2Operation.DESCRIBE_TRANSIT_GATEWAYS, "TransitGateways"),
+    (Ec2Operation.DESCRIBE_TRANSIT_GATEWAY_ATTACHMENTS, "TransitGatewayAttachments"),
+    (Ec2Operation.DESCRIBE_TRANSIT_GATEWAY_VPC_ATTACHMENTS, "TransitGatewayVpcAttachments"),
+    (Ec2Operation.DESCRIBE_TRANSIT_GATEWAY_ROUTE_TABLES, "TransitGatewayRouteTables"),
 )
 
 

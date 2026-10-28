@@ -20,7 +20,46 @@ _PARENT_CANDIDATES = {
     ResourceType.SECURITY_GROUP: (_VPC_PARENT,),
     ResourceType.ROUTE_TABLE: (_VPC_PARENT,),
     ResourceType.INTERNET_GATEWAY: (_VPC_PARENT,),
+    ResourceType.NAT_GATEWAY: (_SUBNET_PARENT, _VPC_PARENT),
+    ResourceType.EGRESS_ONLY_INTERNET_GATEWAY: (_VPC_PARENT,),
+    ResourceType.VPC_ENDPOINT: (_VPC_PARENT,),
 }
+
+
+_REFERENCES = (
+    ("vpc_id", ResourceType.VPC),
+    ("subnet_id", ResourceType.SUBNET),
+    ("security_group_ids", ResourceType.SECURITY_GROUP),
+)
+# References only some typed models hold, such as a peering connection's two VPCs. An
+# endpoint's network interfaces are not references: AWS creates them, and no input declares one.
+_TYPE_REFERENCES = {
+    ResourceType.VPC_PEERING_CONNECTION: (
+        ("requester/vpc_id", ResourceType.VPC),
+        ("accepter/vpc_id", ResourceType.VPC),
+    ),
+    ResourceType.VPC_ENDPOINT: (
+        ("route_table_ids", ResourceType.ROUTE_TABLE),
+        ("subnet_ids", ResourceType.SUBNET),
+    ),
+    # Only VPC attachments are mapped, so the attached resource is a VPC.
+    ResourceType.TRANSIT_GATEWAY_ATTACHMENT: (
+        ("transit_gateway_id", ResourceType.TRANSIT_GATEWAY),
+        ("attached_resource_id", ResourceType.VPC),
+    ),
+    ResourceType.TRANSIT_GATEWAY_ROUTE_TABLE: (
+        ("transit_gateway_id", ResourceType.TRANSIT_GATEWAY),
+    ),
+}
+
+
+def _reference(resource: Resource, field: str) -> tuple[object, str]:
+    """A reference field's value and fact pointer: the typed field when the model has one."""
+    head, _, nested = field.partition("/")
+    if head in type(resource).model_fields:
+        value = getattr(resource, head)
+        return (getattr(value, nested, None) if nested else value), f"/{field}"
+    return resource.attributes.get(field), f"/attributes/{field}"
 
 
 def place_resources(resources: list[Resource], evidence: dict) -> tuple[dict, list[Resource], dict]:
@@ -37,7 +76,7 @@ def place_resources(resources: list[Resource], evidence: dict) -> tuple[dict, li
         parent = None
         # Scope is explicit configuration, not a reference inferred from module placement.
         for field, expected in _PARENT_CANDIDATES.get(resource.resource_type, ()):
-            reference = resource.attributes.get(field)
+            reference, _ = _reference(resource, field)
             if not isinstance(reference, str):
                 continue
             candidate = index.get((region, reference))
@@ -55,19 +94,14 @@ def place_resources(resources: list[Resource], evidence: dict) -> tuple[dict, li
             globals_.append(resource)
         else:
             regions.setdefault(region, RegionArchitecture()).resources.append(resource)
-        for field, expected in (
-            ("vpc_id", ResourceType.VPC),
-            ("subnet_id", ResourceType.SUBNET),
-            ("security_group_ids", ResourceType.SECURITY_GROUP),
-        ):
-            value = resource.attributes.get(field)
+        typed = _TYPE_REFERENCES.get(resource.resource_type, ())
+        for field, expected in (*_REFERENCES, *typed):
+            value, base = _reference(resource, field)
             references = (
                 value if isinstance(value, list) else [value] if isinstance(value, str) else []
             )
             for position, reference in enumerate(references):
-                pointer = f"/attributes/{field}" + (
-                    f"/{position}" if isinstance(value, list) else ""
-                )
+                pointer = base + (f"/{position}" if isinstance(value, list) else "")
                 citations = resource.fact_evidence.get(pointer)
                 if not citations:
                     continue

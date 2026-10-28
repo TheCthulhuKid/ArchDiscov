@@ -14,6 +14,7 @@ from archdiscov.models.enums import (
 from archdiscov.services import load_snapshot
 from archdiscov.services.network_acls import evaluate_network_acl
 from archdiscov.services.network_addressing import evaluate_public_address
+from archdiscov.services.network_composition import subnet_routes
 from archdiscov.services.network_decisions import all_of
 from archdiscov.services.network_load_balancers import (
     evaluate_load_balancer_forwarding,
@@ -22,6 +23,7 @@ from archdiscov.services.network_load_balancers import (
 from archdiscov.services.network_routes import evaluate_subnet_route
 from archdiscov.services.network_security_groups import Peer, evaluate_security_group
 from tests.paths import FIXTURES_ROOT
+from tests.support.fixture_edits import edited_index
 from tests.support.lb_data import LB, responses
 from tests.support.lb_data import build as build_lb
 from tests.support.lb_data import resource_id as lb_id
@@ -184,11 +186,11 @@ def test_load_balancer_scheme_and_forwarding_compose():
 # resources, but the primitives must still not fail).
 AWS_FIXTURES = {
     "aws.json": 0,
-    "network.json": 8,
+    "network.json": 11,
     "load-balancing.json": 2,
-    "hierarchy.json": 4,
+    "hierarchy.json": 7,
     "iam.json": 0,
-    "dependency-targets.json": 4,
+    "dependency-targets.json": 7,
     "partial-coverage.json": 0,
 }
 
@@ -254,3 +256,58 @@ def test_every_primitive_reports_the_unsupported_platform_for_azure():
         assert result.decision == D.UNKNOWN
         assert codes(result) == {B.UNSUPPORTED_PLATFORM}
         assert "Analyze an AWS snapshot" in result.blockers[0].message
+
+
+# ---- routes between two subnets -------------------------------------------------------
+
+# vpc-data's table with only its local route: no way back to vpc-app.
+NO_RETURN = {
+    "rtb-data": {
+        "routes": [{"destination": "10.3.0.0/16", "target_kind": "local", "state": "active"}],
+        "fact_evidence": {},
+    }
+}
+OTHER_ACCOUNT = {
+    "pcx-app-data": {
+        "accepter": {
+            "vpc_id": "vpc-data",
+            "owner_id": "210987654321",
+            "cidr_blocks": ["10.3.0.0/16"],
+        }
+    }
+}
+
+
+def app_and_data(index, destination="subnet-data"):
+    return subnet_routes(index, resource_id("subnet-app"), resource_id(destination))
+
+
+@pytest.mark.parametrize("fixture", ["vpc-peering.json", "transit-gateway.json"])
+def test_subnets_in_two_vpcs_route_both_ways_citing_every_hop(fixture):
+    result = app_and_data(edited_index(fixture))
+    assert result.decision == D.ALLOW
+    assert {"rtb-app-route-1", "rtb-data-route-1"} <= set(result.evidence_ids)
+
+
+def test_subnets_in_one_vpc_give_the_local_route_result():
+    index = edited_index("vpc-peering.json")
+    local = evaluate_subnet_route(
+        index, resource_id("subnet-app"), "10.2.1.0/24", reach=RouteReach.LOCAL
+    )
+    result = app_and_data(index, "subnet-app")
+    assert (result.decision, result.evidence_ids) == (D.ALLOW, local.evidence_ids)
+
+
+@pytest.mark.parametrize(
+    ("fixture", "changes", "expected"),
+    [
+        ("transit-gateway.json", NO_RETURN, D.DENY),
+        ("vpc-peering.json", OTHER_ACCOUNT, D.UNKNOWN),
+    ],
+    ids=["no-return-route", "cross-account"],
+)
+def test_a_missing_return_route_denies_and_another_account_is_unknown(fixture, changes, expected):
+    result = app_and_data(edited_index(fixture, changes))
+    assert result.decision == expected
+    if expected == D.UNKNOWN:
+        assert any("210987654321" in blocker.message for blocker in result.blockers)

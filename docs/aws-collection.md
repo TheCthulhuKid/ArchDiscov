@@ -28,8 +28,8 @@ followed into other accounts.
 
 Only allowlisted operations can be called (`ALLOWED_OPERATIONS` in `archdiscov.ingestion.aws`):
 `sts:GetCallerIdentity`, `sts:AssumeRole` (configured roles only), `ec2:DescribeRegions`
-(enabled-region discovery), and the nine EC2 inventory read operations
-in `Ec2Operation` (steps 12–13), plus the eight IAM reads in `IamOperation` (step 14) and six
+(enabled-region discovery), and the twenty-one EC2 inventory read operations
+in `Ec2Operation` (steps 12–13 and 50), plus the eight IAM reads in `IamOperation` (step 14) and six
 ELB reads in `Elbv2Operation` (step 15), and the configuration reads in `EcsOperation`,
 `LambdaOperation`, `RdsOperation`, and `SqsOperation` (step 16). Exact permissions are
 published in [the consolidated policy and setup guide](aws-permissions.md), with
@@ -46,7 +46,9 @@ service's pagination convention, retaining successful sibling results after fail
 
 `archdiscov collect` is the first live workflow. It is read-only and collects regional EC2
 VPCs, subnets, instances, and network configuration (route tables, internet gateways, NACLs,
-security groups and rules, network interfaces), plus account-wide IAM roles, instance profiles,
+security groups and rules, network interfaces, NAT and egress-only internet gateways, peering
+connections, VPC endpoints, managed prefix lists, and transit gateways with their attachments and
+route tables), plus account-wide IAM roles, instance profiles,
 inline policies, and referenced managed policies' default versions. Regional ELBv2 collection
 adds ALB/NLB load balancers, listeners, ALB rules, target groups, registrations/health, and tags.
 Snapshots are schema `"2"`; attachments and trust references use evidence-backed `attached_to`
@@ -149,7 +151,7 @@ Service-local contracts, exact operations/permissions, source paths, and limitat
 
 | Family | Collected facts | Explicit limits |
 | --- | --- | --- |
-| [EC2/network](network-mapping.md) | VPC/subnet/instance configuration, routes, rules, ENIs, attachments | No NAT/transit/peering inventory or reachability analysis; nonlocal/missing targets remain explicit |
+| [EC2/network](network-mapping.md) | VPC/subnet/instance configuration, routes, rules, ENIs, NAT and egress-only gateways, peering connections, endpoints, prefix lists, transit gateways, attachments | No reachability analysis; nonlocal/missing targets remain explicit |
 | [IAM](iam-mapping.md) | Roles, profiles, trust/inline policies, referenced managed policies | Default policy versions only; no users/groups inventory or effective-permission evaluation |
 | [ALB/NLB](load-balancing-mapping.md) | Listeners, rules, ordered forwarding, registrations and reported health | No classic ELB; Gateway LB summaries only; health is not reachability and IP ownership is not inferred |
 | [ECS](ecs-mapping.md) | Clusters, services, desired-running tasks, referenced task definitions | No stopped-task inventory, workload commands, or environment values |

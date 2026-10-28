@@ -51,6 +51,7 @@ def test_a_bounded_peer_distinguishes_covered_partial_and_disjoint_rules():
     assert group("10.0.0.0/16", Peer.within("10.0.2.0/24", ())).decision == D.ALLOW
     assert group("10.0.2.0/25", Peer.within("10.0.2.0/24", ())).decision == D.UNKNOWN
     assert group("192.168.0.0/16", Peer.within("10.0.2.0/24", ())).decision == D.DENY
+    assert group("2001:db8::/48", Peer.within("2001:db8::/32", ())).decision == D.UNKNOWN
 
 
 def test_an_exact_cidr_peer_still_needs_to_be_fully_contained():

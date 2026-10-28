@@ -1,7 +1,22 @@
 from archdiscov.ingestion.network.resources import FALLBACK_LIMITATION
 from archdiscov.ingestion.operations import Ec2Operation as Op
 from archdiscov.models.enums import ResourceType, RouteTargetKind, RuleDirection
-from tests.support.network_data import ENI, FULL, SG, VPC, by_id, flatten, region, snapshot_of
+from tests.support.network_data import (
+    ENI,
+    FULL,
+    NAT_GATEWAY,
+    SG,
+    SUBNET,
+    VPC,
+    by_id,
+    flatten,
+    region,
+    snapshot_of,
+)
+
+
+def _ipv6_block(cidr: str, state: str = "associated") -> dict:
+    return {"Ipv6CidrBlock": cidr, "Ipv6CidrBlockState": {"State": state}}
 
 
 def test_vpc_scoped_resources_are_children_of_the_vpc_and_enis_of_subnets():
@@ -17,7 +32,52 @@ def test_vpc_scoped_resources_are_children_of_the_vpc_and_enis_of_subnets():
     }
     (subnet,) = (c for c in vpc.children if c.resource_type is ResourceType.SUBNET)
     assert [c.identity.physical_id for c in subnet.children] == ["eni-1"]
+    assert subnet.children[0].ipv6_addresses is None  # the response had no IPv6 field
     snapshot_of(result)  # integrity: citations and identities resolve
+
+
+def test_dual_stack_fields_are_read_and_cited_to_their_entries():
+    vpc = {
+        **VPC,
+        "Ipv6CidrBlockAssociationSet": [
+            _ipv6_block("2001:db8:9::/56", "disassociated"),
+            _ipv6_block("2001:db8:1::/56"),
+        ],
+    }
+    subnet = {**SUBNET, "Ipv6CidrBlockAssociationSet": [_ipv6_block("2001:db8:1:1::/64")]}
+    eni = {**ENI, "Ipv6Addresses": [{"Ipv6Address": "2001:db8:1:1::10"}]}
+    table = {
+        "RouteTableId": "rtb-6",
+        "VpcId": "vpc-1",
+        "Routes": [
+            {"DestinationIpv6CidrBlock": "::/0", "EgressOnlyInternetGatewayId": "eigw-1"},
+            {"DestinationPrefixListId": "pl-s3", "GatewayId": "vpce-1"},
+        ],
+    }
+    result = region(
+        {
+            Op.DESCRIBE_VPCS: [vpc],
+            Op.DESCRIBE_SUBNETS: [subnet],
+            Op.DESCRIBE_NETWORK_INTERFACES: [eni],
+            Op.DESCRIBE_ROUTE_TABLES: [table],
+        }
+    )
+    resources = by_id(result)
+
+    def cited(physical_id: str, pointer: str) -> str:
+        evidence_id = resources[physical_id].fact_evidence[pointer][0]
+        return result.evidence[evidence_id].configuration_path
+
+    assert [str(c) for c in resources["vpc-1"].cidr_blocks] == ["10.0.0.0/16", "2001:db8:1::/56"]
+    assert cited("vpc-1", "/cidr_blocks/1") == "Vpcs[0].Ipv6CidrBlockAssociationSet[1]"
+    assert [str(c) for c in resources["subnet-1"].cidr_blocks][1] == "2001:db8:1:1::/64"
+    assert cited("subnet-1", "/cidr_blocks/1") == "Subnets[0].Ipv6CidrBlockAssociationSet[0]"
+    assert [str(a) for a in resources["eni-1"].ipv6_addresses] == ["2001:db8:1:1::10"]
+    assert cited("eni-1", "/ipv6_addresses/0") == "NetworkInterfaces[0].Ipv6Addresses[0]"
+    egress, prefix = resources["rtb-6"].routes
+    assert egress.destination == "::/0" and egress.prefix_list_id is None
+    assert prefix.prefix_list_id == "pl-s3"
+    snapshot_of(result)  # the subnet's IPv6 CIDR lies inside the VPC's
 
 
 def test_route_citations_point_at_the_specific_route():
@@ -118,14 +178,24 @@ def test_malformed_values_degrade_with_limitations_instead_of_failing():
             }
         ],
     }
+    eni = {**ENI, "Ipv6Addresses": [{"Ipv6Address": "10.0.1.6"}]}
+    nat = {**NAT_GATEWAY, "NatGatewayAddresses": []}  # available and public, with no address
     result = region(
         {
             Op.DESCRIBE_VPCS: [VPC],
             Op.DESCRIBE_SECURITY_GROUPS: [group],
             Op.DESCRIBE_SECURITY_GROUP_RULES: [],
+            Op.DESCRIBE_NETWORK_INTERFACES: [eni],
+            Op.DESCRIBE_NAT_GATEWAYS: [nat],
         },
         {Op.DESCRIBE_SECURITY_GROUP_RULES: "x"},
     )
+    gateway = by_id(result)["nat-1"]
+    assert gateway.connectivity is None and "/connectivity" not in gateway.fact_evidence
+    assert "ConnectivityType was omitted" in gateway.attributes["limitations"][0]
+    interface = by_id(result)["eni-1"]
+    assert interface.ipv6_addresses == []
+    assert "Ipv6Addresses[0]: invalid value" in interface.attributes["limitations"][0]
     bad = by_id(result)["sg-bad"]
     (rule,) = bad.ingress_rules
     assert rule.cidr is None and rule.from_port is None and rule.to_port == 443

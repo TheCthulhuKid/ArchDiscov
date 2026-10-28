@@ -55,13 +55,29 @@ def map_resource(
     if mapping.service == AwsService.IAM and not fields.iam(mapping.string_fields):
         return unknown()
     fields.tags_and_name()
+    claimed = {source for source, _ in mapping.string_fields}
     for field in ("vpc_id", "subnet_id", "iam_instance_profile"):
-        fields.string(field, field, attribute=True)
+        if field in claimed:
+            continue
+        # A model that declares the field records it there, as collection does.
+        fields.string(field, field, attribute=field not in model.model_fields)
     fields.security_groups()
     fields.cidrs(mapping.cidr_sources)
     if mapping.service != AwsService.IAM:
         for source, target in mapping.string_fields:
             fields.string(source, target)
+    fields.addresses(mapping.address_lists)
+    for source, target, spellings in mapping.choices:
+        fields.choice(source, target, spellings)
+    for source, target in mapping.string_lists:
+        fields.string_list(source, target)
+    for source, target, minimum in mapping.integer_fields:
+        fields.integer(source, target, minimum)
+    for target, value in mapping.constants:
+        data[target] = value
+        facts[f"/{target}"] = "/type"
+    for source, target in mapping.cidr_entries:
+        fields.cidr_entries(source, target, "cidr")
     fields.inline_collections(mapping.inline_collections)
 
     try:

@@ -1,0 +1,589 @@
+{
+  "schema_version": "2",
+  "snapshot_id": "00000000-0000-4000-8000-00000000004d",
+  "account_id": "123456789012",
+  "collection_started_at": "2026-10-26T08:00:00Z",
+  "collection_completed_at": "2026-10-26T08:01:00Z",
+  "source": {
+    "kind": "mock",
+    "label": "dual-stack"
+  },
+  "coverage": {
+    "regions": [
+      "eu-west-1"
+    ],
+    "account_wide": false
+  },
+  "regions": {
+    "eu-west-1": {
+      "resources": [
+        {
+          "identity": {
+            "account_id": "123456789012",
+            "region": "eu-west-1",
+            "service": "ec2",
+            "physical_id": "vpc-dual"
+          },
+          "resource_type": "AWS::EC2::VPC",
+          "cidr_blocks": [
+            "10.5.0.0/16",
+            "2001:db8:1234:1a00::/56"
+          ],
+          "evidence_ids": [
+            "vpc"
+          ],
+          "fact_evidence": {
+            "/cidr_blocks/1": [
+              "vpc-ipv6"
+            ]
+          },
+          "children": [
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "subnet-dual-public"
+              },
+              "resource_type": "AWS::EC2::Subnet",
+              "cidr_blocks": [
+                "10.5.1.0/24",
+                "2001:db8:1234:1a01::/64"
+              ],
+              "evidence_ids": [
+                "subnet-public"
+              ],
+              "fact_evidence": {
+                "/cidr_blocks/1": [
+                  "subnet-public-ipv6"
+                ]
+              },
+              "children": [
+                {
+                  "identity": {
+                    "account_id": "123456789012",
+                    "region": "eu-west-1",
+                    "service": "ec2",
+                    "physical_id": "eni-dual"
+                  },
+                  "resource_type": "AWS::EC2::NetworkInterface",
+                  "private_ip_addresses": [
+                    {
+                      "address": "10.5.1.10",
+                      "primary": true
+                    }
+                  ],
+                  "ipv6_addresses": [
+                    "2001:db8:1234:1a01::10"
+                  ],
+                  "evidence_ids": [
+                    "eni"
+                  ],
+                  "fact_evidence": {
+                    "/ipv6_addresses/0": [
+                      "eni-ipv6"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "subnet-dual-private"
+              },
+              "resource_type": "AWS::EC2::Subnet",
+              "cidr_blocks": [
+                "10.5.2.0/24",
+                "2001:db8:1234:1a02::/64"
+              ]
+            },
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "rtb-dual-public"
+              },
+              "resource_type": "AWS::EC2::RouteTable",
+              "routes": [
+                {
+                  "destination": "10.5.0.0/16",
+                  "target_kind": "local",
+                  "state": "active"
+                },
+                {
+                  "destination": "2001:db8:1234:1a00::/56",
+                  "target_kind": "local",
+                  "state": "active"
+                },
+                {
+                  "destination": "::/0",
+                  "target_kind": "internet_gateway",
+                  "target_id": "igw-dual",
+                  "state": "active"
+                }
+              ],
+              "evidence_ids": [
+                "rtb-dual-public"
+              ],
+              "fact_evidence": {
+                "/routes/2": [
+                  "rtb-dual-public-ipv6-default"
+                ]
+              }
+            },
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "rtb-dual-private"
+              },
+              "resource_type": "AWS::EC2::RouteTable",
+              "routes": [
+                {
+                  "destination": "10.5.0.0/16",
+                  "target_kind": "local",
+                  "state": "active"
+                },
+                {
+                  "destination": "2001:db8:1234:1a00::/56",
+                  "target_kind": "local",
+                  "state": "active"
+                },
+                {
+                  "destination": "::/0",
+                  "target_kind": "egress_only_internet_gateway",
+                  "target_id": "eigw-dual",
+                  "state": "active"
+                }
+              ],
+              "evidence_ids": [
+                "rtb-dual-private"
+              ],
+              "fact_evidence": {
+                "/routes/2": [
+                  "rtb-dual-private-ipv6-default"
+                ]
+              }
+            },
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "igw-dual"
+              },
+              "resource_type": "AWS::EC2::InternetGateway"
+            },
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "eigw-dual"
+              },
+              "resource_type": "AWS::EC2::EgressOnlyInternetGateway",
+              "vpc_id": "vpc-dual"
+            },
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "sg-dual"
+              },
+              "resource_type": "AWS::EC2::SecurityGroup",
+              "ingress_rules": [
+                {
+                  "direction": "ingress",
+                  "rule_id": "sgr-https-ipv6",
+                  "protocol": "tcp",
+                  "from_port": 443,
+                  "to_port": 443,
+                  "cidr": "::/0"
+                }
+              ],
+              "evidence_ids": [
+                "sg"
+              ],
+              "fact_evidence": {
+                "/ingress_rules/0": [
+                  "sg-https-ipv6"
+                ]
+              }
+            },
+            {
+              "identity": {
+                "account_id": "123456789012",
+                "region": "eu-west-1",
+                "service": "ec2",
+                "physical_id": "acl-dual"
+              },
+              "resource_type": "AWS::EC2::NetworkAcl",
+              "entries": [
+                {
+                  "rule_number": 101,
+                  "direction": "ingress",
+                  "action": "allow",
+                  "protocol": "6",
+                  "from_port": 443,
+                  "to_port": 443,
+                  "cidr": "::/0"
+                }
+              ],
+              "evidence_ids": [
+                "acl"
+              ],
+              "fact_evidence": {
+                "/entries/0": [
+                  "acl-https-ipv6"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "dependencies_by_region": {
+    "eu-west-1": [
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/rtb-dual-public",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/igw-dual"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_target",
+          "target_kind": "internet_gateway",
+          "destination": "::/0",
+          "state": "active"
+        },
+        "evidence_ids": [
+          "rtb-dual-public-ipv6-default"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/rtb-dual-private",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/eigw-dual"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_target",
+          "target_kind": "egress_only_internet_gateway",
+          "destination": "::/0",
+          "state": "active"
+        },
+        "evidence_ids": [
+          "rtb-dual-private-ipv6-default"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/acl-dual",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-dual-public"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "network_acl_association",
+          "association_id": "aclassoc-dual-public"
+        },
+        "evidence_ids": [
+          "acl-association"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/rtb-dual-public",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-dual-public"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_table_association",
+          "association_id": "rtbassoc-dual-public"
+        },
+        "evidence_ids": [
+          "rtb-dual-public-association"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/rtb-dual-private",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-dual-private"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_table_association",
+          "association_id": "rtbassoc-dual-private"
+        },
+        "evidence_ids": [
+          "rtb-dual-private-association"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/igw-dual",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/vpc-dual"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "internet_gateway_attachment",
+          "state": "available"
+        },
+        "evidence_ids": [
+          "igw-attachment"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/eigw-dual",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/vpc-dual"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "egress_only_internet_gateway_attachment",
+          "state": "attached"
+        },
+        "evidence_ids": [
+          "eigw-attachment"
+        ]
+      }
+    ]
+  },
+  "evidence": {
+    "eni": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004d",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/eni-dual",
+      "source": "mock",
+      "locator": "dual-stack.json",
+      "configuration_path": "NetworkInterfaces[0]",
+      "value": {
+        "NetworkInterfaceId": "eni-dual"
+      }
+    },
+    "eni-ipv6": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004d",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/eni-dual",
+      "source": "mock",
+      "locator": "dual-stack.json",
+      "configuration_path": "NetworkInterfaces[0].Ipv6Addresses[0]",
+      "value": {
+        "Ipv6Address": "2001:db8:1234:1a01::10",
+        "IsPrimaryIpv6": false
+      }
+    },
+    "subnet-public": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004d",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-dual-public",
+      "source": "mock",
+      "locator": "dual-stack.json",
+      "configuration_path": "Subnets[0]",
+      "value": {
+        "SubnetId": "subnet-dual-public",
+        "CidrBlock": "10.5.1.0/24"
+      }
+    },
+    "subnet-public-ipv6": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004d",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-dual-public",
+      "source": "mock",
+      "locator": "dual-stack.json",
+      "configuration_path": "Subnets[0].Ipv6CidrBlockAssociationSet[0]",
+      "value": {
+        "Ipv6CidrBlock": "2001:db8:1234:1a01::/64",
+        "Ipv6CidrBlockState": {
+          "State": "associated"
+        }
+      }
+    },
+    "sg": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004d",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/sg-dual",
+      "source": "mock",
+      "locator": "dual-stack.json",
+      "configuration_path": "SecurityGroups[0]",
+      "value": {
+        "GroupId": "sg-dual"
+      }
+    },
+    "sg-https-ipv6": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004d",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/sg-dual",
+      "source": "mock",
+      "locator": "dual-stack.json",
+      "configuration_path": "SecurityGroupRules[0]",
+      "value": {
+        "SecurityGroupRuleId": "sgr-https-ipv6",
+        "GroupId": "sg-dual",
+        "IsEgress": false,
+        "IpProtocol": "tcp",
+        "FromPort": 443,
+        "ToPort": 443,
+        "CidrIpv6": "::/0"
+      }
+    },
+    "acl": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004d",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/acl-dual",
+      "source": "mock",
+      "locator": "dual-stack.json",
+      "configuration_path": "NetworkAcls[0]",
+      "value": {
+        "NetworkAclId": "acl-dual"
+      }
+    },
+    "acl-https-ipv6": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004d",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/acl-dual",
+      "source": "mock",
+      "locator": "dual-stack.json",
+      "configuration_path": "NetworkAcls[0].Entries[0]",
+      "value": {
+        "RuleNumber": 101,
+        "Egress": false,
+        "RuleAction": "allow",
+        "Protocol": "6",
+        "PortRange": {
+          "From": 443,
+          "To": 443
+        },
+        "Ipv6CidrBlock": "::/0"
+      }
+    },
+    "acl-association": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004d",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/acl-dual",
+      "source": "mock",
+      "locator": "dual-stack.json",
+      "configuration_path": "NetworkAcls[0].Associations[0]",
+      "value": {
+        "NetworkAclAssociationId": "aclassoc-dual-public",
+        "SubnetId": "subnet-dual-public"
+      }
+    },
+    "vpc": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004d",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/vpc-dual",
+      "source": "mock",
+      "locator": "dual-stack.json",
+      "configuration_path": "Vpcs[0]",
+      "value": {
+        "VpcId": "vpc-dual",
+        "CidrBlock": "10.5.0.0/16"
+      }
+    },
+    "vpc-ipv6": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004d",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/vpc-dual",
+      "source": "mock",
+      "locator": "dual-stack.json",
+      "configuration_path": "Vpcs[0].Ipv6CidrBlockAssociationSet[0]",
+      "value": {
+        "Ipv6CidrBlock": "2001:db8:1234:1a00::/56",
+        "Ipv6CidrBlockState": {
+          "State": "associated"
+        }
+      }
+    },
+    "rtb-dual-public": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004d",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-dual-public",
+      "source": "mock",
+      "locator": "dual-stack.json",
+      "configuration_path": "RouteTables[0]",
+      "value": {
+        "RouteTableId": "rtb-dual-public"
+      }
+    },
+    "rtb-dual-public-ipv6-default": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004d",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-dual-public",
+      "source": "mock",
+      "locator": "dual-stack.json",
+      "configuration_path": "RouteTables[0].Routes[2]",
+      "value": {
+        "DestinationIpv6CidrBlock": "::/0",
+        "GatewayId": "igw-dual",
+        "State": "active"
+      }
+    },
+    "rtb-dual-private": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004d",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-dual-private",
+      "source": "mock",
+      "locator": "dual-stack.json",
+      "configuration_path": "RouteTables[1]",
+      "value": {
+        "RouteTableId": "rtb-dual-private"
+      }
+    },
+    "rtb-dual-private-ipv6-default": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004d",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-dual-private",
+      "source": "mock",
+      "locator": "dual-stack.json",
+      "configuration_path": "RouteTables[1].Routes[2]",
+      "value": {
+        "DestinationIpv6CidrBlock": "::/0",
+        "EgressOnlyInternetGatewayId": "eigw-dual",
+        "State": "active"
+      }
+    },
+    "rtb-dual-public-association": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004d",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-dual-public",
+      "source": "mock",
+      "locator": "dual-stack.json",
+      "configuration_path": "RouteTables[0].Associations[0]",
+      "value": {
+        "SubnetId": "subnet-dual-public",
+        "RouteTableAssociationId": "rtbassoc-dual-public"
+      }
+    },
+    "rtb-dual-private-association": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004d",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-dual-private",
+      "source": "mock",
+      "locator": "dual-stack.json",
+      "configuration_path": "RouteTables[1].Associations[0]",
+      "value": {
+        "SubnetId": "subnet-dual-private",
+        "RouteTableAssociationId": "rtbassoc-dual-private"
+      }
+    },
+    "igw-attachment": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004d",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/igw-dual",
+      "source": "mock",
+      "locator": "dual-stack.json",
+      "configuration_path": "InternetGateways[0].Attachments[0]",
+      "value": {
+        "VpcId": "vpc-dual",
+        "State": "available"
+      }
+    },
+    "eigw-attachment": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004d",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/eigw-dual",
+      "source": "mock",
+      "locator": "dual-stack.json",
+      "configuration_path": "EgressOnlyInternetGateways[0].Attachments[0]",
+      "value": {
+        "VpcId": "vpc-dual",
+        "State": "attached"
+      }
+    }
+  }
+}

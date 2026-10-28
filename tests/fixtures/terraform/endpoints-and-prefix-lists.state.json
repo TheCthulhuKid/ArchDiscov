@@ -1,0 +1,172 @@
+{
+  "format_version": "1.0",
+  "terraform_version": "1.11.4",
+  "values": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_vpc.svc",
+          "mode": "managed",
+          "type": "aws_vpc",
+          "name": "svc",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "vpc-svc",
+            "cidr_block": "10.4.0.0/16"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_subnet.svc",
+          "mode": "managed",
+          "type": "aws_subnet",
+          "name": "svc",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "subnet-svc",
+            "vpc_id": "vpc-svc",
+            "cidr_block": "10.4.1.0/24"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_route_table.svc",
+          "mode": "managed",
+          "type": "aws_route_table",
+          "name": "svc",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "rtb-svc",
+            "vpc_id": "vpc-svc",
+            "route": []
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_security_group.endpoint",
+          "mode": "managed",
+          "type": "aws_security_group",
+          "name": "endpoint",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "sg-endpoint",
+            "vpc_id": "vpc-svc",
+            "ingress": [],
+            "egress": []
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_vpc_endpoint.s3",
+          "mode": "managed",
+          "type": "aws_vpc_endpoint",
+          "name": "s3",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "vpce-s3",
+            "vpc_endpoint_type": "Gateway",
+            "service_name": "com.amazonaws.eu-west-1.s3",
+            "state": "available",
+            "vpc_id": "vpc-svc",
+            "owner_id": "123456789012",
+            "route_table_ids": [
+              "rtb-svc"
+            ],
+            "subnet_ids": [],
+            "security_group_ids": [],
+            "network_interface_ids": [],
+            "policy": "{\"Statement\": []}"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_vpc_endpoint.sqs",
+          "mode": "managed",
+          "type": "aws_vpc_endpoint",
+          "name": "sqs",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "vpce-sqs",
+            "vpc_endpoint_type": "Interface",
+            "service_name": "com.amazonaws.eu-west-1.sqs",
+            "state": "available",
+            "vpc_id": "vpc-svc",
+            "owner_id": "123456789012",
+            "route_table_ids": [],
+            "subnet_ids": [
+              "subnet-svc"
+            ],
+            "security_group_ids": [
+              "sg-endpoint"
+            ],
+            "network_interface_ids": [
+              "eni-vpce"
+            ]
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_ec2_managed_prefix_list.office",
+          "mode": "managed",
+          "type": "aws_ec2_managed_prefix_list",
+          "name": "office",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "pl-office",
+            "name": "office",
+            "address_family": "IPv4",
+            "owner_id": "123456789012",
+            "version": 3,
+            "max_entries": 5,
+            "entry": [
+              {
+                "cidr": "198.51.100.0/24",
+                "description": "head office"
+              },
+              {
+                "cidr": "203.0.113.0/24",
+                "description": null
+              }
+            ]
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_ec2_managed_prefix_list.partners",
+          "mode": "managed",
+          "type": "aws_ec2_managed_prefix_list",
+          "name": "partners",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "pl-partners",
+            "name": "partners",
+            "address_family": "IPv4",
+            "owner_id": "123456789012",
+            "version": 2,
+            "max_entries": 5,
+            "entry": [
+              {
+                "cidr": "192.0.2.0/24",
+                "description": null
+              }
+            ]
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "aws_ec2_managed_prefix_list_entry.extra",
+          "mode": "managed",
+          "type": "aws_ec2_managed_prefix_list_entry",
+          "name": "extra",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {
+            "id": "pl-partners,198.18.0.0/15",
+            "prefix_list_id": "pl-partners",
+            "cidr": "198.18.0.0/15"
+          },
+          "sensitive_values": {}
+        }
+      ]
+    }
+  }
+}

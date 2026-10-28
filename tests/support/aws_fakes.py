@@ -32,6 +32,20 @@ class Client:
     def get_paginator(self, method):
         return Paginator(self.pages[method])
 
+    def __getattr__(self, method):
+        """A direct (detail) call: its page is a function of the request parameters."""
+        respond = self.__dict__.get("pages", {}).get(method)
+        if not callable(respond):
+            raise AttributeError(method)
+
+        def call(**params):
+            page = respond(**params)
+            if isinstance(page, Exception):
+                raise page
+            return page
+
+        return call
+
 
 class Session:
     def __init__(self, account=ACCOUNT, pages=None):
@@ -79,4 +93,13 @@ def empty_network_pages():
         "describe_security_groups": [{"SecurityGroups": []}],
         "describe_security_group_rules": [{"SecurityGroupRules": []}],
         "describe_network_interfaces": [{"NetworkInterfaces": []}],
+        "describe_nat_gateways": [{"NatGateways": []}],
+        "describe_egress_only_internet_gateways": [{"EgressOnlyInternetGateways": []}],
+        "describe_vpc_peering_connections": [{"VpcPeeringConnections": []}],
+        "describe_vpc_endpoints": [{"VpcEndpoints": []}],
+        "describe_managed_prefix_lists": [{"PrefixLists": []}],
+        "describe_transit_gateways": [{"TransitGateways": []}],
+        "describe_transit_gateway_attachments": [{"TransitGatewayAttachments": []}],
+        "describe_transit_gateway_vpc_attachments": [{"TransitGatewayVpcAttachments": []}],
+        "describe_transit_gateway_route_tables": [{"TransitGatewayRouteTables": []}],
     }

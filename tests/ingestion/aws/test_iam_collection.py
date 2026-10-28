@@ -3,6 +3,7 @@ from copy import deepcopy
 from botocore.exceptions import ClientError
 
 from archdiscov.ingestion.requests import AwsCollectionRequest
+from archdiscov.ingestion.service_catalog import REGIONAL_OPERATIONS
 from archdiscov.models.enums import AwsService
 from archdiscov.models.resources.iam import IamRole
 from archdiscov.services import collect_and_save, collect_snapshots, load_snapshot
@@ -33,7 +34,8 @@ def test_two_regions_collect_iam_once_and_links_round_trip(tmp_path):
     assert snapshot == outcome.snapshot
     assert outcome.complete
     assert len(snapshot.global_resources) == 3
-    assert len(snapshot.coverage.operations) == 26  # 9 regional reads x 2 + 8 IAM reads
+    # Each EC2 read in two regions, plus eight IAM reads.
+    assert len(snapshot.coverage.operations) == 2 * len(REGIONAL_OPERATIONS[AwsService.EC2]) + 8
     assert sum(m == "list_roles" for m, _ in session.iam.calls) == 1
     assert sum(m == "list_instance_profiles" for m, _ in session.iam.calls) == 1
     assert len([name for name, _ in session.clients if name == "iam"]) == 1

@@ -6,7 +6,7 @@ from typing import Any
 
 from botocore import xform_name
 
-from ..models.architecture import CollectionFailure, Coverage
+from ..models.architecture import CollectionFailure, Coverage, UnresolvedValue
 from ..models.enums import AwsRegion, AwsService, CoverageStatus
 from .adapter import AdapterContext, IngestionError
 from .detail_pagination import PAGINATION_POLICIES, PAGINATION_TOKENS, PaginationMode
@@ -39,6 +39,19 @@ class DetailResponse:
 class DetailResult:
     responses: list[DetailResponse]
     coverage: Coverage
+
+
+def with_problems(result: DetailResult, problems: list[UnresolvedValue]) -> DetailResult:
+    """The result with its coverage marked incomplete by the given unresolved values."""
+    if not problems:
+        return result
+    fields = result.coverage.model_dump()
+    fields.update(
+        status=CoverageStatus.INCOMPLETE,
+        result_count=len(result.responses),
+        unresolved_values=[*result.coverage.unresolved_values, *problems],
+    )
+    return DetailResult(result.responses, Coverage(**fields))
 
 
 @dataclass(frozen=True)

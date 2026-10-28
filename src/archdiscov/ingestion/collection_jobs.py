@@ -5,7 +5,7 @@ from typing import Any
 from uuid import UUID
 
 from ..models.architecture import Dependency
-from ..models.enums import AwsRegion, AwsService, CoverageStatus
+from ..models.enums import AwsRegion, AwsService
 from .adapter import AdapterContext
 from .configuration_common import ServiceCollection
 from .requests import AwsAccountConfig
@@ -55,28 +55,23 @@ def collect_job(
     account_id: str,
 ) -> CollectedJob:
     if job.service is AwsService.EC2:
-        from .aws import EC2_OPERATIONS, OperationRunner, OperationTask
         from .network import normalize_region
-        from .operations import Ec2Operation
+        from .network.collector import read_region
 
-        runner = OperationRunner(session, account, context)
-        results = runner.run_many(
-            OperationTask(job.region, job.service, operation, result_key=key)
-            for operation, key in EC2_OPERATIONS
+        reads = read_region(session, account, context, job.region)
+        normalized = normalize_region(
+            snapshot_id,
+            account_id,
+            job.region,
+            reads.items,
+            reads.unavailable,
+            reads.prefix_list_entries,
+            reads.transit_gateway_tables,
         )
-        items = {Ec2Operation(r.coverage.operation): r.items for r in results}
-        unavailable = {
-            Ec2Operation(r.coverage.operation): r.coverage.status.value
-            for r in results
-            if r.coverage.status is not CoverageStatus.SUCCESS
-        }
-        normalized = normalize_region(snapshot_id, account_id, job.region, items, unavailable)
         return CollectedJob(
             job,
             ServiceCollection(
-                normalized.architecture.resources,
-                normalized.evidence,
-                [r.coverage for r in results],
+                normalized.architecture.resources, normalized.evidence, reads.coverage
             ),
             normalized.dependencies,
         )

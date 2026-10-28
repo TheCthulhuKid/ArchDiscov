@@ -8,10 +8,13 @@ and nested-template payloads are intentionally not imported.
 
 from ipaddress import ip_network
 
-from ...models.architecture import Ec2Instance, Subnet, UnknownResource, Vpc
+from pydantic import ValidationError
+
+from ...models.architecture import Subnet, UnknownResource, Vpc
 from ...models.enums import AwsService
 from ...models.resource_base import Resource, ResourceIdentity
-from .catalog import RESOURCE_MAPPINGS
+from ..import_fields import TypedFields
+from .catalog import RESOURCE_MAPPINGS, ResourceMapping
 
 
 def service_for_type(aws_type: str) -> AwsService:
@@ -38,12 +41,21 @@ def _is_nonblank_unredacted_string(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip()) and value != "[REDACTED]"
 
 
-class _Properties:
+class _Properties(TypedFields):
     def __init__(self, properties: dict, identity: ResourceIdentity):
         self.values = properties
         self.data: dict = {"identity": identity, "attributes": {}}
         self.facts: dict[str, str] = {}
         self.limitations: list[str] = []
+
+    def source_pointer(self, source: str) -> str:
+        return f"/{source}"
+
+    def usable(self, value: object) -> bool:
+        return _is_nonblank_unredacted_string(value)
+
+    def omit_value(self, source: str) -> None:
+        self.omit(source)
 
     def omit(self, source: str) -> None:
         self.limitations.append(f"Invalid or unresolved {source} omitted.")
@@ -55,10 +67,12 @@ class _Properties:
         if not _is_nonblank_unredacted_string(value):
             self.omit(source)
             return
-        if attribute:
-            self.data["attributes"][target] = value
-        else:
-            self.data[target] = value
+        container = self.data["attributes"] if attribute else self.data
+        # A target may name a nested field, such as a peering side's `requester/vpc_id`.
+        *parents, leaf = target.split("/")
+        for parent in parents:
+            container = container.setdefault(parent, {})
+        container[leaf] = value
         self.facts[f"/attributes/{target}" if attribute else f"/{target}"] = f"/{source}"
 
     def integer(self, source: str, target: str, minimum: int, maximum: int) -> None:
@@ -129,6 +143,41 @@ class _Properties:
             self.data["cidr_blocks"] = blocks
 
 
+# A fact source meaning "the declared `Type`", for a value the type itself states.
+TYPE_SOURCE = "#Type"
+
+
+def _typed(model: type[Resource], mapping: ResourceMapping, fields: _Properties) -> Resource | None:
+    """The typed resource, or None when its declared values break the model's rules."""
+    claimed = {source for source, *_ in (*mapping.string_fields, *mapping.string_lists)}
+    for source, target in (("VpcId", "vpc_id"), ("SubnetId", "subnet_id")):
+        if source in claimed:
+            continue
+        # A model that declares the field records it there, as collection does.
+        fields.string(source, target, attribute=target not in model.model_fields)
+    if "SecurityGroupIds" not in claimed:
+        fields.security_groups()
+    if model in (Vpc, Subnet):
+        fields.cidrs()
+    for source, target in mapping.string_fields:
+        fields.string(source, target, attribute=False)
+    for source, target, spellings in mapping.choices:
+        fields.choice(source, target, spellings)
+    for source, target in mapping.string_lists:
+        fields.string_list(source, target)
+    for source, target in mapping.cidr_entries:
+        fields.cidr_entries(source, target, "Cidr")
+    for target, value in mapping.constants:
+        fields.data[target] = value
+        fields.facts[f"/{target}"] = TYPE_SOURCE
+    if any(key in fields.values for key in ("SecurityGroupIngress", "SecurityGroupEgress")):
+        fields.limitations.append("Inline security group rules are not mapped.")
+    try:
+        return model(**fields.data)
+    except ValidationError:
+        return None
+
+
 def map_resource(
     aws_type: str, properties: dict, identity: ResourceIdentity
 ) -> tuple[Resource, dict[str, str], list[str]]:
@@ -144,18 +193,14 @@ def map_resource(
     model = mapping.model if mapping is not None else None
     fields.name_tag()
     if model is not None:
-        for source, target in (("VpcId", "vpc_id"), ("SubnetId", "subnet_id")):
-            fields.string(source, target)
-        fields.security_groups()
-        if model in (Vpc, Subnet):
-            fields.cidrs()
-        if model is Subnet:
-            fields.string("AvailabilityZone", "availability_zone", attribute=False)
-        if model is Ec2Instance:
-            fields.string("InstanceType", "instance_type", attribute=False)
-        if any(key in fields.values for key in ("SecurityGroupIngress", "SecurityGroupEgress")):
-            fields.limitations.append("Inline security group rules are not mapped.")
-        resource = model(**fields.data)
+        resource = _typed(model, mapping, fields)
+        if resource is not None:
+            return resource, fields.facts, list(dict.fromkeys(fields.limitations))
+        fields.limitations.append("Typed resource validation failed; only its type is retained.")
+        fields.data = {"identity": identity, "attributes": {}}
+        fields.facts = {}
+        fields.name_tag()  # an unknown resource still keeps its safe Name tag
+        resource = UnknownResource(aws_resource_type=aws_type, **fields.data)
     else:
         if mapping is not None:
             for source, target in mapping.string_fields:

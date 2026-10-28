@@ -7,7 +7,13 @@ from typing import Any
 from ...models.architecture import Coverage, UnresolvedValue
 from ...models.enums import AwsRegion, AwsService, CoverageStatus
 from ..adapter import AdapterContext
-from ..detail_execution import DetailCall, DetailResponse, DetailResult, DetailRunner
+from ..detail_execution import (
+    DetailCall,
+    DetailResponse,
+    DetailResult,
+    DetailRunner,
+    with_problems,
+)
 from ..operations import Elbv2Operation as Op
 from ..requests import AwsAccountConfig
 from .identity import valid_arn
@@ -29,18 +35,6 @@ class Elbv2Inventory:
     @property
     def coverage(self) -> list[Coverage]:
         return [result.coverage for result in self.results.values()]
-
-
-def _limited(result: DetailResult, problems: list[UnresolvedValue]) -> DetailResult:
-    if not problems:
-        return result
-    fields = result.coverage.model_dump()
-    fields.update(
-        status=CoverageStatus.INCOMPLETE,
-        result_count=len(result.responses),
-        unresolved_values=[*result.coverage.unresolved_values, *problems],
-    )
-    return DetailResult(result.responses, Coverage(**fields))
 
 
 def _problem(path: str, reason: str) -> UnresolvedValue:
@@ -211,7 +205,7 @@ class _Stages:
                 DetailResponse(replace(response.call, result_key=key), item, f"{path}[{index}]")
                 for index, item in enumerate(value[key])
             )
-        result = _limited(_recounted(raw.coverage, responses), problems)
+        result = with_problems(_recounted(raw.coverage, responses), problems)
         self.results[op] = result
         return result
 
@@ -239,7 +233,7 @@ class _Stages:
             for index, response in enumerate(result.responses)
             if index not in unsafe and response.value[field] not in conflicts
         ]
-        self.results[op] = _limited(
+        self.results[op] = with_problems(
             _recounted(result.coverage, retained), [*problems, *conflicting]
         )
         return safe
@@ -254,7 +248,7 @@ class _Stages:
         """The items of a modelled type; the others keep their summary, with a problem."""
         field, types = _SUPPORTED[op]
         supported = {arn: item for arn, item in items.items() if item.value.get(field) in types}
-        self.results[op] = _limited(
+        self.results[op] = with_problems(
             self.results[op],
             [
                 _problem(f"{item.path}.{field}", "Unsupported resource type; summary retained")
@@ -322,7 +316,7 @@ class _Stages:
             fields["unresolved_values"] = [*tags.coverage.unresolved_values, *problems]
             self.results[Op.DESCRIBE_TAGS] = DetailResult(retained, Coverage(**fields))
         else:
-            self.results[Op.DESCRIBE_TAGS] = _limited(result, problems)
+            self.results[Op.DESCRIBE_TAGS] = with_problems(result, problems)
 
 
 def collect_inventory(

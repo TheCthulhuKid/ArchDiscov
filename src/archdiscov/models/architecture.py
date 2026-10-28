@@ -40,11 +40,19 @@ from .resources.functions import LambdaFunction
 from .resources.iam import IamInstanceProfile, IamManagedPolicy, IamRole
 from .resources.load_balancing import Listener, ListenerRule, LoadBalancer, TargetGroup
 from .resources.network import (
+    EgressOnlyInternetGateway,
     InternetGateway,
+    ManagedPrefixList,
+    NatGateway,
     NetworkAcl,
     NetworkInterface,
     RouteTable,
     SecurityGroup,
+    TransitGateway,
+    TransitGatewayAttachment,
+    TransitGatewayRouteTable,
+    VpcEndpoint,
+    VpcPeeringConnection,
 )
 from .resources.queues import SqsQueue
 from .sanitization import is_sensitive_path, sanitize_value
@@ -56,6 +64,7 @@ from .snapshot_integrity import (
     validate_collection_window,
     validate_evidence,
     validate_resource_facts,
+    validate_transit_gateway_links,
     validate_unresolved_resources,
 )
 
@@ -81,13 +90,35 @@ class Subnet(Resource):
 
 
 class Vpc(Resource):
-    """VPC-specific attributes; containment is inherited from Resource."""
+    """VPC-specific attributes; containment is inherited from Resource.
+
+    `cidr_blocks` holds both address families, as subnets, routes, and rules do.
+    """
 
     resource_type: Literal[ResourceType.VPC] = ResourceType.VPC
     cidr_blocks: list[IPvAnyNetwork] | None = None
 
+    @model_validator(mode="after")
+    def validate_subnet_ipv6_blocks(self) -> Self:
+        blocks = [block for block in self.cidr_blocks or [] if block.version == 6]
+        if not blocks:
+            return self
+        outside = [
+            (child.id, block)
+            for child in self.children
+            if isinstance(child, Subnet)
+            for block in child.cidr_blocks or []
+            if block.version == 6 and not any(block.subnet_of(vpc) for vpc in blocks)
+        ]
+        if outside:
+            subnet_id, block = outside[0]
+            raise ValueError(f"subnet {subnet_id!r}: IPv6 CIDR {block} is outside its VPC's")
+        return self
 
-SupportedResource = Annotated[
+
+# A named alias is built once as a shared schema definition; an inline union is rebuilt
+# inside each member's children, nesting one level per member until recursion runs out.
+type SupportedResource = Annotated[
     Vpc
     | Subnet
     | Ec2Instance
@@ -96,6 +127,14 @@ SupportedResource = Annotated[
     | NetworkAcl
     | SecurityGroup
     | NetworkInterface
+    | NatGateway
+    | EgressOnlyInternetGateway
+    | VpcPeeringConnection
+    | TransitGateway
+    | TransitGatewayAttachment
+    | TransitGatewayRouteTable
+    | VpcEndpoint
+    | ManagedPrefixList
     | IamRole
     | IamInstanceProfile
     | IamManagedPolicy
@@ -132,6 +171,14 @@ for resource_model in (
     NetworkAcl,
     SecurityGroup,
     NetworkInterface,
+    NatGateway,
+    EgressOnlyInternetGateway,
+    VpcPeeringConnection,
+    TransitGateway,
+    TransitGatewayAttachment,
+    TransitGatewayRouteTable,
+    VpcEndpoint,
+    ManagedPrefixList,
     IamRole,
     IamInstanceProfile,
     IamManagedPolicy,
@@ -452,6 +499,7 @@ class ArchitectureSnapshot(AccountArchitecture):
         validate_evidence(self.snapshot_id, resources, self.evidence)
         validate_resource_facts(resources, self.evidence)
         validate_unresolved_resources(self.coverage.operations, resources)
+        validate_transit_gateway_links(resources)
         for resource in resources.values():
             if resource.lifecycle is not None and not (
                 self.schema_version == "2" and self.source.kind == SnapshotSourceKind.TERRAFORM_PLAN

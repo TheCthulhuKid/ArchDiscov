@@ -30,6 +30,23 @@ class Model(BaseModel):
         return sanitized
 
 
+class OmitsAbsentFields(Model):
+    """Leaves fields added to a published contract out of output while unset.
+
+    A file written before such a field existed then saves and dumps exactly as it did.
+    """
+
+    omitted_when_absent: ClassVar[frozenset[str]] = frozenset()
+
+    @model_serializer(mode="wrap")
+    def omit_absent_fields(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        for name in self.omitted_when_absent:
+            if getattr(self, name) is None:
+                data.pop(name, None)
+        return data
+
+
 _LIFECYCLE_SEQUENCES = {
     (LifecycleAction.NO_OP,),
     (LifecycleAction.CREATE,),
@@ -41,18 +58,12 @@ _LIFECYCLE_SEQUENCES = {
 }
 
 
-class ResourceLifecycle(Model):
+class ResourceLifecycle(OmitsAbsentFields):
     """Planned change for a resource (schema 2, Terraform plans only)."""
 
+    omitted_when_absent = frozenset({"value_scope"})
     actions: list[LifecycleAction] = Field(min_length=1)
     value_scope: LifecycleValueScope | None = None
-
-    @model_serializer(mode="wrap")
-    def omit_absent_scope(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
-        data = handler(self)
-        if self.value_scope is None:
-            data.pop("value_scope", None)
-        return data
 
     @model_validator(mode="after")
     def validate_action_sequence(self) -> Self:
@@ -69,8 +80,10 @@ class ResourceLifecycle(Model):
         return self
 
 
-class Resource(Model):
+class Resource(OmitsAbsentFields):
     """Common resource data and a recursively typed containment tree."""
+
+    omitted_when_absent = frozenset({"lifecycle"})
 
     cloud_platform: ClassVar[CloudPlatform | None] = CloudPlatform.AWS
     id: str
@@ -81,14 +94,7 @@ class Resource(Model):
     evidence_ids: list[NonEmptyString] = Field(default_factory=list)
     fact_evidence: dict[FactPath, EvidenceIds] = Field(default_factory=dict)
     children: list["SupportedResource"] = Field(default_factory=list)  # noqa: F821
-    lifecycle: ResourceLifecycle | None = None  # schema 2; omitted from output when absent
-
-    @model_serializer(mode="wrap")
-    def omit_absent_lifecycle(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
-        data = handler(self)
-        if self.lifecycle is None:
-            data.pop("lifecycle", None)
-        return data
+    lifecycle: ResourceLifecycle | None = None  # schema 2
 
     @model_validator(mode="before")
     @classmethod

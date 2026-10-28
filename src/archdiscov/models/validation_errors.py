@@ -36,6 +36,9 @@ SAFE_VALIDATION_MESSAGES = MappingProxyType(
             "Snapshot constraint failed: array index out of bounds."
         ),
         "snapshot_fact_pointer_scalar": "Snapshot constraint failed: cannot traverse scalar.",
+        "snapshot_transit_gateway_link_mismatch": (
+            "Snapshot constraint failed: route table belongs to another transit gateway."
+        ),
         "cloud_snapshot_source_platform_mismatch": (
             "Snapshot constraint failed: source platform must match snapshot scope."
         ),

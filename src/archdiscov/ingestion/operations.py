@@ -16,6 +16,19 @@ class Ec2Operation(StrEnum):
     DESCRIBE_SECURITY_GROUPS = "DescribeSecurityGroups"
     DESCRIBE_SECURITY_GROUP_RULES = "DescribeSecurityGroupRules"
     DESCRIBE_NETWORK_INTERFACES = "DescribeNetworkInterfaces"
+    DESCRIBE_NAT_GATEWAYS = "DescribeNatGateways"
+    DESCRIBE_EGRESS_ONLY_INTERNET_GATEWAYS = "DescribeEgressOnlyInternetGateways"
+    DESCRIBE_VPC_PEERING_CONNECTIONS = "DescribeVpcPeeringConnections"
+    DESCRIBE_VPC_ENDPOINTS = "DescribeVpcEndpoints"
+    DESCRIBE_MANAGED_PREFIX_LISTS = "DescribeManagedPrefixLists"
+    GET_MANAGED_PREFIX_LIST_ENTRIES = "GetManagedPrefixListEntries"
+    DESCRIBE_TRANSIT_GATEWAYS = "DescribeTransitGateways"
+    DESCRIBE_TRANSIT_GATEWAY_ATTACHMENTS = "DescribeTransitGatewayAttachments"
+    DESCRIBE_TRANSIT_GATEWAY_VPC_ATTACHMENTS = "DescribeTransitGatewayVpcAttachments"
+    DESCRIBE_TRANSIT_GATEWAY_ROUTE_TABLES = "DescribeTransitGatewayRouteTables"
+    GET_TRANSIT_GATEWAY_ROUTE_TABLE_ASSOCIATIONS = "GetTransitGatewayRouteTableAssociations"
+    GET_TRANSIT_GATEWAY_ROUTE_TABLE_PROPAGATIONS = "GetTransitGatewayRouteTablePropagations"
+    SEARCH_TRANSIT_GATEWAY_ROUTES = "SearchTransitGatewayRoutes"
 
 
 class IamOperation(StrEnum):

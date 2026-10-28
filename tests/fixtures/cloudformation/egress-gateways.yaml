@@ -1,0 +1,28 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Resources:
+  Egress:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.1.0.0/16
+  Public:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Egress
+      CidrBlock: 10.1.0.0/24
+  NatAddress:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+  Nat:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      SubnetId: !Ref Public
+      ConnectivityType: public
+      AllocationId: !GetAtt NatAddress.AllocationId
+      Tags:
+        - Key: Name
+          Value: public-nat
+  EgressOnly:
+    Type: AWS::EC2::EgressOnlyInternetGateway
+    Properties:
+      VpcId: !Ref Egress

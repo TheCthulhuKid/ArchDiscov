@@ -33,12 +33,14 @@ injected context; `collect_snapshots_async` is also available. Account and regio
 be omitted only when source facts resolve their scope unambiguously. The fixture uses
 the explicit account and region above because not every resource carries scope facts.
 
-Supported typed resources include VPCs, subnets, instances, security groups, internet
-gateways, route tables, ENIs, and IAM roles/profiles/policies. Only allowlisted facts and
-exported VPC/subnet/security-group references are mapped. Sensitive values are redacted;
-unsupported types remain summaries with coverage limitations. See the
-[Terraform state mapping](terraform-state-mapping.md) for exact fields, evidence,
-scope rules, and omitted rules/routes/policy documents.
+Supported typed resources include VPCs, subnets, instances, security groups, internet gateways,
+route tables, ENIs, NAT and egress-only internet gateways, VPC peering connections, VPC endpoints,
+managed prefix lists, transit gateways with their VPC attachments and route tables, and IAM
+roles/profiles/policies. Only allowlisted facts and the references those types export are mapped;
+each link is a configuration reference, not a deployed attachment, so imported network paths stay
+`unknown`. Sensitive values are redacted; unsupported types remain summaries with coverage
+limitations. See the [Terraform state mapping](terraform-state-mapping.md) for exact fields,
+evidence, scope rules, separately declared resources, and omitted rules/routes/policy documents.
 
 ## Terraform plan API
 

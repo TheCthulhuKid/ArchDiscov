@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import JsonValue
 
 from .resource_base import Resource
+from .resources.network import TransitGatewayAttachment, TransitGatewayRouteTable
 from .validation_errors import validation_error
 
 
@@ -98,6 +99,39 @@ def validate_unresolved_resources(
                     f"coverage.operations[{position}]: unknown unresolved resource "
                     f"{unresolved.resource_id!r}",
                 )
+
+
+def validate_transit_gateway_links(resources: Mapping[str, Resource]) -> None:
+    """Reject an attachment linked to a route table of another transit gateway."""
+    attachments = _by_physical_id(resources, TransitGatewayAttachment)
+    tables = _by_physical_id(resources, TransitGatewayRouteTable)
+    links = [
+        (attachment.identity.physical_id, attachment.associated_route_table_id)
+        for attachment in attachments.values()
+    ] + [
+        (link.attachment_id, table_id)
+        for table_id, table in tables.items()
+        for link in [*table.associations, *table.propagations]
+    ]
+    for attachment_id, table_id in links:
+        attachment, table = attachments.get(attachment_id), tables.get(table_id)
+        if attachment is None or table is None:
+            continue
+        gateways = {attachment.transit_gateway_id, table.transit_gateway_id}
+        if None not in gateways and len(gateways) > 1:
+            raise validation_error(
+                "snapshot_transit_gateway_link_mismatch",
+                f"attachment {attachment_id!r}: route table {table_id!r} "
+                "belongs to another transit gateway",
+            )
+
+
+def _by_physical_id[T: Resource](resources: Mapping[str, Resource], kind: type[T]) -> dict[str, T]:
+    return {
+        resource.identity.physical_id: resource
+        for resource in resources.values()
+        if isinstance(resource, kind) and resource.identity.physical_id
+    }
 
 
 def validate_collection_window(

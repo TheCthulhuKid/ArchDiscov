@@ -5,22 +5,39 @@ from botocore.exceptions import ClientError
 from typer.testing import CliRunner
 
 from archdiscov.cli import app
+from archdiscov.graph import GraphIndex
 from archdiscov.ingestion import aws as aws_module
 from archdiscov.ingestion.adapter import AdapterContext, IngestionError
 from archdiscov.ingestion.aws import EC2_OPERATIONS, OperationRunner, OperationTask
+from archdiscov.ingestion.network.collector import (
+    PREFIX_LIST_ENTRY_LIMIT,
+    TRANSIT_GATEWAY_ROUTE_LIMIT,
+)
 from archdiscov.ingestion.operations import Ec2Operation as Op
+from archdiscov.ingestion.service_catalog import REGIONAL_OPERATIONS
 from archdiscov.models.architecture import UnresolvedTarget
 from archdiscov.models.enums import AwsRegion, AwsService
 from archdiscov.services import collect_and_save, collect_snapshots, load_snapshot
+from archdiscov.services.analysis_execution import run_analyzer
 from tests.support import aws_fakes
 from tests.support.aws_fakes import ACCOUNT, Session, make_context, request
-from tests.support.network_data import ATTACHED_ENI, FULL, INSTANCE
+from tests.support.network_data import (
+    ATTACHED_ENI,
+    FULL,
+    INSTANCE,
+    NAT_GATEWAY,
+    PREFIX_LIST_ENTRIES,
+    PRIVATE_ROUTE_TABLE,
+    TRANSIT_GATEWAY_TABLE_PAGES,
+    element_pages,
+)
 
 KEYS = dict(EC2_OPERATIONS)
 ITEMS = {
     **FULL,
     Op.DESCRIBE_INSTANCES: [{"Instances": [INSTANCE]}],
     Op.DESCRIBE_NETWORK_INTERFACES: [ATTACHED_ENI],
+    Op.DESCRIBE_ROUTE_TABLES: [*FULL[Op.DESCRIBE_ROUTE_TABLES], PRIVATE_ROUTE_TABLE],
 }
 DENIED = ClientError({"Error": {"Code": "UnauthorizedOperation"}}, "DescribeRouteTables")
 
@@ -33,7 +50,7 @@ def pages(overrides=None):
     def factory(region):
         data = {op: [{KEYS[op]: items}] for op, items in ITEMS.items()}
         data.update(overrides or {})
-        return {snake(op): page for op, page in data.items()}
+        return {**element_pages(), **{snake(op): page for op, page in data.items()}}
 
     return factory
 
@@ -50,16 +67,32 @@ def flatten(resources):
 
 
 def test_collection_emits_schema_two_with_network_resources_and_relationships():
-    snapshot = collect(pages=pages())
+    second = {**NAT_GATEWAY, "NatGatewayId": "nat-2", "State": "deleted"}
+    nat_pages = [{"NatGateways": [NAT_GATEWAY], "NextToken": "n"}, {"NatGateways": [second]}]
+    snapshot = collect(pages=pages({Op.DESCRIBE_NAT_GATEWAYS: nat_pages}))
     assert snapshot.schema_version == "2"
     kinds = {r.resource_type.value for r in flatten(snapshot.regions["us-east-1"].resources)}
     assert {
         "AWS::EC2::RouteTable",
         "AWS::EC2::SecurityGroup",
         "AWS::EC2::NetworkInterface",
+        "AWS::EC2::NatGateway",
+        "AWS::EC2::EgressOnlyInternetGateway",
+        "AWS::EC2::VPCPeeringConnection",
+        "AWS::EC2::VPCEndpoint",
+        "AWS::EC2::PrefixList",
+        "AWS::EC2::TransitGateway",
+        "AWS::EC2::TransitGatewayAttachment",
+        "AWS::EC2::TransitGatewayRouteTable",
     } <= kinds
-    assert {o.operation for o in snapshot.coverage.operations} == {o.value for o in KEYS}
+    assert {o.operation for o in snapshot.coverage.operations} == set(
+        REGIONAL_OPERATIONS[AwsService.EC2]
+    )
     assert {o.status for o in snapshot.coverage.operations} == {"success"}
+    counts = {o.operation: o.result_count for o in snapshot.coverage.operations}
+    assert counts["DescribeNatGateways"] == 2  # both pages, the deleted gateway as reported
+    assert counts["GetManagedPrefixListEntries"] == 2  # one read per listed prefix list
+    assert counts["SearchTransitGatewayRoutes"] == 1  # one search for the one table
     assert snapshot.dependencies_by_region[AwsRegion.US_EAST_1]
 
 
@@ -83,11 +116,14 @@ def test_failed_route_tables_leave_security_groups_and_unresolve_dependents():
 
 
 def test_failed_gateway_operation_makes_route_targets_unresolved():
-    snapshot = collect(pages=pages({Op.DESCRIBE_INTERNET_GATEWAYS: [DENIED]}))
+    denied = {Op.DESCRIBE_INTERNET_GATEWAYS: [DENIED], Op.DESCRIBE_NAT_GATEWAYS: [DENIED]}
+    snapshot = collect(pages=pages(denied))
     deps = snapshot.dependencies_by_region[AwsRegion.US_EAST_1]
     route = next(d for d in deps if d.attributes.get("target_kind") == "internet_gateway")
     assert isinstance(route.target, UnresolvedTarget)
     assert "DescribeInternetGateways did not complete" in route.target.reason
+    nat = next(d for d in deps if d.attributes.get("target_kind") == "nat_gateway")
+    assert "DescribeNatGateways did not complete" in nat.target.reason
 
 
 def test_failed_rule_operation_falls_back_to_group_permissions():
@@ -100,6 +136,113 @@ def test_failed_rule_operation_falls_back_to_group_permissions():
     assert group.attributes["rules_source"] == "DescribeSecurityGroups"
     assert group.attributes["limitations"]
     assert len(group.ingress_rules) == 2
+
+
+def test_denied_or_oversized_entries_reads_leave_entries_unrecorded():
+    def limited(PrefixListId, **params):
+        if PrefixListId == "pl-s3":
+            return ClientError({"Error": {"Code": "UnauthorizedOperation"}}, "Get")
+        assert params["MaxResults"] == PREFIX_LIST_ENTRY_LIMIT
+        return {**PREFIX_LIST_ENTRIES[PrefixListId], "NextToken": "more"}
+
+    snapshot = collect(pages=pages({Op.GET_MANAGED_PREFIX_LIST_ENTRIES: limited}))
+    lists = [
+        r
+        for r in flatten(snapshot.regions["us-east-1"].resources)
+        if r.resource_type.value == "AWS::EC2::PrefixList"
+    ]
+    assert len(lists) == 2 and all(r.entries is None for r in lists)
+    (coverage,) = (
+        o for o in snapshot.coverage.operations if o.operation == "GetManagedPrefixListEntries"
+    )
+    assert coverage.status == "incomplete"
+    assert coverage.failures[0].code == "UnauthorizedOperation"
+    assert "stopped at 100 entries and reported more" in coverage.unresolved_values[0].reason
+
+
+def test_route_search_bound_and_denied_associations_keep_the_table():
+    def search(**params):
+        assert params["MaxResults"] == TRANSIT_GATEWAY_ROUTE_LIMIT
+        page = TRANSIT_GATEWAY_TABLE_PAGES["search_transit_gateway_routes"]
+        return {**page, "AdditionalRoutesAvailable": True}
+
+    def denied(**params):
+        return ClientError({"Error": {"Code": "UnauthorizedOperation"}}, "Get")
+
+    overrides = {
+        Op.SEARCH_TRANSIT_GATEWAY_ROUTES: search,
+        Op.GET_TRANSIT_GATEWAY_ROUTE_TABLE_ASSOCIATIONS: denied,
+    }
+    snapshot = collect(pages=pages(overrides))
+    (table,) = (
+        r
+        for r in flatten(snapshot.regions["us-east-1"].resources)
+        if r.identity.physical_id == "tgw-rtb-1"
+    )
+    assert table.routes_complete is False and len(table.routes) == 2
+    assert table.associations == [] and len(table.propagations) == 1
+    assert "Associations were not recorded" in table.attributes["limitations"][0]
+    status = {o.operation: o for o in snapshot.coverage.operations}
+    search = status["SearchTransitGatewayRoutes"]
+    assert search.status == "incomplete"
+    assert "stopped at 1000 routes" in search.unresolved_values[0].reason
+    assert status["GetTransitGatewayRouteTableAssociations"].status == "failed"
+
+
+def test_vpc_attachment_subnets_are_cited_or_unrecorded_when_their_read_is_denied():
+    def attachment(snapshot):
+        resources = flatten(snapshot.regions["us-east-1"].resources)
+        return next(r for r in resources if r.identity.physical_id == "tgw-attach-1")
+
+    collected = collect(pages=pages())
+    recorded = attachment(collected)
+    assert recorded.subnet_ids == ["subnet-1"]
+    cited = collected.evidence[recorded.fact_evidence["/subnet_ids/0"][0]]
+    assert cited.configuration_path == "TransitGatewayVpcAttachments[0].SubnetIds[0]"
+    (edge,) = (
+        d
+        for d in collected.dependencies_by_region[AwsRegion.US_EAST_1]
+        if d.attributes["kind"] == "transit_gateway_attachment_subnet"
+    )
+    assert edge.evidence_ids == recorded.fact_evidence["/subnet_ids/0"]
+
+    denied = collect(pages=pages({Op.DESCRIBE_TRANSIT_GATEWAY_VPC_ATTACHMENTS: [DENIED]}))
+    assert attachment(denied).subnet_ids is None  # unrecorded, never an empty list
+    status = {o.operation: o.status for o in denied.coverage.operations}
+    assert status["DescribeTransitGatewayVpcAttachments"] == "failed"
+
+
+def test_new_elements_leave_ipv4_analysis_unchanged():
+    """The primitives do not decide the new elements yet, so recording them changes nothing."""
+    without = {
+        op: [{KEYS[op]: []}]
+        for op in (
+            Op.DESCRIBE_NAT_GATEWAYS,
+            Op.DESCRIBE_EGRESS_ONLY_INTERNET_GATEWAYS,
+            Op.DESCRIBE_VPC_PEERING_CONNECTIONS,
+            Op.DESCRIBE_VPC_ENDPOINTS,
+            Op.DESCRIBE_MANAGED_PREFIX_LISTS,
+            Op.DESCRIBE_TRANSIT_GATEWAYS,
+            Op.DESCRIBE_TRANSIT_GATEWAY_ATTACHMENTS,
+            Op.DESCRIBE_TRANSIT_GATEWAY_ROUTE_TABLES,
+        )
+    }
+    group = f"{ACCOUNT}/us-east-1/ec2/physical/sg-1"  # the interface endpoint's group
+    results = []
+    for factory in (pages(), pages(without)):
+        index = GraphIndex(collect(pages=factory))
+        results.append(
+            [
+                run_analyzer(index, parameters).model_dump(mode="json", exclude={"created_at"})
+                for parameters in (
+                    {"kind": "internet_exposure"},
+                    {"kind": "security_group_impact", "resource_id": group},
+                )
+            ]
+        )
+    with_elements, without_elements = results
+    assert with_elements[0]["findings"]  # the public instance is a finding
+    assert with_elements == without_elements
 
 
 def test_zero_results_remain_successful():
@@ -127,7 +270,8 @@ def test_new_operations_are_allowlisted_and_others_rejected_before_any_call():
     with pytest.raises(IngestionError) as exc:
         runner.run(OperationTask(AwsRegion.US_EAST_1, AwsService.EC2, "TerminateInstances"))
     assert exc.value.code == "operation_not_allowed" and calls == []
-    for operation in Op:
+    # The entries read is a detail read, run by DetailRunner rather than OperationRunner.
+    for operation in [Op.DESCRIBE_REGIONS, *KEYS]:
         result = runner.run(OperationTask(AwsRegion.US_EAST_1, AwsService.EC2, operation.value))
         assert result.coverage.status == "success"
 

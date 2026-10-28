@@ -83,23 +83,35 @@ provider, network, or arbitrary code execution is performed.
 | VPC/subnet | Valid CIDRs; subnet availability zone | `CidrBlock`, `Ipv6CidrBlock`, `AvailabilityZone` |
 | EC2 instance | Instance type | `InstanceType` |
 | Core EC2/network | Literal VPC/subnet/group identifiers; safe Name tag | `VpcId`, `SubnetId`, `SecurityGroupIds`, `GroupSet`, `Tags[i].Value` |
+| NAT and egress-only gateways | `ConnectivityType` → `connectivity`; literal subnet and VPC identifiers as typed fields | `ConnectivityType`, `SubnetId`, `VpcId` |
+| VPC peering connections | Literal `VpcId` and `PeerVpcId` as each side's VPC, `PeerOwnerId` as the accepter's owner, `PeerRegion` as an attribute; a `!Ref` side stays unset and is a reference | `VpcId`, `PeerVpcId`, `PeerOwnerId`, `PeerRegion` |
+| VPC endpoints | `VpcEndpointType` → `endpoint_type`; `ServiceName`; literal `RouteTableIds`, `SubnetIds`, and `SecurityGroupIds` items, each cited; a `!Ref` item is a reference | `VpcEndpointType`, `ServiceName`, `VpcId`, `RouteTableIds`, `SubnetIds`, `SecurityGroupIds` |
+| Managed prefix lists | `PrefixListName` → name; `AddressFamily`; each literal `Entries[i].Cidr`, recorded whole or not at all (descriptions are not kept) | `PrefixListName`, `AddressFamily`, `Entries[i].Cidr` |
+| Transit gateways | `AssociationDefaultRouteTableId` and `PropagationDefaultRouteTableId` literals; an attachment's literal `TransitGatewayId` and `VpcId`, and literal `SubnetIds` items, each cited (a `!Ref` item is a reference, omitted with a limitation, so the recorded list is then incomplete), with `attached_resource_type` `vpc` cited to `Type` (`AWS::EC2::TransitGatewayVpcAttachment` and `AWS::EC2::TransitGatewayAttachment` both import as the attachment model, keeping the declared type cited); a route table's literal `TransitGatewayId` | `TransitGatewayId`, `VpcId`, `SubnetIds`, `AssociationDefaultRouteTableId`, `PropagationDefaultRouteTableId` |
 | Lambda summary | Name, runtime, role reference, memory, timeout | `FunctionName`, `Runtime`, `Role`, `MemorySize`, `Timeout` |
 | SQS summary | Name, visibility timeout, retention | `QueueName`, `VisibilityTimeout`, `MessageRetentionPeriod` |
 | RDS summary | Identifier, engine/version, class/port as applicable | Selected scalar configuration only |
 | ECS, IAM, ELBv2 summaries | Selected names/path/protocol/port/scheme/type | Selected scalar configuration only |
 | Nested stacks/unsupported types | AWS type and safe Name tag only | `Type`, `Tags[i].Value` |
 
-Typed core models cover VPCs, subnets, instances, security groups, internet gateways,
-route tables, and ENIs. Rules, routes, policy documents, workload definitions,
-authentication, environment values, and other complex configurations are not mapped.
-Unmapped properties and unsupported summaries qualify coverage rather than implying
-complete configuration.
+Typed core models cover VPCs, subnets, instances, security groups, internet gateways, route tables,
+ENIs, NAT gateways, egress-only internet gateways, VPC peering connections, VPC endpoints, managed
+prefix lists, and transit gateways with their attachments and route tables.
+`AWS::EC2::TransitGatewayRouteTableAssociation`, `AWS::EC2::TransitGatewayRouteTablePropagation`,
+and `AWS::EC2::TransitGatewayRoute` stay unsupported summaries whose references name their route
+table and attachment; the route table records a limitation that its associations, propagations, or
+routes may be incomplete. A NAT gateway's address comes from a referenced `AWS::EC2::EIP`, which
+stays an unsupported summary, so `public_ips` stays empty. A declared value a typed model rejects
+(such as an unknown `ConnectivityType`) leaves an unsupported summary with its safe Name tag and a
+coverage limitation. Rules, routes, policy documents, workload definitions, authentication,
+environment values, and other complex configurations are not mapped. Unmapped properties and
+unsupported summaries qualify coverage rather than implying complete configuration.
 
-Containment follows direct local VPC/subnet references of the expected type, without
-inventing missing parents. All resources are stored once. `Ref`, `GetAtt`, and
-`DependsOn` produce source-owned `attached_to` dependencies with
-`AttachmentKind.CLOUDFORMATION_REFERENCE`; these describe configuration references,
-not deployed attachment, successful access, effective permissions, or reachability.
+Containment follows direct local VPC/subnet references of the expected type, without inventing
+missing parents. All resources are stored once. `Ref`, `GetAtt`, and `DependsOn` produce
+source-owned `attached_to` dependencies with `AttachmentKind.CLOUDFORMATION_REFERENCE`; these
+describe configuration references, not deployed attachment, successful access, effective
+permissions, or reachability, so the network-path primitives answer `unknown` for an imported path.
 Missing/conditional targets remain unresolved, and no referenced account is traversed.
 
 ## Evidence, sensitivity, and coverage
