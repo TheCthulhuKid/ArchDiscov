@@ -12,7 +12,7 @@ is stored once; attachments are `attached_to` dependencies whose `attributes["ki
 `ec2:DescribeEgressOnlyInternetGateways`, `ec2:DescribeVpcPeeringConnections`,
 `ec2:DescribeVpcEndpoints`, `ec2:DescribeManagedPrefixLists`, `ec2:GetManagedPrefixListEntries`,
 `ec2:DescribeTransitGateways`, `ec2:DescribeTransitGatewayAttachments`,
-`ec2:DescribeTransitGatewayRouteTables`, `ec2:GetTransitGatewayRouteTableAssociations`,
+`ec2:DescribeTransitGatewayVpcAttachments`, `ec2:DescribeTransitGatewayRouteTables`, `ec2:GetTransitGatewayRouteTableAssociations`,
 `ec2:GetTransitGatewayRouteTablePropagations`, `ec2:SearchTransitGatewayRoutes` (plus
 `sts:GetCallerIdentity`, and `sts:AssumeRole` for configured roles). All are allowlisted in
 `archdiscov.ingestion.operations` and rejected otherwise before any client call. Each region and
@@ -32,7 +32,7 @@ operation has one coverage record; zero results are `success`.
 | VPC endpoint | `DescribeVpcEndpoints` | VPC (`VpcId`) | `/endpoint_type`, `/service_name`, `/state`, `/vpc_id`, `/owner_id` ← same-named API fields; `/route_table_ids/N`, `/subnet_ids/N`, `/network_interface_ids/N` ← `VpcEndpoints[i].RouteTableIds[n]` and so on; `/security_group_ids/N` ← `VpcEndpoints[i].Groups[n]` |
 | Managed prefix list | `DescribeManagedPrefixLists`, then one `GetManagedPrefixListEntries` per list | Regional root | `/address_family`, `/owner_id`, `/state`, `/version` ← same-named API fields; `/entries/N` ← the entries response's `Entries[n]`, only when every entry was read |
 | Transit gateway | `DescribeTransitGateways` | Regional root; one shared from another account is not stored | `/state`, `/owner_id` ← same-named API fields; `/association_default_route_table_id`, `/propagation_default_route_table_id` ← `Options.AssociationDefaultRouteTableId`, `Options.PropagationDefaultRouteTableId` |
-| Transit gateway attachment | `DescribeTransitGatewayAttachments` | Regional root | `/state`, `/transit_gateway_id`; `/attached_resource_type`, `/attached_resource_id`, `/attached_resource_owner_id` ← `ResourceType`, `ResourceId`, `ResourceOwnerId`; `/association_state`, `/associated_route_table_id` ← `Association.State`, `Association.TransitGatewayRouteTableId` |
+| Transit gateway attachment | `DescribeTransitGatewayAttachments` | Regional root | `/state`, `/transit_gateway_id`; `/attached_resource_type`, `/attached_resource_id`, `/attached_resource_owner_id` ← `ResourceType`, `ResourceId`, `ResourceOwnerId`; `/association_state`, `/associated_route_table_id` ← `Association.State`, `Association.TransitGatewayRouteTableId`; for a VPC attachment, `/subnet_ids/N` ← `DescribeTransitGatewayVpcAttachments`' `TransitGatewayVpcAttachments[j].SubnetIds[n]`, the entry with the same attachment ID |
 | Transit gateway route table | `DescribeTransitGatewayRouteTables`, then per table `GetTransitGatewayRouteTableAssociations`, `GetTransitGatewayRouteTablePropagations`, and one `SearchTransitGatewayRoutes` | Regional root | `/state`, `/transit_gateway_id`; `/associations/N`, `/propagations/N`, `/routes/N` ← each entry of the detail responses; `/routes_complete` ← the search's `AdditionalRoutesAvailable` |
 | Network interface | `DescribeNetworkInterfaces` | Subnet, else VPC | `/private_ip_addresses`, `/public_ip`, `/mac_address` ← same-named API fields; `/ipv6_addresses/N` ← `NetworkInterfaces[i].Ipv6Addresses[n]` |
 
@@ -56,6 +56,7 @@ root) with `attributes.unresolved_parent`.
 | `prefix_list_reference` | route table → prefix list a route's destination names, or security group → prefix list a rule names | the route or rule entry |
 | `endpoint_route_table`, `endpoint_subnet`, `endpoint_interface`, `endpoint_security_group` | VPC endpoint → its route tables, subnets, network interfaces, and security groups | `VpcEndpoints[i].RouteTableIds[n]`, `...SubnetIds[n]`, `...NetworkInterfaceIds[n]`, `...Groups[n]` |
 | `transit_gateway_attachment`, `transit_gateway_vpc_attachment` | attachment → its transit gateway, and → its VPC when the attached resource is a VPC; external with the owner account when another account owns either | `TransitGatewayAttachments[i]` fields |
+| `transit_gateway_attachment_subnet` | VPC attachment → each subnet it serves; external with the VPC's owner account when another account owns the VPC | `TransitGatewayVpcAttachments[j].SubnetIds[n]` |
 | `transit_gateway_route_table_association`, `transit_gateway_route_table_propagation` | transit gateway route table → each attachment it associates or propagates, with the reported `state` | each entry of the detail responses |
 | `internet_gateway_attachment` | IGW → VPC | `InternetGateways[i].Attachments[n]` |
 | `egress_only_internet_gateway_attachment` | egress-only internet gateway → VPC, with the attachment `state` | `EgressOnlyInternetGateways[i].Attachments[n]` |
@@ -98,5 +99,10 @@ guessed.
   kept.
 - A transit gateway shared from another account through AWS RAM belongs to that account: it is not
   stored, and routes and attachments naming it are external with its owner account.
+- A VPC attachment's subnets come from `DescribeTransitGatewayVpcAttachments`, joined to the
+  attachment by ID. A denied or failed read, an attachment missing from its response, or a
+  malformed subnet list leaves `subnet_ids` unset (not recorded), never empty or partial. The
+  subnets matter because an attachment only carries traffic in the Availability Zones where it
+  has one.
 - Free-text `Description` values in network evidence and tag values under secret-named keys are
   redacted and listed in `redacted_paths`.

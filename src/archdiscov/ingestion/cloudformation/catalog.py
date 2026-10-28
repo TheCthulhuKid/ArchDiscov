@@ -47,6 +47,7 @@ _VPC_ATTACHMENT = ResourceMapping(
         ("TransitGatewayId", "transit_gateway_id"),
         ("VpcId", "attached_resource_id"),
     ),
+    string_lists=(("SubnetIds", "subnet_ids"),),
     constants=(("attached_resource_type", "vpc"),),
 )
 

@@ -219,6 +219,7 @@ class AttachmentKind(StrEnum):
     PEERING_ACCEPTER_VPC = "peering_accepter_vpc"
     TRANSIT_GATEWAY_ATTACHMENT = "transit_gateway_attachment"
     TRANSIT_GATEWAY_VPC_ATTACHMENT = "transit_gateway_vpc_attachment"
+    TRANSIT_GATEWAY_ATTACHMENT_SUBNET = "transit_gateway_attachment_subnet"
     TRANSIT_GATEWAY_ROUTE_TABLE_ASSOCIATION = "transit_gateway_route_table_association"
     TRANSIT_GATEWAY_ROUTE_TABLE_PROPAGATION = "transit_gateway_route_table_propagation"
     ENDPOINT_ROUTE_TABLE = "endpoint_route_table"

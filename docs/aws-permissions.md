@@ -3,8 +3,8 @@
 Live collection uses runtime boto3 named profiles, optionally assumes an explicitly
 configured role, and verifies the final session's account before inventory. It does
 not discover accounts or follow trust relationships. The executable allowlist is
-[`ALLOWED_OPERATIONS`](../src/archdiscov/ingestion/operations.py): **53 operation
-pairs**, comprising 51 inventory/discovery reads and two STS operations. Other
+[`ALLOWED_OPERATIONS`](../src/archdiscov/ingestion/operations.py): **54 operation
+pairs**, comprising 52 inventory/discovery reads and two STS operations. Other
 operations are rejected before a client call; this application guard is not an IAM
 permissions boundary on the credentials themselves.
 
@@ -15,7 +15,7 @@ the prefix is its IAM service namespace. In particular, the boto3 client `elbv2`
 uses `elasticloadbalancing` actions, and SQS tags require `sqs:ListQueueTags`, not
 `sqs:ListTagsForResource`.
 
-The following machine-readable policy lists **all 51 collector actions**, including
+The following machine-readable policy lists **all 52 collector actions**, including
 enabled-region discovery. Attach it to the inventory identity (the target role
 when using role assumption). It deliberately excludes both STS operations:
 
@@ -55,6 +55,7 @@ remove `ec2:DescribeRegions` when using explicit scope only.
         "ec2:GetManagedPrefixListEntries",
         "ec2:DescribeTransitGateways",
         "ec2:DescribeTransitGatewayAttachments",
+        "ec2:DescribeTransitGatewayVpcAttachments",
         "ec2:DescribeTransitGatewayRouteTables",
         "ec2:GetTransitGatewayRouteTableAssociations",
         "ec2:GetTransitGatewayRouteTablePropagations",

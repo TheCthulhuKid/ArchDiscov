@@ -90,6 +90,23 @@ def _rules_by_group(
     return rules
 
 
+def _vpc_attachments(
+    items: Mapping[Ec2Operation, list[dict[str, Any]]], unavailable: Mapping[Ec2Operation, str]
+) -> dict[str, tuple[int, dict[str, Any]]]:
+    """Each VPC attachment's own entry and position, by attachment ID.
+
+    Empty when that read did not complete, so no attachment's subnets are recorded from it.
+    """
+    if Op.DESCRIBE_TRANSIT_GATEWAY_VPC_ATTACHMENTS in unavailable:
+        return {}
+    return {
+        item["TransitGatewayAttachmentId"]: (i, item)
+        for i, item in _collect(
+            items, Op.DESCRIBE_TRANSIT_GATEWAY_VPC_ATTACHMENTS, "TransitGatewayAttachmentId"
+        )
+    }
+
+
 def _shared_transit_gateways(
     items: Mapping[Ec2Operation, list[dict[str, Any]]], account_id: str
 ) -> dict[tuple[ResourceType, str], str]:
@@ -124,6 +141,7 @@ def normalize_region(
     net = NetworkNormalizer(snapshot_id, account_id, region)
     rules = _rules_by_group(items, unavailable)
     shared = _shared_transit_gateways(items, account_id)
+    vpc_attachments = _vpc_attachments(items, unavailable)
     normalizers: tuple[tuple[Ec2Operation, str, Callable[[int, dict[str, Any]], Normalized]], ...]
     normalizers = (
         (Op.DESCRIBE_ROUTE_TABLES, "RouteTableId", net.route_table),
@@ -156,7 +174,9 @@ def normalize_region(
         (
             Op.DESCRIBE_TRANSIT_GATEWAY_ATTACHMENTS,
             "TransitGatewayAttachmentId",
-            partial(transit_gateway_attachment, net),
+            lambda i, item: transit_gateway_attachment(
+                net, i, item, vpc_attachments.get(item["TransitGatewayAttachmentId"])
+            ),
         ),
         (
             Op.DESCRIBE_TRANSIT_GATEWAY_ROUTE_TABLES,

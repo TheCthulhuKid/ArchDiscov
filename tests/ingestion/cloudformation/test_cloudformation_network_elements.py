@@ -109,6 +109,8 @@ def test_template_maps_transit_gateways_and_qualifies_their_route_table():
     # The template's VpcAttachment imports as the one attachment model; its declared type is cited.
     declared = snapshot.evidence[attachment.fact_evidence["/resource_type"][0]]
     assert declared.value == "AWS::EC2::TransitGatewayVpcAttachment"
+    # Its one subnet is a `!Ref`, a reference rather than an ID, so the subnets stay unrecorded.
+    assert attachment.subnet_ids is None
     assert isinstance(table, TransitGatewayRouteTable)
     children = {resources[name].id for name in ("AppAssociation", "AppPropagation", "Blackhole")}
     to_table = {

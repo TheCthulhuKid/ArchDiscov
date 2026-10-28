@@ -100,5 +100,6 @@ def empty_network_pages():
         "describe_managed_prefix_lists": [{"PrefixLists": []}],
         "describe_transit_gateways": [{"TransitGateways": []}],
         "describe_transit_gateway_attachments": [{"TransitGatewayAttachments": []}],
+        "describe_transit_gateway_vpc_attachments": [{"TransitGatewayVpcAttachments": []}],
         "describe_transit_gateway_route_tables": [{"TransitGatewayRouteTables": []}],
     }

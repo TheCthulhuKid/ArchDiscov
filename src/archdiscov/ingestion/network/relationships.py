@@ -320,6 +320,16 @@ class RelationshipBuilder:
                 AttachmentKind.TRANSIT_GATEWAY_VPC_ATTACHMENT,
                 attachment.attached_resource_owner_id,
             )
+        # The subnets belong to the attached VPC, so they share its owner.
+        for n, subnet in enumerate(attachment.subnet_ids or []):
+            self._fact_link(
+                entry,
+                RT.SUBNET,
+                subnet,
+                f"/subnet_ids/{n}",
+                AttachmentKind.TRANSIT_GATEWAY_ATTACHMENT_SUBNET,
+                attachment.attached_resource_owner_id,
+            )
 
     def _transit_gateway_route_table(self, entry: Normalized) -> None:
         table = entry.resource

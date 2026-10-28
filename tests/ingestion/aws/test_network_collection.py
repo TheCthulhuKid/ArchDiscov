@@ -189,6 +189,29 @@ def test_route_search_bound_and_denied_associations_keep_the_table():
     assert status["GetTransitGatewayRouteTableAssociations"].status == "failed"
 
 
+def test_vpc_attachment_subnets_are_cited_or_unrecorded_when_their_read_is_denied():
+    def attachment(snapshot):
+        resources = flatten(snapshot.regions["us-east-1"].resources)
+        return next(r for r in resources if r.identity.physical_id == "tgw-attach-1")
+
+    collected = collect(pages=pages())
+    recorded = attachment(collected)
+    assert recorded.subnet_ids == ["subnet-1"]
+    cited = collected.evidence[recorded.fact_evidence["/subnet_ids/0"][0]]
+    assert cited.configuration_path == "TransitGatewayVpcAttachments[0].SubnetIds[0]"
+    (edge,) = (
+        d
+        for d in collected.dependencies_by_region[AwsRegion.US_EAST_1]
+        if d.attributes["kind"] == "transit_gateway_attachment_subnet"
+    )
+    assert edge.evidence_ids == recorded.fact_evidence["/subnet_ids/0"]
+
+    denied = collect(pages=pages({Op.DESCRIBE_TRANSIT_GATEWAY_VPC_ATTACHMENTS: [DENIED]}))
+    assert attachment(denied).subnet_ids is None  # unrecorded, never an empty list
+    status = {o.operation: o.status for o in denied.coverage.operations}
+    assert status["DescribeTransitGatewayVpcAttachments"] == "failed"
+
+
 def test_new_elements_leave_ipv4_analysis_unchanged():
     """The primitives do not decide the new elements yet, so recording them changes nothing."""
     without = {

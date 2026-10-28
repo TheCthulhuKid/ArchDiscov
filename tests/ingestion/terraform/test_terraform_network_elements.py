@@ -182,6 +182,7 @@ def test_state_maps_transit_gateways_and_keeps_declared_children_separate():
     )
     cited = snapshot.evidence[attachment.fact_evidence["/attached_resource_type"][0]]
     assert cited.value == "aws_ec2_transit_gateway_vpc_attachment"  # the type states it
+    assert attachment.subnet_ids == ["subnet-app"] and "/subnet_ids/0" in attachment.fact_evidence
     assert isinstance(table, TransitGatewayRouteTable) and table.routes_complete is None
     links = references(snapshot)
     assert {
@@ -214,6 +215,7 @@ def test_plan_attachment_references_its_planned_gateway_and_vpc():
     ]
     assert isinstance(attachment, TransitGatewayAttachment)
     assert attachment.transit_gateway_id is None and attachment.attached_resource_id is None
+    assert attachment.subnet_ids is None  # unknown in the plan, so unrecorded
     address = attachment.identity.logical_address
     linked = {target for source, target, _ in references(snapshot) if source == address}
     assert linked == {"aws_ec2_transit_gateway.main", "aws_vpc.app"}

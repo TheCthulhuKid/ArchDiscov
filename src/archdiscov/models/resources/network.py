@@ -164,6 +164,7 @@ class TransitGateway(Resource):
 
 
 class TransitGatewayAttachment(Resource):
+    omitted_when_absent = Resource.omitted_when_absent | {"subnet_ids"}
     resource_type: Literal[ResourceType.TRANSIT_GATEWAY_ATTACHMENT] = (
         ResourceType.TRANSIT_GATEWAY_ATTACHMENT
     )
@@ -175,6 +176,8 @@ class TransitGatewayAttachment(Resource):
     attached_resource_owner_id: str | None = Field(default=None, pattern=_ACCOUNT_ID)
     association_state: NonEmptyString | None = None
     associated_route_table_id: NonEmptyString | None = None
+    # A VPC attachment's subnets, one per Availability Zone it serves; None when unrecorded.
+    subnet_ids: list[NonEmptyString] | None = None
 
 
 class TransitGatewayLink(Model):

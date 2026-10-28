@@ -188,6 +188,15 @@ TRANSIT_GATEWAY_ATTACHMENTS = [
         "State": "available",
     },
 ]
+# The VPC attachment read: the same attachment, with the subnets it serves.
+TRANSIT_GATEWAY_VPC_ATTACHMENT = {
+    "TransitGatewayAttachmentId": "tgw-attach-1",
+    "TransitGatewayId": "tgw-1",
+    "VpcId": "vpc-1",
+    "VpcOwnerId": ACCOUNT,
+    "State": "available",
+    "SubnetIds": ["subnet-1"],
+}
 TRANSIT_GATEWAY_ROUTE_TABLE = {
     "TransitGatewayRouteTableId": "tgw-rtb-1",
     "TransitGatewayId": "tgw-1",
@@ -252,6 +261,9 @@ def element_pages() -> dict:
         "describe_transit_gateways": [{"TransitGateways": [TRANSIT_GATEWAY]}],
         "describe_transit_gateway_attachments": [
             {"TransitGatewayAttachments": TRANSIT_GATEWAY_ATTACHMENTS[:1]}
+        ],
+        "describe_transit_gateway_vpc_attachments": [
+            {"TransitGatewayVpcAttachments": [TRANSIT_GATEWAY_VPC_ATTACHMENT]}
         ],
         "describe_transit_gateway_route_tables": [
             {"TransitGatewayRouteTables": [TRANSIT_GATEWAY_ROUTE_TABLE]}

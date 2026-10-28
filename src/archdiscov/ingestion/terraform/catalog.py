@@ -180,6 +180,7 @@ RESOURCE_MAPPINGS = {
             ("vpc_id", "attached_resource_id"),
             ("vpc_owner_id", "attached_resource_owner_id"),
         ),
+        string_lists=(("subnet_ids", "subnet_ids"),),
         constants=(("attached_resource_type", "vpc"),),
     ),
     "aws_ec2_transit_gateway_route_table": ResourceMapping(

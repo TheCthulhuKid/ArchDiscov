@@ -17,6 +17,8 @@ from ..operations import Ec2Operation as Op
 from .resources import NetworkNormalizer, Normalized, _validated
 
 if TYPE_CHECKING:
+    from ...models.resource_base import Resource
+
     # Only annotated: detail_execution loads botocore, which analysis must not import.
     from ..detail_execution import DetailResponse
 
@@ -72,10 +74,19 @@ def transit_gateway(net: NetworkNormalizer, index: int, item: dict[str, Any]) ->
 
 
 def transit_gateway_attachment(
-    net: NetworkNormalizer, index: int, item: dict[str, Any]
+    net: NetworkNormalizer,
+    index: int,
+    item: dict[str, Any],
+    vpc_attachment: tuple[int, dict[str, Any]] | None,
 ) -> Normalized:
+    """The attachment, with a VPC attachment's subnets from its own read when recorded.
+
+    `vpc_attachment` is the attachment's `DescribeTransitGatewayVpcAttachments` entry and its
+    position; without it the subnets stay unrecorded, never empty.
+    """
     path = f"TransitGatewayAttachments[{index}]"
     op = Op.DESCRIBE_TRANSIT_GATEWAY_ATTACHMENTS
+    subnets = _subnet_ids(vpc_attachment)
     fields = {
         "/state": "State",
         "/transit_gateway_id": "TransitGatewayId",
@@ -94,9 +105,32 @@ def transit_gateway_attachment(
         name=tags_of(item).get("Name"),
         attributes={"tags": tags_of(item) or None},
         facts=_facts(item, fields),
+        subnet_ids=subnets,
         **{pointer[1:]: _value(item, field) for pointer, field in fields.items()},
     )
+    if subnets is not None and vpc_attachment is not None:
+        _cite_subnets(net, resource, subnets, vpc_attachment[0])
     return Normalized(resource, item, path, op)
+
+
+def _subnet_ids(vpc_attachment: tuple[int, dict[str, Any]] | None) -> list[str] | None:
+    """The VPC attachment's subnets, or None when unread or malformed: never a partial list."""
+    subnets = None if vpc_attachment is None else vpc_attachment[1].get("SubnetIds")
+    if not isinstance(subnets, list) or not all(isinstance(s, str) and s for s in subnets):
+        return None
+    return subnets
+
+
+def _cite_subnets(
+    net: NetworkNormalizer, resource: Resource, subnets: list[str], position: int
+) -> None:
+    """Cite each subnet, or the empty list itself, to the VPC attachment read."""
+    op = Op.DESCRIBE_TRANSIT_GATEWAY_VPC_ATTACHMENTS
+    path = f"TransitGatewayVpcAttachments[{position}].SubnetIds"
+    if not subnets:
+        net.cite(resource, "/subnet_ids", op, path, [])
+    for n, subnet in enumerate(subnets):
+        net.cite(resource, f"/subnet_ids/{n}", op, f"{path}[{n}]", subnet)
 
 
 def transit_gateway_route_table(

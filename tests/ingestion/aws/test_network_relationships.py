@@ -26,6 +26,7 @@ from tests.support.network_data import (
     TRANSIT_GATEWAY_ATTACHMENTS,
     TRANSIT_GATEWAY_ROUTE_TABLE,
     TRANSIT_GATEWAY_TABLE_PAGES,
+    TRANSIT_GATEWAY_VPC_ATTACHMENT,
     VPC,
     by_id,
     region,
@@ -255,6 +256,7 @@ def test_transit_gateway_attachments_and_route_tables_link_or_stay_external():
         Op.DESCRIBE_ROUTE_TABLES: [*FULL[Op.DESCRIBE_ROUTE_TABLES], to_gateways],
         Op.DESCRIBE_TRANSIT_GATEWAYS: [TRANSIT_GATEWAY, SHARED_TRANSIT_GATEWAY],
         Op.DESCRIBE_TRANSIT_GATEWAY_ATTACHMENTS: TRANSIT_GATEWAY_ATTACHMENTS,
+        Op.DESCRIBE_TRANSIT_GATEWAY_VPC_ATTACHMENTS: [TRANSIT_GATEWAY_VPC_ATTACHMENT],
         Op.DESCRIBE_TRANSIT_GATEWAY_ROUTE_TABLES: [TRANSIT_GATEWAY_ROUTE_TABLE],
     }
 
@@ -284,6 +286,9 @@ def test_transit_gateway_attachments_and_route_tables_link_or_stay_external():
     ]
     assert targets(Kind.TRANSIT_GATEWAY_VPC_ATTACHMENT, "tgw-attach-1") == [
         LocalTarget(resource_id=rid("vpc-1"))
+    ]
+    assert targets(Kind.TRANSIT_GATEWAY_ATTACHMENT_SUBNET, "tgw-attach-1") == [
+        LocalTarget(resource_id=rid("subnet-1"))
     ]
     (association,) = deps(result, Kind.TRANSIT_GATEWAY_ROUTE_TABLE_ASSOCIATION, "tgw-rtb-1")
     assert association.target == local and association.attributes["state"] == "associated"

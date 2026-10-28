@@ -343,7 +343,7 @@ elements, so a path through any of them stays `unknown`.
 | `AWS::EC2::EgressOnlyInternetGateway` | `EgressOnlyInternetGateway` | VPC |
 | `AWS::EC2::VPCPeeringConnection` | `VpcPeeringConnection` | state; requester and accepter side, each with VPC, owner account, and CIDRs, unset when not recorded (as for an imported `!Ref` or unknown planned value) |
 | `AWS::EC2::TransitGateway` | `TransitGateway` | state, owner account, default association and propagation route tables |
-| `AWS::EC2::TransitGatewayAttachment` | `TransitGatewayAttachment` | state, transit gateway, attached resource type, ID, and owner, association state and route table |
+| `AWS::EC2::TransitGatewayAttachment` | `TransitGatewayAttachment` | state, transit gateway, attached resource type, ID, and owner, association state and route table; a VPC attachment's subnets (`subnet_ids`, one per Availability Zone it serves), unset when not recorded |
 | `AWS::EC2::TransitGatewayRouteTable` | `TransitGatewayRouteTable` | state, transit gateway, associations, propagations, routes (destination, attachments, type, state), and `routes_complete` |
 | `AWS::EC2::VPCEndpoint` | `VpcEndpoint` | gateway, interface, or gateway load balancer type, service name, state, VPC, owner, route tables, subnets, ENIs, security groups |
 | `AWS::EC2::PrefixList` | `ManagedPrefixList` | address family, owner (an account ID or `AWS`), state, version, CIDR entries |
@@ -380,6 +380,7 @@ Their links are `attached_to` dependencies whose `attributes["kind"]` is one of:
 | `egress_only_internet_gateway_attachment` | egress-only internet gateway → VPC |
 | `peering_requester_vpc`, `peering_accepter_vpc` | peering connection → each side's VPC |
 | `transit_gateway_attachment`, `transit_gateway_vpc_attachment` | attachment → its transit gateway and attached VPC |
+| `transit_gateway_attachment_subnet` | VPC attachment → each subnet it serves |
 | `transit_gateway_route_table_association`, `transit_gateway_route_table_propagation` | transit gateway route table → the attachments it associates and propagates |
 | `endpoint_route_table`, `endpoint_subnet`, `endpoint_interface`, `endpoint_security_group` | endpoint → its route tables, subnets, ENIs, and security groups |
 
