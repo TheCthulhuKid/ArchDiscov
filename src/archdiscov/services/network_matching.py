@@ -8,7 +8,7 @@ the protocols tcp, udp, and icmp are supported.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from ipaddress import IPv4Network, IPv6Network, ip_network
 from typing import TYPE_CHECKING
@@ -203,6 +203,22 @@ def cited_decision(
             )
         ]
     )
+
+
+def cited_target(
+    index: GraphIndex, source_id: str, kind: AttachmentKind, citations: Collection[str]
+) -> Resource | None:
+    """The stored target of the one `kind` edge citing the same source entry, else None.
+
+    Matching by citation keeps apart entries that share a target form, such as two routes or
+    rules naming one prefix list. External and unresolved targets are not stored, so None.
+    """
+    edges = [
+        edge
+        for edge in index.outgoing_edges(source_id, attachment_kind=kind)
+        if set(edge.evidence_ids) & set(citations)
+    ]
+    return index.get_resource(edges[0].target_id) if len(edges) == 1 else None
 
 
 def require_recorded[R: Resource](

@@ -42,8 +42,11 @@ entry point, protocol, and uniformly decided port range:
   actions are `unknown`.
 - **Health.** Observed target health states are recorded as `observed_target_health` and never
   required or interpreted.
-- NAT, transit gateway, peering, endpoint, and prefix-list elements are unsupported: they make
-  a result `unknown`, never an allow. Exposure is decided over IPv4 only (IPv6 follows in
+- NAT, transit gateway, peering, endpoint, and prefix-list route elements are unsupported:
+  they make a result `unknown`, never an allow. A security-group rule naming a prefix list
+  is evaluated from the list's recorded entries: an entry covering only part of the internet
+  is `unknown`, as a partial CIDR is, and a list without recorded entries is `unknown`.
+  Such rules still never open an exposure range on their own (see above). Exposure is decided over IPv4 only (IPv6 follows in
   step 54): an IPv6 rule or NACL entry never matches the IPv4 internet, so it is skipped
   rather than making the result `unknown`. A NACL entry or security-group rule that covers
   only part of the internet is `unknown`, not a denial.

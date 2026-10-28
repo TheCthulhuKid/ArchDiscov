@@ -166,11 +166,10 @@ def test_ingress_and_egress_rules_are_evaluated_independently():
 @pytest.mark.parametrize(
     "unsupported_rule",
     [
-        rule(prefix_list_id="pl-123"),
         rule(referenced_group_id="sg-partner", referenced_account_id="210987654321"),
         rule(protocol="50", from_port=None, to_port=None, cidr="10.0.0.0/16"),
     ],
-    ids=["prefix-list", "cross-account-group", "unrecognized-protocol"],
+    ids=["cross-account-group", "unrecognized-protocol"],
 )
 def test_unsupported_rules_never_allow_but_cannot_be_ruled_out(unsupported_rule):
     result = check({"sg-app": [unsupported_rule]}, peer=Peer.address(LOCAL, ()))[1]
@@ -179,6 +178,47 @@ def test_unsupported_rules_never_allow_but_cannot_be_ruled_out(unsupported_rule)
     # A supported rule that allows still wins over an unsupported alternative.
     allowed = check({"sg-app": [unsupported_rule, rule(cidr="10.0.0.0/16")]})[1]
     assert allowed.decision == D.ALLOW
+
+
+# ---- prefix lists -------------------------------------------------------------------
+
+
+def prefix_list_index(**office):
+    """The prefix-list fixture, with `office` replacing fields of the pl-office list."""
+    snapshot = load_snapshot(FIXTURES_ROOT / "snapshots" / "endpoints-and-prefix-lists.json")
+    data = snapshot.model_dump(mode="json")
+    for resource in data["regions"]["eu-west-1"]["resources"]:
+        if resource["identity"]["physical_id"] == "pl-office":
+            resource.update(office)
+    return GraphIndex(type(snapshot).model_validate(data))
+
+
+def office_rule(index, peer):
+    return evaluate_security_group(
+        index, group_id("sg-endpoint"), INGRESS, peer, protocol="tcp", port=443
+    )
+
+
+def test_a_prefix_list_rule_matches_through_the_lists_recorded_entries():
+    index = prefix_list_index()
+    allowed = office_rule(index, Peer.address("198.51.100.7", ()))
+    assert (allowed.decision, allowed.evidence_ids) == (D.ALLOW, ["pl-office-entry-0", "sg-office"])
+    assert office_rule(index, Peer.address("192.0.2.1", ())).decision == D.DENY
+    partial = office_rule(index, Peer.within("198.51.100.0/23", ()))
+    assert (partial.decision, codes(partial)) == (D.UNKNOWN, {B.MISSING_EVIDENCE})
+    empty = prefix_list_index(entries=[], fact_evidence={})
+    assert office_rule(empty, Peer.address("198.51.100.7", ())).decision == D.DENY
+
+
+def test_a_prefix_list_without_recorded_entries_is_unknown_and_named():
+    unrecorded = prefix_list_index(entries=None, fact_evidence={})
+    for result, name in (
+        (office_rule(unrecorded, Peer.address(LOCAL, ())), "pl-office"),
+        (check({"sg-app": [rule(prefix_list_id="pl-123")]})[1], "pl-123"),
+    ):
+        [blocker] = result.blockers
+        assert (result.decision, blocker.code) == (D.UNKNOWN, B.MISSING_EVIDENCE)
+        assert name in blocker.message
 
 
 def test_unsupported_query_protocols_are_unknown():

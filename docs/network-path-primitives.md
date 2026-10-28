@@ -59,7 +59,14 @@ decided the outcome.
 
 - `evaluate_security_group` (`services.network_security_groups`): one direction against a
   group's recorded rules. Any matching cited rule allows; with none, a recorded group
-  denies implicitly.
+  denies implicitly. A rule naming a managed prefix list is resolved through the
+  `prefix_list_reference` edge citing it (`services.network_prefix_lists`) and matches when a
+  recorded entry of the peer's family holds the peer; the allow cites the rule and each entry
+  it used. A list that is not stored, is external, or has unrecorded entries (an AWS-managed
+  list, a list over the entry limit, or an import with separate entry resources) is
+  `unknown` with a blocker naming the list, and an empty recorded list matches nothing. The
+  list reads (`DescribeManagedPrefixLists`, `GetManagedPrefixListEntries`) qualify the
+  result, so a limited read is never taken for an empty list.
 - `evaluate_network_acl` (`services.network_acls`): one direction against the subnet's
   single observed ACL association, entries in rule-number order, first match wins, with
   the implicit final deny. No default ACL is assumed, and an ACL with entries that could not
@@ -91,7 +98,7 @@ Supported, each evaluated for one direction or one question per call:
 
 | Element | Supported | Unsupported (always `unknown`, never `allow`) |
 |---|---|---|
-| Security-group rules | IPv4 and IPv6 CIDRs within the query's address family, same-account referenced groups, tcp/udp/icmp (names or numbers) and all-protocol, inclusive port ranges | Prefix lists, cross-account references, other protocols (including ICMPv6), statefulness |
+| Security-group rules | IPv4 and IPv6 CIDRs within the query's address family, same-account referenced groups, managed prefix lists with recorded entries, tcp/udp/icmp (names or numbers) and all-protocol, inclusive port ranges | Prefix lists without recorded entries (`unknown`, named), cross-account references, other protocols (including ICMPv6), statefulness |
 | NACLs | IPv4 and IPv6 CIDRs within the query's address family, tcp/udp/icmp and all-protocol, rule-number order with implicit final deny, one direction per call | Other protocols (including ICMPv6), ICMP type/code, subnets without an observed association (no default ACL is assumed) |
 | Routes | IPv4 and IPv6 longest prefix within the query's address family to local, internet-gateway, or egress-only internet gateway targets, explicit table or observed main table | NAT, transit gateway, peering, VPC endpoint, prefix-list, and instance/interface targets |
 | Public addressing | Recorded public IPv4 on ENIs and instances; recorded global IPv6 on ENIs | IPv6 on instances (their ENIs answer) |
@@ -109,9 +116,10 @@ and runtime state.
 Snapshots can record NAT gateways, egress-only internet gateways, peering connections, transit
 gateways, endpoints, prefix lists, and IPv6 fields (see the
 [snapshot format](snapshot-format.md#network-path-elements)). Security groups and NACLs
-decide IPv6 rules and entries, routes decide IPv6 routes and egress-only internet gateways,
-and public addressing decides ENIs' IPv6 addresses; no primitive reads the other elements yet, so the cases above stay unsupported
-until the primitives decide them.
+decide IPv6 rules and entries, security groups decide prefix lists with recorded entries,
+routes decide IPv6 routes and egress-only internet gateways, and public addressing decides
+ENIs' IPv6 addresses; no primitive reads the other elements yet, so the cases above stay
+unsupported until the primitives decide them.
 
 ## Bounded addresses
 

@@ -30,6 +30,7 @@ from .network_matching import (
     IpNetwork,
     Undecided,
     cited_decision,
+    cited_target,
     implicit_deny,
     parse_network,
     require_recorded,
@@ -147,17 +148,8 @@ def _attachment_evidence(
     where: str,
     gateway_kind: _Gateway,
 ) -> tuple[str, ...] | NetworkResult:
-    """Evidence that the route's gateway is recorded as attached to the VPC.
-
-    The route's target edge is the one citing the same source entry as the route, so routes
-    sharing a destination form, such as a prefix list, are never confused.
-    """
-    targets = [
-        edge
-        for edge in index.outgoing_edges(table.id, attachment_kind=AttachmentKind.ROUTE_TARGET)
-        if set(edge.evidence_ids) & set(citations)
-    ]
-    gateway = index.get_resource(targets[0].target_id) if len(targets) == 1 else None
+    """Evidence that the route's gateway is recorded as attached to the VPC."""
+    gateway = cited_target(index, table.id, AttachmentKind.ROUTE_TARGET, citations)
     if not isinstance(gateway, gateway_kind.expected):
         return missing(f"The route's {gateway_kind.label} is not recorded.", element=where)
     attachments = [

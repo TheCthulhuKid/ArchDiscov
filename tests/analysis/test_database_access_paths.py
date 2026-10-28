@@ -143,9 +143,8 @@ def test_missing_nacl_or_route_evidence_is_unknown_never_allowed():
 
 
 def test_unsupported_elements_stay_unknown():
-    prefix = {**REFERENCE, "PrefixListId": "pl-1"}
-    del prefix["ReferencedGroupInfo"]
-    _, found = evaluate(rules=[prefix, ALLOW_ALL, DB_EGRESS])
+    partner = {**REFERENCE, "ReferencedGroupInfo": {"GroupId": "sg-app", "UserId": "210987654321"}}
+    _, found = evaluate(rules=[partner, ALLOW_ALL, DB_EGRESS])
     path = found["i-plain"]
     assert path.decision == D.UNKNOWN
     assert elements(path)[E.DATABASE_INGRESS].blocker_codes == [B.UNSUPPORTED_ELEMENT]

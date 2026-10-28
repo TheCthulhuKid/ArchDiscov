@@ -63,9 +63,10 @@ All analyzers share these rules; the guides add analyzer-specific ones.
   operation, and an absent record is never read as proof of absence.
 - **Network decisions.** `allow` and `deny` are supported; `unknown` is
   `insufficient_evidence` with blockers as limitations. A recorded denial dominates an unknown
-  element, and an unknown dominates an allow. Missing or unsupported elements (prefix lists,
-  NAT, transit gateways, peering, endpoints) are `unknown`, never `allow`; an IPv6 rule or
-  entry never matches an IPv4 question.
+  element, and an unknown dominates an allow. Missing or unsupported elements (prefix lists
+  without recorded entries, prefix-list routes, NAT, transit gateways, peering, endpoints)
+  are `unknown`, never `allow`; a security-group rule naming a prefix list is decided from
+  its recorded entries, and an IPv6 rule or entry never matches an IPv4 question.
 - **Unknown, unresolved, redacted, and external elements** stay terminals with structured
   limitations; no resource is invented and a path stops there.
 - **Findings are signals.** Candidate exposure, configured trust, observed attachment, and
