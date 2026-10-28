@@ -65,10 +65,13 @@ decided the outcome.
   the implicit final deny. No default ACL is assumed, and an ACL with entries that could not
   be recorded is unknown. Callers compose both directions explicitly (NACLs are stateless).
 - `evaluate_subnet_route` (`services.network_routes`): the longest-prefix active route of
-  the subnet's explicit route table, or of the VPC's observed main table only when the
-  subnet has no explicit association. A route to an internet gateway is a recorded route,
-  not proof of internet reachability; it also needs the gateway recorded as available and
-  attached to the VPC.
+  the query's address family in the subnet's explicit route table, or in the VPC's observed
+  main table only when the subnet has no explicit association. A route to an internet
+  gateway is a recorded route, not proof of internet reachability; it also needs the gateway
+  recorded as available and attached to the VPC. A route to an egress-only internet gateway
+  (`RouteReach.EGRESS_ONLY_INTERNET_GATEWAY`) needs the gateway recorded as attached to the
+  VPC. It carries outbound traffic only: callers ask for it only for outbound traffic, and
+  inbound exposure, which asks for an internet gateway, never accepts it.
 - `evaluate_public_address` (`services.network_addressing`): a recorded public IPv4
   address on an ENI or instance allows, a recorded absence denies, IPv6 is ignored.
 - `evaluate_load_balancer_scheme` and `evaluate_load_balancer_forwarding`
@@ -85,12 +88,12 @@ Supported, each evaluated for one direction or one question per call:
 |---|---|---|
 | Security-group rules | IPv4 and IPv6 CIDRs within the query's address family, same-account referenced groups, tcp/udp/icmp (names or numbers) and all-protocol, inclusive port ranges | Prefix lists, cross-account references, other protocols (including ICMPv6), statefulness |
 | NACLs | IPv4 and IPv6 CIDRs within the query's address family, tcp/udp/icmp and all-protocol, rule-number order with implicit final deny, one direction per call | Other protocols (including ICMPv6), ICMP type/code, subnets without an observed association (no default ACL is assumed) |
-| Routes | IPv4 longest prefix to local or internet-gateway targets, explicit table or observed main table | NAT, egress-only internet gateway, transit gateway, peering, VPC endpoint, prefix-list, and instance/interface targets; IPv6 routes are ignored |
+| Routes | IPv4 and IPv6 longest prefix within the query's address family to local, internet-gateway, or egress-only internet gateway targets, explicit table or observed main table | NAT, transit gateway, peering, VPC endpoint, prefix-list, and instance/interface targets |
 | Public addressing | Recorded public IPv4 on ENIs and instances | IPv6 addresses are ignored |
 | Load balancers | Scheme, listener port and protocol, forward actions, target groups with registered targets | Redirect, fixed-response, and authentication actions; GENEVE (Gateway Load Balancer) listeners; IP and unresolved targets |
 
-Security groups and NACLs answer for the address family of the query, an IPv4 or IPv6
-address or CIDR. A rule or entry of the other family never matches, so it is skipped
+Security groups, NACLs, and routes answer for the address family of the query, an IPv4 or IPv6
+address or CIDR. A rule, entry, or route of the other family never matches, so it is skipped
 rather than making the result `unknown`: an IPv6 deny entry ahead of an IPv4 allow no longer
 hides the allow. Ask once per family for a dual-stack resource.
 
@@ -100,8 +103,9 @@ and runtime state.
 Snapshots can record NAT gateways, egress-only internet gateways, peering connections, transit
 gateways, endpoints, prefix lists, and IPv6 fields (see the
 [snapshot format](snapshot-format.md#network-path-elements)). Security groups and NACLs
-decide IPv6 rules and entries; no primitive reads the other elements yet, so the cases above
-stay unsupported until the primitives decide them.
+decide IPv6 rules and entries, and routes decide IPv6 routes and egress-only internet
+gateways; no primitive reads the other elements yet, so the cases above stay unsupported
+until the primitives decide them.
 
 ## Bounded addresses
 

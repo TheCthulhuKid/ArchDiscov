@@ -6,11 +6,12 @@ from archdiscov.services import load_snapshot
 from archdiscov.services.network_routes import evaluate_subnet_route
 from tests.paths import FIXTURES_ROOT
 from tests.support.network_snapshot import resource_id
-from tests.support.route_data import LOCAL, build, gateway, route, table
+from tests.support.route_data import LOCAL, build, egress_only_gateway, gateway, route, table
 
 D = NetworkDecision
 B = NetworkBlockerCode
 IGW, LOCAL_REACH = RouteReach.INTERNET_GATEWAY, RouteReach.LOCAL
+EIGW = RouteReach.EGRESS_ONLY_INTERNET_GATEWAY
 PUBLIC = "203.0.113.9"
 INSIDE = "10.0.1.5"
 
@@ -142,13 +143,14 @@ def test_unsupported_targets_never_allow(target):
     assert codes(result) == {B.UNSUPPORTED_ELEMENT}
 
 
-def test_prefix_list_routes_are_unsupported_and_ipv6_routes_are_ignored():
+def test_prefix_list_routes_are_unsupported_and_other_family_routes_are_ignored():
     prefix = {"DestinationPrefixListId": "pl-1", "GatewayId": "vpce-1", "State": "active"}
     result = check([table("rtb-1", [prefix, route()], "subnet-1")])[1]
     assert result.decision == D.UNKNOWN
     assert codes(result) == {B.UNSUPPORTED_ELEMENT}
     ipv6 = {"DestinationIpv6CidrBlock": "::/0", "GatewayId": "igw-1", "State": "active"}
     assert decision([table("rtb-1", [ipv6, LOCAL], "subnet-1")]) == D.DENY
+    assert decision([PUBLIC_TABLE], address="2001:db8::1") == D.DENY
 
 
 # ---- internet gateways --------------------------------------------------------------
@@ -163,6 +165,50 @@ def test_a_gateway_route_needs_an_available_attachment_to_the_vpc(gateways):
     result = check([PUBLIC_TABLE], gateways)[1]
     assert result.decision == D.UNKNOWN
     assert codes(result) == {B.MISSING_EVIDENCE}
+
+
+# ---- IPv6 and egress-only internet gateways -----------------------------------------
+
+
+def test_dual_stack_ipv6_routes_reach_the_internet_and_egress_only_gateways():
+    index = GraphIndex(load_snapshot(FIXTURES_ROOT / "snapshots" / "dual-stack.json"))
+
+    def evaluate(subnet, address, reach):
+        return evaluate_subnet_route(index, resource_id(subnet), address, reach=reach)
+
+    public = evaluate("subnet-dual-public", "2001:db8:ffff::1", IGW)
+    assert public.decision == D.ALLOW
+    assert public.evidence_ids == [
+        "igw-attachment",
+        "rtb-dual-public-association",
+        "rtb-dual-public-ipv6-default",
+    ]
+    private = evaluate("subnet-dual-private", "2001:db8:ffff::1", EIGW)
+    assert private.decision == D.ALLOW
+    assert "eigw-attachment" in private.evidence_ids
+    # An egress-only gateway is not an internet gateway, so inbound exposure never accepts it.
+    assert evaluate("subnet-dual-private", "2001:db8:ffff::1", IGW).decision == D.DENY
+
+
+@pytest.mark.parametrize(
+    "gateways",
+    [[], [egress_only_gateway(state="detached")]],
+    ids=["unrecorded", "detached"],
+)
+def test_an_egress_only_route_needs_an_attached_gateway(gateways):
+    ipv6 = {
+        "DestinationIpv6CidrBlock": "::/0",
+        "EgressOnlyInternetGatewayId": "eigw-1",
+        "State": "active",
+    }
+    tables = [table("rtb-1", [ipv6], "subnet-1")]
+    result = check(tables, address="2001:db8::1", reach=EIGW, egress_only_gateways=gateways)[1]
+    assert result.decision == D.UNKNOWN
+    assert codes(result) == {B.MISSING_EVIDENCE}
+    attached = [egress_only_gateway()]
+    assert decision(tables, address="2001:db8::1", reach=EIGW, egress_only_gateways=attached) == (
+        D.ALLOW
+    )
 
 
 # ---- coverage and platform ----------------------------------------------------------

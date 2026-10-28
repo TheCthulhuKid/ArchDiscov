@@ -85,14 +85,6 @@ def parse_network(value: str) -> IpNetwork:
     return ip_network(value, strict=False)
 
 
-def parse_ipv4_network(value: str) -> IPv4Network:
-    """An IPv4 address (a /32) or CIDR; raises ValueError otherwise."""
-    network = parse_network(value)
-    if not isinstance(network, IPv4Network):
-        raise ValueError("only IPv4 is supported")
-    return network
-
-
 def screen_cidr(
     cidr: IpNetwork | None,
     network: IpNetwork | None,

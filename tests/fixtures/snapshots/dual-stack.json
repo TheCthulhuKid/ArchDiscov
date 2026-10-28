@@ -299,6 +299,66 @@
         "evidence_ids": [
           "acl-association"
         ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/rtb-dual-public",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-dual-public"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_table_association",
+          "association_id": "rtbassoc-dual-public"
+        },
+        "evidence_ids": [
+          "rtb-dual-public-association"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/rtb-dual-private",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/subnet-dual-private"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "route_table_association",
+          "association_id": "rtbassoc-dual-private"
+        },
+        "evidence_ids": [
+          "rtb-dual-private-association"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/igw-dual",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/vpc-dual"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "internet_gateway_attachment",
+          "state": "available"
+        },
+        "evidence_ids": [
+          "igw-attachment"
+        ]
+      },
+      {
+        "source_id": "123456789012/eu-west-1/ec2/physical/eigw-dual",
+        "target": {
+          "kind": "local",
+          "resource_id": "123456789012/eu-west-1/ec2/physical/vpc-dual"
+        },
+        "relationship": "attached_to",
+        "attributes": {
+          "kind": "egress_only_internet_gateway_attachment",
+          "state": "attached"
+        },
+        "evidence_ids": [
+          "eigw-attachment"
+        ]
       }
     ]
   },
@@ -479,6 +539,50 @@
         "DestinationIpv6CidrBlock": "::/0",
         "EgressOnlyInternetGatewayId": "eigw-dual",
         "State": "active"
+      }
+    },
+    "rtb-dual-public-association": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004d",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-dual-public",
+      "source": "mock",
+      "locator": "dual-stack.json",
+      "configuration_path": "RouteTables[0].Associations[0]",
+      "value": {
+        "SubnetId": "subnet-dual-public",
+        "RouteTableAssociationId": "rtbassoc-dual-public"
+      }
+    },
+    "rtb-dual-private-association": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004d",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/rtb-dual-private",
+      "source": "mock",
+      "locator": "dual-stack.json",
+      "configuration_path": "RouteTables[1].Associations[0]",
+      "value": {
+        "SubnetId": "subnet-dual-private",
+        "RouteTableAssociationId": "rtbassoc-dual-private"
+      }
+    },
+    "igw-attachment": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004d",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/igw-dual",
+      "source": "mock",
+      "locator": "dual-stack.json",
+      "configuration_path": "InternetGateways[0].Attachments[0]",
+      "value": {
+        "VpcId": "vpc-dual",
+        "State": "available"
+      }
+    },
+    "eigw-attachment": {
+      "snapshot_id": "00000000-0000-4000-8000-00000000004d",
+      "resource_id": "123456789012/eu-west-1/ec2/physical/eigw-dual",
+      "source": "mock",
+      "locator": "dual-stack.json",
+      "configuration_path": "EgressOnlyInternetGateways[0].Attachments[0]",
+      "value": {
+        "VpcId": "vpc-dual",
+        "State": "attached"
       }
     }
   }
