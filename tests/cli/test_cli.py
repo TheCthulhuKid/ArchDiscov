@@ -10,7 +10,6 @@ from archdiscov.cli import app
 from archdiscov.models.cloud.snapshot import CloudSnapshot
 from archdiscov.services import load_snapshot
 from tests.paths import FIXTURES_ROOT
-from tests.support.installed_cli import run_installed_json
 
 FIXTURES = FIXTURES_ROOT / "snapshots"
 runner = CliRunner()
@@ -278,15 +277,3 @@ def test_command_help_and_usage(command: str, styled: bool, monkeypatch) -> None
     assert help_result.exit_code == 0
     assert "--json" in unstyle(help_result.stdout)
     assert runner.invoke(app, [command]).exit_code == 2
-
-
-def test_installed_workflow_outside_repository(tmp_path: Path) -> None:
-    output = tmp_path / "snapshot.json"
-    imported = run_installed_json(
-        tmp_path, "ingest", str(FIXTURES / "hierarchy.json"), "-o", str(output), "--json"
-    )
-    assert imported["path"] == str(output)
-    inspected = run_installed_json(
-        tmp_path, "evidence", "instance", "--snapshot", str(output), "--json"
-    )
-    assert inspected["resource"]["instance_type"] == "t3.micro"

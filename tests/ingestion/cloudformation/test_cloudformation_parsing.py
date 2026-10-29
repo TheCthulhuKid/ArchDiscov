@@ -3,6 +3,7 @@ import json
 import pytest
 
 from archdiscov.ingestion.adapter import IngestionError
+from archdiscov.ingestion.cloudformation.evaluation_limits import MAX_BYTES, MAX_DEPTH
 from archdiscov.ingestion.cloudformation.parsing import load_template, parse_template
 
 
@@ -55,10 +56,12 @@ def test_unsafe_or_malformed_templates_have_generic_errors(text):
 
 
 def test_limits_and_alias_expansion():
+    """The smallest input over each limit; the root mapping is the first nesting level, and
+    the aliases expand a tiny text past the node limit."""
+    prefix = "Resources: {}\nMetadata: "
     for text in (
-        "Resources: {}\nMetadata: " + "[" * 100 + "0" + "]" * 100,
-        "Resources: {}\nMetadata: " + "a" * 1_048_577,
-        "Resources: {}\nMetadata: [" + "0," * 60_000 + "]",
+        prefix + "[" * MAX_DEPTH + "0" + "]" * MAX_DEPTH,
+        prefix + "a" * (MAX_BYTES + 1 - len(prefix)),
         "Resources: {}\nMetadata:\n"
         + "  a: &a [x, x, x, x, x, x, x, x, x, x]\n"
         + "\n".join(

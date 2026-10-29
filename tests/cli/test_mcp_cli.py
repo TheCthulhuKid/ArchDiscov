@@ -2,11 +2,9 @@
 
 Diagnostics and exit codes before serving run in process. A stdio session needs the
 command's own standard input and output, so the protocol tests run the command in a
-subprocess, with the `mcp` package's stdio client or raw JSON-RPC lines; nothing reaches a
-network.
+subprocess, driven with raw JSON-RPC lines; nothing reaches a network.
 """
 
-import asyncio
 import json
 import os
 import signal
@@ -14,7 +12,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from mcp import Client, StdioServerParameters
 from typer.testing import CliRunner
 
 from archdiscov.assistant.mcp_limits import DEFAULT_MAX_TOOL_CALLS, ServerLimits
@@ -24,7 +21,7 @@ from archdiscov.cli import app
 from archdiscov.services import mcp as mcp_service
 from tests.support.evaluation_suites import README_SUITE
 from tests.support.installed_cli import CLI
-from tests.support.mcp_clients import readme_example
+from tests.support.mcp_clients import StdioSession, readme_example
 
 runner = CliRunner()
 README = README_SUITE.parent
@@ -123,29 +120,29 @@ def _command(*options: object) -> list[str]:
     return [*CLI, "mcp", "--snapshot", str(SNAPSHOT), *map(str, options)]
 
 
-def test_a_stdio_client_lists_prompts_and_answers_a_readme_example(tmp_path: Path) -> None:
+def test_a_stdio_session_answers_a_readme_example_and_exits_0_on_disconnect(
+    tmp_path: Path,
+) -> None:
+    """Each request is answered before the next; `mcp` cancels requests still in flight when
+    the client closes its side, so a client waits for its answers before disconnecting."""
     _, calls, proposal = readme_example(OWNERSHIP)
-    command, *arguments = _command()
-    parameters = StdioServerParameters(command=command, args=arguments, cwd=str(tmp_path))
-
-    async def session() -> dict:
-        async with Client(parameters) as client:
-            tools = (await client.list_tools()).tools
-            prompts = (await client.list_prompts()).prompts
-            questions = [await client.get_prompt(prompt.name) for prompt in prompts]
-            for name, call_arguments in calls:
-                assert not (await client.call_tool(name, call_arguments)).is_error
-            answer = await client.call_tool("submit_answer", proposal)
-        return {"tools": tools, "prompts": prompts, "questions": questions, "answer": answer}
-
-    seen = asyncio.run(session())
-    assert seen["tools"][-1].name == "submit_answer"
-    assert [prompt.name for prompt in seen["prompts"]] == [kind.value for kind in README_QUESTIONS]
-    assert [result.messages[0].content.text for result in seen["questions"]] == list(
+    with StdioSession(_command(), tmp_path, dict(os.environ)) as session:
+        tools = session.request("tools/list")["tools"]
+        prompts = session.request("prompts/list")["prompts"]
+        questions = [
+            session.request("prompts/get", {"name": prompt["name"]})["messages"][0]
+            for prompt in prompts
+        ]
+        for name, arguments in calls:
+            assert session.tool(name, arguments)[0] is False, name
+        answer = session.tool("submit_answer", proposal)
+    assert tools[-1]["name"] == "submit_answer"
+    assert [prompt["name"] for prompt in prompts] == [kind.value for kind in README_QUESTIONS]
+    assert [question["content"]["text"] for question in questions] == list(
         README_QUESTIONS.values()
     )
-    answer = seen["answer"]
-    assert not answer.is_error and answer.content[0].text == PRESENT_ANSWER
+    assert answer[0] is False and answer[1][0] == PRESENT_ANSWER
+    assert (session.exit_code, session.stderr, session.extra_output) == (0, "", "")
 
 
 def _start(tmp_path: Path) -> subprocess.Popen:
@@ -162,38 +159,6 @@ def _start(tmp_path: Path) -> subprocess.Popen:
 def _send(process: subprocess.Popen, message: dict) -> None:
     process.stdin.write(json.dumps(message) + "\n")
     process.stdin.flush()
-
-
-def test_a_disconnect_exits_0_with_only_protocol_messages_on_standard_output(
-    tmp_path: Path,
-) -> None:
-    """Each request is answered before the next; `mcp` cancels requests still in flight when
-    the client closes its side, so a client waits for its answers before disconnecting."""
-    process = _start(tmp_path)
-    requests = [
-        INITIALIZE,
-        {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
-        {"jsonrpc": "2.0", "id": 3, "method": "prompts/list"},
-        {
-            "jsonrpc": "2.0",
-            "id": 4,
-            "method": "tools/call",
-            "params": {"name": "run_analyzer", "arguments": {"kind": "ownership"}},
-        },
-    ]
-    lines = []
-    for request in requests:
-        _send(process, request)
-        lines.append(process.stdout.readline())
-        if request is INITIALIZE:
-            _send(process, {"jsonrpc": "2.0", "method": "notifications/initialized"})
-    stdout, stderr = process.communicate(timeout=30)
-    assert process.returncode == 0, stderr
-    messages = [json.loads(line) for line in [*lines, *stdout.splitlines()]]
-    assert all(message["jsonrpc"] == "2.0" for message in messages)
-    assert [message["id"] for message in messages] == [1, 2, 3, 4]
-    assert all("result" in message for message in messages)
-    assert stderr == ""
 
 
 @pytest.mark.skipif(os.name != "posix", reason="sends SIGINT to the child")

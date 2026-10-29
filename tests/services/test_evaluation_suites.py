@@ -65,13 +65,14 @@ def test_the_checked_in_suites_match_the_generator(suite: Path, tmp_path: Path) 
     assert _files(written.parent) == _files(suite.parent)
 
 
-@pytest.mark.parametrize("suite", list(SUITES), ids=lambda path: path.parent.name)
-def test_every_case_passes_with_the_fake_provider(suite: Path, tmp_path: Path) -> None:
+def _passing_records(suite: Path, tmp_path: Path) -> dict[str, CaseRecord]:
+    """The suite's records, every case in order and none with a failed check."""
     records = _records(suite, tmp_path)
     assert list(records) == [case["id"] for case in _suite(suite)["cases"]]
     assert {case_id: _failed(record) for case_id, record in records.items()} == {
         case_id: [] for case_id in records
     }
+    return records
 
 
 def test_the_readme_suite_covers_the_questions_and_variants() -> None:
@@ -80,8 +81,11 @@ def test_the_readme_suite_covers_the_questions_and_variants() -> None:
     assert set(README_QUESTIONS) <= {case["question"] for case in cases}
 
 
-def test_the_adversarial_suite_expects_each_safe_outcome(tmp_path: Path) -> None:
-    records = _records(ADVERSARIAL_SUITE, tmp_path)
+def test_both_suites_pass_and_each_adversarial_case_passes_on_its_safe_outcome(
+    tmp_path: Path,
+) -> None:
+    _passing_records(README_SUITE, tmp_path)
+    records = _passing_records(ADVERSARIAL_SUITE, tmp_path)
     outcomes = {case_id: record.outcome for case_id, record in records.items()}
     assert {
         case_id: outcome.failure or outcome.status for case_id, outcome in outcomes.items()
