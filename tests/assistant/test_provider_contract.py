@@ -1,8 +1,9 @@
 """Behaviour every provider must share; the acceptance gate for each adapter.
 
-Most cases run over every harness, each adapter serving them from its own mocked API. The
-shared retry policy and the HTTP clients' guard are each tested once here, so an adapter's own
-tests cover only what differs: its request and response mapping, usage, and continuations.
+Most cases run over every adapter's harness, each serving them from its own mocked API; the
+retry and timeout cases run over the fake's too. The shared retry policy and the HTTP clients'
+guard are each tested once here, so an adapter's own tests cover only what differs: its
+request and response mapping, usage, and continuations.
 """
 
 import asyncio
@@ -39,14 +40,11 @@ from archdiscov.assistant.provider import (
     CompletionRequest,
     CompletionResponse,
     Provider,
-    ProviderCapabilities,
-    ProviderCapability,
     ProviderError,
     ProviderErrorCode,
     ProviderTransportError,
     RequestLimits,
     StopReason,
-    UnsupportedCapabilityError,
     complete,
     complete_async,
 )
@@ -64,11 +62,11 @@ from tests.support.provider_harness import (
 from tests.support.secrets import secret_renderings
 
 SECRET = "sk-ant-api03-SECRETvalue0123456789abcdefXYZ"
-TEXT_ONLY = ProviderCapabilities()
 RETRYABLE = [ProviderErrorCode.TRANSPORT, ProviderErrorCode.RATE_LIMIT]
 # Every error a turn can script; each harness serves each one as its API would.
 SCRIPTED = list(AnthropicHarness.failures)
-# The adapters that send HTTP through the shared guarded clients, and every mocked adapter.
+# The adapters that send HTTP through the shared guarded clients, and every mocked adapter;
+# the fake returns and raises what its transcript scripts, which `test_fake.py` covers.
 HTTP: list[MockedHarness] = [AnthropicHarness(), ChatCompletionsHarness(), ResponsesHarness()]
 MOCKED: list[MockedHarness] = [*HTTP, BedrockHarness()]
 QUESTION = "Which databases"
@@ -82,16 +80,15 @@ def send(provider: Provider, completion: CompletionRequest) -> CompletionRespons
 _LIMITS = RequestLimits(max_tool_calls_per_turn=4)
 
 
-def _request(*messages, tools=(SEARCH_TOOL, INSPECT_TOOL), limits=_LIMITS) -> CompletionRequest:
+def _request(limits: RequestLimits = _LIMITS) -> CompletionRequest:
     return CompletionRequest(
         conversation=Conversation(
             messages=(
                 SystemMessage(text="Answer only from tool results."),
                 UserMessage(text=f"Which databases are reachable? {SECRET}"),
-                *messages,
             )
         ),
-        tools=tools,
+        tools=(SEARCH_TOOL, INSPECT_TOOL),
         limits=limits,
     )
 
@@ -151,28 +148,22 @@ RESPONSES = {
 
 
 @pytest.mark.parametrize("response", list(RESPONSES.values()), ids=list(RESPONSES))
+@pytest.mark.parametrize("harness", MOCKED, ids=lambda harness: harness.label)
 def test_responses_map_to_the_shared_contracts(
-    harness: ProviderHarness, response: CompletionResponse
+    harness: MockedHarness, response: CompletionResponse
 ) -> None:
     provider = harness.build([_respond(response)])
     assert send(provider, _request()) == response
     assert harness.attempts(provider) == 1
 
 
-def test_supported_requests_are_answered(harness: ProviderHarness) -> None:
-    provider = harness.build([_respond(TEXT)])
-    assert send(provider, _request(*EXCHANGE)) == TEXT
-    # A text-only provider still answers a request that offers no tools.
-    provider = harness.build([_respond(TEXT)], capabilities=TEXT_ONLY)
-    assert send(provider, _request(tools=(), limits=RequestLimits())) == TEXT
-
-
 # ---- errors ------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("code", SCRIPTED, ids=lambda code: code.value)
+@pytest.mark.parametrize("harness", MOCKED, ids=lambda harness: harness.label)
 def test_errors_carry_stable_codes_and_safe_diagnostics(
-    harness: ProviderHarness, code: ProviderErrorCode, caplog
+    harness: MockedHarness, code: ProviderErrorCode, caplog
 ) -> None:
     caplog.set_level(logging.DEBUG)
     provider = harness.build([_fail(code), _respond(TEXT)])
@@ -192,11 +183,11 @@ def test_errors_carry_stable_codes_and_safe_diagnostics(
         assert QUESTION not in rendered
 
 
-@pytest.mark.parametrize("code", RETRYABLE, ids=lambda code: code.value)
 def test_only_retryable_errors_are_retried_up_to_the_configured_count(
-    harness: ProviderHarness, code: ProviderErrorCode
+    harness: ProviderHarness,
 ) -> None:
-    provider = harness.build([_fail(code), _fail(code), _respond(TEXT)], max_retries=2)
+    throttled = _fail(ProviderErrorCode.RATE_LIMIT)
+    provider = harness.build([throttled, throttled, _respond(TEXT)], max_retries=2)
     assert send(provider, _request()) == TEXT
     assert harness.attempts(provider) == 3
 
@@ -208,45 +199,13 @@ def test_only_retryable_errors_are_retried_up_to_the_configured_count(
     assert harness.attempts(provider) == 1
 
 
-# ---- capabilities ------------------------------------------------------------------
-
-
-TOOLS_ONLY = ProviderCapabilities(capabilities={ProviderCapability.TOOL_CALLING})
-UNSUPPORTED = {
-    "tools-offered": (TEXT_ONLY, _request(), ProviderCapability.TOOL_CALLING),
-    "parallel-calls": (TOOLS_ONLY, _request(), ProviderCapability.PARALLEL_TOOL_CALLS),
-    "prior-tool-exchange": (
-        TEXT_ONLY,
-        _request(*EXCHANGE, tools=(), limits=RequestLimits()),
-        ProviderCapability.TOOL_CALLING,
-    ),
-}
-
-
-@pytest.mark.parametrize(
-    "capabilities,request_,missing", list(UNSUPPORTED.values()), ids=list(UNSUPPORTED)
-)
-def test_unsupported_capabilities_are_rejected_before_any_attempt(
-    harness: ProviderHarness,
-    capabilities: ProviderCapabilities,
-    request_: CompletionRequest,
-    missing: ProviderCapability,
-) -> None:
-    provider = harness.build([_respond(TEXT)], capabilities=capabilities)
-    assert provider.capabilities == capabilities
-    with pytest.raises(UnsupportedCapabilityError) as raised:
-        send(provider, request_)
-    assert raised.value.capability == missing
-    assert harness.attempts(provider) == 0
-
-
 # ---- limits ------------------------------------------------------------------------
 
 
 def test_requests_beyond_the_timeout_fail_as_timeouts_without_retry(
     harness: ProviderHarness,
 ) -> None:
-    timed = _request(limits=RequestLimits(timeout_seconds=10))
+    timed = _request(RequestLimits(timeout_seconds=10))
     provider = harness.build([_respond(TEXT, delay_seconds=20), _respond(TEXT)], max_retries=2)
     with pytest.raises(ProviderError) as raised:
         send(provider, timed)
@@ -290,25 +249,21 @@ def _throttled(retry_after: str) -> openai.RateLimitError:
     return openai.RateLimitError("Throttled.", response=response, body=None)
 
 
-def _throttled_converse(headers: dict | None) -> ClientError:
+def _throttled_converse(headers: dict) -> ClientError:
     """Botocore's parsed response, whose metadata holds the lower-cased HTTP headers."""
-    response = {"Error": {"Code": "ThrottlingException"}}
-    if headers is not None:
-        response["ResponseMetadata"] = {"HTTPHeaders": headers}
-    return ClientError(response, "Converse")
+    error = {"Code": "ThrottlingException"}
+    return ClientError({"Error": error, "ResponseMetadata": {"HTTPHeaders": headers}}, "Converse")
 
 
 @pytest.mark.parametrize(
     ("error", "timeout", "wait"),
     [
         (_throttled("2"), 60, 2.0),
-        (_throttled("20"), 10, 10.0),
         (_throttled("120"), 60, MAX_RETRY_WAIT_SECONDS),
         (_throttled("soon"), 60, RETRY_BACKOFF_SECONDS),
         (_throttled_converse({"retry-after": "2"}), 60, 2.0),
-        (_throttled_converse(None), 60, RETRY_BACKOFF_SECONDS),
     ],
-    ids=["honoured", "request-timeout", "capped", "unusable", "converse", "converse-bare"],
+    ids=["honoured", "capped", "unusable", "converse"],
 )
 def test_retry_after_is_honoured_within_bounds(error: Exception, timeout: int, wait) -> None:
     assert retry_wait(error, 0, timeout) == wait

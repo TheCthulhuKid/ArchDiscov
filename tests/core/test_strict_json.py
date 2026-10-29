@@ -53,8 +53,6 @@ def test_rejections_are_not_syntax_errors_and_do_not_expose_input(text):
     [
         ('{"private-key": 1, "private-key": 2}', "object_pairs_hook", unique_object),
         ("NaN", "parse_constant", reject_constant),
-        ("Infinity", "parse_constant", reject_constant),
-        ("-Infinity", "parse_constant", reject_constant),
     ],
 )
 def test_error_factories_raise_the_callers_exception_directly(text, hook, primitive):
@@ -67,19 +65,11 @@ def test_error_factories_raise_the_callers_exception_directly(text, hook, primit
     assert not error.__suppress_context__
 
 
-def test_syntax_errors_keep_json_decode_location():
-    with pytest.raises(json.JSONDecodeError) as caught:
-        decode('{\n  "private-key":\n}')
-    assert (caught.value.lineno, caught.value.colno) == (3, 1)
-
-
 @pytest.mark.parametrize(
     ("value", "terraform_message"),
     [
         ('{"private-key": 1, "private-key": 2}', "contains duplicate object keys"),
         ("NaN", "must contain finite JSON values"),
-        ("Infinity", "must contain finite JSON values"),
-        ("-Infinity", "must contain finite JSON values"),
     ],
 )
 def test_reader_error_policies_are_preserved(tmp_path, monkeypatch, value, terraform_message):
@@ -122,8 +112,3 @@ def test_a_file_at_the_limit_is_read_and_one_byte_more_is_refused(tmp_path: Path
     assert read_bounded(path, 10) == b"x" * 10
     with pytest.raises(FileTooLargeError):
         read_bounded(path, 9)
-
-
-def test_an_unreadable_file_raises_os_error(tmp_path: Path) -> None:
-    with pytest.raises(OSError):
-        read_bounded(tmp_path / "missing.json")

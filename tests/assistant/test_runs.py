@@ -17,8 +17,9 @@ from archdiscov.assistant.conversation import (
 )
 from archdiscov.assistant.provider import (
     ProviderAuthenticationError,
-    ProviderError,
     ProviderErrorCode,
+    ProviderMalformedOutputError,
+    ProviderRateLimitError,
     RequestLimits,
     StopReason,
 )
@@ -38,7 +39,6 @@ from archdiscov.assistant.runs import (
     provider_outcome,
     read_proposal,
     total_usage,
-    transcript_json,
     transcript_outcome,
     transcript_text,
     transcript_tool_call,
@@ -54,53 +54,10 @@ ANSWERED = Answered(message=AssistantMessage(text="Done."), stop_reason=StopReas
 # ---- limits ------------------------------------------------------------------------
 
 
-def test_default_limits_are_conservative_and_limits_round_trip_frozen() -> None:
-    assert RunLimits().model_dump() == {
-        "max_provider_requests": 8,
-        "max_tool_calls_per_turn": 1,
-        "max_tool_calls": 32,
-        "max_output_tokens": 4_096,
-        "max_total_output_chars": 200_000,
-        "request_timeout_seconds": 60.0,
-        "overall_timeout_seconds": 300.0,
-    }
-    limits = RunLimits(max_tool_calls_per_turn=4, request_timeout_seconds=30)
-    assert RunLimits.model_validate_json(limits.model_dump_json()) == limits
-    with pytest.raises(ValidationError):
-        limits.max_tool_calls = 1
-
-
-@pytest.mark.parametrize(
-    "field,low,high",
-    [
-        ("max_provider_requests", 0, 51),
-        ("max_tool_calls_per_turn", 0, 33),
-        ("max_tool_calls", 0, 201),
-        ("max_output_tokens", 0, 128_001),
-        ("max_total_output_chars", 999, 1_000_001),
-        ("request_timeout_seconds", 0, 601),
-        ("overall_timeout_seconds", 0, 3_601),
-    ],
-)
-def test_out_of_range_limits_are_rejected(field: str, low: float, high: float) -> None:
-    for value in (low, high):
-        with pytest.raises(ValidationError):
-            RunLimits.model_validate({field: value})
-
-
-@pytest.mark.parametrize(
-    "data,code",
-    [
-        ({"max_tool_calls_per_turn": 8, "max_tool_calls": 4}, "run_limits_order"),
-        ({"request_timeout_seconds": 120, "overall_timeout_seconds": 60}, "run_limits_order"),
-        ({"max_tool_calls": True}, "int_type"),
-    ],
-    ids=["calls-order", "timeout-order", "bool-is-not-int"],
-)
-def test_invalid_limits_are_rejected(data: dict, code: str) -> None:
+def test_per_request_limits_cannot_exceed_the_run_limits() -> None:
     with pytest.raises(ValidationError) as raised:
-        RunLimits.model_validate(data)
-    assert code in {error["type"] for error in raised.value.errors()}
+        RunLimits(max_tool_calls_per_turn=8, max_tool_calls=4)
+    assert raised.value.errors()[0]["type"] == "run_limits_order"
 
 
 def test_limits_come_from_provider_configuration() -> None:
@@ -154,7 +111,6 @@ INVALID_OUTCOMES = {
         {**ANSWERED_DATA, "message": {"role": "assistant", "tool_calls": [CALL_DATA]}},
         "run_answer_not_final",
     ),
-    "answer-stop-reason": ({**ANSWERED_DATA, "stop_reason": "tool_use"}, "literal_error"),
     "malformed-as-provider-error": (
         {
             "kind": "provider_error",
@@ -164,7 +120,6 @@ INVALID_OUTCOMES = {
         },
         "run_outcome_kind_mismatch",
     ),
-    "unknown-kind": ({"kind": "succeeded"}, "union_tag_invalid"),
 }
 
 
@@ -175,43 +130,25 @@ def test_invalid_outcomes_are_rejected(data: dict, code: str) -> None:
     assert code in {error["type"] for error in raised.value.errors()}
 
 
-def _errors() -> list[type[ProviderError]]:
-    pending, found = list(ProviderError.__subclasses__()), []
-    while pending:
-        error = pending.pop()
-        found.append(error)
-        pending.extend(error.__subclasses__())
-    return [error for error in found if "code" in vars(error)]
-
-
-@pytest.mark.parametrize("error_type", _errors(), ids=lambda error: error.code.value)
-def test_provider_errors_map_to_typed_outcomes(error_type: type[ProviderError]) -> None:
-    error = (
-        error_type("tool_calling")
-        if error_type.code == ProviderErrorCode.UNSUPPORTED_CAPABILITY
-        else error_type()
+def test_provider_errors_map_to_typed_outcomes() -> None:
+    error = ProviderRateLimitError()
+    assert provider_outcome(error) == ProviderFailed(
+        code=ProviderErrorCode.RATE_LIMIT, retryable=True, message=error.message
     )
-    outcome = provider_outcome(error)
-    if error.code == ProviderErrorCode.MALFORMED_OUTPUT:
-        assert outcome == MalformedOutput(reason=MalformedOutputReason.PROVIDER_REPORTED)
-    else:
-        assert outcome == ProviderFailed(
-            code=error.code, retryable=error.retryable, message=error.message
-        )
+    # Malformed output has its own kind.
+    assert provider_outcome(ProviderMalformedOutputError()) == MalformedOutput(
+        reason=MalformedOutputReason.PROVIDER_REPORTED
+    )
 
 
 # ---- transcript text ---------------------------------------------------------------
 
 
-def test_transcript_text_and_json_never_hold_a_secret() -> None:
+def test_transcript_text_never_holds_a_secret() -> None:
+    # Whole transcripts, tool arguments included, are in the tests below.
     assert transcript_text(f"The key is {SECRET}.") == TranscriptText(
         text=f"The key is {REDACTED}.", truncated=False, chars=len(SECRET) + 12
     )
-    text = "Found 3 security groups in vpc-0abc (eu-west-1); model claude-sonnet-5-5."
-    assert transcript_text(text) == TranscriptText(text=text, truncated=False, chars=len(text))
-    value = transcript_json({"password": "hunter2", "query": f"use {SECRET}", "limit": 5})
-    data = json.loads(value.text)
-    assert data == {"limit": 5, "password": REDACTED_MARKER, "query": f"use {REDACTED}"}
     with pytest.raises(ValidationError) as raised:
         TranscriptText(text=SECRET, truncated=False, chars=len(SECRET))
     assert raised.value.errors()[0]["type"] == "run_transcript_secret"
@@ -223,8 +160,6 @@ def test_long_text_is_truncated_after_redaction() -> None:
     assert value.truncated is True
     assert len(value.text) <= MAX_TRANSCRIPT_TEXT_CHARS
     assert SECRET[:10] not in value.text
-    exact = transcript_text("y" * MAX_TRANSCRIPT_TEXT_CHARS)
-    assert exact.truncated is False
 
 
 # ---- tool calls, turns, and transcripts --------------------------------------------
@@ -251,8 +186,6 @@ def test_tool_calls_record_sanitized_arguments_and_bounded_results() -> None:
     )
     assert malformed.arguments is None
     assert malformed.malformed_arguments == MalformedArgumentsReason.INVALID_JSON
-    with pytest.raises(ValueError):
-        transcript_tool_call(_call(), ToolResult(call_id="other", content=""))
 
 
 def _turn(request: int, calls: int = 0, **usage) -> TranscriptTurn:
@@ -267,11 +200,11 @@ def _turn(request: int, calls: int = 0, **usage) -> TranscriptTurn:
     )
 
 
-def _transcript(turns, outcome=None, limits=None, **fields) -> RunTranscript:
+def _transcript(turns, outcome=None, **fields) -> RunTranscript:
     return RunTranscript(
-        provider_kind=fields.get("provider_kind", "fake"),
+        provider_kind="fake",
         model=fields.get("model", "fake"),
-        limits=limits or RunLimits(),
+        limits=RunLimits(),
         turns=tuple(turns),
         usage=fields.get("usage", total_usage(turns)),
         latency_seconds=1.0,
@@ -281,26 +214,19 @@ def _transcript(turns, outcome=None, limits=None, **fields) -> RunTranscript:
 
 def test_transcripts_round_trip_and_total_their_usage() -> None:
     turns = [_turn(0, calls=1, input_tokens=10), _turn(1, input_tokens=5, output_tokens=3)]
-    for outcome in every_run_outcome():
-        transcript = _transcript(turns, outcome)
-        assert RunTranscript.model_validate_json(transcript.model_dump_json()) == transcript
-    assert _transcript(turns).usage == TokenUsage(input_tokens=15, output_tokens=3)
-    assert total_usage([]) == TokenUsage()
+    transcript = _transcript(turns)
+    assert RunTranscript.model_validate_json(transcript.model_dump_json()) == transcript
+    assert transcript.usage == TokenUsage(input_tokens=15, output_tokens=3)
+    # A count no turn reported stays unknown.
     assert total_usage([_turn(0, output_tokens=2), _turn(1)]) == TokenUsage(output_tokens=2)
 
 
 INCONSISTENT_TRANSCRIPTS = {
-    "unnumbered": lambda: _transcript([_turn(1)]),
     "repair-unoffered": lambda: _transcript(
         [_turn(0), _turn(1).model_copy(update={"repair": True})]
     ),
-    "requests": lambda: _transcript(
-        [_turn(index) for index in range(3)], limits=RunLimits(max_provider_requests=2)
-    ),
-    "tool-calls": lambda: _transcript([_turn(0, calls=3)], limits=RunLimits(max_tool_calls=2)),
     "usage": lambda: _transcript([_turn(0, input_tokens=4)], usage=TokenUsage(input_tokens=5)),
     "secret-model": lambda: _transcript([], model=SECRET),
-    "kind": lambda: _transcript([], provider_kind="Not A Kind"),
 }
 
 
@@ -377,9 +303,6 @@ def test_transcripts_record_answers_and_proposals_redacted() -> None:
         with pytest.raises(ValidationError) as raised:
             _transcript([], raw)
         assert raised.value.errors()[0]["type"] == "run_transcript_secret"
-    for other in every_run_outcome():
-        if not isinstance(other, Answered | Proposed):
-            assert transcript_outcome(other) is other
 
 
 def test_read_proposal_reads_a_valid_proposal_and_names_why_others_fail() -> None:

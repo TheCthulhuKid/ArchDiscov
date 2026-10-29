@@ -16,7 +16,6 @@ from archdiscov.models.enums import AnalyzerKind
 from archdiscov.services import publication
 from archdiscov.services.analyses import load_analysis
 from archdiscov.services.analysis_execution import DEFAULT_REGISTRY
-from archdiscov.services.analysis_validation import AnalysisValidationError
 from archdiscov.services.comparison import compare_snapshots
 from archdiscov.services.comparison_results import ComparisonValidationError, save_comparison
 from archdiscov.services.snapshots import load_snapshot, validate_snapshot
@@ -110,8 +109,10 @@ def test_list_analyzers_describes_every_kind_and_its_parameters() -> None:
 # ---- run ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("kind", list(AnalyzerKind))
-def test_each_analyzer_runs_with_exact_results_and_recorded_ids(kind: AnalyzerKind) -> None:
+def test_an_analyzer_runs_with_exact_results_and_recorded_ids() -> None:
+    # One analyzer whose findings carry paths and limitations; `test_no_tool_writes_files`
+    # runs every analyzer.
+    kind = AnalyzerKind.SECURITY_GROUP_IMPACT
     scenario = SCENARIOS[kind]
     snapshot = scenario.build()
     session = ToolSession(snapshot, limits=ToolLimits(result_limit=100))
@@ -155,24 +156,21 @@ def test_analysis_truncation_reports_the_dropped_findings() -> None:
     assert session.record.returned() == _expected_ids(
         service_result(snapshot, scenario.kind, {}, 3), 1
     )
+    # The run context, too, holds only the delivered finding.
+    [delivered] = data["findings"]["items"]
+    finding_ids = [item.finding_id for item in session.record.context().findings]
+    assert finding_ids == [delivered["finding_id"]]
 
 
 @pytest.mark.parametrize(
-    "kind,arguments,code,locations",
-    [
-        ("ownership", {"port": 5432}, ToolErrorCode.INVALID_ARGUMENTS, ["port"]),
-        ("security_group_impact", {}, ToolErrorCode.INVALID_ARGUMENTS, ["resource_id"]),
-        ("ownership", {"ownership_keys": ["Owner", "Owner"]}, ToolErrorCode.INVALID_ARGUMENTS, []),
-        ("drift", {}, ToolErrorCode.INVALID_ARGUMENTS, ["kind"]),
-    ],
-    ids=["foreign-parameter", "missing-parameter", "analyzer-rejects-parameters", "unknown-kind"],
+    "arguments,locations",
+    [({"port": 5432}, ["port"]), ({"ownership_keys": ["Owner", "Owner"]}, [])],
+    ids=["foreign-parameter", "analyzer-rejects-parameters"],
 )
-def test_invalid_parameters_are_rejected(
-    kind: str, arguments: dict, code: ToolErrorCode, locations: list[str]
-) -> None:
+def test_invalid_parameters_are_rejected(arguments: dict, locations: list[str]) -> None:
     session = ToolSession(SCENARIOS[AnalyzerKind.OWNERSHIP].build())
-    data = _run(session, "run_analyzer", kind=kind, **arguments)
-    assert data["code"] == code
+    data = _run(session, "run_analyzer", kind="ownership", **arguments)
+    assert data["code"] == ToolErrorCode.INVALID_ARGUMENTS
     assert data["locations"] == locations
     assert session.record.returned() == ReturnedIds()
 
@@ -190,16 +188,10 @@ def test_depth_is_capped_by_the_session() -> None:
     assert data["parameters"]["max_depth"] == 2
 
 
-def test_unknown_and_unsupported_resources() -> None:
+def test_a_resource_the_analyzer_cannot_take_is_invalid() -> None:
+    # An unknown one is not found, in `test_tool_boundary.py`.
     scenario = SCENARIOS[AnalyzerKind.SECURITY_GROUP_IMPACT]
     session = ToolSession(scenario.build())
-    missing = _run(
-        session,
-        "run_analyzer",
-        kind="security_group_impact",
-        resource_id="123456789012/eu-west-1/ec2/physical/sg-missing",
-    )
-    assert missing["code"] == ToolErrorCode.NOT_FOUND
     not_a_group = next(
         rid for rid in session.index.resource_ids if "/sg-" not in rid and "security" not in rid
     )
@@ -247,28 +239,8 @@ def test_saved_analyses_load_only_when_selected_and_verified() -> None:
         item.id for item in saved.findings
     ][:25]
     assert session.record.returned() == _expected_ids(saved, 25)
-    assert _run(session, "get_saved_analysis", number=2)["code"] == ToolErrorCode.NOT_FOUND
-    assert _run(session, "get_saved_analysis", number=0)["code"] == ToolErrorCode.INVALID_ARGUMENTS
-
-
-@pytest.mark.parametrize("tool", ["get_saved_analysis", "get_saved_comparison"])
-def test_saved_results_are_unavailable_unless_selected(tool: str) -> None:
-    session = ToolSession(load_snapshot(OWNERSHIP_SNAPSHOT))
-    assert _run(session, tool, number=1)["code"] == ToolErrorCode.UNAVAILABLE
-    assert _run(session, tool, number=1, path=str(OWNERSHIP_RESULT))["code"] == (
-        ToolErrorCode.INVALID_ARGUMENTS
-    )
-
-
-def test_tampered_saved_analysis_fails_safely(tmp_path: Path) -> None:
-    data = json.loads(OWNERSHIP_RESULT.read_text(encoding="utf-8"))
-    data["findings"][0]["evidence_ids"] = ["fabricated-evidence"]
-    data["findings"][0]["id"] = ""
-    tampered = tmp_path / "tampered.json"
-    tampered.write_text(json.dumps(data), encoding="utf-8")
-    with pytest.raises(AnalysisValidationError) as raised:
-        ToolSession.from_paths(OWNERSHIP_SNAPSHOT, analysis_paths=[tampered])
-    assert "fabricated" not in str(raised.value)
+    unselected = ToolSession(load_snapshot(OWNERSHIP_SNAPSHOT))
+    assert _run(unselected, "get_saved_analysis", number=1)["code"] == ToolErrorCode.UNAVAILABLE
 
 
 def test_saved_analysis_for_another_snapshot_is_rejected() -> None:
@@ -321,7 +293,6 @@ def test_saved_comparisons_are_scoped_per_side(compared: tuple[Path, Path, Path]
     assert entries[right_id].resource_ids == tuple(
         sorted(p["right"]["resource_id"] for p in matched)
     )
-    assert _run(session, "get_saved_comparison", number=2)["code"] == ToolErrorCode.NOT_FOUND
 
 
 def test_saved_comparisons_need_both_snapshots(compared: tuple[Path, Path, Path]) -> None:

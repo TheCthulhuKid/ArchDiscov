@@ -3,7 +3,6 @@
 import pytest
 
 from archdiscov.models.canonical import sha256_json
-from archdiscov.models.enums import AttachmentKind, ResourceType, RouteTargetKind
 from archdiscov.services.analyses import load_analysis
 from archdiscov.services.snapshots import load_snapshot
 from tests.paths import FIXTURES_ROOT
@@ -53,20 +52,3 @@ def test_snapshot_validates_to_the_same_data(name: str, digest: str) -> None:
 def test_saved_result_validates_to_the_same_data(name: str, digest: str) -> None:
     result = load_analysis(FIXTURES_ROOT / "analysis" / name)
     assert sha256_json(result.model_dump(mode="json")) == digest
-
-
-def test_new_network_vocabulary_is_additive() -> None:
-    assert {
-        ResourceType.NAT_GATEWAY,
-        ResourceType.EGRESS_ONLY_INTERNET_GATEWAY,
-        ResourceType.VPC_PEERING_CONNECTION,
-        ResourceType.TRANSIT_GATEWAY,
-        ResourceType.TRANSIT_GATEWAY_ATTACHMENT,
-        ResourceType.TRANSIT_GATEWAY_ROUTE_TABLE,
-        ResourceType.VPC_ENDPOINT,
-        ResourceType.MANAGED_PREFIX_LIST,
-    } <= set(ResourceType)
-    assert RouteTargetKind.EGRESS_ONLY_INTERNET_GATEWAY.value == "egress_only_internet_gateway"
-    assert AttachmentKind.PREFIX_LIST_REFERENCE.value == "prefix_list_reference"
-    assert RouteTargetKind.NAT_GATEWAY.value == "nat_gateway"
-    assert ResourceType.ROUTE_TABLE.value == "AWS::EC2::RouteTable"

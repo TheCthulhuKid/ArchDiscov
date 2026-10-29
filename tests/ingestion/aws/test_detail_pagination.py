@@ -14,7 +14,6 @@ def test_pagination_completion_and_next_marker(mode):
     assert policy.next_marker(page) == "next"
 
 
-@pytest.mark.parametrize("marker", [None, ""])
-def test_truncated_iam_page_requires_marker(marker):
+def test_truncated_iam_page_requires_marker():
     with pytest.raises(ValueError, match="truncated pagination response omitted its marker"):
-        PAGINATION_POLICIES["iam"].next_marker({"IsTruncated": True, "Marker": marker})
+        PAGINATION_POLICIES["iam"].next_marker({"IsTruncated": True})

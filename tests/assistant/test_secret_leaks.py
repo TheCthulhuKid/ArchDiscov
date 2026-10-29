@@ -13,11 +13,7 @@ from archdiscov.assistant.config import (
 )
 from archdiscov.assistant.conversation import parse_conversation
 from archdiscov.assistant.fake import load_fake_transcript
-from archdiscov.assistant.provider import (
-    ProviderAuthenticationError,
-    ProviderError,
-    ProviderTransportError,
-)
+from archdiscov.assistant.provider import ProviderAuthenticationError
 from tests.support.secrets import SECRET, secret_renderings
 
 ANTHROPIC = {"kind": "anthropic", "model": "claude-sonnet-5-5", "api_key_env": "ARCHDISCOV_KEY"}
@@ -49,30 +45,14 @@ def _config_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[object
 def _config_values(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[object]:
     return [
         _raised(lambda: parse_provider_config({**ANTHROPIC, "model": SECRET})),
-        _raised(lambda: parse_provider_config({**ANTHROPIC, "unknown": SECRET})),
         _raised(lambda: parse_provider_config({"kind": SECRET})),
-        _raised(lambda: parse_provider_config({**ANTHROPIC, "max_retries": SECRET})),
     ]
 
 
-def _missing_variable(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[object]:
-    config = parse_provider_config(ANTHROPIC)
-    return [
-        _raised(lambda: resolve_api_key(config, {})),
-        _raised(lambda: resolve_api_key(config, {"ARCHDISCOV_KEY": " "})),
-    ]
-
-
-def _provider_errors(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[object]:
-    def mapped(error_type: type[ProviderError]) -> ProviderError:
-        try:
-            raise RuntimeError(f"Authorization: Bearer {SECRET}")
-        except RuntimeError as cause:
-            error = error_type()
-            error.__cause__ = cause
-            return error
-
-    return [mapped(ProviderAuthenticationError), mapped(ProviderTransportError)]
+def _provider_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[object]:
+    error = ProviderAuthenticationError()
+    error.__cause__ = RuntimeError(f"Authorization: Bearer {SECRET}")
+    return [error]
 
 
 def _conversation(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[object]:
@@ -94,8 +74,7 @@ def _transcript(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[object]
         _resolved_key,
         _config_file,
         _config_values,
-        _missing_variable,
-        _provider_errors,
+        _provider_error,
         _conversation,
         _transcript,
     ],

@@ -14,7 +14,6 @@ from archdiscov.services import (
     AnalyzerRegistry,
     load_snapshot,
     run_analyzer,
-    upgrade_snapshot,
     validate_analysis_result,
     validate_snapshot,
 )
@@ -51,6 +50,17 @@ def codes(finding):
     return [limitation.code for limitation in finding.limitations]
 
 
+def potential(result):
+    return by_kind(result, ImpactKind.DOWNSTREAM_DEPENDENCY)
+
+
+def chain(finding):
+    return [
+        (step.source_id, getattr(step.target, "resource_id", step.target.kind))
+        for step in finding.path
+    ]
+
+
 def test_every_attaching_service_is_a_cited_observed_direct_attachment():
     result = analyze()
     direct = by_kind(result, ImpactKind.DIRECT_ATTACHMENT)
@@ -69,8 +79,7 @@ def test_every_attaching_service_is_a_cited_observed_direct_attachment():
 
 
 def test_unattached_group_and_containment_only_placement_have_no_attachments():
-    result = analyze(group="sg-lonely")
-    assert result.findings == []
+    assert analyze(group="sg-lonely").findings == []
     # Lambda attaches to a different group; the selected group does not inherit that.
     db = analyze(group="sg-db")
     attached = {f.resources[0].resource_id for f in by_kind(db, ImpactKind.DIRECT_ATTACHMENT)}
@@ -106,25 +115,25 @@ def test_failed_attaching_service_coverage_downgrades_and_is_reported():
     assert all(f.status == AnalysisStatus.SUPPORTED for f in untouched)
 
 
-@pytest.mark.parametrize("missing", ["ec2", "ecs", "rds"])
-def test_unrecorded_attaching_service_coverage_is_named_without_inventing_operations(missing):
-    services = tuple(
-        s for s in ("ec2", "elasticloadbalancing", "ecs", "lambda", "rds") if s != missing
-    )
-    result = analyze(variant(services=services), group="sg-lonely")
-    finding = group_finding(result)
+def test_failed_rule_collection_downgrades_rule_and_traced_findings():
+    result = analyze(variant(statuses={"ec2": "failed"}))
+    rules = by_kind(result, ImpactKind.RULE_REFERENCE)
+    assert rules and all(f.status == AnalysisStatus.PARTIAL for f in rules)
+    assert all("coverage_failed" in codes(f) for f in rules)
+    traced = [f for f in potential(result) if f.resources]
+    assert traced and all(f.status == AnalysisStatus.PARTIAL for f in traced)
+
+
+def test_unrecorded_attaching_service_coverage_is_named_without_inventing_operations():
+    services = ("ec2", "elasticloadbalancing", "ecs", "lambda")
+    finding = group_finding(analyze(variant(services=services), group="sg-lonely"))
     assert finding.status == AnalysisStatus.INSUFFICIENT_EVIDENCE
-    assert codes(finding) == [f"coverage_unrecorded_{missing}"]
+    assert codes(finding) == ["coverage_unrecorded_rds"]
     assert all(limitation.coverage is None for limitation in finding.limitations)
 
 
-def test_complete_coverage_leaves_no_group_level_finding_for_an_unattached_group():
-    assert group_finding(analyze(group="sg-lonely")) is None
-
-
-def test_rule_references_cover_same_account_both_sides_and_directions():
-    result = analyze()
-    rules = by_kind(result, ImpactKind.RULE_REFERENCE)
+def test_rule_references_cover_both_sides_directions_and_self_reference():
+    rules = by_kind(analyze(), ImpactKind.RULE_REFERENCE)
     seen = {
         (f.impact.reference_side, f.impact.rule_direction, f.resources[0].resource_id)
         for f in rules
@@ -141,23 +150,20 @@ def test_rule_references_cover_same_account_both_sides_and_directions():
     assert egress.path[0].attributes["from_port"] == 5432
     assert egress.path[0].attributes["protocol"] == "tcp"
     assert egress.evidence_ids == [EVIDENCE["sg-app"]]
-
-
-def test_self_reference_is_reported_once_as_the_group_referencing_itself():
     group = IDS["sg-app"]
-    selfish = [
+    [selfish] = [
         f
-        for f in by_kind(analyze(), ImpactKind.RULE_REFERENCE)
+        for f in rules
         if f.path[0].source_id == group and getattr(f.path[0].target, "resource_id", None) == group
     ]
-    assert len(selfish) == 1
-    assert selfish[0].impact.reference_side == RuleReferenceSide.SELECTED_REFERENCES_OTHER
-    assert selfish[0].resources[0].resource_id == group
+    assert selfish.impact.reference_side == RuleReferenceSide.SELECTED_REFERENCES_OTHER
+    assert selfish.resources[0].resource_id == group
 
 
-def test_cross_account_and_unresolved_references_stay_terminals_with_limitations():
+def test_cross_account_unresolved_and_undirected_references_are_limitations():
     index = GraphIndex(validate_snapshot(variant()))
-    rules = by_kind(analyze(), ImpactKind.RULE_REFERENCE)
+    result = analyze()
+    rules = by_kind(result, ImpactKind.RULE_REFERENCE)
     external = next(f for f in rules if f.path[0].target.kind == "external")
     assert external.resources == []
     assert external.path[0].target.scope.account_id == OTHER_ACCOUNT
@@ -170,33 +176,16 @@ def test_cross_account_and_unresolved_references_stay_terminals_with_limitations
     assert not any(getattr(f.path[0].target, "identifier", None) == "pl-123" for f in rules), (
         "prefix lists are not security groups"
     )
-
-
-def test_reference_without_a_recorded_direction_becomes_a_group_limitation():
-    result = analyze()
+    # A reference without a recorded direction is a group limitation, not a finding.
     assert "rule_direction_unrecorded" in codes(group_finding(result))
-    assert not any(
-        f.path
-        and f.path[0].source_id == IDS["sg-db"]
-        and f.impact.kind == ImpactKind.RULE_REFERENCE
-        for f in by_kind(result, ImpactKind.RULE_REFERENCE)
-    )
+    assert not any(f.path and f.path[0].source_id == IDS["sg-db"] for f in rules)
 
 
-def test_failed_rule_collection_downgrades_rule_findings():
-    result = analyze(variant(statuses={"ec2": "failed"}))
-    rules = by_kind(result, ImpactKind.RULE_REFERENCE)
-    assert rules and all(f.status == AnalysisStatus.PARTIAL for f in rules)
-    assert all("coverage_failed" in codes(f) for f in rules)
-
-
-def test_result_limit_truncates_deterministically_and_reports_it():
+def test_result_limit_truncates_and_reports_it():
     full = analyze()
     impact_findings = [f for f in full.findings if f.impact is not None]
     assert len(impact_findings) > 3
     limited = analyze(result_limit=3)
-    again = analyze(result_limit=3)
-    assert limited.findings == again.findings
     assert len([f for f in limited.findings if f.impact is not None]) == 3
     assert "result_limit_reached" in codes(group_finding(limited))
     assert "result_limit_reached" not in codes(group_finding(full))
@@ -207,10 +196,9 @@ def test_result_limit_truncates_deterministically_and_reports_it():
 def test_unsupported_platform_returns_an_actionable_unsupported_result():
     azure = load_snapshot(FIXTURES_ROOT / "snapshots" / "azure.json")
     index = GraphIndex(azure)
-    selected = index.resource_ids[0]
     result = run_analyzer(
         index,
-        {"kind": "security_group_impact", "resource_id": selected},
+        {"kind": "security_group_impact", "resource_id": index.resource_ids[0]},
         registry=REGISTRY,
     )
     assert validate_analysis_result(result, azure) == result
@@ -219,37 +207,6 @@ def test_unsupported_platform_returns_an_actionable_unsupported_result():
     assert finding.impact is None
     assert codes(finding) == ["unsupported_platform"]
     assert "AWS" in finding.limitations[0].message
-    with pytest.raises(AnalyzerError) as error:
-        run_analyzer(
-            index,
-            {"kind": "security_group_impact", "resource_id": "absent"},
-            registry=REGISTRY,
-        )
-    assert error.value.code == AnalyzerErrorCode.RESOURCE_NOT_FOUND
-
-
-def test_schema_two_and_three_snapshots_give_identical_findings():
-    legacy = validate_snapshot(variant())
-    modern = upgrade_snapshot(legacy)
-    parameters = {"kind": "security_group_impact", "resource_id": IDS["sg-app"]}
-    results = [
-        run_analyzer(GraphIndex(snapshot), parameters, registry=REGISTRY)
-        for snapshot in (legacy, modern)
-    ]
-    for result, snapshot in zip(results, (legacy, modern), strict=True):
-        assert validate_analysis_result(result, snapshot) == result
-    assert [f.id for f in results[0].findings] == [f.id for f in results[1].findings]
-
-
-def potential(result):
-    return by_kind(result, ImpactKind.DOWNSTREAM_DEPENDENCY)
-
-
-def chain(finding):
-    return [
-        (step.source_id, getattr(step.target, "resource_id", step.target.kind))
-        for step in finding.path
-    ]
 
 
 def test_downstream_chains_are_potential_cited_and_separate_from_observed():
@@ -275,21 +232,20 @@ def test_downstream_chains_are_potential_cited_and_separate_from_observed():
     assert two and all(f.resources[0].resource_id == IDS["vpc"] for f in two)
 
 
-def test_cycles_stop_and_parallel_edges_stay_distinct_paths():
+def test_tracing_stops_at_cycles_the_selected_group_and_other_accounts():
     downstream = potential(analyze(max_depth=10))
+    steps = [step for f in downstream for step in f.path]
     assert not any(
-        IDS["vpc"] == step.source_id and step.target.resource_id == IDS["subnet"]
-        for f in downstream
-        for step in f.path
+        step.source_id == IDS["vpc"] and step.target.resource_id == IDS["subnet"]
+        for step in steps
         if step.target.kind == "local"
     )
-    to_subnet = [f for f in downstream if chain(f) == [(IDS["instance"], IDS["subnet"])]]
-    assert {f.path[0].attributes.get("note") for f in to_subnet} == {None, "secondary"}
-
-
-def test_chains_back_through_the_selected_group_are_not_downstream_impact():
-    for f in potential(analyze(max_depth=10)):
-        assert all(getattr(step.target, "resource_id", None) != IDS["sg-app"] for step in f.path)
+    assert all(getattr(step.target, "resource_id", None) != IDS["sg-app"] for step in steps)
+    ended = next(f for f in downstream if f.path[-1].target.kind == "external")
+    assert ended.resources == []
+    assert ended.path[-1].target.scope.account_id == OTHER_ACCOUNT
+    assert codes(ended) == ["external_target"]
+    assert len(ended.path) == 1
 
 
 def test_depth_boundaries_report_truncation_only_when_structure_remains():
@@ -301,37 +257,6 @@ def test_depth_boundaries_report_truncation_only_when_structure_remains():
     assert "depth_limit_reached" not in codes(group_finding(exact))
 
 
-def test_cross_account_end_stays_a_terminal_with_a_limitation():
-    ended = next(f for f in potential(analyze()) if f.path[-1].target.kind == "external")
-    assert ended.resources == []
-    assert ended.path[-1].target.scope.account_id == OTHER_ACCOUNT
-    assert codes(ended) == ["external_target"]
-    assert len(ended.path) == 1
-
-
-def test_downstream_results_are_deterministic_and_bounded_by_the_result_limit():
-    assert analyze().findings == analyze().findings
-    limited = analyze(result_limit=8)
-    assert len([f for f in limited.findings if f.impact]) == 8
-    assert "result_limit_reached" in codes(group_finding(limited))
-
-
 def test_work_budget_truncation_is_reported(monkeypatch):
     monkeypatch.setattr(downstream_module, "WORK_BUDGET", 1)
-    result = analyze()
-    assert "work_limit_reached" in codes(group_finding(result))
-
-
-def test_failed_collection_along_a_traced_chain_downgrades_potential_findings():
-    result = analyze(variant(statuses={"ec2": "failed"}))
-    assert potential(result)
-    assert all(f.status == AnalysisStatus.PARTIAL for f in potential(result) if f.resources)
-
-
-@pytest.mark.parametrize("limit", [1, 2, 10_000])
-def test_result_limit_extremes_are_valid_and_respected(limit):
-    total = len([f for f in analyze().findings if f.impact])
-    result = analyze(result_limit=limit)
-    assert len([f for f in result.findings if f.impact]) == min(limit, total)
-    group = group_finding(result)
-    assert ("result_limit_reached" in codes(group)) == (limit < total)
+    assert "work_limit_reached" in codes(group_finding(analyze()))

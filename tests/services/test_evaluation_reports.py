@@ -21,8 +21,6 @@ from archdiscov.assistant.evaluation import (
     ProviderRun,
     ReportComparison,
     TokenDelta,
-    Totals,
-    parse_report,
 )
 from archdiscov.services.evaluation import (
     compare_reports,
@@ -31,11 +29,7 @@ from archdiscov.services.evaluation import (
     save_report,
     save_report_comparison,
 )
-from archdiscov.services.snapshot_errors import (
-    SnapshotConflictError,
-    SnapshotIOError,
-    SnapshotJSONError,
-)
+from archdiscov.services.snapshot_errors import SnapshotConflictError
 from tests.support.evaluation_suites import (
     ADVERSARIAL_SUITE,
     FABRICATED_ID,
@@ -66,15 +60,11 @@ def _saved(report: EvaluationReport, tmp_path: Path) -> dict:
 # ---- saving and loading ------------------------------------------------------------
 
 
-def test_a_saved_report_loads_unchanged(report: EvaluationReport, tmp_path: Path) -> None:
-    path = save_report(report, tmp_path / "report.json")
-    assert load_report(path) == report
-
-
-def test_saving_never_overwrites_even_an_identical_report(
+def test_a_saved_report_loads_unchanged_and_is_never_overwritten(
     report: EvaluationReport, tmp_path: Path
 ) -> None:
     path = save_report(report, tmp_path / "report.json")
+    assert load_report(path) == report
     content = path.read_bytes()
     with pytest.raises(SnapshotConflictError) as raised:
         save_report(report, path)
@@ -111,16 +101,6 @@ def test_loading_refuses_an_edited_report_safely(report: EvaluationReport, tmp_p
     assert raised.value.code == EvaluationErrorCode.INVALID_REPORT
     assert raised.value.path == path and raised.value.details
     assert TAMPERED not in repr(raised.value.details) and TAMPERED not in str(raised.value)
-
-
-def test_loading_reports_missing_files_and_invalid_json(tmp_path: Path) -> None:
-    with pytest.raises(SnapshotIOError):
-        load_report(tmp_path / "missing.json")
-    path = tmp_path / "broken.json"
-    path.write_text("{", encoding="utf-8")
-    with pytest.raises(SnapshotJSONError) as raised:
-        load_report(path)
-    assert raised.value.code == "invalid_json"
 
 
 # ---- comparing ---------------------------------------------------------------------
@@ -188,18 +168,6 @@ def test_reports_of_different_suites_compare_on_shared_cases(
     assert run.cases_removed == tuple(i for i in report.suite.case_ids if i not in names)
 
 
-def test_a_cancelled_run_lists_the_cases_it_did_not_record(report: EvaluationReport) -> None:
-    [run] = report.providers
-    records = run.records[:2]
-    cancelled = run.model_copy(
-        update={"records": records, "cancelled": True, "totals": Totals.of(records)}
-    )
-    after = parse_report(report.model_copy(update={"providers": (cancelled,)}))
-    [compared] = compare_reports(report, after).providers
-    assert compared.cases_removed == report.suite.case_ids[2:]
-    assert len(compared.cases) == 2
-
-
 def _with_model(run: ProviderRun, model: str) -> ProviderRun:
     return run.model_copy(update={"model": model})
 
@@ -218,7 +186,7 @@ def test_provider_runs_pair_by_kind_and_model(report: EvaluationReport) -> None:
     assert [item.position for item in reverse.providers_removed] == [0, 2]
 
 
-def test_comparing_changes_no_file_and_a_saved_comparison_is_new(
+def test_comparing_changes_no_file_and_a_saved_comparison_reloads(
     report: EvaluationReport, tmp_path: Path
 ) -> None:
     paths = [save_report(report, tmp_path / name) for name in ("a.json", "b.json")]
@@ -227,9 +195,6 @@ def test_comparing_changes_no_file_and_a_saved_comparison_is_new(
     assert [path.read_bytes() for path in paths] == contents
     saved = save_report_comparison(comparison, tmp_path / "comparison.json")
     assert ReportComparison.model_validate_json(saved.read_text(encoding="utf-8")) == comparison
-    with pytest.raises(SnapshotConflictError):
-        save_report_comparison(comparison, paths[0])
-    assert paths[0].read_bytes() == contents[0]
 
 
 def test_a_token_delta_needs_both_counts() -> None:

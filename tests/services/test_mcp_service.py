@@ -143,21 +143,11 @@ def test_an_interrupt_reaches_the_caller(monkeypatch) -> None:
         mcp_service.serve_selection(README / "ownership" / "snapshot.json")
 
 
-@pytest.mark.parametrize(
-    ("chunks", "expected"),
-    [
-        ([b'{"a":1}\n{"b":', b"2}\n"], ['{"a":1}\n', '{"b":2}\n']),
-        ([b"one\ntwo"], ["one\n", "two"]),
-        ([b"\xffbad\n"], ["�bad\n"]),
-        ([], []),
-    ],
-    ids=["split-across-reads", "no-final-newline", "invalid-utf-8", "empty"],
-)
-def test_input_lines_are_split_and_decoded_as_stdio_decodes_them(chunks, expected) -> None:
+def test_input_lines_are_split_and_decoded_as_stdio_decodes_them() -> None:
     read, write = os.pipe()
-    for chunk in chunks:
+    for chunk in (b'{"a":1}\n{"b":', b"2}\n\xffbad"):
         os.write(write, chunk)
     os.close(write)
-    assert list(mcp_service._lines(read)) == expected
+    assert list(mcp_service._lines(read)) == ['{"a":1}\n', '{"b":2}\n', "�bad"]
     with pytest.raises(OSError):
         os.fstat(read)

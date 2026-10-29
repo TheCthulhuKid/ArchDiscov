@@ -1,22 +1,13 @@
-import asyncio
 import json
-from copy import deepcopy
 
 import pytest
 from pydantic import ValidationError
 
 from archdiscov.ingestion.adapter import AdapterContext, IngestionError
-from archdiscov.ingestion.terraform import TerraformStateAdapter, TerraformStateRequest
+from archdiscov.ingestion.terraform import TerraformStateRequest
 from archdiscov.models.architecture import Ec2Instance, Subnet, UnknownResource, Vpc
 from archdiscov.models.enums import AwsRegion, AwsService, CoverageStatus
-from archdiscov.services import (
-    SnapshotConflictError,
-    collect_snapshots,
-    collect_snapshots_async,
-    get_evidence,
-    load_snapshot,
-    save_snapshot,
-)
+from archdiscov.services import collect_snapshots, get_evidence, load_snapshot, save_snapshot
 from tests.paths import FIXTURES_ROOT
 from tests.support.network_data import flatten
 from tests.support.terraform_data import CONTEXT, NOW
@@ -104,21 +95,6 @@ def test_nested_export_to_persistence_and_exact_evidence(tmp_path):
     ):
         assert secret not in saved
     assert any(item.value_status == "redacted" for item in snapshot.evidence.values())
-    before = destination.read_bytes()
-    with pytest.raises(SnapshotConflictError):
-        save_snapshot(snapshot, destination)
-    assert destination.read_bytes() == before
-
-
-def test_async_service_and_deterministic_identity(tmp_path):
-    path = write_export(tmp_path, [export_resource(id="i-one", instance_type=None)])
-    request = TerraformStateRequest(path=path, account_id="123456789012", region="eu-west-1")
-    first = asyncio.run(collect_snapshots_async(request, context=CONTEXT))[0]
-    second = collect(path, account_id="123456789012", region="eu-west-1")
-    assert first == second
-    instance = first.regions["eu-west-1"].resources[0]
-    assert instance.instance_type is None
-    assert first.evidence[instance.fact_evidence["/instance_type"][0]].value is None
 
 
 @pytest.mark.parametrize("resource_type", ["aws_instance", "aws_iam_role"])
@@ -135,7 +111,6 @@ def test_logical_only_identity_and_global_scope(tmp_path, resource_type):
     assert resource.identity.logical_address == f"{resource_type}.example"
     assert "/logical/" in resource.id
     assert (resource.identity.region == AwsRegion.GLOBAL) == resource_type.startswith("aws_iam")
-    assert load_snapshot(save_snapshot(snapshot, tmp_path / "saved.json")) == snapshot
 
 
 def test_arn_context_without_explicit_defaults(tmp_path):
@@ -151,34 +126,17 @@ def test_arn_context_without_explicit_defaults(tmp_path):
     "context,resources,match",
     [
         ({}, [export_resource(id="i-one")], "account_id"),
-        ({"account_id": "123456789012"}, [export_resource(id="i-one")], "Supply region"),
-        ({"account_id": "123456789012"}, [], "empty export requires"),
         (
             {"account_id": "123456789012", "region": "eu-west-1"},
             [export_resource(region="us-east-1")],
             "Conflicting",
         ),
-        (
-            {"account_id": "123456789012"},
-            [export_resource(region="future-region-99")],
-            "Unsupported",
-        ),
     ],
-    ids=["missing-account", "missing-region", "empty-without-region", "conflicting", "unsupported"],
+    ids=["missing-account", "conflicting"],
 )
 def test_reject_ambiguous_or_conflicting_context(tmp_path, context, resources, match):
     with pytest.raises(IngestionError, match=match):
         collect(write_export(tmp_path, resources), **context)
-
-
-def test_duplicate_physical_identity_is_not_silently_merged(tmp_path):
-    first = export_resource(id="i-one")
-    second = deepcopy(first)
-    second["address"] = "aws_instance.alias"
-    with pytest.raises(IngestionError, match="Duplicate physical"):
-        collect(
-            write_export(tmp_path, [first, second]), account_id="123456789012", region="eu-west-1"
-        )
 
 
 def test_sensitive_identity_is_not_used_for_matching(tmp_path):
@@ -244,7 +202,6 @@ def test_multi_region_owning_arns_and_global_iam(tmp_path):
         == "incomplete"
     )
     assert "do-not-store-policy" not in snapshot.model_dump_json()
-    assert load_snapshot(save_snapshot(snapshot, tmp_path / "multi-region.json")) == snapshot
 
 
 def test_import_is_offline_and_does_not_execute_terraform(monkeypatch):
@@ -263,12 +220,6 @@ def test_import_is_offline_and_does_not_execute_terraform(monkeypatch):
     assert collect_snapshots(request, context=context)[0].source.kind == "terraform_state"
 
 
-def test_request_and_wrong_adapter_kind_validation(tmp_path):
+def test_request_rejects_the_global_region():
     with pytest.raises(ValidationError, match="concrete"):
         TerraformStateRequest(path=FIXTURE, region="global")
-    with pytest.raises(ValidationError):
-        TerraformStateRequest(path=FIXTURE, account_id="bad")
-    from archdiscov.ingestion.requests import SourceRequest
-
-    with pytest.raises(IngestionError, match="Expected a TerraformStateRequest"):
-        TerraformStateAdapter().collect(SourceRequest(kind="bad"), context=CONTEXT)

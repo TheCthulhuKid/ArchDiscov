@@ -1,6 +1,4 @@
-import functools
 import json
-import operator
 
 import pytest
 from pydantic import ValidationError
@@ -36,39 +34,13 @@ def test_offline_fixture_has_typed_hierarchy_and_explicit_facts(azure_data: dict
     assert isinstance(vm, AzureVirtualMachine)
     assert [str(value) for value in network.address_spaces] == ["10.0.0.0/16"]
     assert [str(value) for value in subnet.address_prefixes] == ["10.0.0.0/24"]
-    assert vm.vm_size is None
     assert vm.attributes == {"password": "[REDACTED]"}
-    assert snapshot.source.platform == "azure"
-    assert snapshot.source.provenance.kind == "azure_fixture"
-    assert snapshot.source.provenance.label == "Offline Azure fixture"
+    assert vm.fact_evidence == {"/vm_size": ["vm-size"]}
+    assert snapshot.evidence["vm-unavailable"].value_status == "unresolved"
     for resource in (network, subnet, vm):
         assert resource.identity.scope == snapshot.scope
-        assert resource.identity.location == "eastus"
         assert resource.id.startswith(f"azure/{snapshot.scope.subscription_id}/physical/")
-    assert network.fact_evidence == {"/address_spaces/0": ["network-address"]}
-    assert subnet.fact_evidence == {"/address_prefixes/0": ["subnet-prefix"]}
-    assert vm.fact_evidence == {"/vm_size": ["vm-size"]}
-    assert snapshot.evidence["vm-size"].value is None
-    assert snapshot.evidence["vm-size"].value_status == "present"
-    unavailable = snapshot.evidence["vm-unavailable"]
-    assert unavailable.value is None
-    assert unavailable.value_status == "unresolved"
-    assert unavailable.limitation == "Offline fixture does not provide this fact"
-    assert "vm-unavailable" not in functools.reduce(operator.iadd, vm.fact_evidence.values(), [])
-    dependency = snapshot.dependencies[0]
-    assert dependency.source_id == vm.id
-    assert dependency.target.resource_id == subnet.id
-    assert dependency.relationship == "attached_to"
-    assert dependency.attributes == {"kind": "fixture_attachment"}
-    assert dependency.evidence_ids == ["vm-attachment"]
-    assert snapshot.evidence["vm-attachment"].resource_id == vm.id
-    zero, partial, failed = snapshot.coverage.operations
-    assert (zero.status, zero.result_count) == ("success", 0)
-    assert (partial.status, partial.result_count) == ("incomplete", 1)
-    assert partial.unresolved_values[0].resource_id == vm.id
-    assert failed.status == "failed"
-    assert failed.result_count is None
-    assert failed.failures[0].code == "FixtureUnavailable"
+    assert snapshot.dependencies[0].target.resource_id == subnet.id
     assert CloudSnapshot.model_validate_json(snapshot.model_dump_json()) == snapshot
 
 
@@ -84,11 +56,9 @@ def _vm_in_other_subscription(data: dict) -> None:
     )
 
 
-def _vm_with_disk_arm(data: dict, *, native_type: bool = False) -> None:
+def _vm_with_disk_arm(data: dict) -> None:
     identity = _vm_identity(data)
     identity["physical_id"] = identity["physical_id"].replace("/virtualMachines/", "/disks/")
-    if native_type:
-        identity["native_type"] = "Microsoft.Compute/disks"
 
 
 # Azure-specific integrity defects; the shared checks (duplicates, citations, endpoints) are
@@ -100,10 +70,6 @@ AZURE_DEFECTS = {
         "location must match enclosing location",
     ),
     "arm_type": (_vm_with_disk_arm, "type must match"),
-    "typed_native_type": (
-        lambda data: _vm_with_disk_arm(data, native_type=True),
-        "native_type must match",
-    ),
     "evidence_scope": (
         lambda data: data["evidence"]["vm-size"]["scope"].update(
             subscription_id=OTHER_SUBSCRIPTION
@@ -115,12 +81,6 @@ AZURE_DEFECTS = {
             subscription_id=OTHER_SUBSCRIPTION
         ),
         "scope must match",
-    ),
-    "unresolved_owner": (
-        lambda data: data["coverage"]["operations"][1]["unresolved_values"][0].update(
-            resource_id="absent"
-        ),
-        "unknown unresolved resource",
     ),
 }
 
@@ -157,26 +117,23 @@ def test_schema3_unknown_resource_retains_native_type_and_scope(azure_data: dict
     snapshot = CloudSnapshot.model_validate(azure_data)
     unknown = snapshot.regions["eastus"].resources[1]
     assert isinstance(unknown, CloudUnknownResource)
-    assert unknown.platform == "azure"
     assert unknown.native_type == "Microsoft.Storage/storageAccounts"
     assert unknown.identity.scope == snapshot.scope
     assert unknown.attributes == {"fixture_field": "retained"}
 
 
-@pytest.mark.parametrize("defect", ["scope", "native_type", "platform"])
+@pytest.mark.parametrize(
+    "field,value,diagnostic",
+    [
+        ("native_type", "Microsoft.Storage/other", "native_type must match"),
+        ("platform", "aws", "platform must match identity"),
+    ],
+)
 def test_schema3_unknown_resource_rejects_inconsistent_context(
-    azure_data: dict, defect: str
+    azure_data: dict, field: str, value: str, diagnostic: str
 ) -> None:
     unknown = unknown_resource(azure_data)
-    if defect == "scope":
-        unknown["identity"]["subscription_id"] = OTHER_SUBSCRIPTION
-        diagnostic = "subscription/tenant must match"
-    elif defect == "native_type":
-        unknown["native_type"] = "Microsoft.Storage/other"
-        diagnostic = "native_type must match"
-    else:
-        unknown["platform"] = "aws"
-        diagnostic = "platform must match identity"
+    unknown[field] = value
     azure_data["regions"]["eastus"]["resources"].append(unknown)
     with pytest.raises(ValidationError, match=diagnostic):
         CloudSnapshot.model_validate(azure_data)

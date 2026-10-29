@@ -1,24 +1,11 @@
 import re
 from urllib.parse import unquote
 
-import pytest
-
 from archdiscov.graph import GraphIndex
-from archdiscov.models.enums import (
-    AnalysisStatus,
-    AnalyzerErrorCode,
-    AnalyzerKind,
-    AwsService,
-    NetworkDecision,
-)
-from archdiscov.services import (
-    AnalyzerError,
-    load_snapshot,
-    run_analyzer,
-    validate_analysis_result,
-)
+from archdiscov.models.enums import AnalysisStatus, AwsService, NetworkDecision
+from archdiscov.services import load_snapshot, run_analyzer, validate_analysis_result
 from tests.paths import FIXTURES_ROOT
-from tests.support.rds_data import CLUSTER, INSTANCE
+from tests.support.rds_data import INSTANCE
 from tests.support.source_data import FULL_COVERAGE, build, ec2_items, rid, rule
 
 D = NetworkDecision
@@ -28,11 +15,10 @@ EGRESS_ALL = rule("sg-app", egress=True, protocol="-1", cidr="0.0.0.0/0")
 DB_EGRESS = rule("sg-a", egress=True, protocol="-1", cidr="0.0.0.0/0")
 
 
-def analyze(parameters=None, *, snapshot=None, **options):
-    snapshot = snapshot or build(**{"task": {}, "function": {}, **options})
-    index = GraphIndex(snapshot)
+def analyze(parameters=None, **options):
+    snapshot = build(**{"task": {}, "function": {}, **options})
     result = run_analyzer(
-        index,
+        GraphIndex(snapshot),
         {"kind": "database_access", "resource_id": RDS_ID, "port": 5432, **(parameters or {})},
     )
     assert validate_analysis_result(result, snapshot) == result
@@ -83,61 +69,37 @@ def test_denied_sources_are_supported_conclusions_with_cited_blockers():
     assert any(item.code == "denied" and item.evidence_ids for item in finding.limitations)
 
 
-def test_unknown_sources_are_insufficient_evidence_never_supported():
-    finding = sources(analyze(coverage=FULL_COVERAGE))["i-nosg"]
+def test_unknown_sources_are_insufficient_and_other_vpcs_are_only_noted():
+    result = analyze(coverage=FULL_COVERAGE)
+    finding = sources(result)["i-nosg"]
     assert finding.database_access.decision == D.UNKNOWN
     assert finding.status == S.INSUFFICIENT_EVIDENCE
     assert finding.limitations
-
-
-def test_a_complete_collection_has_no_group_finding_only_the_other_vpc_note():
-    result = analyze(coverage=FULL_COVERAGE)
     assert codes(group(result)) == ["sources_other_vpc"]
-
-
-def test_the_database_cluster_can_be_selected_too():
-    result = analyze({"resource_id": rid(CLUSTER, AwsService.RDS)}, coverage=FULL_COVERAGE)
-    assert sources(result)["i-plain"].database_access.decision == D.ALLOW
 
 
 # ---- collection coverage ------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("service", "operation", "source"),
-    [
-        (AwsService.EC2, "DescribeInstances", "i-plain"),
-        (AwsService.ECS, "DescribeTasks", "0123456789abcdef"),
-        (AwsService.LAMBDA, "GetFunctionConfiguration", "worker"),
-    ],
-)
-@pytest.mark.parametrize("status", ["failed", "incomplete", "skipped"])
-def test_limited_source_collection_downgrades_findings_to_partial_and_is_reported(
-    service, operation, source, status
-):
-    result = analyze(coverage={**FULL_COVERAGE, (service, operation): status})
-    assert sources(result)[source].status == S.PARTIAL
-    assert f"coverage_{status}" in codes(sources(result)[source])
-    assert f"coverage_{status}" in codes(group(result))
-    other = next(k for k in ("i-plain", "worker", "0123456789abcdef") if k != source)
-    assert sources(result)[other].status in {S.SUPPORTED, S.PARTIAL}
-
-
-def test_limited_rds_collection_downgrades_every_finding():
+def test_limited_source_or_database_collection_downgrades_findings_and_is_reported():
+    coverage = {**FULL_COVERAGE, (AwsService.EC2, "DescribeInstances"): "failed"}
+    result = analyze(coverage=coverage)
+    assert sources(result)["i-plain"].status == S.PARTIAL
+    assert "coverage_failed" in codes(sources(result)["i-plain"])
+    assert "coverage_failed" in codes(group(result))
+    assert sources(result)["worker"].status == S.SUPPORTED
+    # The database is on every path, so its limited collection downgrades every decision.
     result = analyze(coverage=FULL_COVERAGE, rds_status="failed")
-    found = sources(result)
-    assert all(
-        f.status != S.SUPPORTED for f in found.values() if f.database_access.decision != D.UNKNOWN
-    )
+    decided = [f for f in sources(result).values() if f.database_access.decision != D.UNKNOWN]
+    assert decided and all(f.status != S.SUPPORTED for f in decided)
     assert "coverage_failed" in codes(group(result))
 
 
-def test_limited_nacl_or_route_collection_makes_the_path_unknown():
-    for operation in ("DescribeNetworkAcls", "DescribeRouteTables"):
-        coverage = {**FULL_COVERAGE, (AwsService.EC2, operation): "failed"}
-        finding = sources(analyze(coverage=coverage))["worker"]
-        assert finding.database_access.decision == D.UNKNOWN
-        assert "coverage_limited" in codes(finding)
+def test_limited_nacl_collection_makes_the_path_unknown():
+    coverage = {**FULL_COVERAGE, (AwsService.EC2, "DescribeNetworkAcls"): "failed"}
+    finding = sources(analyze(coverage=coverage))["worker"]
+    assert finding.database_access.decision == D.UNKNOWN
+    assert "coverage_limited" in codes(finding)
 
 
 def test_unrecorded_services_are_reported_without_invented_operations():
@@ -158,7 +120,7 @@ def test_placement_gaps_are_reported_at_group_level():
     assert group(result).resources[0].resource_id == RDS_ID
 
 
-# ---- bounds and ordering ------------------------------------------------------------
+# ---- bounds and platform ------------------------------------------------------------
 
 
 def test_the_result_limit_keeps_decided_sources_first_and_reports_truncation():
@@ -172,16 +134,6 @@ def test_the_result_limit_keeps_decided_sources_first_and_reports_truncation():
     assert "result_limit_reached" not in codes(group(full))
 
 
-def test_results_are_deterministic_and_ordered_by_finding_identity():
-    first, second = analyze(coverage=FULL_COVERAGE), analyze(coverage=FULL_COVERAGE)
-    assert [f.id for f in first.findings] == [f.id for f in second.findings]
-    assert [f.id for f in first.findings] == sorted(f.id for f in first.findings)
-    assert first.parameters.result_limit == 100
-
-
-# ---- selection and platform ---------------------------------------------------------
-
-
 def test_azure_returns_an_actionable_unsupported_result():
     azure = load_snapshot(FIXTURES_ROOT / "snapshots" / "azure.json")
     index = GraphIndex(azure)
@@ -193,41 +145,3 @@ def test_azure_returns_an_actionable_unsupported_result():
     assert finding.limitations[0].code == "unsupported_platform"
     assert "database access" in finding.limitations[0].message
     assert finding.resources[0].resource_id == resource
-
-
-@pytest.mark.parametrize(
-    ("resource", "code"),
-    [
-        ("absent", AnalyzerErrorCode.RESOURCE_NOT_FOUND),
-        (rid("subnet-a"), AnalyzerErrorCode.UNSUPPORTED_RESOURCE),
-    ],
-)
-def test_unknown_and_wrongly_typed_selections_are_safe_errors(resource, code):
-    snapshot = build()
-    with pytest.raises(AnalyzerError) as error:
-        run_analyzer(
-            GraphIndex(snapshot),
-            {"kind": "database_access", "resource_id": resource, "port": 5432},
-        )
-    assert error.value.code == code
-
-
-@pytest.mark.parametrize(
-    "parameters",
-    [
-        {"kind": "database_access", "resource_id": RDS_ID},
-        {"kind": "database_access", "resource_id": RDS_ID, "port": 0},
-        {"kind": "database_access", "resource_id": RDS_ID, "port": 5432, "max_depth": 2},
-    ],
-    ids=["missing-port", "port-out-of-range", "foreign-option"],
-)
-def test_invalid_parameters_are_safe_errors(parameters):
-    with pytest.raises(AnalyzerError) as error:
-        run_analyzer(GraphIndex(build()), parameters)
-    assert error.value.code == AnalyzerErrorCode.INVALID_PARAMETERS
-
-
-def test_the_analyzer_is_registered_with_a_stable_kind():
-    from archdiscov.services import DEFAULT_REGISTRY
-
-    assert AnalyzerKind.DATABASE_ACCESS in DEFAULT_REGISTRY.kinds

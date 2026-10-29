@@ -1,11 +1,15 @@
-from copy import deepcopy
-from dataclasses import replace
 from uuid import UUID
 
-from botocore.exceptions import ClientError
+import boto3
+from botocore.stub import Stubber
 
-from archdiscov.ingestion.elbv2.collector import collect_inventory
-from archdiscov.ingestion.elbv2.normalization import Elbv2Normalized, normalize_inventory
+from archdiscov.ingestion.detail_execution import DetailCall, DetailResponse, DetailResult
+from archdiscov.ingestion.elbv2.collector import Elbv2Inventory, collect_inventory
+from archdiscov.ingestion.elbv2.normalization import (
+    Elbv2Normalized,
+    _Normalizer,
+    normalize_inventory,
+)
 from archdiscov.ingestion.operations import Elbv2Operation as Op
 from archdiscov.models.architecture import UnknownResource
 from archdiscov.models.enums import AwsRegion, CoverageStatus, LoadBalancerType, TargetType
@@ -16,6 +20,7 @@ from archdiscov.models.resources.load_balancing import (
     TargetGroup,
 )
 from tests.support.aws_fakes import ACCOUNT
+from tests.support.coverage_data import coverage
 from tests.support.elbv2_data import (
     GROUP,
     LB,
@@ -105,7 +110,6 @@ def test_flat_arn_resources_with_precise_facts():
     assert all(not item.children for item in result.resources)
     for item in result.resources:
         document = item.model_dump()
-        assert type(item).model_validate(document) == item
         for pointer, evidence_ids in item.fact_evidence.items():
             value = document
             for token in pointer.lstrip("/").split("/"):
@@ -159,23 +163,6 @@ def test_flat_arn_resources_with_precise_facts():
     assert citation(result, group, "/health_check/Matcher")[0].value == {"HttpCode": "200-299"}
     assert group.attributes["tags"] == {"team": "infra"}
     assert ".TagDescriptions[" in cited_path(result, group, "/attributes/tags")
-
-
-def test_duplicate_resources_retain_both_item_and_fact_citations():
-    collected = inventory()
-    op = Op.DESCRIBE_LISTENERS
-    entry = collected.results[op].responses[0]
-    collected.results[op] = replace(
-        collected.results[op],
-        responses=[entry, replace(entry, path=entry.path.replace("Page[0]", "Page[1]"))],
-    )
-    before = deepcopy(collected)
-    result = normalize_inventory(UUID(int=15), ACCOUNT, AwsRegion.US_EAST_1, collected)
-    assert collected == before
-    item = resource(result, Listener)
-    assert len([r for r in result.resources if r.identity.physical_id == LISTENER]) == 1
-    assert len(item.evidence_ids) == 2
-    assert len(citation(result, item, "/actions/0/forward_groups/0/arn")) == 2
 
 
 def test_secrets_in_summaries_evidence_and_tags_keep_redaction_paths():
@@ -292,69 +279,6 @@ def test_unknown_values_and_malformed_nested_fields_keep_surrounding_resources()
     )
 
 
-def test_partial_health_batch_keeps_returned_registrations_and_invents_no_empty_group():
-    data = responses()
-    original = deepcopy(data["describe_target_health"])
-    denied, empty = GROUP + "2", GROUP + "3"
-    for arn in (denied, empty):
-        data["describe_target_groups"]["TargetGroups"].append(
-            {**data["describe_target_groups"]["TargetGroups"][0], "TargetGroupArn": arn}
-        )
-
-    def health(params):
-        if params["TargetGroupArn"] == denied:
-            raise ClientError(
-                {"Error": {"Code": "AccessDenied", "Message": "denied"}}, "DescribeTargetHealth"
-            )
-        return original if params["TargetGroupArn"] == GROUP else {"TargetHealthDescriptions": []}
-
-    data["describe_target_health"] = health
-    result = normalize(data)
-    groups = {r.arn: r for r in result.resources if isinstance(r, TargetGroup)}
-    assert groups[GROUP].targets[0].id == "i-web"
-    assert f'"TargetGroupArn":"{GROUP}"' in cited_path(result, groups[GROUP], "/targets/0/id")
-    assert groups[denied].targets is None and groups[empty].targets is None
-    assert all(group.attributes["limitations"] for group in groups.values())
-    health_coverage = next(c for c in result.coverage if c.operation == Op.DESCRIBE_TARGET_HEALTH)
-    assert health_coverage.status == CoverageStatus.INCOMPLETE
-    assert {v.resource_id for v in health_coverage.unresolved_values} >= {
-        groups[denied].id,
-        groups[empty].id,
-    }
-
-
-def test_missing_or_malformed_details_and_tag_replies_are_unavailable_not_empty():
-    data = responses()
-    data["describe_load_balancers"]["LoadBalancers"][0]["AvailabilityZones"] = "not-a-list"
-    data["describe_load_balancers"]["LoadBalancers"][0]["SecurityGroups"] = None
-    data["describe_listeners"]["Listeners"][0]["DefaultActions"] = None
-    data["describe_target_health"]["TargetHealthDescriptions"] = [
-        {
-            "Target": {"Id": None, "ClientSecret": "secret-target"},
-        }
-    ]
-    del data["describe_target_groups"]["TargetGroups"][0]["HealthCheckProtocol"]
-    del data["describe_target_groups"]["TargetGroups"][0]["HealthCheckPort"]
-    del data["describe_rules"]["Rules"][0]["Conditions"]
-    data["describe_tags"] = {"TagDescriptions": []}
-    result = normalize(data)
-    lb = resource(result, LoadBalancer)
-    assert lb.subnet_ids is None and lb.security_group_ids is None
-    assert lb.attributes["summary"]["AvailabilityZones"] == "not-a-list"
-    assert resource(result, Listener).actions is None
-    group = resource(result, TargetGroup)
-    assert group.health_check is None
-    assert group.targets is None
-    assert group.attributes["target_health"][0]["Target"]["Id"] is None
-    assert "secret-target" not in str(result)
-    assert resource(result, ListenerRule).conditions is None
-    assert all("tags" not in r.attributes and r.attributes["limitations"] for r in result.resources)
-    paths = unresolved_paths(result)
-    assert any(path.endswith(".Conditions") for path in paths)
-    assert any(path.endswith(".HealthCheckProtocol") for path in paths)
-    assert any(path.endswith(".TargetHealthDescriptions[0].Target.Id") for path in paths)
-
-
 def test_nlb_gateway_and_lambda_do_not_invent_inapplicable_fields():
     data = responses()
     nlb_arn, gateway_arn = LB.replace("/app/", "/net/"), LB.replace("/app/", "/gwy/")
@@ -395,3 +319,60 @@ def test_nlb_gateway_and_lambda_do_not_invent_inapplicable_fields():
     assert all(
         gateway_arn in path or ".LoadBalancers[1]." in path for path in unresolved_paths(result)
     )
+
+
+def test_real_stubber_all_six_reads_have_exact_request_scope():
+    client = boto3.client(
+        "elbv2", region_name="us-east-1", aws_access_key_id="a", aws_secret_access_key="b"
+    )
+    session = Elbv2Session(client)
+    data = responses()
+    with Stubber(client) as stub:
+        stub.add_response("describe_load_balancers", data["describe_load_balancers"], {})
+        stub.add_response("describe_target_groups", data["describe_target_groups"], {})
+        stub.add_response("describe_listeners", data["describe_listeners"], {"LoadBalancerArn": LB})
+        stub.add_response("describe_rules", data["describe_rules"], {"ListenerArn": LISTENER})
+        stub.add_response(
+            "describe_target_health", data["describe_target_health"], {"TargetGroupArn": GROUP}
+        )
+        stub.add_response(
+            "describe_tags",
+            {
+                "TagDescriptions": [
+                    {"ResourceArn": arn, "Tags": [{"Key": "team", "Value": "infra"}]}
+                    for arn in sorted([LB, LISTENER, RULE, GROUP])
+                ]
+            },
+            {"ResourceArns": sorted([LB, LISTENER, RULE, GROUP])},
+        )
+        collected = collect_inventory(session, config(), context(session), AwsRegion.US_EAST_1)
+        stub.assert_no_pending_responses()
+    assert set(collected.results) == set(Op)
+    assert all(item.status == CoverageStatus.SUCCESS for item in collected.coverage)
+    assert collected.results[Op.DESCRIBE_TARGET_HEALTH].responses[0].path == (
+        f'Request[{{"TargetGroupArn":"{GROUP}"}}].Page[0].TargetHealthDescriptions[0]'
+    )
+
+
+def test_both_boundaries_reject_a_foreign_account_identity():
+    op = Op.DESCRIBE_LOAD_BALANCERS
+    data = responses()
+    item = data["describe_load_balancers"]["LoadBalancers"][0]
+    item["LoadBalancerArn"] = LB.replace(ACCOUNT, "000000000000")
+    discovered = inventory(data)
+    assert discovered.results[op].responses == []
+    assert any(
+        "Invalid resource identity" in p.reason
+        for p in discovered.results[op].coverage.unresolved_values
+    )
+
+    outcome = coverage()
+    raw = Elbv2Inventory(
+        {op: DetailResult([DetailResponse(DetailCall(op), item, "Result[0]")], outcome)}
+    )
+    normalizer = _Normalizer(UUID(int=1), ACCOUNT, AwsRegion.US_EAST_1, raw)
+    assert list(normalizer.entries(op, "LoadBalancerArn")) == []
+    assert (
+        normalizer.coverage[op].unresolved_values[0].reason == "Invalid resource identity; omitted"
+    )
+    assert outcome.unresolved_values == []

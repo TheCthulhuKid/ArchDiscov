@@ -12,42 +12,22 @@ from tests.support.installed_cli import CLI, run_installed
 
 
 @pytest.mark.parametrize("entry_point", ["script", "module"])
-@pytest.mark.parametrize("styled", [False, True], ids=["plain", "styled"])
-def test_cli_outside_repository(tmp_path: Path, entry_point: str, styled: bool) -> None:
+def test_cli_outside_repository(tmp_path: Path, entry_point: str) -> None:
     env = os.environ.copy()
     env.pop("PYTHONPATH", None)
-    env.update(TERM="xterm", TTY_COMPATIBLE="1" if styled else "0")
     command = CLI if entry_point == "script" else [sys.executable, "-m", "archdiscov"]
-    for arguments in ([], ["--help"], ["--version"]):
-        result = run_installed(tmp_path, *arguments, env=env, command=command)
-        if arguments == ["--version"]:
-            assert result.stdout.strip() == f"archdiscov {version('archdiscov')}"
-        else:
-            help_text = unstyle(result.stdout)
-            assert "--help" in help_text
-            assert "--version" in help_text
-
-
-def test_model_imports_outside_repository(tmp_path: Path) -> None:
-    code = (
-        "from archdiscov.models.architecture import ArchitectureSnapshot; "
-        "from archdiscov.models.enums import AwsRegion, ResourceType; "
-        "ArchitectureSnapshot(account_id='123456789012', schema_version='1', "
-        "snapshot_id='00000000-0000-4000-8000-000000000001', "
-        "collection_started_at='2026-10-13T08:00:00Z', "
-        "collection_completed_at='2026-10-13T08:01:00Z', "
-        "source={'kind': 'mock', 'label': 'packaging-test'}, "
-        "coverage={'regions': ['eu-west-1'], 'account_wide': False}); "
-        "assert AwsRegion.EU_WEST_1 == 'eu-west-1'; "
-        "assert ResourceType.VPC == 'AWS::EC2::VPC'"
-    )
-    run_installed(tmp_path, command=[sys.executable, "-c", code])
+    # Without a command, the CLI prints its help.
+    help_text = unstyle(run_installed(tmp_path, env=env, command=command).stdout)
+    assert "--help" in help_text and "--version" in help_text
+    result = run_installed(tmp_path, "--version", env=env, command=command)
+    assert result.stdout.strip() == f"archdiscov {version('archdiscov')}"
 
 
 @pytest.mark.parametrize(
     "module",
     [
         "archdiscov.graph",
+        "archdiscov.models.architecture",
         "archdiscov.services",
         "archdiscov.services.comparison",
         "archdiscov.services.comparison_results",

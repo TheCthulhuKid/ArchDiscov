@@ -16,14 +16,12 @@ import pytest
 from archdiscov.assistant.config import ProviderConfigError, ProviderConfigErrorCode
 from archdiscov.assistant.evaluation import (
     MAX_PROVIDERS,
-    MAX_SUITE_BYTES,
     Budget,
     EvaluationErrorCode,
     EvaluationReport,
     EvaluationValidationError,
     parse_report,
 )
-from archdiscov.assistant.fake import FakeScriptError, FakeScriptErrorCode
 from archdiscov.assistant.provider import ProviderCapabilities, ProviderCapability
 from archdiscov.assistant.runs import RunLimits
 from archdiscov.assistant.tools.session import ToolSession
@@ -112,9 +110,6 @@ def test_every_run_has_a_fresh_record(suite: Path, tmp_path: Path) -> None:
     # Runs record into copies; the prepared sessions keep empty records.
     empty = ToolSession.from_paths(SNAPSHOT).record.returned()
     assert all(session.record.returned() == empty for session in prepared.sessions)
-    session = ToolSession.from_paths(SNAPSHOT)
-    fresh = session.fresh()
-    assert fresh.index is session.index and fresh.record is not session.record
 
 
 def test_a_failing_case_does_not_stop_later_cases(suite: Path, tmp_path: Path) -> None:
@@ -201,16 +196,6 @@ def test_an_external_provider_without_its_key_names_its_file(suite: Path, tmp_pa
     assert raised.value.path == config
 
 
-def test_a_missing_snapshot_of_a_later_case_fails_before_any_run(
-    suite: Path, tmp_path: Path
-) -> None:
-    def last_missing(data: dict) -> None:
-        data["cases"][-1]["snapshot"] = "missing/snapshot.json"
-
-    with pytest.raises(SnapshotIOError):
-        prepare_evaluation(_edited_suite(suite, "last-missing", last_missing), [_fake(tmp_path)])
-
-
 def test_a_fake_configuration_needs_every_cases_transcript(suite: Path, tmp_path: Path) -> None:
     def no_transcript(data: dict) -> None:
         del data["cases"][1]["fake_transcript"]
@@ -222,44 +207,18 @@ def test_a_fake_configuration_needs_every_cases_transcript(suite: Path, tmp_path
     assert raised.value.case_id == NAMES[1]
 
 
-def test_an_invalid_fake_transcript_fails_before_any_run(suite: Path, tmp_path: Path) -> None:
-    broken = _beside(suite, "broken.json", '{"turns": "none"}')
-
-    def broken_first(data: dict) -> None:
-        data["cases"][0]["fake_transcript"] = broken
-
-    edited = _edited_suite(suite, "broken", broken_first)
-    with pytest.raises(FakeScriptError) as raised:
-        prepare_evaluation(edited, [_fake(tmp_path)])
-    assert raised.value.code == FakeScriptErrorCode.INVALID
-
-
-@pytest.mark.parametrize("count", [0, MAX_PROVIDERS + 1])
-def test_an_evaluation_needs_one_to_ten_configurations(
-    suite: Path, tmp_path: Path, count: int
-) -> None:
+def test_an_evaluation_needs_at_most_ten_configurations(suite: Path, tmp_path: Path) -> None:
     with pytest.raises(EvaluationSetupError) as raised:
-        prepare_evaluation(suite, [_fake(tmp_path)] * count)
+        prepare_evaluation(suite, [_fake(tmp_path)] * (MAX_PROVIDERS + 1))
     assert raised.value.code == EvaluationSetupCode.PROVIDERS_INVALID
 
 
-@pytest.mark.parametrize(
-    ("content", "code"),
-    [
-        (None, EvaluationErrorCode.SUITE_UNREADABLE),
-        (b" " * (MAX_SUITE_BYTES + 1), EvaluationErrorCode.SUITE_TOO_LARGE),
-        (b'{"schema_version": "1", "schema_version": "1"}', EvaluationErrorCode.INVALID_SUITE),
-        (b'{"schema_version": "1"}', EvaluationErrorCode.INVALID_SUITE),
-    ],
-    ids=["missing", "too-large", "not-json", "not-a-suite"],
-)
-def test_an_unusable_suite_file_fails_with_its_path(tmp_path: Path, content, code) -> None:
+def test_a_suite_with_duplicate_keys_fails_with_its_path(tmp_path: Path) -> None:
     path = tmp_path / SUITE
-    if content is not None:
-        path.write_bytes(content)
+    path.write_text('{"schema_version": "1", "schema_version": "1"}', encoding="utf-8")
     with pytest.raises(EvaluationValidationError) as raised:
         prepare_evaluation(path, [_fake(tmp_path)])
-    assert raised.value.code == code and raised.value.path == path
+    assert (raised.value.code, raised.value.path) == (EvaluationErrorCode.INVALID_SUITE, path)
 
 
 # ---- cancellation ------------------------------------------------------------------

@@ -3,13 +3,12 @@
 The installed script evaluates the checked-in README and adversarial suites, copied out of the
 checkout, with the fake provider in both output forms, and every case passes. The README suite
 is also evaluated through the Anthropic adapter against a mock API on one loopback port, opted
-in with `--allow-external`, to the fake's records. An existing output path and a non-fake
-configuration without the opt-in are refused before any request, and two reports are compared
-and the comparison saved. The child sees no credentials, except the dummy key forwarded to the
-adapter's run alone, and its offline guard fails and records any other network use.
+in with `--allow-external`, to the fake's records, and two reports are compared and the
+comparison saved. The child sees no credentials, except the dummy key forwarded to the
+adapter's run alone, and its offline guard fails and records any other network use. Refusals
+before a run are `tests/cli/test_evaluation_cli.py`'s.
 """
 
-import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -44,14 +43,6 @@ pytestmark = pytest.mark.xdist_group("installed-evaluation")
 
 SUITES = {"readme": README_SUITE, "adversarial": ADVERSARIAL_SUITE}
 HARNESS = AnthropicHarness()
-
-
-def _digests(root: Path) -> dict[Path, str]:
-    return {
-        path: hashlib.sha256(path.read_bytes()).hexdigest()
-        for path in root.rglob("*")
-        if path.is_file()
-    }
 
 
 def _report(path: Path) -> EvaluationReport:
@@ -96,24 +87,6 @@ def _through_the_adapter(ws: Workspace) -> tuple[dict, list]:
     return json.loads(result.stdout), api.requests
 
 
-def _refusals(ws: Workspace) -> dict[str, dict]:
-    suite = ws.path("suites", "readme", SUITE)
-    existing = ws.path("results", "readme.json")
-    external = harness_config(ws.path("suites"), HARNESS)
-    cases = {
-        "existing_output": (["--config", ws.path("fake.toml"), "--output", existing], 3),
-        "external": (["--config", external, "--output", ws.path("results", "refused.json")], 2),
-    }
-    refused = {}
-    for name, (options, code) in cases.items():
-        before = _digests(ws.root)
-        result = ws.run("evaluate", suite, *options, "--json", expect=code)
-        assert result.stderr == ""
-        assert _digests(ws.root) == before
-        refused[name] = json.loads(result.stdout)["error"]
-    return refused
-
-
 def _compared(ws: Workspace) -> tuple[dict, str]:
     first, second = ws.path("results", "readme.json"), ws.path("results", "readme-2.json")
     output = ws.path("comparisons", "readme.json")
@@ -131,7 +104,6 @@ def journey(root: Path) -> dict:
     summary = {
         "evaluated": _evaluated(ws),
         "adapter": _through_the_adapter(ws),
-        "refusals": _refusals(ws),
         "compared": _compared(ws),
         "shown": ws.run("evaluation", ws.path("results", "adversarial.json")).stdout,
         "reports": {name: _report(ws.path("results", f"{name}.json")) for name in SUITES},
@@ -169,14 +141,6 @@ def test_the_adapter_reaches_the_fakes_records_through_a_loopback_api(summary):
     assert len(requests) == run.totals.provider_requests
     assert all(path == "/v1/messages" for path, _, _ in requests)
     assert DUMMY_KEY not in json.dumps(data)
-
-
-def test_unsafe_or_unannounced_runs_are_refused(summary):
-    refused = summary["refusals"]
-    assert refused["existing_output"]["code"] == "snapshot_conflict"
-    assert refused["existing_output"]["path"].endswith("readme.json")
-    assert refused["external"]["code"] == "evaluation_external_not_allowed"
-    assert refused["external"]["path"].endswith("anthropic.toml")
 
 
 def test_two_reports_are_compared(summary):

@@ -6,7 +6,6 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
 
 from tests.support.ask_examples import write_provider_config
 from tests.support.evaluation_suites import SUITE
@@ -45,12 +44,6 @@ def run_installed(
     assert result.returncode == expect, result.stderr + result.stdout
     assert "Traceback" not in result.stderr
     return result
-
-
-def run_installed_json(cwd: Path, *arguments: str, expect: int = 0, timeout: int = 60) -> Any:
-    """Run a command that prints JSON; assert its exit code and a traceback-free stderr."""
-    result = run_installed(cwd, *arguments, expect=expect, timeout=timeout)
-    return json.loads(result.stdout)
 
 
 def digest(path: Path) -> str:

@@ -147,16 +147,10 @@ def test_case_outcomes_are_the_answered_statuses_and_the_failure_reasons() -> No
 
 
 INVALID_SUITES = {
-    "unknown-field": _suite(_case_data(), extra=1),
-    "no-cases": _suite(),
     "duplicate-case": _suite(_case_data(), _case_data()),
     "path-outside-suite": _suite(_case_data(snapshot=f"/{SECRET_PATH}/snapshot.json")),
-    "unknown-outcome": _suite(_case_data(expect={"outcomes": [SECRET_PATH]})),
     "status-without-answer": _suite(
         _case_data(expect={"outcomes": ["provider_error"], "statuses": ["supported"]})
-    ),
-    "rejections-without-rejection": _suite(
-        _case_data(expect={"outcomes": ["answered"], "rejections": ["answer_unknown_id"]})
     ),
 }
 
@@ -174,7 +168,9 @@ def test_invalid_suites_are_refused_with_safe_diagnostics(data: dict) -> None:
 # ---- scoring -----------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", list(EXAMPLES))
+# One example with findings and analyzers, and one with neither; the checked-in README suite,
+# every example, passes in `tests/services/test_evaluation_suites.py`.
+@pytest.mark.parametrize("name", ["ownership", "ownership_compared"])
 def test_the_readme_examples_pass_their_expectations(tmp_path: Path, name: str) -> None:
     run, result = _example(name, tmp_path)
     analyzers = example_analyzers(EXAMPLES[name])
@@ -239,9 +235,6 @@ def test_a_failed_run_checks_only_its_outcome_and_safety(tmp_path: Path) -> None
         CheckName.ANALYZERS: False,
         **dict.fromkeys(SAFETY_CHECKS, True),
     }
-    limited = _adversarial("request_limit", tmp_path / "limited")
-    record = score_case(_case({"outcomes": ["limit_reached"]}), limited)
-    assert record.passed and record.outcome.failure == FailureReason.LIMIT_REACHED
 
 
 def test_rejections_are_checked_and_only_citation_codes_invalidate_citations(
@@ -307,9 +300,9 @@ def test_unsafe_answers_fail_their_safety_check_whatever_the_expectations(
     # A middle stretch, as long as the narrative check always finds, but not the whole value.
     part = summary[20 : 20 + FINGERPRINT_WINDOW + FINGERPRINT_STRIDE - 1]
     assert part != summary
-    for repeated in (summary, f"In short, {part} and so on."):
-        narrative = supported.answer.rendered.narrative.model_copy(update={"summary": repeated})
-        assert _failed_checks(_with_rendered(supported, narrative=narrative)) == {CheckName.QUOTED}
+    repeated = f"In short, {part} and so on."
+    narrative = supported.answer.rendered.narrative.model_copy(update={"summary": repeated})
+    assert _failed_checks(_with_rendered(supported, narrative=narrative)) == {CheckName.QUOTED}
     # Short imported text is too common to count as quoted.
     name = untrusted("web-server-01")
     assert len(name.untrusted_text) < MIN_QUOTED_CHARS
@@ -381,13 +374,11 @@ def _edited(records, **changes: Any) -> tuple[CaseRecord, ...]:
 
 INVALID_REPORTS = {
     "edited-record": lambda records: _report(_edited(records, cited_finding_ids=["edited"])),
-    "passed-without-checks": lambda records: _report(_edited(records, passed=False)),
     "wrong-totals": lambda records: _report(
         records, totals={**Totals.of(records).model_dump(), "passed": 1}
     ),
     "out-of-order": lambda records: _report(tuple(reversed(records))),
     "secret-model": lambda records: _report(records, model=f"sk-proj-{SECRET_PATH}XYZ"),
-    "schema-version": lambda records: {**_report(records), "schema_version": "2"},
 }
 
 

@@ -4,7 +4,7 @@ A checked-in adversarial proposal is submitted through the server after its tool
 rejected with exactly the codes and locations `validate_proposal` gives over the same calls.
 Every README example and the injected-text case are accepted with exactly the readable
 answer and answer JSON that `answer_question` renders from the same transcript with the fake
-provider.
+provider, small enough for a client to keep inline.
 """
 
 import json
@@ -21,7 +21,6 @@ from archdiscov.assistant.rejections import RejectionCode
 from archdiscov.assistant.tools.catalog import default_registry
 from archdiscov.assistant.tools.session import ToolSession
 from archdiscov.services.evaluation import prepare_evaluation
-from tests.support.answer_claims import INJECTION
 from tests.support.evaluation_suites import ADVERSARIAL_SUITE, README_SUITE, write_fake_config
 from tests.support.mcp_clients import Call, mcp_replies, transcript_calls
 
@@ -81,7 +80,11 @@ def _accepted_cases(tmp_path: Path) -> list[tuple]:
     return [*readme.values(), *adversarial.values()]
 
 
-def test_every_accepted_rendering_equals_asks(tmp_path) -> None:
+# Claude Code moves a longer tool result out of the conversation into a file by default.
+INLINE_RESULT_CHARS = 50_000
+
+
+def test_every_accepted_rendering_equals_asks_and_fits_inline(tmp_path) -> None:
     (tmp_path / "readme").mkdir()
     (tmp_path / "adversarial").mkdir()
     for case, session, calls, [proposal], path in _accepted_cases(tmp_path):
@@ -99,32 +102,6 @@ def test_every_accepted_rendering_equals_asks(tmp_path) -> None:
         assert present == PRESENT_ANSWER
         assert readable == answer_text(asked.rendered), case.id
         assert json.loads(data) == answer_data(asked.rendered), case.id
-
-
-def test_imported_text_is_only_quoted_data_in_an_accepted_answer(tmp_path) -> None:
-    cases = _cases(ADVERSARIAL_SUITE, tmp_path, {"injected_text"})
-    _, session, calls, [proposal], _ = cases["injected_text"]
-    *_, (is_error, [_, readable, data]) = mcp_replies(
-        session, [*calls, ("submit_answer", proposal)]
-    )
-    assert not is_error
-    answer = json.loads(data)["answer"]
-    quoted = [item["untrusted_text"] for c in answer["conclusions"] for item in c["data"]]
-    statements = [item for c in answer["conclusions"] for item in c["statements"]]
-    assert INJECTION in quoted
-    assert not any(INJECTION in text for text in [*statements, *answer["qualifications"]])
-    lines = [line for line in readable.splitlines() if INJECTION in line]
-    assert lines and all("imported: " in line for line in lines)
-
-
-# Claude Code moves a longer tool result out of the conversation into a file by default.
-INLINE_RESULT_CHARS = 50_000
-
-
-def test_every_readme_answer_fits_inline_without_a_declared_limit(tmp_path) -> None:
-    for case, session, calls, [proposal], _ in _cases(README_SUITE, tmp_path).values():
-        *_, (is_error, texts) = mcp_replies(session, [*calls, ("submit_answer", proposal)])
-        assert not is_error, case.id
         assert sum(len(text) for text in texts) < INLINE_RESULT_CHARS, case.id
         # The JSON is compact: the readable answer beside it is the form a person reads.
-        assert "\n" not in texts[2], case.id
+        assert "\n" not in data, case.id

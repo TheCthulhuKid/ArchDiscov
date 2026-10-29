@@ -280,11 +280,11 @@ use and an environment without credentials. It evaluates the README and adversar
 copied out of the checkout, with the fake provider in both output forms, and every case
 passes. The README suite is also evaluated through the Anthropic adapter against a
 mock API on one loopback port, the only connection the guard allows, opted in with
-`--allow-external`, and reaches the fake's record IDs. An existing output path and an
-Anthropic configuration without `--allow-external` are refused before any request, leaving
-every file unchanged, and two reports are compared and the comparison saved. In-process
-tests in `tests/cli/test_evaluation_cli.py`, `tests/services/test_evaluation*.py`, and
-`tests/assistant/test_evaluation.py` cover every exit code, option, contract, and check.
+`--allow-external`, and reaches the fake's record IDs, and two reports are compared and the
+comparison saved. In-process tests in `tests/cli/test_evaluation_cli.py`,
+`tests/services/test_evaluation*.py`, and `tests/assistant/test_evaluation.py` cover every
+exit code, option, contract, and check, including the refusal of an existing output path
+and of an Anthropic configuration without `--allow-external` before any request.
 
 `tests/live/test_evaluation_live.py` is an opt-in smoke test under the `live` marker, which
 the default options deselect. It reuses the

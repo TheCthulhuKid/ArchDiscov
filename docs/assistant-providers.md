@@ -793,11 +793,14 @@ nothing waits, and every attempt is recorded in `requests` with the clock readin
 
 Example transcripts are in `tests/fixtures/assistant/`. The shared contract suite in
 `tests/assistant/test_provider_contract.py` runs every provider harness in
-`tests/support/provider_harness.py` through the same mapping, error, capability,
-retry, and timeout cases, and is the one place that tests what the adapters share: the
-retry policy, the guarded HTTP clients (no redirects, no target or credential from the
-environment), quiet SDK loggers, and an error for every SDK failure. Each adapter's own tests
-cover only its request and response mapping, usage, continuations, and, for Bedrock, its
+`tests/support/provider_harness.py` through the same retry and timeout cases, and each
+adapter's harness through the same mapping and error cases too (the fake returns and raises
+what its transcript scripts, which its own tests cover). It is the one place that tests what
+the adapters share: the retry policy, the guarded HTTP clients (no redirects, no target or
+credential from the environment), quiet SDK loggers, and an error for every SDK failure.
+Capability checks belong to the shared entry points and are tested once, in
+`tests/assistant/test_provider.py`. Each adapter's own tests cover only its request and
+response mapping, usage, continuations, and, for Bedrock, its
 profile, role, and per-timeout clients. The orchestration and answer-service suites and the README example
 questions run through every harness too, and check that each adapter reaches the same run
 and answer as the fake from the same turns, so their per-outcome checks run on the fake alone;

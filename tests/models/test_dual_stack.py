@@ -8,15 +8,15 @@ from pydantic import ValidationError
 from archdiscov.models.architecture import Subnet, Vpc
 from archdiscov.models.enums import RouteTargetKind
 from archdiscov.models.resource_tree import walk_resources
-from archdiscov.models.resources.network import NetworkInterface, SecurityGroupRule
-from archdiscov.services import load_snapshot, save_snapshot
+from archdiscov.models.resources.network import SecurityGroupRule
+from archdiscov.services import load_snapshot
 from tests.paths import FIXTURES_ROOT
 
 FIXTURE = FIXTURES_ROOT / "snapshots" / "dual-stack.json"
 IDENTITY = {"account_id": "123456789012", "region": "eu-west-1", "service": "ec2"}
 
 
-def test_fixture_loads_typed_round_trips_and_cites_exact_entries(tmp_path):
+def test_fixture_loads_typed_and_cites_exact_entries():
     snapshot = load_snapshot(FIXTURE)
     resources = {
         resource.identity.physical_id: resource
@@ -38,9 +38,6 @@ def test_fixture_loads_typed_round_trips_and_cites_exact_entries(tmp_path):
     cited = snapshot.evidence[subnet.fact_evidence["/cidr_blocks/1"][0]]
     assert cited.configuration_path == "Subnets[0].Ipv6CidrBlockAssociationSet[0]"
 
-    saved = save_snapshot(snapshot, tmp_path / "dual-stack.json")
-    assert load_snapshot(saved) == snapshot
-
 
 def outside_subnet():
     subnet = Subnet(
@@ -57,12 +54,9 @@ def outside_subnet():
     "build",
     [
         outside_subnet,
-        lambda: NetworkInterface(
-            identity={**IDENTITY, "physical_id": "eni-1"}, ipv6_addresses=["10.0.0.5"]
-        ),
         lambda: SecurityGroupRule(direction="ingress", cidr="::/0", prefix_list_id="pl-1"),
     ],
-    ids=["subnet-outside-vpc", "ipv4-as-ipv6", "cidr-and-prefix-list"],
+    ids=["subnet-outside-vpc", "cidr-and-prefix-list"],
 )
 def test_impossible_states_are_rejected(build):
     with pytest.raises(ValidationError):

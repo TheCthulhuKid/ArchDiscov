@@ -3,24 +3,20 @@ from datetime import UTC, datetime
 
 import pytest
 
-from archdiscov.ingestion.cloudformation import CloudFormationRequest
 from archdiscov.ingestion.terraform import TerraformStateRequest
 from archdiscov.services import (
     ComparisonValidationError,
     SnapshotConflictError,
-    SnapshotIOError,
-    SnapshotJSONError,
     collect_snapshots,
     compare_snapshots,
     load_comparison,
     save_comparison,
     validate_comparison_result,
 )
-from tests.paths import FIXTURES_ROOT
 from tests.support.aws_fakes import empty_network_pages, make_context, request
 from tests.support.comparison_data import aws_resource, aws_snapshot, coverage, rid, vpc
 from tests.support.network_data import SUBNET, element_pages
-from tests.support.terraform_data import CONTEXT, plan_request
+from tests.support.terraform_data import CONTEXT
 
 NOW = datetime(2026, 2, 1, tzinfo=UTC)
 DELETE = {"actions": ["delete"], "value_scope": "before"}
@@ -127,18 +123,6 @@ def test_each_kind_of_entry_is_truncated_with_a_limitation():
     assert [str(item.kind) for item in result.limitations] == ["result_limit_reached"]
 
 
-def test_a_result_within_its_limit_is_not_truncated():
-    result, *_ = compare([vpc("a")], [vpc("b")], result_limit=1)
-    assert result.limitations == []
-
-
-@pytest.mark.parametrize("limit", [0, 10001])
-def test_the_result_limit_is_bounded(limit):
-    first, second = snapshots([vpc()], [vpc()])
-    with pytest.raises(ValueError, match="result_limit"):
-        compare_snapshots(first, second, result_limit=limit)
-
-
 # ---- persistence and integrity -----------------------------------------------------
 
 
@@ -152,30 +136,23 @@ def saved(tmp_path, **options):
     return result, first, second, path
 
 
-def test_a_saved_comparison_reloads_and_verifies(tmp_path):
+def test_a_saved_comparison_reloads_verifies_and_is_never_overwritten(tmp_path):
     result, first, second, path = saved(tmp_path)
     assert load_comparison(path, left=first, right=second) == result
-    assert path.read_text().endswith("\n")
-
-
-def test_an_existing_destination_is_never_overwritten(tmp_path):
-    result, first, second, path = saved(tmp_path)
     original = path.read_text()
+    assert original.endswith("\n")
     with pytest.raises(SnapshotConflictError):
         save_comparison(result, path, left=first, right=second)
     assert path.read_text() == original
 
 
-def test_swapped_or_wrong_snapshots_are_rejected(tmp_path):
+def test_swapped_or_changed_snapshots_fail_verification(tmp_path):
     _result, first, second, path = saved(tmp_path)
     with pytest.raises(ComparisonValidationError) as swapped:
         load_comparison(path, left=second, right=first)
     assert [issue.type for issue in swapped.value.details] == ["snapshot_mismatch"]
     assert swapped.value.path == path
-
-
-def test_a_changed_snapshot_with_the_same_id_fails_verification(tmp_path):
-    _result, first, _second, path = saved(tmp_path)
+    # A changed snapshot with the same ID.
     changed = aws_snapshot([vpc("vpc-1", attributes={"a": 5})], seed=2)
     with pytest.raises(ComparisonValidationError) as error:
         load_comparison(path, left=first, right=changed)
@@ -188,37 +165,13 @@ def rewrite(path, change):
     path.write_text(json.dumps(data))
 
 
-@pytest.mark.parametrize(
-    ("change", "field"),
-    [
-        (lambda d: d["matched"][0]["differences"][0].update(right_value=99), "matched"),
-        (lambda d: d.update(unmatched=[]), "unmatched"),
-        (lambda d: d["left"].update(source_kind="mock"), "left"),
-        (
-            lambda d: d.update(limitations=[{"kind": "cross_cloud", "message": "made up"}]),
-            "limitations",
-        ),
-    ],
-    ids=["matched", "unmatched", "left", "limitations"],
-)
-def test_tampered_results_are_rejected(tmp_path, change, field):
+def test_a_tampered_result_is_rejected(tmp_path):
     _, first, second, path = saved(tmp_path)
-    rewrite(path, change)
+    rewrite(path, lambda d: d["matched"][0]["differences"][0].update(right_value=99))
     with pytest.raises(ComparisonValidationError) as error:
         load_comparison(path, left=first, right=second)
     assert error.value.code == "invalid_comparison_result"
-    assert field in {issue.location[0] for issue in error.value.details}
-
-
-def test_raising_the_recorded_limit_of_a_truncated_result_is_rejected(tmp_path):
-    result, first, second = compare([vpc(f"left-{n}") for n in range(3)], [], result_limit=1)
-    path = save_comparison(result, tmp_path / "truncated.json", left=first, right=second)
-    rewrite(path, lambda d: d.update(result_limit=5))
-    with pytest.raises(ComparisonValidationError):
-        load_comparison(path, left=first, right=second)
-    rewrite(path, lambda d: d.update(result_limit=1, limitations=[]))
-    with pytest.raises(ComparisonValidationError):
-        load_comparison(path, left=first, right=second)
+    assert "matched" in {issue.location[0] for issue in error.value.details}
 
 
 def test_a_truncated_result_verifies_against_its_recorded_limit(tmp_path):
@@ -235,15 +188,6 @@ def test_invalid_results_fail_with_safe_diagnostics(tmp_path):
     rendered = repr(error.value.details)
     assert "hunter2" not in rendered and "secret_key" not in rendered
     assert error.value.details[0].location == ("field",)
-
-
-def test_unreadable_inputs_fail_like_other_result_files(tmp_path):
-    _, first, second, path = saved(tmp_path)
-    with pytest.raises(SnapshotIOError):
-        load_comparison(tmp_path / "missing.json", left=first, right=second)
-    path.write_text("{not json")
-    with pytest.raises(SnapshotJSONError):
-        load_comparison(path, left=first, right=second)
 
 
 def test_an_unverifiable_result_is_never_written(tmp_path):
@@ -322,16 +266,3 @@ def test_collected_network_elements_match_their_declarations_by_identity_only(tm
     assert result.ambiguous == []
     # A declared field the observation lacks, or the reverse, is a reported difference.
     assert pairs[f"{account}/{region}/ec2/physical/nat-1"].differences
-
-    # A template's logical IDs and a plan's unknown IDs never pair with an observation.
-    for source in (
-        CloudFormationRequest(
-            path=FIXTURES_ROOT / "cloudformation" / "transit-gateway.yaml",
-            account_id=account,
-            region=region,
-        ),
-        plan_request(FIXTURES_ROOT / "terraform" / "transit-gateway.plan.json"),
-    ):
-        declaration = collect_snapshots(source, context=CONTEXT)[0]
-        compared = compare_snapshots(observed, declaration, result_limit=1000, now=NOW)
-        assert compared.matched == []

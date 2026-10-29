@@ -19,8 +19,9 @@ def _ipv6_block(cidr: str, state: str = "associated") -> dict:
     return {"Ipv6CidrBlock": cidr, "Ipv6CidrBlockState": {"State": state}}
 
 
-def test_vpc_scoped_resources_are_children_of_the_vpc_and_enis_of_subnets():
-    result = region(FULL)
+def test_vpc_resources_nest_cite_their_entries_and_redact_descriptions():
+    tagged = {**SG, "Tags": [{"Key": "password", "Value": "tag-secret"}]}
+    result = region({**FULL, Op.DESCRIBE_SECURITY_GROUPS: [tagged]})
     (vpc,) = result.architecture.resources
     kinds = {c.resource_type for c in vpc.children}
     assert kinds == {
@@ -33,7 +34,40 @@ def test_vpc_scoped_resources_are_children_of_the_vpc_and_enis_of_subnets():
     (subnet,) = (c for c in vpc.children if c.resource_type is ResourceType.SUBNET)
     assert [c.identity.physical_id for c in subnet.children] == ["eni-1"]
     assert subnet.children[0].ipv6_addresses is None  # the response had no IPv6 field
-    snapshot_of(result)  # integrity: citations and identities resolve
+
+    table = by_id(result)["rtb-1"]
+    assert [r.target_kind for r in table.routes] == [
+        RouteTargetKind.LOCAL,
+        RouteTargetKind.INTERNET_GATEWAY,
+        RouteTargetKind.VPC_PEERING,
+    ]
+    cited = result.evidence[table.fact_evidence["/routes/1"][0]]
+    assert cited.configuration_path == "RouteTables[0].Routes[1]"
+    assert cited.locator == "ec2:DescribeRouteTables"
+    assert cited.value["GatewayId"] == "igw-1"
+    assert table.attributes["is_main"] is True
+
+    group = by_id(result)["sg-1"]
+    assert [r.rule_id for r in group.ingress_rules] == ["sgr-1"]
+    assert group.egress_rules == []  # sgr-9 belongs to another group
+    assert group.attributes["rules_source"] == "DescribeSecurityGroupRules"
+    assert "limitations" not in group.attributes
+    cited = result.evidence[group.fact_evidence["/ingress_rules/0"][0]]
+    assert cited.locator == "ec2:DescribeSecurityGroupRules"
+    assert cited.configuration_path == "SecurityGroupRules[0]"
+
+    assert "/attributes/tags" in group.fact_evidence
+
+    # Free-text descriptions and secret-named tag values are redacted from every evidence record.
+    text = snapshot_of(result).model_dump_json()  # integrity: citations and identities resolve
+    assert "hunter2" not in text
+    assert "super secret note" not in text
+    assert "tag-secret" not in text
+    assert result.evidence[group.evidence_ids[0]].redacted_paths == [
+        "/Description",
+        "/IpPermissions/0/IpRanges/0/Description",
+        "/Tags/0/Value",
+    ]
 
 
 def test_dual_stack_fields_are_read_and_cited_to_their_entries():
@@ -80,33 +114,6 @@ def test_dual_stack_fields_are_read_and_cited_to_their_entries():
     snapshot_of(result)  # the subnet's IPv6 CIDR lies inside the VPC's
 
 
-def test_route_citations_point_at_the_specific_route():
-    result = region(FULL)
-    table = by_id(result)["rtb-1"]
-    assert [r.target_kind for r in table.routes] == [
-        RouteTargetKind.LOCAL,
-        RouteTargetKind.INTERNET_GATEWAY,
-        RouteTargetKind.VPC_PEERING,
-    ]
-    cited = result.evidence[table.fact_evidence["/routes/1"][0]]
-    assert cited.configuration_path == "RouteTables[0].Routes[1]"
-    assert cited.locator == "ec2:DescribeRouteTables"
-    assert cited.value["GatewayId"] == "igw-1"
-    assert table.attributes["is_main"] is True
-
-
-def test_rules_prefer_rule_api_and_cite_the_rule_item():
-    result = region(FULL)
-    group = by_id(result)["sg-1"]
-    assert [r.rule_id for r in group.ingress_rules] == ["sgr-1"]
-    assert group.egress_rules == []  # sgr-9 belongs to another group
-    assert group.attributes["rules_source"] == "DescribeSecurityGroupRules"
-    assert "limitations" not in group.attributes
-    cited = result.evidence[group.fact_evidence["/ingress_rules/0"][0]]
-    assert cited.locator == "ec2:DescribeSecurityGroupRules"
-    assert cited.configuration_path == "SecurityGroupRules[0]"
-
-
 def test_failed_rule_operation_falls_back_to_permissions_with_limitation():
     items = {**FULL}
     del items[Op.DESCRIBE_SECURITY_GROUP_RULES]
@@ -122,46 +129,19 @@ def test_failed_rule_operation_falls_back_to_permissions_with_limitation():
     snapshot_of(result)
 
 
-def test_descriptions_are_redacted_from_all_evidence():
-    result = region(FULL)
-    text = snapshot_of(result).model_dump_json()
-    assert "hunter2" not in text
-    assert "super secret note" not in text
-    group_evidence = result.evidence[by_id(result)["sg-1"].evidence_ids[0]]
-    assert group_evidence.redacted_paths == [
-        "/Description",
-        "/IpPermissions/0/IpRanges/0/Description",
-    ]
+def test_parents_fall_back_to_the_vpc_then_the_root_without_being_invented():
+    missing_vpc = region({Op.DESCRIBE_SECURITY_GROUPS: [SG], Op.DESCRIBE_SECURITY_GROUP_RULES: []})
+    (root,) = missing_vpc.architecture.resources
+    assert root.attributes["unresolved_parent"]["id"] == "vpc-1"
+    assert not any(r.identity.physical_id == "vpc-1" for r in flatten([root]))
 
-
-def test_secret_named_tag_values_are_redacted():
-    group = {**SG, "Tags": [{"Key": "password", "Value": "tagsecret"}]}
-    result = region({Op.DESCRIBE_SECURITY_GROUPS: [group]}, {Op.DESCRIBE_SECURITY_GROUP_RULES: "x"})
-    assert "tagsecret" not in snapshot_of(result).model_dump_json()
-
-
-def test_missing_vpc_places_group_at_root_with_unresolved_parent():
-    result = region({Op.DESCRIBE_SECURITY_GROUPS: [SG], Op.DESCRIBE_SECURITY_GROUP_RULES: []})
-    (group,) = result.architecture.resources
-    assert group.attributes["unresolved_parent"]["id"] == "vpc-1"
-    assert not any(r.identity.physical_id == "vpc-1" for r in flatten([group]))
-
-
-def test_eni_falls_back_to_vpc_then_root():
     under_vpc = region({Op.DESCRIBE_VPCS: [VPC], Op.DESCRIBE_NETWORK_INTERFACES: [ENI]})
     (vpc,) = under_vpc.architecture.resources
     (eni,) = vpc.children
     assert eni.attributes["unresolved_parent"]["kind"] == "subnet"
 
-    at_root = region({Op.DESCRIBE_NETWORK_INTERFACES: [ENI]})
-    (root,) = at_root.architecture.resources
-    assert root.attributes["unresolved_parent"]["kind"] == "subnet"
-    assert not root.children
-
-
-def test_detached_gateway_stays_at_root_without_invented_parent():
-    result = region({Op.DESCRIBE_INTERNET_GATEWAYS: [{"InternetGatewayId": "igw-x"}]})
-    (gateway,) = result.architecture.resources
+    detached = region({Op.DESCRIBE_INTERNET_GATEWAYS: [{"InternetGatewayId": "igw-x"}]})
+    (gateway,) = detached.architecture.resources
     assert "unresolved_parent" not in gateway.attributes
 
 
@@ -201,9 +181,3 @@ def test_malformed_values_degrade_with_limitations_instead_of_failing():
     assert rule.cidr is None and rule.from_port is None and rule.to_port == 443
     assert any("invalid value for cidr, from_port" in m for m in bad.attributes["limitations"])
     snapshot_of(result)
-
-
-def test_zero_results_produce_an_empty_region():
-    result = region({op: [] for op in Op})
-    assert result.architecture.resources == []
-    assert result.evidence == {}

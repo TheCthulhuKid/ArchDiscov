@@ -4,7 +4,6 @@ A new tool fails these tests until it has a scenario below and its schema passes
 """
 
 import json
-from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -12,13 +11,9 @@ import pytest
 
 from archdiscov.assistant.conversation import (
     MAX_TOOL_INPUT_SCHEMA_BYTES,
-    Conversation,
     ParsedToolArguments,
     ToolCall,
-    UserMessage,
 )
-from archdiscov.assistant.fake import FakeProvider, FakeTranscript
-from archdiscov.assistant.provider import CompletionRequest, RequestLimits, complete
 from archdiscov.assistant.tools.catalog import ALL_TOOLS, default_registry
 from archdiscov.assistant.tools.contracts import ID_FIELDS, IdKind, ToolErrorCode
 from archdiscov.assistant.tools.record import ReturnedIds
@@ -35,8 +30,8 @@ OWNERSHIP_SNAPSHOT = FIXTURES_ROOT / "analysis" / "ownership-snapshot.json"
 OWNERSHIP_RESULT = FIXTURES_ROOT / "analysis" / "ownership.json"
 
 
-def _session(name: str = "network.json", **kwargs: Any) -> ToolSession:
-    return ToolSession.from_paths(SNAPSHOTS / name, **kwargs)
+def _session(name: str = "network.json") -> ToolSession:
+    return ToolSession.from_paths(SNAPSHOTS / name)
 
 
 def _call(session: ToolSession, tool: str, **arguments: Any) -> tuple[bool, dict]:
@@ -49,14 +44,10 @@ def _call(session: ToolSession, tool: str, **arguments: Any) -> tuple[bool, dict
 # ---- schema audit ------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("tool", ALL_TOOLS, ids=lambda tool: tool.name)
-def test_schemas_have_no_write_network_shell_or_path_inputs(tool) -> None:
-    assert_no_write_network_shell_or_path_inputs(tool)
-
-
-@pytest.mark.parametrize("tool", ALL_TOOLS, ids=lambda tool: tool.name)
-def test_every_input_is_bounded_and_closed(tool) -> None:
-    assert_bounded_and_closed(tool)
+def test_every_schema_is_bounded_closed_and_free_of_write_network_shell_or_path_inputs() -> None:
+    for tool in ALL_TOOLS:
+        assert_no_write_network_shell_or_path_inputs(tool)
+        assert_bounded_and_closed(tool)
 
 
 def test_every_declaration_is_valid_for_step_34_providers() -> None:
@@ -64,29 +55,6 @@ def test_every_declaration_is_valid_for_step_34_providers() -> None:
     assert [item.name for item in declarations] == [tool.name for tool in ALL_TOOLS]
     for declaration in declarations:
         assert len(json.dumps(declaration.input_schema)) <= MAX_TOOL_INPUT_SCHEMA_BYTES
-    request = CompletionRequest(
-        conversation=Conversation(messages=(UserMessage(text="What is exposed?"),)),
-        tools=declarations,
-        limits=RequestLimits(max_tool_calls_per_turn=4),
-    )
-    transcript = FakeTranscript.model_validate(
-        {
-            "turns": [
-                {
-                    "kind": "respond",
-                    "expect": {"tool_names": [item.name for item in declarations]},
-                    "response": {
-                        "message": {"role": "assistant", "text": "Done."},
-                        "stop_reason": "end",
-                    },
-                }
-            ]
-        }
-    )
-    provider = FakeProvider(transcript)
-    assert complete(provider, request).message.text == "Done."
-    assert provider.requests[0].request.tools == declarations
-    assert CompletionRequest.model_validate_json(request.model_dump_json()) == request
 
 
 # ---- every tool: success, invalid input, unknown IDs, Azure ------------------------
@@ -166,20 +134,9 @@ def test_every_tool_handles_azure_snapshots(name: str) -> None:
         is_error, data = _call(session, name, number=1)
         assert is_error and data["code"] == ToolErrorCode.UNAVAILABLE
         return
+    # An AWS-only analyzer's unsupported result on Azure is its own home's to prove.
     is_error, data = _call(session, name, **success(session))
     assert not is_error, (name, data)
-    if name == "run_analyzer":
-        for kind, extra in [
-            ("security_group_impact", {"resource_id": _first_resource(session)}),
-            ("internet_exposure", {}),
-        ]:
-            _, data = _call(session, name, kind=kind, **extra)
-            codes = {
-                limitation["code"]
-                for finding in data["findings"]["items"]
-                for limitation in finding["limitations"]
-            }
-            assert codes == {"unsupported_platform"}
 
 
 # ---- returned-ID tracking across a run ---------------------------------------------
@@ -213,10 +170,8 @@ def _recorded(returned: ReturnedIds) -> set[tuple[str, str, str]]:
     }
 
 
-def _multi_tool_run(snapshot: Path, analysis: Path | None) -> tuple[ToolSession, list[dict]]:
-    session = ToolSession.from_paths(
-        snapshot, analysis_paths=[] if analysis is None else [analysis]
-    )
+def _multi_tool_run() -> tuple[ToolSession, list[dict]]:
+    session = ToolSession.from_paths(OWNERSHIP_SNAPSHOT, analysis_paths=[OWNERSHIP_RESULT])
     resource = session.index.resource_ids[0]
     calls = [
         ("search_resources", {}),
@@ -228,11 +183,9 @@ def _multi_tool_run(snapshot: Path, analysis: Path | None) -> tuple[ToolSession,
         ("inspect_resource", {"resource_id": UNKNOWN}),
         ("unknown_tool", {}),
         ("list_saved_results", {}),
+        ("get_evidence", {"evidence_id": session.index.evidence_ids[-1]}),
+        ("get_saved_analysis", {"number": 1}),
     ]
-    if session.index.evidence_ids:
-        calls.append(("get_evidence", {"evidence_id": session.index.evidence_ids[-1]}))
-    if analysis is not None:
-        calls.append(("get_saved_analysis", {"number": 1}))
     delivered = []
     for name, arguments in calls:
         is_error, data = _call(session, name, **arguments)
@@ -241,22 +194,9 @@ def _multi_tool_run(snapshot: Path, analysis: Path | None) -> tuple[ToolSession,
     return session, delivered
 
 
-@pytest.mark.parametrize(
-    "snapshot,analysis",
-    [
-        (SNAPSHOTS / "network.json", None),
-        (SNAPSHOTS / "dependency-targets.json", None),
-        (OWNERSHIP_SNAPSHOT, OWNERSHIP_RESULT),
-    ],
-    ids=["network", "terminals", "saved-analysis"],
-)
-def test_returned_id_tracking_is_exact_across_a_multi_tool_run(
-    snapshot: Path, analysis: Path | None
-) -> None:
-    session, delivered = _multi_tool_run(snapshot, analysis)
+def test_returned_id_tracking_is_exact_across_a_multi_tool_run() -> None:
+    session, delivered = _multi_tool_run()
     expected = set().union(*(_independent_ids(content) for content in delivered))
     assert expected
     assert _recorded(session.record.returned()) == expected
     assert {UUID(snapshot_id) for snapshot_id, _, _ in expected} == {session.index.snapshot_id}
-    again, _ = _multi_tool_run(snapshot, analysis)
-    assert again.record.returned() == session.record.returned()

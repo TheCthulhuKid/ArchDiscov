@@ -56,5 +56,5 @@ def default_pages(region):
     }
 
 
-def ec2_context(pages=default_pages, account=ACCOUNT):
-    return fakes.make_context(pages, account)
+def ec2_context():
+    return fakes.make_context(default_pages, ACCOUNT)

@@ -12,12 +12,10 @@ import pytest
 from archdiscov.assistant.answer_service import (
     AnswerCancelled,
     AnswerResult,
-    answer_question,
     answer_question_async,
 )
 from archdiscov.assistant.conversation import ToolResultMessage, UserMessage
-from archdiscov.assistant.fake import FakeProvider, FakeTranscript
-from archdiscov.assistant.orchestrator import RunInEventLoopError
+from archdiscov.assistant.fake import FakeProvider
 from archdiscov.assistant.provider import CompletionResponse
 from archdiscov.assistant.repair import NO_PROPOSAL, NOT_RUN, RESUBMIT
 from archdiscov.assistant.runs import RunLimits
@@ -96,21 +94,17 @@ def test_a_plain_text_answer_is_repaired_without_quoting_it() -> None:
     assert result.transcript.repair.outcome.kind == "answered"
 
 
-@pytest.mark.parametrize(
-    "first",
-    [
-        lambda session: submit_turn("a", None),
-        lambda session: submit_turn("a", {"status": "supported"}),
-    ],
-    ids=["proposal_malformed", "proposal_invalid"],
-)
-def test_an_unreadable_submission_is_repaired(first) -> None:
+def test_an_unreadable_submission_is_repaired() -> None:
     result, provider, _ = answer_turns(
-        lambda session: [first(session), submit_turn("b", answer_proposal(session))]
+        lambda session: [
+            submit_turn("a", {"status": "supported"}),
+            submit_turn("b", answer_proposal(session)),
+        ]
     )
     assert result.outcome.status == "answered_after_repair"
     submission = _submission(_repair_request(provider)[1])
-    assert submission["error"] == result.transcript.repair.outcome.reason
+    assert submission["error"] == "proposal_invalid"
+    assert result.transcript.repair.outcome.reason == "proposal_invalid"
 
 
 def test_a_mixed_submission_is_repaired_and_its_other_calls_are_not_run() -> None:
@@ -189,14 +183,7 @@ def test_a_tool_call_during_the_repair_is_not_run() -> None:
     assert session.record.returned().snapshots == ()
 
 
-def test_unrepairable_outcomes_get_no_repair() -> None:
-    result, provider, _ = answer_turns(lambda _: [fail_turn("provider_rate_limit")])
-    assert result.outcome.failure == "provider_error"
-    assert len(provider.requests) == 1
-    assert result.transcript.repair is None
-
-
-# ---- cancellation and the sync wrapper ---------------------------------------------
+# ---- cancellation ------------------------------------------------------------------
 
 
 class _TextThenHang(HangingProvider):
@@ -232,17 +219,3 @@ def test_cancelling_the_repair_explains_the_cancelled_answer() -> None:
     assert result.outcome.failure == "cancelled" and result.outcome.exit_code == 130
     assert result.transcript.turns[-1].repair
     assert provider.settled
-
-
-def test_the_sync_wrapper_is_refused_inside_a_running_loop() -> None:
-    async def inside() -> None:
-        with pytest.raises(RunInEventLoopError, match="await answer_question_async"):
-            answer_question(
-                ANSWER_QUESTION,
-                provider=FakeProvider(FakeTranscript.model_validate({"turns": [text_turn()]})),
-                session=ToolSession.from_paths(SNAPSHOT),
-                provider_kind="fake",
-                model="fake",
-            )
-
-    asyncio.run(inside())

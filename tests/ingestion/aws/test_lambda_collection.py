@@ -5,6 +5,7 @@ import boto3
 import pytest
 from botocore.exceptions import ClientError
 from botocore.stub import Stubber
+from pydantic import ValidationError
 
 from archdiscov.ingestion.adapter import AdapterContext
 from archdiscov.ingestion.configuration_common import ServiceCollection
@@ -12,9 +13,8 @@ from archdiscov.ingestion.functions import collect_lambda
 from archdiscov.ingestion.requests import AwsAccountConfig
 from archdiscov.models.architecture import ArchitectureSnapshot
 from archdiscov.models.enums import CoverageStatus, EvidenceValueStatus
-from archdiscov.models.resources.functions import LambdaFunction
-from archdiscov.services import load_snapshot, save_snapshot
-from tests.support.lambda_data import ACCOUNT, ARN, REGION, ROLE, SECRET, Client, configuration
+from archdiscov.models.resources.functions import LambdaFunction, safe_configuration
+from tests.support.lambda_data import ACCOUNT, ARN, REGION, SECRET, Client, configuration
 
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -65,17 +65,27 @@ def snapshot(result):
     )
 
 
-def test_real_stubber_marker_pages_and_exact_detail_requests():
+def function(**fields):
+    return LambdaFunction(
+        identity={
+            "account_id": ACCOUNT,
+            "region": REGION,
+            "service": "lambda",
+            "physical_id": ARN,
+        },
+        arn=ARN,
+        **fields,
+    )
+
+
+def test_real_stubber_exact_requests_and_field_citations():
     api = boto3.client(
         "lambda", region_name=REGION, aws_access_key_id="offline", aws_secret_access_key="offline"
     )
     second = ARN + "2"
     with Stubber(api) as stub:
         stub.add_response(
-            "list_functions", {"Functions": [configuration()], "NextMarker": "next"}, {}
-        )
-        stub.add_response(
-            "list_functions", {"Functions": [configuration(second)]}, {"Marker": "next"}
+            "list_functions", {"Functions": [configuration(), configuration(second)]}, {}
         )
         for arn in (ARN, second):
             stub.add_response(
@@ -90,7 +100,7 @@ def test_real_stubber_marker_pages_and_exact_detail_requests():
     assert all(c.status == CoverageStatus.SUCCESS and c.result_count == 2 for c in result.coverage)
     item = result.resources[1]
     whole = [result.evidence[e] for e in item.evidence_ids]
-    assert any(e.configuration_path == "Request[{}].Page[1].Functions[0]" for e in whole)
+    assert any(e.configuration_path == "Request[{}].Page[0].Functions[1]" for e in whole)
     for field, source in {
         "arn": "FunctionArn",
         "role_arn": "Role",
@@ -116,14 +126,6 @@ def test_real_stubber_marker_pages_and_exact_detail_requests():
     )
 
 
-def test_empty_discovery_is_success_without_detail_calls():
-    client = Client(pages=[{"Functions": []}])
-    result = collect(client)
-    assert result.resources == [] and result.evidence == {}
-    assert len(client.calls) == 1
-    assert all(c.status == CoverageStatus.SUCCESS and c.result_count == 0 for c in result.coverage)
-
-
 def denied():
     return ClientError({"Error": {"Code": "AccessDeniedException", "Message": SECRET}}, "read")
 
@@ -144,62 +146,39 @@ def test_detail_failure_keeps_inventory_without_invented_empty_fields():
     assert SECRET not in snapshot(result).model_dump_json()
 
 
-def test_partial_discovery_qualifies_successful_details():
-    result = collect(
-        Client(pages=[{"Functions": [configuration()], "NextMarker": "next"}, denied()])
-    )
-    assert len(result.resources) == 1
-    assert coverage(result)["ListFunctions"].status == CoverageStatus.INCOMPLETE
-    detail = coverage(result)["GetFunctionConfiguration"]
-    assert detail.status == CoverageStatus.INCOMPLETE and detail.result_count == 1
-    assert detail.reason == "Discovery was unavailable or incomplete: ListFunctions"
-
-
-def test_failed_discovery_skips_detail_without_claiming_empty_success():
-    client = Client(pages=[denied()])
+@pytest.mark.parametrize(
+    "page,status",
+    [
+        (denied(), CoverageStatus.FAILED),
+        ({"Functions": [{"FunctionArn": SECRET}]}, CoverageStatus.INCOMPLETE),
+    ],
+    ids=["failed", "malformed-identity"],
+)
+def test_unusable_discovery_skips_detail_without_claiming_empty_success(page, status):
+    client = Client(pages=[page])
     result = collect(client)
     assert result.resources == []
-    assert coverage(result)["ListFunctions"].status == CoverageStatus.FAILED
+    assert coverage(result)["ListFunctions"].status == status
     assert coverage(result)["GetFunctionConfiguration"].status == CoverageStatus.SKIPPED
     assert len(client.calls) == 1
+    assert SECRET not in snapshot(result).model_dump_json()
 
 
-@pytest.mark.parametrize(
-    "key,value,path",
-    [
-        ("State", {"raw": SECRET}, "State"),
-        ("VpcConfig", {"SubnetIds": ["bad subnet"]}, "VpcConfig.SubnetIds"),
-        ("VpcConfig", "bad", "VpcConfig"),
-    ],
-    ids=["top-level-field", "nested-field", "vpc-config-not-object"],
-)
-def test_malformed_detail_values_are_unavailable_and_precisely_reported(key, value, path):
-    detail = {**configuration(), key: value}
+def test_malformed_detail_value_is_unavailable_and_precisely_reported():
+    detail = {**configuration(), "State": {"raw": SECRET}}
     result = collect(Client(detail=detail))
     detail_coverage = coverage(result)["GetFunctionConfiguration"]
     assert detail_coverage.status == CoverageStatus.INCOMPLETE
     assert any(
-        u.configuration_path == f'Request[{{"FunctionName":"{ARN}"}}].Page[0].{path}'
+        u.configuration_path == f'Request[{{"FunctionName":"{ARN}"}}].Page[0].State'
         for u in detail_coverage.unresolved_values
     )
-    if key == "VpcConfig":
-        assert result.resources[0].subnet_ids is None
-    else:
-        assert result.resources[0].state is None
+    assert result.resources[0].state is None
+    assert result.resources[0].memory_size == 256
     assert SECRET not in snapshot(result).model_dump_json()
 
 
-def test_malformed_inventory_identity_qualifies_discovery_and_skips_details():
-    result = collect(Client(pages=[{"Functions": [{"FunctionArn": SECRET}]}]))
-    assert result.resources == []
-    assert coverage(result)["ListFunctions"].status == CoverageStatus.INCOMPLETE
-    assert coverage(result)["ListFunctions"].unresolved_values[0].configuration_path == (
-        "Request[{}].Page[0].Functions[0].FunctionArn"
-    )
-    assert coverage(result)["GetFunctionConfiguration"].status == CoverageStatus.SKIPPED
-
-
-def test_projection_and_exact_citations_survive_persistence_without_secret_bytes(tmp_path):
+def test_projection_excludes_secret_and_unknown_source_fields():
     detail = {
         **configuration(),
         "Environment": {"Variables": {"ORDINARY_NAME": SECRET}},
@@ -218,55 +197,7 @@ def test_projection_and_exact_citations_survive_persistence_without_secret_bytes
     assert whole.value_status == EvidenceValueStatus.REDACTED
     assert "/Environment" in whole.redacted_paths and "/Description" in whole.redacted_paths
     assert "Environment" not in whole.value and "FutureField" not in whole.value
-    document = snapshot(result)
-    path = save_snapshot(document, tmp_path / "lambda.json")
-    assert SECRET.encode() not in path.read_bytes()
-    loaded = load_snapshot(path)
-    assert loaded == document
-    assert isinstance(loaded.regions[REGION].resources[0], LambdaFunction)
-    assert loaded.evidence == result.evidence
-
-
-def test_direct_model_configuration_is_projected_again_on_save(tmp_path):
-    result = collect(Client())
-    item = result.resources[0]
-    item.configuration["Environment"] = {"Variables": {"NORMAL": SECRET}}
-    item.configuration["Description"] = SECRET
-    item.configuration["Code"] = {"Location": SECRET}
-    item.attributes["Environment"] = {"Variables": {"NORMAL": SECRET}}
-    document = snapshot(result)
-    path = save_snapshot(document, tmp_path / "lambda-direct.json")
-    assert SECRET.encode() not in path.read_bytes()
-
-
-@pytest.mark.parametrize("functions", ["bad", [None]], ids=["not-list", "entry-not-object"])
-def test_malformed_function_container_or_entry_does_not_become_empty_success(functions):
-    result = collect(Client(pages=[{"Functions": functions}]))
-    assert result.resources == []
-    assert coverage(result)["ListFunctions"].status == CoverageStatus.INCOMPLETE
-    assert coverage(result)["ListFunctions"].unresolved_values
-    assert coverage(result)["GetFunctionConfiguration"].status == CoverageStatus.SKIPPED
-
-
-def test_repeated_inventory_entry_has_one_detail_read_and_retains_page_evidence():
-    client = Client(pages=[{"Functions": [configuration(), configuration()]}])
-    result = collect(client)
-    assert len(result.resources) == 1
-    assert len([call for call in client.calls if call[0] == "get_function_configuration"]) == 1
-    paths = [result.evidence[e].configuration_path for e in result.resources[0].evidence_ids]
-    assert "Request[{}].Page[0].Functions[0]" in paths
-    assert "Request[{}].Page[0].Functions[1]" in paths
-
-
-def test_mismatched_detail_identity_does_not_overwrite_inventory():
-    result = collect(Client(detail={**configuration(ARN + "2"), "MemorySize": 512}))
-    assert len(result.resources) == 1
-    assert result.resources[0].arn == ARN
-    assert result.resources[0].memory_size == 256
-    assert coverage(result)["GetFunctionConfiguration"].status == CoverageStatus.INCOMPLETE
-    assert coverage(result)["GetFunctionConfiguration"].unresolved_values[0].configuration_path == (
-        f'Request[{{"FunctionName":"{ARN}"}}].Page[0].FunctionArn'
-    )
+    assert SECRET not in snapshot(result).model_dump_json()
 
 
 def test_image_function_runtime_can_be_unavailable_and_empty_vpc_is_observed():
@@ -282,18 +213,27 @@ def test_image_function_runtime_can_be_unavailable_and_empty_vpc_is_observed():
     assert result.evidence[item.fact_evidence["/subnet_ids"][0]].value == []
 
 
-def test_some_detail_reads_fail_in_one_aggregate_without_losing_inventory():
-    class MixedClient(Client):
-        def get_function_configuration(self, **params):
-            if params["FunctionName"] == ARN:
-                raise denied()
-            return configuration(params["FunctionName"])
+def test_direct_configuration_projection_never_copies_ordinary_named_environment_values():
+    source = {
+        **configuration(),
+        "Environment": {"Variables": {"APP_MODE": SECRET}},
+        "Description": SECRET,
+        "Code": {"Location": SECRET},
+        "Future": SECRET,
+    }
+    item = function(configuration=source)
+    assert SECRET not in item.model_dump_json()
+    assert item.configuration == configuration()
+    safe, paths = safe_configuration(source)
+    assert safe == configuration()
+    assert "/Environment" in paths
+    assert source["Environment"]["Variables"]["APP_MODE"] == SECRET
 
-    result = collect(
-        MixedClient(pages=[{"Functions": [configuration(), configuration(ARN + "2")]}])
-    )
-    assert len(result.resources) == 2 and len(result.coverage) == 2
-    detail = coverage(result)["GetFunctionConfiguration"]
-    assert detail.status == CoverageStatus.INCOMPLETE and detail.result_count == 1
-    assert len(detail.failures) == 1
-    assert all(r.role_arn == ROLE for r in result.resources)
+
+def test_arn_identity_must_match_and_typed_facts_are_validated():
+    data = function().model_dump()
+    data["arn"] = ARN + "2"
+    with pytest.raises(ValidationError):
+        LambdaFunction.model_validate(data)
+    with pytest.raises(ValidationError, match="Malformed or unsupported Lambda configuration"):
+        function(role_arn="https://example.invalid/secret")

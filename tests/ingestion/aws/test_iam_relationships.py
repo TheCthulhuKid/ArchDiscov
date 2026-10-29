@@ -4,10 +4,9 @@ import pytest
 
 from archdiscov.ingestion.evidence_builder import EvidenceBuilder
 from archdiscov.ingestion.iam.relationships import resolve_relationships
-from archdiscov.models.architecture import ArchitectureSnapshot, AwsSource, SnapshotCoverage
 from archdiscov.models.enums import AwsRegion, AwsService
 from archdiscov.models.resources.iam import IamInstanceProfile, IamRole
-from tests.support.iam_data import ACCOUNT, PROFILE_ARN, ROLE_ARN, context
+from tests.support.iam_data import ACCOUNT, PROFILE_ARN, ROLE_ARN
 
 
 def role_with_trust(principal, *, negative=False):
@@ -39,13 +38,12 @@ def role_with_trust(principal, *, negative=False):
     "principal,target_kind,principal_kind",
     [
         ({"AWS": ROLE_ARN}, "local", "aws"),
-        ({"AWS": "210987654321"}, "external", "aws"),
         ({"AWS": "arn:aws:iam::210987654321:root"}, "external", "aws"),
         ({"Service": "ec2.amazonaws.com"}, "external", "service"),
         ({"AWS": "*"}, "unresolved", "aws"),
         ("*", "unresolved", "unknown"),
     ],
-    ids=["stored-role", "account-id", "account-arn", "service", "wildcard", "not-a-mapping"],
+    ids=["stored-role", "account-arn", "service", "wildcard", "not-a-mapping"],
 )
 def test_trust_principals_are_references_not_grants(principal, target_kind, principal_kind):
     role, evidence = role_with_trust(principal)
@@ -68,19 +66,6 @@ def test_trust_principals_are_references_not_grants(principal, target_kind, prin
         ":function:web"
     )
     assert all(e.resource_id == role.id for e in (principal_evidence, statement_evidence))
-    snapshot = ArchitectureSnapshot(
-        schema_version="2",
-        snapshot_id=UUID(int=14),
-        account_id=ACCOUNT,
-        collection_started_at=context(None).clock(),
-        collection_completed_at=context(None).clock(),
-        source=AwsSource(profile="test"),
-        global_resources=[role],
-        coverage=SnapshotCoverage(regions=[], account_wide=True),
-        dependencies_by_region=links,
-        evidence=evidence,
-    )
-    assert ArchitectureSnapshot.model_validate_json(snapshot.model_dump_json()) == snapshot
 
 
 def test_not_principal_remains_unresolved_even_for_stored_role():

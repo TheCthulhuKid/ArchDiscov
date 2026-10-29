@@ -144,9 +144,8 @@ def ec2_items(*, rules=None, acl=None, routes=None, acls=True, tables=True):
 EC2_ITEMS = ec2_items()
 
 
-def _ecs_task(
-    builder, *, subnets=("subnet-a",), groups=("sg-app",), enis=("eni-task",), mode="awsvpc"
-):
+def _ecs_task(builder, *, subnets=("subnet-a",), groups=("sg-app",), mode="awsvpc"):
+    enis = ("eni-task",)
     identity = ResourceIdentity(
         account_id=ACCOUNT, region=REGION, service=AwsService.ECS, physical_id=TASK
     )
@@ -156,7 +155,7 @@ def _ecs_task(
         task_definition_arn=DEFINITION,
         subnet_ids=list(subnets) or None,
         security_group_ids=list(groups) or None,
-        network_interface_ids=list(enis) or None,
+        network_interface_ids=list(enis),
     )
     for pointer, values in (
         ("subnet_ids", subnets),

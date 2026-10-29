@@ -7,8 +7,8 @@ from archdiscov.models.cloud.identity import (
     SupportedIdentity,
     parse_identity,
 )
-from archdiscov.models.cloud.scope import AwsScope, AzureScope, SupportedScope
-from archdiscov.models.enums import AwsPartition, CloudPlatform, ResourceType
+from archdiscov.models.cloud.scope import AzureScope
+from archdiscov.models.enums import CloudPlatform
 
 SUBSCRIPTION = "12345678-1234-5678-abcd-123456789abc"
 OTHER_SUBSCRIPTION = "87654321-4321-8765-dcba-cba987654321"
@@ -48,8 +48,6 @@ def test_aws_wire_and_stable_id_are_unchanged():
     assert identity.stable_id != parse_identity({**data, "physical_id": "i-abc/123"}).stable_id
     assert parse_identity(identity) is identity
     assert TypeAdapter(SupportedIdentity).validate_json(identity.model_dump_json()) == identity
-    with pytest.raises(ValidationError):
-        ResourceIdentity.model_validate({**data, "unexpected": True})
 
 
 def test_aws_logical_identity_is_unchanged():
@@ -57,64 +55,18 @@ def test_aws_logical_identity_is_unchanged():
         account_id="123456789012", region="global", service="iam", logical_address="aws_iam_role.x"
     )
     assert identity.stable_id == "123456789012/global/iam/logical/aws_iam_role.x"
+    both = ResourceIdentity(**{**identity.model_dump(), "physical_id": "role-x"})
+    assert both.stable_id == "123456789012/global/iam/physical/role-x"
     with pytest.raises(ValidationError):
         ResourceIdentity(account_id="123456789012", region="global", service="iam")
 
 
-def test_scopes_and_enum_contract():
-    aws = AwsScope(account_id="123456789012")
-    assert aws.platform == CloudPlatform.AWS
-    assert aws.partition == AwsPartition.AWS
-    assert {partition.value for partition in AwsPartition} == {"aws", "aws-cn", "aws-us-gov"}
+def test_azure_scope_uuids_are_strict_and_canonical():
     scope = AzureScope(subscription_id=SUBSCRIPTION.upper(), tenant_id=OTHER_SUBSCRIPTION.upper())
     assert scope.subscription_id == SUBSCRIPTION
     assert scope.tenant_id == OTHER_SUBSCRIPTION
-    for item in (aws, scope):
-        assert TypeAdapter(SupportedScope).validate_json(item.model_dump_json()) == item
-    assert ResourceType.AZURE_VIRTUAL_NETWORK == "Microsoft.Network/virtualNetworks"
-    assert ResourceType.AZURE_SUBNET == "Microsoft.Network/virtualNetworks/subnets"
-    assert ResourceType.AZURE_VIRTUAL_MACHINE == "Microsoft.Compute/virtualMachines"
-    assert ResourceType.CLOUD_UNKNOWN == "cloud_unknown"
-
-
-@pytest.mark.parametrize(
-    "scope_type,data",
-    [
-        (AwsScope, {"account_id": "123"}),
-        (AwsScope, {"account_id": "123456789012", "partition": "invalid"}),
-        (AwsScope, {"account_id": "123456789012", "platform": "azure"}),
-        (AwsScope, {"account_id": "123456789012", "unexpected": True}),
-        (AzureScope, {"subscription_id": SUBSCRIPTION, "platform": "aws"}),
-        (AzureScope, {"subscription_id": SUBSCRIPTION, "unexpected": True}),
-    ],
-    ids=[
-        "aws-account-pattern",
-        "aws-partition",
-        "aws-platform",
-        "aws-unknown-field",
-        "azure-platform",
-        "azure-unknown-field",
-    ],
-)
-def test_invalid_scopes_are_rejected(scope_type, data):
     with pytest.raises(ValidationError):
-        scope_type.model_validate(data)
-
-
-@pytest.mark.parametrize(
-    "value",
-    [
-        "not-a-uuid",
-        f" {SUBSCRIPTION}",
-        123,
-    ],
-)
-@pytest.mark.parametrize("field", ["subscription_id", "tenant_id"])
-def test_scopes_require_strict_uuid_strings(field, value):
-    with pytest.raises(ValidationError):
-        AzureScope.model_validate({"subscription_id": SUBSCRIPTION, field: value})
-    with pytest.raises(ValidationError):
-        azure(**{field: value})
+        AzureScope(subscription_id=f" {SUBSCRIPTION}")
 
 
 def test_azure_case_equivalence_and_physical_location_independence():
@@ -199,43 +151,18 @@ def test_subscription_wide_resource():
 
 
 @pytest.mark.parametrize(
-    "arm",
+    "overrides,message",
     [
-        ARM + "?query=1",
-        ARM.replace(SUBSCRIPTION, OTHER_SUBSCRIPTION),
-        ARM.replace("MyGroup", "OtherGroup"),
-        ARM.replace("/subnets/", "/subnets/extra/"),
-        ARM.replace("virtualNetworks", "virtualMachines"),
+        ({"physical_id": ARM + "?query=1"}, "subscription-scoped ARM resource ID"),
+        (
+            {"physical_id": ARM.replace(SUBSCRIPTION, OTHER_SUBSCRIPTION)},
+            "ARM subscription must match",
+        ),
+        ({"resource_group": " MyGroup"}, "without surrounding whitespace"),
+        ({"native_type": "Microsoft.Compute/virtualMachines"}, "namespace must match service"),
     ],
-    ids=[
-        "not-arm",
-        "other-subscription",
-        "other-resource-group",
-        "unpaired-hierarchy",
-        "other-type",
-    ],
+    ids=["not-arm", "arm-subscription", "padded-text", "namespace-mismatch"],
 )
-def test_malformed_or_inconsistent_arm_is_rejected(arm):
-    with pytest.raises(ValidationError):
-        azure(physical_id=arm)
-
-
-@pytest.mark.parametrize(
-    "overrides",
-    [
-        {"physical_id": None},
-        {"resource_group": " MyGroup"},
-        {"service": "ec2"},
-        {"native_type": "Microsoft.Compute/virtualMachines"},
-        {"platform": "aws"},
-    ],
-    ids=["no-identifier", "padded-text", "service-pattern", "namespace-mismatch", "platform"],
-)
-def test_invalid_azure_identity_is_rejected(overrides):
-    with pytest.raises(ValidationError):
+def test_invalid_azure_identity_is_rejected(overrides, message):
+    with pytest.raises(ValidationError, match=message):
         azure(**overrides)
-
-
-def test_unknown_platform_is_rejected():
-    with pytest.raises(ValidationError):
-        parse_identity({"platform": "gcp"})

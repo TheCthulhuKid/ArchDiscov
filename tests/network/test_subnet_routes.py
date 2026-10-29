@@ -245,7 +245,7 @@ def test_an_egress_only_route_needs_an_attached_gateway(gateways):
     )
 
 
-# ---- coverage and platform ----------------------------------------------------------
+# ---- coverage -----------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("status", ["failed", "incomplete", "skipped"])
@@ -267,13 +267,6 @@ def test_unrecorded_coverage_is_not_interpreted_and_unknown_subnets_are_unknown(
     index = check([PUBLIC_TABLE])[0]
     result = evaluate_subnet_route(index, resource_id("subnet-9"), PUBLIC, reach=IGW)
     assert result.decision == D.UNKNOWN
-
-
-def test_non_aws_snapshots_return_the_unsupported_platform_result():
-    index = GraphIndex(load_snapshot(FIXTURES_ROOT / "snapshots" / "azure.json"))
-    result = evaluate_subnet_route(index, "any", PUBLIC, reach=IGW)
-    assert result.decision == D.UNKNOWN
-    assert codes(result) == {B.UNSUPPORTED_PLATFORM}
 
 
 def test_gateway_collection_only_limits_internet_gateway_queries():

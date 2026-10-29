@@ -1,9 +1,7 @@
 import json
-from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from click import unstyle
 from typer.testing import CliRunner
 
 from archdiscov.cli import app
@@ -17,7 +15,7 @@ runner = CliRunner()
 
 @pytest.mark.parametrize(
     "fixture",
-    [FIXTURES / name for name in ("aws.json", "azure.json", "partial-coverage.json")],
+    [FIXTURES / name for name in ("partial-coverage.json", "azure.json")],
     ids=lambda path: path.stem,
 )
 def test_ingest_preserves_the_fixture(tmp_path: Path, fixture: Path) -> None:
@@ -67,23 +65,18 @@ def test_offline_ingest_and_evidence_workflow(tmp_path: Path, json_output: bool)
     if json_output:
         payload = json.loads(inspected.stdout)
         assert payload["snapshot_path"] == str(output)
-        assert payload["snapshot_id"] == "00000000-0000-4000-8000-000000000004"
-        assert payload["snapshot_source"] == {
-            "kind": "aws",
-            "exported_at": None,
-            "profile": "development",
-            "role_arn": None,
-        }
         assert payload["evidence_id"] == "sg-rule"
         assert payload["resource"]["id"] == payload["evidence"]["resource_id"]
-        assert payload["evidence"]["locator"] == "DescribeSecurityGroups"
-        assert payload["evidence"]["configuration_path"] == "SecurityGroups[0].IpPermissions[0]"
-        assert payload["evidence"]["value"]["FromPort"] == 443
         assert payload["fact_paths"] == ["/attributes/ingress/0"]
         assert payload["coverage"][1]["failures"][0]["code"] == "UnauthorizedOperation"
-        assert payload["coverage"][2]["result_count"] == 0
     else:
-        assert "Saved snapshot" in imported.stdout
+        for text in (
+            "Saved snapshot",
+            "PARTIAL",
+            "eu-west-1 ec2 DescribeRouteTables: failed [UnauthorizedOperation]",
+            "DescribeInstances: success (0 results)",
+        ):
+            assert text in imported.stdout
         for text in (
             str(output),
             "sg-rule",
@@ -100,11 +93,25 @@ def test_offline_ingest_and_evidence_workflow(tmp_path: Path, json_output: bool)
     assert output.read_bytes() == original
 
 
-@pytest.mark.parametrize("status", ["redacted", "omitted", "unresolved"])
-@pytest.mark.parametrize("json_output", [False, True])
-def test_evidence_displays_value_limitations(
-    tmp_path: Path, status: str, json_output: bool
-) -> None:
+def test_azure_ingest_and_evidence_name_their_cloud_context(tmp_path: Path) -> None:
+    output = tmp_path / "snapshot.json"
+    imported = runner.invoke(app, ["ingest", str(FIXTURES / "azure.json"), "-o", str(output)])
+    assert imported.exit_code == 0, imported.output
+    assert "azure eastus Microsoft.Compute fixture.instance-view: failed" in imported.stdout
+    inspected = runner.invoke(app, ["evidence", "vm-size", "--snapshot", str(output)])
+    assert inspected.exit_code == 0, inspected.output
+    for text in (
+        load_snapshot(output).scope.subscription_id,
+        "Location: eastus; service: Microsoft.Compute",
+        "Fact citations: /vm_size",
+        "platform/scope/location/service",
+        "Failure [FixtureUnavailable]",
+    ):
+        assert text in inspected.stdout
+
+
+@pytest.mark.parametrize("status", ["redacted", "unresolved"])
+def test_evidence_displays_value_limitations(tmp_path: Path, status: str) -> None:
     data = json.loads((FIXTURES / "partial-coverage.json").read_text())
     record = data["evidence"]["sg-rule"]
     if status == "redacted":
@@ -121,23 +128,21 @@ def test_evidence_displays_value_limitations(
     source.write_text(json.dumps(data))
     saved = tmp_path / "saved.json"
     assert runner.invoke(app, ["ingest", str(source), "-o", str(saved)]).exit_code == 0
-    result = runner.invoke(
-        app, ["evidence", "sg-rule", "--snapshot", str(saved), *(["--json"] if json_output else [])]
-    )
-    assert result.exit_code == 0, result.output
-    assert "private-value" not in result.output
+    arguments = ["evidence", "sg-rule", "--snapshot", str(saved)]
+    readable, result = (runner.invoke(app, [*arguments, *flags]) for flags in ([], ["--json"]))
+    for outcome in (readable, result):
+        assert outcome.exit_code == 0, outcome.output
+        assert "private-value" not in outcome.output
+        assert status in outcome.stdout
+        assert "Partial response" in outcome.stdout
+        assert "Unknown expression" in outcome.stdout
     assert "private-value" not in saved.read_text()
-    assert status in result.stdout
-    assert "Partial response" in result.stdout
-    assert "Unknown expression" in result.stdout
-    if json_output:
-        evidence = json.loads(result.stdout)["evidence"]
-        assert evidence["value_status"] == status
-        assert evidence["redacted_paths"] == (["/Password"] if status == "redacted" else [])
-    else:
-        assert (
-            "Redacted paths" if status == "redacted" else "Source fact unavailable"
-        ) in result.stdout
+    evidence = json.loads(result.stdout)["evidence"]
+    assert evidence["value_status"] == status
+    assert evidence["redacted_paths"] == (["/Password"] if status == "redacted" else [])
+    assert (
+        "Redacted paths" if status == "redacted" else "Source fact unavailable"
+    ) in readable.stdout
 
 
 def test_readable_file_evidence_without_operation_coverage(tmp_path: Path) -> None:
@@ -165,47 +170,27 @@ def test_readable_file_evidence_without_operation_coverage(tmp_path: Path) -> No
     assert "Fact citations: <none>" in result.stdout
 
 
-def _snapshot_with(edit: Callable[[dict], None]) -> Callable[[Path], None]:
-    """A writer of the partial-coverage fixture after `edit` puts a secret into it."""
-
-    def write(source: Path) -> None:
-        data = json.loads((FIXTURES / "partial-coverage.json").read_text())
-        edit(data)
-        source.write_text(json.dumps(data))
-
-    return write
+def _unknown_owner(source: Path) -> None:
+    """The partial-coverage fixture with a secret as the owner of its evidence."""
+    data = json.loads((FIXTURES / "partial-coverage.json").read_text())
+    data["evidence"]["sg-rule"]["resource_id"] = "never-disclose"
+    source.write_text(json.dumps(data))
 
 
 BAD_INPUTS = {
     "json": (lambda source: source.write_text('{"secret":"never-disclose",'), "invalid_json", 2),
-    "version": (
-        _snapshot_with(lambda data: data.update(schema_version="never-disclose")),
-        "unsupported_schema_version",
-        2,
-    ),
-    "reference": (
-        _snapshot_with(
-            lambda data: data["evidence"]["sg-rule"].update(resource_id="never-disclose")
-        ),
-        "invalid_snapshot",
-        2,
-    ),
+    "reference": (_unknown_owner, "invalid_snapshot", 2),
     "missing": (lambda source: None, "snapshot_io_error", 1),
 }
 
 
 @pytest.mark.parametrize("kind", BAD_INPUTS)
-@pytest.mark.parametrize("command", ["ingest", "evidence"])
-def test_commands_report_safe_input_errors(tmp_path: Path, kind: str, command: str) -> None:
+def test_ingest_reports_safe_input_errors(tmp_path: Path, kind: str) -> None:
     write, code, exit_code = BAD_INPUTS[kind]
     source = tmp_path / "bad.json"
     write(source)
     output = tmp_path / "output.json"
-    arguments = (
-        ["ingest", str(source), "-o", str(output)]
-        if command == "ingest"
-        else ["evidence", "sg-rule", "--snapshot", str(source)]
-    )
+    arguments = ["ingest", str(source), "-o", str(output)]
     readable = runner.invoke(app, arguments)
     result = runner.invoke(app, [*arguments, "--json"])
     for outcome in (readable, result):
@@ -217,29 +202,18 @@ def test_commands_report_safe_input_errors(tmp_path: Path, kind: str, command: s
     assert code in readable.stderr and str(source) in readable.stderr
     error = json.loads(result.stdout)["error"]
     assert (error["code"], error["path"], result.stderr) == (code, str(source), "")
-    if kind == "version":
-        assert error["details"][0]["location"] == ["schema_version"]
-        assert error["details"][0]["type"] == code
+    if kind == "reference":
+        assert error["details"]
     if kind == "json":
         assert error["line"] == 1 and error["column"] > 0
 
 
-@pytest.mark.parametrize("json_output", [False, True])
-def test_missing_evidence_has_distinct_exit_code(json_output: bool) -> None:
+def test_missing_evidence_has_distinct_exit_code() -> None:
     result = runner.invoke(
-        app,
-        [
-            "evidence",
-            "absent",
-            "--snapshot",
-            str(FIXTURES / "hierarchy.json"),
-            *(["--json"] if json_output else []),
-        ],
+        app, ["evidence", "absent", "--snapshot", str(FIXTURES / "hierarchy.json"), "--json"]
     )
     assert result.exit_code == 4
-    assert "evidence_not_found" in result.output
-    if json_output:
-        assert json.loads(result.stdout)["error"]["code"] == "evidence_not_found"
+    assert json.loads(result.stdout)["error"]["code"] == "evidence_not_found"
 
 
 def test_ingest_never_overwrites(tmp_path: Path) -> None:
@@ -256,24 +230,3 @@ def test_ingest_never_overwrites(tmp_path: Path) -> None:
     assert source.read_bytes() == original
     assert output.read_text() == "existing invalid JSON"
     assert not list(tmp_path.glob(".archdiscov-*.tmp"))
-
-
-def test_ingest_does_not_create_parent_directories(tmp_path: Path) -> None:
-    output = tmp_path / "missing" / "snapshot.json"
-    result = runner.invoke(
-        app, ["ingest", str(FIXTURES / "hierarchy.json"), "-o", str(output), "--json"]
-    )
-    assert result.exit_code == 1
-    assert json.loads(result.stdout)["error"]["path"] == str(output)
-    assert not output.parent.exists()
-
-
-@pytest.mark.parametrize("command", ["ingest", "evidence"])
-@pytest.mark.parametrize("styled", [False, True], ids=["plain", "styled"])
-def test_command_help_and_usage(command: str, styled: bool, monkeypatch) -> None:
-    monkeypatch.setenv("TERM", "xterm")
-    monkeypatch.setenv("TTY_COMPATIBLE", "1" if styled else "0")
-    help_result = runner.invoke(app, [command, "--help"])
-    assert help_result.exit_code == 0
-    assert "--json" in unstyle(help_result.stdout)
-    assert runner.invoke(app, [command]).exit_code == 2

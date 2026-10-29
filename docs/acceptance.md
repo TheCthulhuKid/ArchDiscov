@@ -7,10 +7,10 @@ needs credentials or network access.
 ## Offline increment acceptance
 
 The first increment is exercised by `tests/acceptance/test_offline_acceptance.py`: from outside the
-checkout, with credential variables removed, it imports hierarchy and partial-coverage
-fixtures using the installed CLI, inspects cited evidence, confirms typed children and
-coverage survive persistence, rejects invalid references with safe diagnostics, and
-checks that re-importing cannot overwrite saved bytes.
+checkout, with credential variables removed, it imports the partial-coverage fixture using
+the installed CLI, inspects cited evidence and its coverage, confirms the saved snapshot
+equals the fixture, rejects invalid references with safe diagnostics, and checks that
+re-importing cannot overwrite saved bytes.
 
 Run the acceptance test directly and in the Docker development environment:
 
@@ -71,15 +71,16 @@ The phase closes with complementary journeys rather than live-AWS requirements:
 - `tests/acceptance/test_phase_two_acceptance.py`: real Botocore Stubber requests through
   collection, validated persistence and exact evidence inspection; a denied read
   remains partial while successful zero inventory stays distinguishable. Explicit
-  local/external/unresolved targets retain their identifiers, reasons and citations.
+  local/external/unresolved targets keep their identifiers and reasons in
+  `tests/models/test_dependency.py`.
 - `tests/acceptance/test_whole_architecture_acceptance.py`: populated seven-family collection
   across accounts/regions, with discovery, isolated failures, redaction and immutable files.
 - `tests/acceptance/test_raw_ingestion_acceptance.py`: the installed `archdiscov` script outside
-  the checkout imports every source format without saving a protected value, inspects a cited
-  fact, and refuses malformed input without creating output. Each format's mapping and context
-  and parameter failures are proven by the ingestion and import-service tests, no overwrite once
-  in the ingest stage of `test_installed_end_to_end.py`, and the readable summaries in
-  `tests/cli`.
+  the checkout imports each raw IaC format (Terraform state and plan, CloudFormation) without
+  saving a protected value, inspects a cited fact, and refuses malformed input without creating
+  output. Each format's mapping and context and parameter failures are proven by the ingestion
+  and import-service tests, snapshot JSON and no overwrite in `test_offline_acceptance.py`, and
+  the readable summaries in `tests/cli`.
 - `tests/acceptance/test_offline_acceptance.py` and the fixture persistence suite preserve
   historical schema `1`, typed children, citations and qualified coverage.
 - `tests/ingestion/aws/test_permissions_documentation.py` prevents the published inventory policy
@@ -121,10 +122,11 @@ Phase 3 closes with offline checks that need no credentials or network, on the h
   unqualified conclusion under partial coverage, immutable and verified results).
 - `tests/acceptance/test_installed_end_to_end.py`: one journey outside the checkout through the
   installed `archdiscov` script, one test per stage (ingest, queries, each analyzer with its
-  findings and evidence, each comparison), with an offline guard that fails any network use.
+  findings and evidence, a comparison), with an offline guard that fails any network use.
   Every stage starts from the same fixtures, and the ingest stage shows that `ingest` saves each
   snapshot fixture unchanged, so the stages run in parallel. The AWS-only analyzers' unsupported
-  result on the Azure fixture is checked once per analyzer in `test_cloud_workflows.py`.
+  result on the Azure fixture is checked once per analyzer in `test_phase_three_audit.py`, and
+  `test_cloud_workflows.py` runs the installed Azure ingest and evidence journey.
 - `tests/acceptance/test_readme_scenarios.py` and `tests/documentation`: the scenarios below,
   and the documentation, command, limit, link, and scenario-mapping checks.
 
@@ -188,8 +190,9 @@ the host with `.venv/bin/python` and in Docker with `/opt/venv/bin/python`:
   data, and a session that calls every tool opens no file beyond the three selected, with
   other snapshots and results beside them.
 - `tests/cli/test_mcp_cli.py`, `tests/services/test_mcp_service.py`, and
-  `tests/assistant/test_mcp_server.py`: the command's diagnostics and exit codes, a real stdio
-  session, and the server's tools, limits, prompts, and answer parity with `ask`.
+  `tests/assistant/test_mcp_server.py`: the command's diagnostics and exit codes, an interrupt
+  of a waiting server, a served session, and the server's tools, limits, prompts, and answer
+  parity with `ask`.
 - `tests/documentation`: the documented options, exit codes, limits, tools, prompts, and the
   scenario mapping below.
 
@@ -244,15 +247,13 @@ not only that a command ran:
 through the `archdiscov` script, with the offline guard and no credentials: it answers the
 README suite's cases, which include the five README example questions, with fake-provider
 transcripts, answers one through each provider
-adapter against a loopback mock API, and checks that a missing configuration, an unknown
-snapshot, a Bedrock profile that cannot be loaded, a missing key, a provider error, a run
-limit, and an existing transcript path fail safely with their
-[documented exit codes](ask-command.md#exit-codes).
+adapter against a loopback mock API, and checks that a missing configuration, a Bedrock
+profile that cannot be loaded, a missing key, a provider error, and a run limit fail safely
+with their [documented exit codes](ask-command.md#exit-codes).
 `tests/acceptance/test_installed_evaluation.py` evaluates the checked-in README suite and an
 adversarial suite (fabricated citations, unsupported claims, malicious imported text,
 provider errors, tool-call and request limits, and a repair) the same way: every case
 passes with the fake provider, the README suite reaches the same records through the
-Anthropic adapter against a loopback mock API, an existing report path and an external
-provider without `--allow-external` are refused, and two reports are compared
+Anthropic adapter against a loopback mock API, and two reports are compared
 ([evaluation](assistant-evaluation.md)). External-provider and real-AWS tests remain
 opt-in.

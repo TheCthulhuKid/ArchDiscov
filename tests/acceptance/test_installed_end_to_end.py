@@ -1,78 +1,56 @@
 """One credential-free, network-free journey through the installed CLI, outside the checkout.
 
 fixture -> ingest -> queries -> each analyzer -> saved results -> findings -> evidence ->
-comparisons -> comparison display, through the installed script, one test per stage. Every
+a comparison -> comparison display, through the installed script, one test per stage. Every
 stage starts from the same fixtures, written in process once per worker: the ingest stage shows
 that the installed `ingest` saves each snapshot fixture byte for byte, so the later stages read
 what it would have saved, and the stages run in parallel instead of one long chain. The child
 sees no credentials and no checkout: its whole `PYTHONPATH` is the offline guard, which fails
 and records any network use. Readable output is left to `tests/cli`, which renders every
-command's readable form in process.
+command's readable form in process; raw IaC imports are `test_raw_ingestion_acceptance.py`'s,
+and no overwrite is `test_offline_acceptance.py`'s.
 """
 
-import shutil
 import socket
 import subprocess
 import sys
 
 import pytest
-from typer.testing import CliRunner
 
-from archdiscov.cli import app
 from archdiscov.services import (
     load_analysis,
     load_comparison,
     load_snapshot,
     save_snapshot,
 )
-from tests.paths import FIXTURES_ROOT, PROJECT_ROOT
+from tests.paths import PROJECT_ROOT
 from tests.support.audit_scenarios import SCENARIOS
 from tests.support.comparison_data import journey_snapshot
 from tests.support.installed_cli import Workspace, digest
 from tests.support.offline_guard import OfflineGuard
 from tests.support.security_group_data import IDS
 
-CONTEXT = ("--account-id", "123456789012", "--region", "eu-west-1")
-# The raw IaC inputs, with the `ingest` options each needs.
-DECLARED = {
-    "plan": ("plan.json", ("--format", "terraform-plan", *CONTEXT)),
-    "template": ("t.yaml", ("--format", "cloudformation", "--stack-name", "demo", *CONTEXT)),
-}
 OPTIONS = {"resource_id": "--resource-id", "port": "--port", "max_depth": "--max-depth"}
 GROUP = IDS["sg-app"]
-PAIRS = {
-    "pair": ("left", "right"),
-    "plan": ("security_group_impact", "plan"),
-    "template": ("security_group_impact", "template"),
-}
 
 
 @pytest.fixture(scope="module")
 def ws(tmp_path_factory) -> Workspace:
-    """The journey's fixtures in `fixtures/`, and in `snapshots/` the declared snapshots,
-    ingested in process, that the comparisons need."""
+    """The journey's fixtures in `fixtures/`: one per analyzer scenario, and a pair to compare."""
     ws = Workspace(tmp_path_factory.mktemp("journey"))
     for kind, scenario in SCENARIOS.items():
         save_snapshot(scenario.build(), ws.path("fixtures", f"{kind.value}.json"))
     save_snapshot(journey_snapshot("aws", 1, seed=1), ws.path("fixtures", "left.json"))
     save_snapshot(journey_snapshot("aws", 2, seed=2), ws.path("fixtures", "right.json"))
-    shutil.copy(FIXTURES_ROOT / "terraform" / "plan.json", ws.path("fixtures", "plan.json"))
-    shutil.copy(FIXTURES_ROOT / "cloudformation" / "template.yaml", ws.path("fixtures", "t.yaml"))
-    for name, (source, options) in DECLARED.items():
-        output = ws.path("snapshots", f"{name}.json")
-        result = CliRunner().invoke(
-            app, ["ingest", str(ws.path("fixtures", source)), "-o", str(output), *options]
-        )
-        assert result.exit_code == 0, result.output
     return ws
 
 
 def snapshot(ws: Workspace, name: str):
-    """A stage's input: a snapshot fixture as ingest saves it, or a declared snapshot."""
-    return ws.path("snapshots" if name in DECLARED else "fixtures", f"{name}.json")
+    """A stage's input: a snapshot fixture as ingest saves it."""
+    return ws.path("fixtures", f"{name}.json")
 
 
-def test_ingest_saves_each_fixture_unchanged_and_never_overwrites(ws, tmp_path):
+def test_ingest_saves_each_fixture_unchanged(ws, tmp_path):
     inputs = {path: digest(path) for path in ws.path("fixtures").iterdir()}
     for kind in SCENARIOS:
         fixture = ws.path("fixtures", f"{kind.value}.json")
@@ -80,14 +58,6 @@ def test_ingest_saves_each_fixture_unchanged_and_never_overwrites(ws, tmp_path):
         saved = ws.json("ingest", fixture, "-o", output)
         assert digest(output) == inputs[fixture]
         assert saved["snapshot_id"] == str(load_snapshot(output).snapshot_id)
-    for name, (source, options) in DECLARED.items():
-        output = tmp_path / f"{name}.json"
-        saved = ws.json("ingest", ws.path("fixtures", source), "-o", output, *options)
-        assert saved["source_kind"] == load_snapshot(output).source.kind
-    kept = digest(output)
-    conflict = ws.json("ingest", ws.path("fixtures", "left.json"), "-o", output, expect=3)
-    assert conflict["error"]["code"] == "snapshot_conflict"
-    assert digest(output) == kept
     assert {path: digest(path) for path in ws.path("fixtures").iterdir()} == inputs
     assert ws.guard.attempts == []
 
@@ -130,26 +100,24 @@ def test_each_analyzer_saves_findings_that_cite_evidence(ws, kind):
     assert ws.guard.attempts == []
 
 
-@pytest.mark.parametrize("name", PAIRS)
-def test_each_comparison_is_saved_and_shown_as_saved(ws, name):
-    first, second = (snapshot(ws, side) for side in PAIRS[name])
+def test_a_comparison_is_saved_and_shown_as_saved(ws):
+    first, second = snapshot(ws, "left"), snapshot(ws, "right")
     sides = ("--left", first, "--right", second)
-    output = ws.path("comparisons", f"{name}.json")
+    output = ws.path("comparisons", "pair.json")
     saved = ws.json("compare", *sides, "--output", output)
     shown = ws.json("comparison", output, *sides)
     for key in ("left", "right", "matched", "unmatched", "ambiguous", "limitations"):
         assert shown[key] == saved[key]
     result = load_comparison(output, left=load_snapshot(first), right=load_snapshot(second))
     assert str(result.left.snapshot_id) == saved["left"]["snapshot_id"]
-    if name == "pair":
-        # The observed pair cites evidence on both sides; inspect each in its own snapshot.
-        [pair] = result.matched
-        [difference] = pair.differences
-        for cited, path in (
-            (difference.left_evidence_ids, first),
-            (difference.right_evidence_ids, second),
-        ):
-            assert ws.json("evidence", cited[0], "--snapshot", path)["evidence_id"] == cited[0]
+    # The pair cites evidence on both sides; inspect each in its own snapshot.
+    [pair] = result.matched
+    [difference] = pair.differences
+    for cited, path in (
+        (difference.left_evidence_ids, first),
+        (difference.right_evidence_ids, second),
+    ):
+        assert ws.json("evidence", cited[0], "--snapshot", path)["evidence_id"] == cited[0]
     assert ws.guard.attempts == []
 
 

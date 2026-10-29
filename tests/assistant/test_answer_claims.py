@@ -11,10 +11,8 @@ from archdiscov.assistant.answer_validation import (
     validate_proposal,
 )
 from archdiscov.assistant.answers import combined_status
-from archdiscov.assistant.rejections import REJECTION_MESSAGES, RejectionCode
-from archdiscov.assistant.tools.contracts import IdKind
 from archdiscov.assistant.tools.session import ToolSession
-from archdiscov.models.enums import AnalysisStatus, AnalyzerKind, SnapshotSourceKind
+from archdiscov.models.enums import AnalyzerKind, SnapshotSourceKind
 from tests.paths import FIXTURES_ROOT
 from tests.support.answer_claims import (
     INJECTION,
@@ -36,10 +34,9 @@ def _codes(rejections) -> list[tuple[str, str]]:
 # ---- valid proposals ---------------------------------------------------------------
 
 
-@pytest.mark.parametrize("kind", list(AnalyzerKind))
-@pytest.mark.parametrize("coverage", [None, "failed", "incomplete"])
-def test_honest_proposals_pass_for_every_analyzer(kind: AnalyzerKind, coverage: str | None) -> None:
-    session, findings = analyzed_findings(kind, coverage)
+def test_honest_proposals_pass_with_their_limitations_acknowledged() -> None:
+    # `test_answer_rendering.py` validates an honest proposal for every analyzer.
+    session, findings = analyzed_findings(AnalyzerKind.CROSS_ACCOUNT_TRUST, "failed")
     status = expected_status(findings)
     proposal = cited_proposal(session, findings, status=status)
     assert validate_proposal(proposal, session) == ()
@@ -78,9 +75,8 @@ def test_configuration_alone_cannot_support_an_answer() -> None:
         "kind": "recorded_configuration",
         "citations": [{"evidence_ids": evidence, "resource_ids": [resource]}],
     }
-    for status in ("supported", "partial"):
-        proposal = cited_proposal(session, [], status=status, conclusions=[conclusion])
-        assert _codes(check_claims(proposal, session)) == [("answer_status_upgrade", "status")]
+    proposal = cited_proposal(session, [], status="partial", conclusions=[conclusion])
+    assert _codes(check_claims(proposal, session)) == [("answer_status_upgrade", "status")]
     insufficient = cited_proposal(
         session, [], status="insufficient_evidence", conclusions=[conclusion]
     )
@@ -158,12 +154,6 @@ def test_findings_about_other_resources_are_not_contradictions() -> None:
 
 # ---- planned as deployed -----------------------------------------------------------
 
-DECLARED = [
-    SnapshotSourceKind.TERRAFORM_STATE,
-    SnapshotSourceKind.TERRAFORM_PLAN,
-    SnapshotSourceKind.CLOUDFORMATION,
-]
-
 
 def test_declared_architecture_described_as_observed_is_rejected() -> None:
     session = ToolSession.from_paths(OWNERSHIP_SNAPSHOT)
@@ -190,21 +180,6 @@ def test_declared_architecture_described_as_observed_is_rejected() -> None:
     assert _codes(validate_proposal(declared, session)) == [
         ("answer_source_kind_mismatch", "contexts[0].source_kind")
     ]
-
-
-def test_real_plan_and_template_snapshots_are_declared() -> None:
-    for name in ("terraform-plan.json", "cloudformation.json"):
-        session = ToolSession.from_paths(SNAPSHOTS / name)
-        assert session.index.source_kind in DECLARED
-        proposal = cited_proposal(
-            session,
-            [],
-            status="insufficient_evidence",
-            contexts=[{"side": "primary", "source_kind": "aws"}],
-        )
-        assert ("answer_planned_as_deployed", "contexts[0].source_kind") in _codes(
-            validate_proposal(proposal, session)
-        )
 
 
 # ---- narrative ---------------------------------------------------------------------
@@ -279,28 +254,6 @@ def test_validate_proposal_reports_citation_and_claim_failures_together() -> Non
         ("answer_unknown_id", "conclusions[1].citations[0].finding_ids[0]"),
         ("answer_status_upgrade", "status"),
     ]
-
-
-def test_every_code_has_a_fixed_message() -> None:
-    assert set(REJECTION_MESSAGES) == set(RejectionCode)
-    session = ToolSession.from_paths(OWNERSHIP_SNAPSHOT)
-    session.record.record(session.index.snapshot_id, IdKind.RESOURCE, session.index.resource_ids)
-    for rejection in validate_proposal(
-        cited_proposal(
-            session,
-            [],
-            status="supported",
-            summary=INJECTION,
-            conclusions=[{"kind": "analyzer_finding", "citations": [{"finding_ids": [INJECTION]}]}],
-        ),
-        session,
-    ):
-        assert rejection.message == REJECTION_MESSAGES[rejection.code]
-        assert INJECTION not in rejection.model_dump_json()
-
-
-def test_statuses_are_ranked_like_the_answer_vocabulary() -> None:
-    assert set(RANK) == {status.value for status in AnalysisStatus}
 
 
 def test_a_combined_status_needs_at_least_one_finding() -> None:

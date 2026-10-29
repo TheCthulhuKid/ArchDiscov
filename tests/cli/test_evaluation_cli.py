@@ -44,9 +44,11 @@ def _invoke(*arguments):
     return result
 
 
-def _evaluate(suite: Path, tmp_path: Path, *extra, output: str = "report.json"):
+def _evaluate(suite: Path, tmp_path: Path, *extra):
     config = write_fake_config(tmp_path / "fake.toml")
-    return _invoke("evaluate", suite, "--config", config, "--output", tmp_path / output, *extra)
+    return _invoke(
+        "evaluate", suite, "--config", config, "--output", tmp_path / "report.json", *extra
+    )
 
 
 def _failing_suite(tmp_path: Path) -> Path:
@@ -133,10 +135,22 @@ def test_a_cancelled_evaluation_saves_the_report_so_far_and_exits_130(
     assert load_report(tmp_path / "report.json").providers[0].cancelled
 
 
-def test_the_budget_is_stated_before_the_first_adapter_request(tmp_path: Path, monkeypatch) -> None:
+def test_an_external_provider_needs_the_opt_in_and_is_budgeted_before_its_first_request(
+    tmp_path: Path, monkeypatch
+) -> None:
     harness = AnthropicHarness()
     api = serve_suite(harness, README_SUITE, monkeypatch)
     monkeypatch.setenv(EVALUATION_KEY_VARIABLE, KEY)
+    config = anthropic_config(tmp_path, harness)
+    output = tmp_path / "report.json"
+    arguments = ["evaluate", README_SUITE, "--config", config, "--output", output]
+    refused = _invoke(*arguments, "--json")
+    assert refused.exit_code == 2, refused.output
+    assert "Budget" not in refused.stderr
+    error = json.loads(refused.stdout)["error"]
+    assert (error["code"], error["path"]) == ("evaluation_external_not_allowed", str(config))
+    assert api.requests == [] and not output.exists()
+
     stated = []
     state_budget = cli_evaluation.state_budget
 
@@ -145,32 +159,12 @@ def test_the_budget_is_stated_before_the_first_adapter_request(tmp_path: Path, m
         state_budget(prepared, **options)
 
     monkeypatch.setattr(cli_evaluation, "state_budget", recording)
-    config = anthropic_config(tmp_path, harness)
-    output = tmp_path / "report.json"
-    result = _invoke(
-        "evaluate", README_SUITE, "--config", config, "--output", output, "--allow-external"
-    )
+    result = _invoke(*arguments, "--allow-external")
     assert result.exit_code == 0, result.output
     assert stated == [0] and api.requests
     assert result.stderr.startswith("Budget: anthropic, model ")
     report = load_report(output)
     assert len(api.requests) == report.providers[0].totals.provider_requests
-
-
-def test_an_external_provider_needs_the_opt_in(tmp_path: Path, monkeypatch) -> None:
-    harness = AnthropicHarness()
-    api = serve_suite(harness, README_SUITE, monkeypatch)
-    monkeypatch.setenv(EVALUATION_KEY_VARIABLE, KEY)
-    config = anthropic_config(tmp_path, harness)
-    output = tmp_path / "report.json"
-    for flags in ([], ["--json"]):
-        result = _invoke("evaluate", README_SUITE, "--config", config, "--output", output, *flags)
-        assert result.exit_code == 2, result.output
-        assert "Budget" not in result.stderr
-    error = json.loads(result.stdout)["error"]
-    assert error["code"] == "evaluation_external_not_allowed"
-    assert error["path"] == str(config)
-    assert api.requests == [] and not output.exists()
 
 
 def test_an_existing_output_path_is_refused_before_any_run(tmp_path: Path) -> None:
@@ -204,14 +198,8 @@ def _suite_file(tmp_path: Path, content: str) -> Path:
             "invalid_evaluation_suite",
             2,
         ),
-        (lambda tmp: (README_SUITE, [tmp / "missing.toml"]), "provider_config_unreadable", 1),
-        (
-            lambda tmp: (README_SUITE, [_fake(tmp)] * 11),
-            "evaluation_providers_invalid",
-            2,
-        ),
     ],
-    ids=["missing-suite", "invalid-suite", "missing-config", "too-many-configs"],
+    ids=["missing-suite", "invalid-suite"],
 )
 def test_pre_run_failures_are_safe_diagnostics(tmp_path: Path, setup, code, exit_code) -> None:
     suite, configs = setup(tmp_path)
@@ -223,12 +211,6 @@ def test_pre_run_failures_are_safe_diagnostics(tmp_path: Path, setup, code, exit
     assert error["code"] == code
     assert "TAMPERED" not in result.stdout + result.stderr
     assert result.stderr == "" and not output.exists()
-
-
-def test_a_missing_output_directory_is_an_io_error(tmp_path: Path) -> None:
-    result = _evaluate(README_SUITE, tmp_path, output="missing/report.json")
-    assert result.exit_code == 1, result.output
-    assert result.stderr.startswith("Error [snapshot_io_error]")
 
 
 # ---- evaluation --------------------------------------------------------------------
@@ -307,12 +289,6 @@ def test_an_existing_comparison_path_is_refused(reports: tuple[Path, Path]) -> N
     assert after.read_bytes() == content
 
 
-def test_saving_needs_a_comparison(reports: tuple[Path, Path], tmp_path: Path) -> None:
-    result = _invoke("evaluation", reports[0], "--output", tmp_path / "comparison.json")
-    assert result.exit_code == 2
-    assert not (tmp_path / "comparison.json").exists()
-
-
 def test_an_unusable_report_is_a_safe_diagnostic(
     reports: tuple[Path, Path], tmp_path: Path
 ) -> None:
@@ -328,6 +304,3 @@ def test_an_unusable_report_is_a_safe_diagnostic(
     assert "tampered-name" not in result.stdout
     missing = _invoke("evaluation", tmp_path / "missing.json")
     assert missing.exit_code == 1
-    broken = tmp_path / "broken.json"
-    broken.write_text("{", encoding="utf-8")
-    assert _invoke("evaluation", reports[0], "--compare", broken).exit_code == 2

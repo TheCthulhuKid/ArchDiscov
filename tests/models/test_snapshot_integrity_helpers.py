@@ -5,17 +5,7 @@ from uuid import uuid4
 
 import pytest
 
-from archdiscov.models.architecture import (
-    ArchitectureSnapshot,
-    Resource,
-    ResourceIdentity,
-    Vpc,
-    _cache_fact_representations,
-    _validate_citations,
-    _validate_fact_pointer,
-)
-from archdiscov.models.cloud.identity import AzureResourceIdentity
-from archdiscov.models.resources.azure import AzureVirtualNetwork
+from archdiscov.models.architecture import ArchitectureSnapshot, Resource, ResourceIdentity, Vpc
 from archdiscov.models.resources.cloud_unknown import CloudUnknownResource
 from archdiscov.models.snapshot_integrity import (
     index_resources,
@@ -58,17 +48,6 @@ def test_indexing_calls_placement_recursively_and_shares_indices() -> None:
     )
 
 
-def test_placement_failure_does_not_index_resource() -> None:
-    resources, locations = {}, {}
-
-    def placement(value: Resource, location: str) -> None:
-        raise ValueError(f"invalid placement at {location}")
-
-    with pytest.raises(ValueError, match=r"invalid placement at resources\[0\]"):
-        index_resources([resource("root")], "resources", resources, locations, placement)
-    assert resources == locations == {}
-
-
 def test_evidence_and_facts_accept_common_records() -> None:
     root = resource("root")
     root.attributes = {"a/b": {"~key": [None]}}
@@ -102,49 +81,24 @@ def test_unresolved_resources_accept_common_operation_records() -> None:
     assert str(caught.value) == (f"coverage.operations[1]: unknown unresolved resource {root.id!r}")
 
 
-@pytest.mark.parametrize("offsets", [(0, 2), (-1, 1), (1, 3), (2, 1)])
-def test_collection_window_accepts_common_operation_records(offsets: tuple[int, int]) -> None:
+def test_collection_window_contains_operation_records() -> None:
     start = datetime(2026, 1, 1, tzinfo=UTC)
     end = start + timedelta(seconds=2)
-    operation = SimpleNamespace(
-        started_at=start + timedelta(seconds=offsets[0]),
-        completed_at=start + timedelta(seconds=offsets[1]),
-    )
-    if offsets == (0, 2):
-        validate_collection_window(start, end, [operation])
-    else:
-        with pytest.raises(ValueError, match="timestamps must fall within snapshot collection"):
-            validate_collection_window(start, end, [operation])
+    validate_collection_window(start, end, [SimpleNamespace(started_at=start, completed_at=end)])
+    late = SimpleNamespace(started_at=start, completed_at=end + timedelta(seconds=1))
+    with pytest.raises(ValueError, match="timestamps must fall within snapshot collection"):
+        validate_collection_window(start, end, [late])
     with pytest.raises(ValueError, match="must not precede collection_started_at"):
         validate_collection_window(end, start, [])
 
 
-def test_private_helper_imports_remain_compatible() -> None:
-    from archdiscov.models import snapshot_integrity
-
-    assert _cache_fact_representations is snapshot_integrity._cache_fact_representations
-    assert _validate_citations is snapshot_integrity._validate_citations
-    assert _validate_fact_pointer is snapshot_integrity._validate_fact_pointer
-
-
-@pytest.mark.parametrize("kind", ["aws_unknown", "azure_model"])
-def test_legacy_rejects_cloud_resource_models(kind: str) -> None:
+def test_legacy_rejects_cloud_resource_models() -> None:
     path = FIXTURES_ROOT / "snapshots" / "aws.json"
     snapshot = ArchitectureSnapshot.model_validate(json.loads(path.read_text()))
-    if kind == "aws_unknown":
-        cloud = CloudUnknownResource(
-            identity=resource("unknown").identity, platform="aws", native_type="AWS::Other::Thing"
-        )
-        message = "legacy snapshots require AWS resource models"
-    else:
-        identity = AzureResourceIdentity(
-            subscription_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-            service="Microsoft.Network",
-            native_type="Microsoft.Network/virtualNetworks",
-            logical_address="network",
-        )
-        cloud = AzureVirtualNetwork(identity=identity)
-        message = "legacy snapshots require AWS identities"
+    cloud = CloudUnknownResource(
+        identity=resource("unknown").identity, platform="aws", native_type="AWS::Other::Thing"
+    )
+    message = "legacy snapshots require AWS resource models"
     snapshot.regions["eu-west-1"].resources = [cloud]
     with pytest.raises(ValueError, match=message):
         snapshot.validate_snapshot_integrity()

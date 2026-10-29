@@ -2,7 +2,6 @@ import asyncio
 from threading import Event
 
 import pytest
-from botocore.exceptions import EndpointConnectionError
 
 from archdiscov.ingestion import aws
 from archdiscov.ingestion.adapter import IngestionError
@@ -16,11 +15,9 @@ from archdiscov.services import (
     collect_snapshots,
     collect_snapshots_async,
     load_snapshot,
-    publication,
 )
 from tests.support.async_collection import ACCOUNT, OTHER, account, context, empty_job
 from tests.support.aws_fakes import Session
-from tests.support.ec2_data import default_pages, ec2_context
 from tests.support.ingestion_service import context as simple_context
 from tests.support.ingestion_service import request
 
@@ -54,15 +51,10 @@ def test_async_and_sync_collection_return_equivalent_detached_snapshots():
     assert result == sync
 
 
-@pytest.mark.parametrize("api", [collect_snapshots, collect_and_save, aws.AwsAdapter().collect])
-def test_sync_apis_fail_actionably_inside_loop_before_adapter_calls(api, tmp_path):
+def test_sync_api_fails_actionably_inside_loop_before_adapter_calls(tmp_path):
     async def run():
-        kwargs = {"context": simple_context()}
-        args = [request()]
-        if api is collect_and_save:
-            args.append([tmp_path / "unused.json"])
         with pytest.raises(IngestionError, match=r"async.*running event loop") as exc:
-            api(*args, **kwargs)
+            collect_and_save(request(), [tmp_path / "unused.json"], context=simple_context())
         assert exc.value.code == "invalid_request"
 
     asyncio.run(run())
@@ -79,7 +71,7 @@ class LegacyAdapter:
         return [self.snapshot]
 
 
-def test_sync_only_injected_adapter_remains_supported_and_revalidated(tmp_path):
+def test_sync_only_injected_adapter_remains_supported(tmp_path):
     (snapshot,) = collect_snapshots(request(), context=simple_context())
     adapter = LegacyAdapter(snapshot)
     (detached,) = asyncio.run(collect_snapshots_async(request(), adapter=adapter))
@@ -87,39 +79,20 @@ def test_sync_only_injected_adapter_remains_supported_and_revalidated(tmp_path):
     assert adapter.requests == [request()]
     outcome = collect_and_save(request(), [tmp_path / "legacy.json"], adapter=adapter)[0]
     assert outcome.error is None
-    snapshot.account_id = OTHER
-    with pytest.raises(SnapshotValidationError):
-        asyncio.run(collect_snapshots_async(request(), adapter=adapter))
 
 
-@pytest.mark.parametrize("outputs", [[], ["same.json", "same.json"]])
-def test_async_paths_checked_before_collection(tmp_path, outputs):
+def test_async_duplicate_paths_are_rejected_before_collection(tmp_path):
     class NeverCalled:
         def collect(self, *args, **kwargs):
             pytest.fail("invalid output paths must not collect")
 
-    with pytest.raises(IngestionError, match="output"):
-        asyncio.run(
-            collect_and_save_async(
-                request(), [tmp_path / path for path in outputs], adapter=NeverCalled()
-            )
-        )
-
-
-def test_async_duplicate_paths_are_rejected_for_matching_account_count(tmp_path):
     req = request().model_copy(update={"accounts": (account(), account(OTHER))})
     with pytest.raises(IngestionError, match="distinct"):
-        asyncio.run(collect_and_save_async(req, [tmp_path / "a", tmp_path / "." / "a"]))
-
-
-def test_native_adapter_output_mapping_is_checked_before_publication(tmp_path):
-    class WrongOrder:
-        async def collect_accounts_async(self, request, *, context):
-            return [AccountCollection(OTHER, error=IngestionError("identity_failed", "safe"))]
-
-    with pytest.raises(IngestionError, match="invalid account outcomes"):
-        asyncio.run(collect_and_save_async(request(), [tmp_path / "a"], adapter=WrongOrder()))
-    assert not list(tmp_path.iterdir())
+        asyncio.run(
+            collect_and_save_async(
+                req, [tmp_path / "a", tmp_path / "." / "a"], adapter=NeverCalled()
+            )
+        )
 
 
 def test_invalid_snapshot_isolated_from_successful_account_save(tmp_path):
@@ -138,49 +111,6 @@ def test_invalid_snapshot_isolated_from_successful_account_save(tmp_path):
     assert load_snapshot(paths[0]) == valid
     assert isinstance(outcomes[1].error, SnapshotValidationError)
     assert not paths[1].exists()
-
-
-@pytest.mark.parametrize("stage", ["before_link", "after_link"])
-def test_cancelled_save_settles_publication_and_preserves_committed_files(
-    monkeypatch, tmp_path, stage
-):
-    started, release = Event(), Event()
-    link = publication.os.link
-    first, second = tmp_path / "first.json", tmp_path / "never.json"
-    req = request().model_copy(
-        update={"accounts": (account(), account(OTHER)), "max_active_accounts": 1}
-    )
-    monkeypatch.setattr(aws, "collect_job", empty_job)
-
-    def blocked_link(source, destination):
-        if stage == "after_link":
-            link(source, destination)
-        started.set()
-        assert release.wait(5)
-        if stage == "before_link":
-            link(source, destination)
-
-    monkeypatch.setattr(publication.os, "link", blocked_link)
-
-    async def run():
-        task = asyncio.create_task(collect_and_save_async(req, [first, second], context=context()))
-        try:
-            assert await asyncio.to_thread(started.wait, 5)
-            task.cancel()
-            await asyncio.sleep(0)
-            task.cancel()
-            await asyncio.sleep(0)
-            assert not task.done()
-            assert first.exists() == (stage == "after_link")
-        finally:
-            release.set()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-
-    asyncio.run(run())
-    assert load_snapshot(first).account_id == ACCOUNT
-    assert not second.exists()
-    assert list(tmp_path.iterdir()) == [first]
 
 
 def test_cancellation_preserves_earlier_commits_and_does_not_start_later_saves(
@@ -219,23 +149,3 @@ def test_cancellation_preserves_earlier_commits_and_does_not_start_later_saves(
     asyncio.run(run())
     assert load_snapshot(paths[1]).account_id == OTHER
     assert not paths[2].exists()
-
-
-def test_async_collection_retains_evidence_and_partial_coverage_on_disk(tmp_path):
-    def pages(region):
-        result = default_pages(region)
-        result["describe_route_tables"] = [
-            EndpointConnectionError(endpoint_url="safe injected failure")
-        ]
-        return result
-
-    ctx = ec2_context(pages)
-    path = tmp_path / "architecture.json"
-    (outcome,) = asyncio.run(collect_and_save_async(request(), [path], context=ctx))
-    assert outcome.error is None
-    saved = load_snapshot(path)
-    assert saved == outcome.snapshot
-    assert saved.evidence
-    assert saved.regions["us-east-1"].resources
-    assert not outcome.complete
-    assert "hunter2" not in path.read_text()

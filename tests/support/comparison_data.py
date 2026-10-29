@@ -6,7 +6,7 @@ import json
 from uuid import UUID
 
 from archdiscov.graph import GraphIndex
-from archdiscov.services import upgrade_snapshot, validate_snapshot
+from archdiscov.services import validate_snapshot
 from tests.paths import FIXTURES_ROOT
 
 ACCOUNT = "123456789012"
@@ -154,14 +154,9 @@ def evidence(seed, resource, path, *, status="present", value=None):
     return {**data, "value_status": status, "limitation": "not available"}
 
 
-def journey_snapshot(source, value, *, seed, schema="2", **options):
-    resource, cited = cited_vpc("vpc-1", value, seed=seed, **options.pop("resource", {}))
-    snapshot = aws_snapshot([resource], source, seed=seed, evidence=cited, **options)
-    if schema == "3":
-        return upgrade_snapshot(snapshot)
-    if schema == "1":
-        return validate_snapshot({**snapshot.model_dump(mode="json"), "schema_version": "1"})
-    return snapshot
+def journey_snapshot(source, value, *, seed):
+    resource, cited = cited_vpc("vpc-1", value, seed=seed)
+    return aws_snapshot([resource], source, seed=seed, evidence=cited)
 
 
 def cited_vpc(physical, value, *, seed, **extra):

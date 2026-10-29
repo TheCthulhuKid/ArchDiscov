@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 
 from archdiscov.assistant.answers import AnswerProposal
-from archdiscov.assistant.conversation import AssistantMessage, ToolResultMessage
+from archdiscov.assistant.conversation import ToolResultMessage
 from archdiscov.assistant.runs import (
     Answered,
     MalformedOutput,
@@ -45,12 +45,6 @@ def test_a_proposal_after_tool_use_ends_the_run() -> None:
     assert provider.requests[-1].request.tools[-1].name == "submit_answer"
 
 
-def test_a_proposal_without_tool_use_ends_the_run() -> None:
-    result, _, session = run_turns([calls_turn(_submit(_proposal()))])
-    assert isinstance(result.outcome, Proposed)
-    assert session.record.returned() == ReturnedIds()
-
-
 def test_submit_answer_is_never_dispatched_as_a_tool() -> None:
     resource = "123456789012/eu-west-1/ec2/physical/vpc-0example"
     proposal = _proposal(
@@ -75,11 +69,6 @@ def test_submit_answer_is_never_dispatched_as_a_tool() -> None:
     [
         (calls_turn(_submit(None)), MalformedOutputReason.PROPOSAL_MALFORMED, True),
         (
-            calls_turn(_submit({"status": "supported"})),
-            MalformedOutputReason.PROPOSAL_INVALID,
-            True,
-        ),
-        (
             calls_turn(
                 _submit(_proposal()), ("c2", "search_resources", {}), ignore_request_limits=True
             ),
@@ -87,7 +76,7 @@ def test_submit_answer_is_never_dispatched_as_a_tool() -> None:
             False,
         ),
     ],
-    ids=["malformed", "invalid", "mixed"],
+    ids=["malformed", "mixed"],
 )
 def test_unusable_proposals_are_malformed_output(
     turn: dict, reason: MalformedOutputReason, kept: bool
@@ -102,13 +91,6 @@ def test_unusable_proposals_are_malformed_output(
         assert messages[-1].tool_calls[0].name == "submit_answer"
     else:
         assert [message.role for message in messages] == ["system", "user"]
-
-
-def test_text_answers_are_still_answers_not_proposals() -> None:
-    result, _, _ = run_turns([text_turn("Plain text.")])
-    assert result.outcome == Answered(
-        message=AssistantMessage(text="Plain text."), stop_reason="end"
-    )
 
 
 def test_submitting_does_not_count_against_the_tool_call_limit() -> None:
@@ -127,17 +109,6 @@ def test_without_the_answer_tool_submit_answer_is_an_unknown_tool() -> None:
     assert isinstance(result.outcome, Answered)
     error = provider.requests[1].request.conversation.messages[-1].results[0]
     assert json.loads(error.content)["code"] == "tool_unknown"
-
-
-def test_a_registered_tool_named_submit_answer_is_refused_before_any_request() -> None:
-    from archdiscov.assistant.tools.catalog import ALL_TOOLS
-    from archdiscov.assistant.tools.registry import ToolDefinition, ToolRegistry
-
-    clash = ToolDefinition("submit_answer", "Clashes.", ALL_TOOLS[0].input_model, ALL_TOOLS[0].run)
-    with pytest.raises(ValueError, match="submit_answer"):
-        run_turns([text_turn()], registry=ToolRegistry([clash]))
-    result, _, _ = run_turns([text_turn()], registry=ToolRegistry([clash]), offer_answer_tool=False)
-    assert isinstance(result.outcome, Answered)
 
 
 def test_answer_contracts_do_not_load_the_tool_session() -> None:

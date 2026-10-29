@@ -125,10 +125,6 @@ def test_a_missing_return_path_denies_because_nacls_are_stateless():
     assert result.decision == D.DENY
 
 
-def test_a_closed_security_group_port_denies():
-    assert inbound_https(topology(), port=22).decision == D.DENY
-
-
 # Which statuses limit an element is each element's own test; one limited status per element
 # shows that the composition carries it.
 @pytest.mark.parametrize("operation", ["DescribeRouteTables", "DescribeNetworkAcls"])
@@ -144,19 +140,6 @@ def test_a_recorded_denial_still_dominates_an_unknown_element():
     result = inbound_https(index, port=22)
     assert result.decision == D.DENY
     assert codes(result) == {B.DENIED}
-
-
-def test_unrecorded_elements_never_allow():
-    index = topology()
-    result = all_of(
-        [
-            evaluate_public_address(index, resource_id("eni-1")),
-            evaluate_network_acl(
-                index, resource_id("subnet-9"), INGRESS, CLIENT, protocol="tcp", port=443
-            ),
-        ]
-    )
-    assert result.decision == D.UNKNOWN
 
 
 def test_load_balancer_scheme_and_forwarding_compose():

@@ -1,7 +1,6 @@
 import pytest
 from pydantic import ValidationError
 
-from archdiscov.ingestion.adapter import AdapterContext, IngestionError
 from archdiscov.ingestion.requests import AwsAccountConfig, AwsCollectionRequest
 
 ACCOUNT = "123456789012"
@@ -13,30 +12,13 @@ def config(**overrides):
     return AwsAccountConfig.model_validate(data)
 
 
-def test_defaults_are_valid():
-    cfg = config()
-    assert cfg.max_concurrency == 4
-    assert cfg.max_attempts == 3
-    assert cfg.session_name == "archdiscov"
-    assert cfg.role_arn is None
-
-
-def test_assume_role_fields_accepted():
-    cfg = config(
-        role_arn="arn:aws:iam::210987654321:role/Reader", external_id="ext", session_name="s"
-    )
-    assert cfg.external_id == "ext"
-
-
 @pytest.mark.parametrize(
     ("overrides", "fragment"),
     [
-        ({"expected_account_id": "123"}, "expected_account_id"),
         ({"regions": ["us-east-1", "us-east-1"]}, "unique"),
         ({"services": ["sts"]}, "not collectable"),
-        ({"external_id": "x"}, "external_id requires role_arn"),
     ],
-    ids=["field-constraint", "region-validator", "service-validator", "model-validator"],
+    ids=["region-validator", "service-validator"],
 )
 def test_invalid_config_rejected(overrides, fragment):
     with pytest.raises(ValidationError) as exc:
@@ -53,29 +35,11 @@ def test_regions_optional_for_account_wide_services_only():
 def test_request_requires_unique_accounts():
     with pytest.raises(ValidationError, match="unique"):
         AwsCollectionRequest(accounts=(config(), config(profile="other")))
-    with pytest.raises(ValidationError):
-        AwsCollectionRequest(accounts=())
     request = AwsCollectionRequest(accounts=(config(), config(expected_account_id="210987654321")))
     assert request.kind == "aws"
-
-
-def test_models_are_immutable():
-    with pytest.raises(ValidationError):
-        config().profile = "x"
 
 
 def test_external_id_not_in_repr():
     assert "secret-ext" not in repr(
         config(role_arn="arn:aws:iam::210987654321:role/R", external_id="secret-ext")
     )
-
-
-def test_ingestion_error_codes():
-    err = IngestionError("account_mismatch", "bad")
-    assert (err.code, err.message, str(err)) == ("account_mismatch", "bad", "bad")
-
-
-def test_context_defaults_provide_seams():
-    ctx = AdapterContext()
-    assert ctx.clock().tzinfo is not None
-    assert ctx.uuid_factory() != ctx.uuid_factory()

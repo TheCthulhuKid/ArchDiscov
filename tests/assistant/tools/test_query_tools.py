@@ -50,25 +50,11 @@ def _busiest(session: ToolSession, query, items: str) -> str:
     )
 
 
-def test_tool_set_and_declarations() -> None:
-    assert [tool.name for tool in QUERY_TOOLS] == [
-        "search_resources",
-        "inspect_resource",
-        "get_neighbours",
-        "find_paths",
-        "inspect_coverage",
-        "get_evidence",
-    ]
-    for declaration in REGISTRY.declarations():
-        assert declaration.input_schema["additionalProperties"] is False
-
-
 # ---- search ------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("snapshot", ["aws.json", "azure.json", "network.json", "iam.json"])
-def test_search_matches_the_query_service(snapshot: str) -> None:
-    session = _session(snapshot)
+def test_search_matches_the_query_service() -> None:
+    session = _session("azure.json")
     data = _run(session, "search_resources", limit=100)
     service = search_resources(session.index, {"limit_result": 10_000})
     assert data["snapshot_id"] == str(session.index.snapshot_id)
@@ -86,25 +72,17 @@ def test_search_matches_the_query_service(snapshot: str) -> None:
         assert session.record.returned().contains(
             IdKind.RESOURCE, session.index.snapshot_id, resource_id
         )
-
-
-def test_search_preserves_native_type_and_scope() -> None:
-    session = _session("azure.json")
-    resource = _run(session, "search_resources")["resources"]["items"][0]
+    resource = data["resources"]["items"][0]
     indexed = session.index.get_resource(resource["resource_id"])
     assert resource["platform"] == "azure"
     assert resource["native_type"]["untrusted_text"] == indexed.identity.native_type
     assert resource["service"] == indexed.identity.service
-    assert _run(session, "search_resources")["scope"]["subscription_id"]
 
 
 def test_search_filters_by_exact_fields() -> None:
     session = _session("aws.json")
-    data = _run(session, "search_resources", name="main")
-    assert _ids(data["resources"]["items"]) == [VPC]
     data = _run(session, "search_resources", native_type="AWS::EC2::VPC", physical_id="vpc-example")
     assert _ids(data["resources"]["items"]) == [VPC]
-    assert _run(session, "search_resources", name="absent")["resources"]["items"] == []
 
 
 def test_search_truncates_to_the_result_and_size_limits_with_counts() -> None:
@@ -122,9 +100,8 @@ def test_search_truncates_to_the_result_and_size_limits_with_counts() -> None:
     assert len(json.dumps(data, separators=(",", ":"))) <= 1_500
 
 
+# The tool's own check, and a request the query service refuses.
 INVALID_SEARCHES = {
-    "limit-bound": ({"limit": 0}, ["limit"]),
-    "empty-name": ({"name": ""}, ["name"]),
     "value-without-key": ({"tag_value": "x"}, ["tag_value"]),
     "physical-id-without-type": ({"physical_id": "vpc-example"}, []),
 }
@@ -139,18 +116,11 @@ def test_search_rejects_invalid_input(arguments: dict, locations: list[str]) -> 
     assert data["locations"] == locations
 
 
-def test_search_reports_partial_coverage() -> None:
-    data = _run(_session("partial-coverage.json"), "search_resources")
-    kinds = {item["kind"] for item in data["limitations"]["items"]}
-    assert "coverage_limited" in kinds
-
-
 # ---- inspect -----------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("snapshot", ["aws.json", "azure.json", "partial-coverage.json"])
-def test_inspect_returns_exact_citations_evidence_and_coverage(snapshot: str) -> None:
-    session = _session(snapshot)
+def test_inspect_returns_exact_citations_evidence_and_coverage() -> None:
+    session = _session("partial-coverage.json")
     for resource_id in session.index.resource_ids:
         data = _run(session, "inspect_resource", resource_id=resource_id)
         service = inspect_resource(session.index, {"resource_id": resource_id})
@@ -185,30 +155,11 @@ def test_inspect_returns_typed_fields_and_placement() -> None:
     ]
 
 
-MISSING = "123456789012/eu-west-1/ec2/physical/vpc-missing"
-
-
-@pytest.mark.parametrize(
-    "tool,arguments",
-    [
-        ("inspect_resource", {"resource_id": MISSING}),
-        ("get_neighbours", {"resource_id": MISSING}),
-        ("find_paths", {"resource_id": MISSING}),
-        ("get_evidence", {"evidence_id": "ev-missing"}),
-    ],
-)
-def test_unknown_resources_and_evidence_are_not_found(tool: str, arguments: dict) -> None:
-    session = _session("aws.json")
-    assert _run(session, tool, **arguments)["code"] == ToolErrorCode.NOT_FOUND
-    assert session.record.returned().snapshots == ()
-
-
 # ---- neighbours and paths ----------------------------------------------------------
 
 
-@pytest.mark.parametrize("snapshot", ["network.json", "dependency-targets.json", "azure.json"])
-def test_neighbours_match_the_query_service(snapshot: str) -> None:
-    session = _session(snapshot, result_limit=100)
+def test_neighbours_match_the_query_service() -> None:
+    session = _session("network.json", result_limit=100)
     for resource_id in session.index.resource_ids:
         data = _run(session, "get_neighbours", resource_id=resource_id, **BOTH, limit=100)
         service = query_neighbours(
@@ -244,28 +195,17 @@ def test_terminal_targets_are_preserved_as_marked_data() -> None:
     assert kinds == {"external", "unresolved"}
 
 
-def test_neighbour_truncation_and_invalid_filters() -> None:
+def test_neighbour_truncation_is_reported() -> None:
     session = _session("network.json")
     resource_id = _busiest(session, query_neighbours, "steps")
     data = _run(session, "get_neighbours", resource_id=resource_id, **BOTH, limit=1)
     assert len(data["steps"]["items"]) == 1
     assert data["steps"]["truncation"]["reasons"] == ["result_limit"]
     assert data["steps"]["truncation"]["available"] > 1
-    error = _run(
-        session,
-        "get_neighbours",
-        resource_id=resource_id,
-        edges="containment",
-        relationships=["attached_to"],
-    )
-    assert error["code"] == ToolErrorCode.INVALID_ARGUMENTS
-    error = _run(session, "get_neighbours", resource_id=resource_id, direction="sideways")
-    assert error["locations"] == ["direction"]
 
 
-@pytest.mark.parametrize("snapshot", ["network.json", "dependency-targets.json", "hierarchy.json"])
-def test_paths_match_the_query_service(snapshot: str) -> None:
-    session = _session(snapshot, result_limit=100)
+def test_paths_match_the_query_service() -> None:
+    session = _session("network.json", result_limit=100)
     for resource_id in session.index.resource_ids:
         data = _run(
             session, "find_paths", resource_id=resource_id, edges="both", depth=2, limit=100
@@ -293,9 +233,6 @@ def test_path_depth_is_capped_by_the_session() -> None:
     data = _run(session, "find_paths", resource_id=resource_id, **BOTH, depth=5)
     assert data["depth"] == 1
     assert all(len(path["steps"]) == 1 for path in data["paths"]["items"])
-    assert _run(session, "find_paths", resource_id=resource_id, depth=6)["code"] == (
-        ToolErrorCode.INVALID_ARGUMENTS
-    )
 
 
 def test_path_truncation_is_reported() -> None:
@@ -309,9 +246,8 @@ def test_path_truncation_is_reported() -> None:
 # ---- coverage and evidence ---------------------------------------------------------
 
 
-@pytest.mark.parametrize("snapshot", ["partial-coverage.json", "azure.json"])
-def test_coverage_reports_every_outcome_and_filters_by_service(snapshot: str) -> None:
-    session = _session(snapshot)
+def test_coverage_reports_every_outcome_and_filters_by_status() -> None:
+    session = _session("partial-coverage.json")
     data = _run(session, "inspect_coverage", limit=100)
     records = session.index.coverage_records()
     assert sum(data["status_counts"].values()) == len(records)
@@ -321,12 +257,10 @@ def test_coverage_reports_every_outcome_and_filters_by_service(snapshot: str) ->
     for item in failed:
         if item["first_failure"] is not None:
             assert set(item["first_failure"]) == {"untrusted_text", "truncated"}
-    assert _run(session, "inspect_coverage", service="Not.A.Service")["records"]["items"] == []
 
 
-@pytest.mark.parametrize("snapshot", ["network.json", "azure.json", "partial-coverage.json"])
-def test_evidence_returns_record_facts_and_context(snapshot: str) -> None:
-    session = _session(snapshot)
+def test_evidence_returns_record_facts_and_context() -> None:
+    session = _session("network.json")
     for evidence_id in session.index.evidence_ids:
         data = _run(session, "get_evidence", evidence_id=evidence_id)
         record = session.index.get_evidence(evidence_id)

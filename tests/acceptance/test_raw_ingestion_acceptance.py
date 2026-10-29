@@ -1,8 +1,8 @@
-"""Offline installed-entrypoint journeys for snapshots and raw IaC exports: one import per
-format, its evidence inspected, and one refusal.
+"""Offline installed-entrypoint journeys for raw IaC exports: one import per format, its
+evidence inspected, and one refusal.
 
-No overwrite and the readable summaries are left to `tests/cli` and the ingest stage of
-`test_installed_end_to_end.py`.
+Snapshot JSON is `test_offline_acceptance.py`'s journey, and no overwrite and the readable
+summaries are left to it and `tests/cli`.
 """
 
 import json
@@ -58,24 +58,9 @@ def flatten(resources):
         yield from flatten(resource.children)
 
 
-def assert_summary(result, snapshot, output):
-    assert result["snapshot_id"] == str(snapshot.snapshot_id)
-    assert result["path"] == str(output)
-    assert type(result["complete"]) is bool
-    assert result["source_kind"] == snapshot.source.kind
-    assert isinstance(result["operations"], list)
-    fields = ("region", "service", "operation", "status", "result_count")
-    assert [tuple(op[field] for field in fields) for op in result["operations"]] == [
-        tuple(op.model_dump(mode="json")[field] for field in fields)
-        for op in snapshot.coverage.operations
-    ]
-
-
 @pytest.mark.parametrize(
     "format_name,fixture_name",
     [
-        ("snapshot", "snapshots/hierarchy.json"),
-        ("snapshot", "snapshots/partial-coverage.json"),
         ("terraform-state", "terraform/state.json"),
         ("terraform-plan", "terraform/plan.json"),
         ("cloudformation", "cloudformation/template.yaml"),
@@ -86,7 +71,7 @@ def test_import_save_load_and_evidence_journey(offline_cli, tmp_path, format_nam
     source = tmp_path / fixture.name
     source.write_bytes(fixture.read_bytes())
     source_bytes = source.read_bytes()
-    options = [] if format_name == "snapshot" else ["--format", format_name, *CONTEXT]
+    options = ["--format", format_name, *CONTEXT]
     if format_name.startswith("terraform-"):
         options += ["--workspace", "acceptance"]
     elif format_name == "cloudformation":
@@ -106,32 +91,22 @@ def test_import_save_load_and_evidence_journey(offline_cli, tmp_path, format_nam
     arguments = ["ingest", source, "--output", output, *options]
     imported = offline_cli(*arguments)
     snapshot = load_snapshot(output)
-    assert_summary(imported, snapshot, output)
+    assert (imported["snapshot_id"], imported["path"]) == (str(snapshot.snapshot_id), str(output))
+    assert imported["source_kind"] == snapshot.source.kind
     assert snapshot.account_id == ACCOUNT
     assert REGION in snapshot.regions
     resources = list(flatten(snapshot.regions[REGION].resources))
 
-    if format_name == "snapshot":
-        assert snapshot == load_snapshot(fixture)
-    else:
-        # A declaration is not an observation: its coverage is incomplete and it names its file.
-        assert imported["complete"] is False
-        assert snapshot.source.path == str(source)
+    # A declaration is not an observation: its coverage is incomplete and it names its file.
+    assert imported["complete"] is False
+    assert snapshot.source.path == str(source)
     # Any cited fact; what each format maps to which fact is its ingestion tests' to prove.
     evidence_id = next(ids[0] for resource in resources for ids in resource.fact_evidence.values())
-
-    if "partial" in fixture_name:
-        assert imported["complete"] is False
     saved_bytes = output.read_bytes()
     for secret in SECRETS:
         assert secret.encode() not in saved_bytes
     inspected = offline_cli("evidence", evidence_id, "--snapshot", output)
-    assert inspected["snapshot_id"] == str(snapshot.snapshot_id)
-    assert inspected["snapshot_source"] == snapshot.source.model_dump(mode="json")
-    assert inspected["snapshot_path"] == str(output)
-    assert inspected["evidence_id"] == evidence_id
     assert inspected["evidence"] == snapshot.evidence[evidence_id].model_dump(mode="json")
-    assert inspected["resource"]["id"] == inspected["evidence"]["resource_id"]
     assert inspected["fact_paths"]
     for fact_path in inspected["fact_paths"]:
         assert evidence_id in inspected["resource"]["fact_evidence"][fact_path]
@@ -142,19 +117,11 @@ def test_import_save_load_and_evidence_journey(offline_cli, tmp_path, format_nam
 
 def test_malformed_input_is_safe_and_creates_no_output(offline_cli, tmp_path):
     # One format: each parser's refusals are its ingestion tests' and the import service's.
-    format_name = "cloudformation"
     source = tmp_path / "malformed.json"
     source.write_text('{"parameter-secret-must-not-persist": [')
     output = tmp_path / "not-created.json"
     result = offline_cli(
-        "ingest",
-        source,
-        "--output",
-        output,
-        "--format",
-        format_name,
-        *(() if format_name == "snapshot" else CONTEXT),
-        exit_code=2,
+        "ingest", source, "--output", output, "--format", "cloudformation", *CONTEXT, exit_code=2
     )
     assert result["error"]["code"]
     assert result["error"]["message"]

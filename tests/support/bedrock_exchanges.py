@@ -23,14 +23,13 @@ def bedrock_fields(**fields: Any) -> dict[str, Any]:
     return {"kind": "bedrock", "model": MODEL, "profile": PROFILE, "region": REGION, **fields}
 
 
-def assumed_role_response(key: str = ROLE_KEY, token: str | None = "roleToken") -> Any:
-    """An `AssumeRole` response with the role's credentials; no token makes it invalid."""
-    session_token = "" if token is None else f"<SessionToken>{token}</SessionToken>"
+def assumed_role_response() -> Any:
+    """An `AssumeRole` response with the role's credentials."""
     body = (
         '<AssumeRoleResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">'
         "<AssumeRoleResult><Credentials>"
-        f"<AccessKeyId>{key}</AccessKeyId><SecretAccessKey>{ROLE_SECRET}</SecretAccessKey>"
-        f"{session_token}<Expiration>2030-01-01T00:00:00Z</Expiration>"
+        f"<AccessKeyId>{ROLE_KEY}</AccessKeyId><SecretAccessKey>{ROLE_SECRET}</SecretAccessKey>"
+        "<SessionToken>roleToken</SessionToken><Expiration>2030-01-01T00:00:00Z</Expiration>"
         "</Credentials></AssumeRoleResult></AssumeRoleResponse>"
     )
     return AwsResponse(200, body.encode())

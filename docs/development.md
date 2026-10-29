@@ -47,8 +47,8 @@ options and exit codes in `tests/cli`, tool contracts in `tests/assistant`, the 
 journeys in `tests/acceptance`. The offline suite runs the CLI in process, except the `mcp`
 command's stdio sessions, which need the command's own standard input and output; the
 installed journeys are acceptance tests. On eight workers the
-offline suite takes about a minute and the acceptance suite about two, most of it the start-up
-of each installed command.
+offline suite takes under a minute and the acceptance suite about a minute and a half, most of
+it the start-up of each installed command.
 
 Packaging tests execute both CLI entry points and model imports from a temporary directory outside the repository.
 

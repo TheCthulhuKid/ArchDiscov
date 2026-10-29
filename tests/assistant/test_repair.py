@@ -3,8 +3,6 @@ not accepted, and a follow-up line the caller chooses."""
 
 import json
 
-import pytest
-
 from archdiscov.assistant.answers import AnswerProposal
 from archdiscov.assistant.conversation import AssistantMessage, ParsedToolArguments, ToolCall
 from archdiscov.assistant.rejections import (
@@ -47,12 +45,8 @@ def test_rejections_are_listed_up_to_the_bound_with_the_follow_up() -> None:
     }
 
 
-@pytest.mark.parametrize(
-    "reason",
-    [MalformedOutputReason.PROPOSAL_MALFORMED, MalformedOutputReason.PROPOSAL_INVALID],
-    ids=str,
-)
-def test_an_unreadable_submission_names_its_reason_with_the_follow_up(reason) -> None:
+def test_an_unreadable_submission_names_its_reason_with_the_follow_up() -> None:
+    reason = MalformedOutputReason.PROPOSAL_MALFORMED
     data = json.loads(submission_text(MalformedOutput(reason=reason), (), FOLLOW_UP))
     assert list(data) == ["error", "message", "next"]
     assert data["error"] == reason.value and data["next"] == FOLLOW_UP

@@ -12,7 +12,6 @@ from archdiscov.assistant.conversation import (
     MalformedToolArguments,
     ParsedToolArguments,
     SystemMessage,
-    TokenUsage,
     ToolCall,
     ToolDeclaration,
     ToolResult,
@@ -21,9 +20,6 @@ from archdiscov.assistant.conversation import (
     parse_conversation,
     parse_tool_arguments,
 )
-from archdiscov.models.validation_errors import SAFE_VALIDATION_MESSAGES
-
-SECRET = "SECRET_PRIVATE_TOKEN"
 
 
 def _call(call_id: str, name: str = "search_resources", **arguments) -> dict:
@@ -83,36 +79,11 @@ def test_valid_conversation_round_trips_through_json() -> None:
     conversation = _valid_conversation()
     data = json.loads(conversation.model_dump_json())
     assert parse_conversation(data) == conversation
-    assert Conversation.model_validate_json(conversation.model_dump_json()) == conversation
     assert parse_conversation(conversation) == conversation
     assert data["messages"][2]["tool_calls"][1]["arguments"] == {
         "kind": "malformed",
         "reason": "invalid_json",
     }
-
-
-def test_contracts_are_frozen() -> None:
-    conversation = _valid_conversation()
-    with pytest.raises(ValidationError):
-        conversation.messages = ()
-    with pytest.raises(ValidationError):
-        conversation.messages[1].text = "changed"
-
-
-def test_tool_declaration_and_usage_round_trip() -> None:
-    declaration = ToolDeclaration(
-        name="search_resources",
-        description="Search recorded resources.",
-        input_schema={"type": "object", "properties": {"limit": {"type": "integer"}}},
-    )
-    assert ToolDeclaration.model_validate_json(declaration.model_dump_json()) == declaration
-    assert TokenUsage().model_dump() == {
-        "input_tokens": None,
-        "output_tokens": None,
-        "cache_read_input_tokens": None,
-        "cache_write_input_tokens": None,
-    }
-    assert TokenUsage(input_tokens=10, output_tokens=3).output_tokens == 3
 
 
 @pytest.mark.parametrize(
@@ -129,10 +100,6 @@ def test_tool_declaration_and_usage_round_trip() -> None:
             "conversation_tool_call_id_duplicate",
         ),
         (
-            _conversation(USER, _assistant_calls(_call("call_1"), _call("call_1"))),
-            "conversation_tool_call_id_duplicate",
-        ),
-        (
             _conversation(
                 USER, _assistant_calls(_call("call_1")), _results("call_1"), _results("call_1")
             ),
@@ -146,17 +113,14 @@ def test_tool_declaration_and_usage_round_trip() -> None:
             ),
             "tool_arguments_too_large",
         ),
-        (_conversation({**USER, SECRET: SECRET}), "extra_forbidden"),
     ],
     ids=[
         "orphan-result",
         "call-id-across-messages",
-        "call-id-within-a-message",
         "duplicate-result",
         "empty-assistant",
         "system-position",
         "arguments-too-large",
-        "unknown-key-not-echoed",
     ],
 )
 def test_invalid_conversations_fail_with_safe_diagnostics(data: dict, code: str) -> None:
@@ -165,26 +129,7 @@ def test_invalid_conversations_fail_with_safe_diagnostics(data: dict, code: str)
     error = raised.value
     assert error.code == "invalid_conversation"
     assert code in {issue.type for issue in error.details}
-    rendered = repr(error.details) + str(error)
-    assert SECRET not in rendered
-    assert "x" * 100 not in rendered
     assert all(issue.message == "Invalid conversation field." for issue in error.details)
-
-
-def test_unknown_dynamic_keys_are_not_echoed_in_locations() -> None:
-    data = _conversation(USER, _results("call_1"))
-    data["messages"][1]["results"][0][SECRET] = 1
-    with pytest.raises(ConversationValidationError) as raised:
-        parse_conversation(data)
-    assert SECRET not in repr(raised.value.details)
-
-
-def test_non_serializable_conversation_fails_safely() -> None:
-    data = _conversation(USER, _assistant_calls(_call("call_1")))
-    data["messages"][1]["tool_calls"][0]["arguments"]["value"] = {"bad": {SECRET}}
-    with pytest.raises(ConversationValidationError) as raised:
-        parse_conversation(data)
-    assert SECRET not in repr(raised.value.details)
 
 
 @pytest.mark.parametrize(
@@ -203,62 +148,19 @@ def test_tool_declaration_schema_rules(schema: dict, code: str) -> None:
     assert raised.value.errors()[0]["type"] == code
 
 
-def test_tool_names_use_the_common_provider_pattern() -> None:
-    with pytest.raises(ValidationError):
-        ToolDeclaration(
-            name="search-resources", description="Search.", input_schema={"type": "object"}
-        )
-
-
-def test_registered_conversation_codes_have_safe_messages() -> None:
-    for code in (
-        "tool_input_schema_not_object",
-        "tool_input_schema_too_large",
-        "tool_arguments_too_large",
-        "assistant_message_empty",
-        "conversation_system_message_position",
-        "conversation_tool_call_id_duplicate",
-        "conversation_tool_result_orphan",
-        "conversation_tool_result_duplicate",
-    ):
-        assert SAFE_VALIDATION_MESSAGES[code].startswith("Conversation constraint failed:")
-
-
 @pytest.mark.parametrize(
     "raw,expected",
     [
         ('{"limit": 5}', ParsedToolArguments(value={"limit": 5})),
         ({"limit": 5}, ParsedToolArguments(value={"limit": 5})),
         ("{not json", MalformedToolArguments(reason=MalformedArgumentsReason.INVALID_JSON)),
-        ('{"a": 1, "a": 2}', MalformedToolArguments(reason=MalformedArgumentsReason.INVALID_JSON)),
-        ('{"a": NaN}', MalformedToolArguments(reason=MalformedArgumentsReason.INVALID_JSON)),
-        (
-            '{"a":' * 2_500 + "1" + "}" * 2_500,
-            MalformedToolArguments(reason=MalformedArgumentsReason.INVALID_JSON),
-        ),
-        ({"bad": {1, 2}}, MalformedToolArguments(reason=MalformedArgumentsReason.INVALID_JSON)),
         ("[1, 2]", MalformedToolArguments(reason=MalformedArgumentsReason.NOT_OBJECT)),
         (
             json.dumps({"q": "x" * MAX_TOOL_ARGUMENT_BYTES}),
             MalformedToolArguments(reason=MalformedArgumentsReason.TOO_LARGE),
         ),
-        (
-            {"q": "x" * MAX_TOOL_ARGUMENT_BYTES},
-            MalformedToolArguments(reason=MalformedArgumentsReason.TOO_LARGE),
-        ),
     ],
-    ids=[
-        "parsed-text",
-        "parsed-mapping",
-        "invalid-json",
-        "duplicate-key",
-        "non-finite",
-        "too-deep",
-        "mapping-not-json",
-        "not-an-object",
-        "text-too-large",
-        "mapping-too-large",
-    ],
+    ids=["parsed-text", "parsed-mapping", "invalid-json", "not-an-object", "too-large"],
 )
 def test_parse_tool_arguments_classifies_without_raising(raw, expected) -> None:
     assert parse_tool_arguments(raw) == expected

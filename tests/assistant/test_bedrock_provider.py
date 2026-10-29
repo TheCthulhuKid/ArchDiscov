@@ -10,13 +10,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from botocore.exceptions import CredentialRetrievalError
 
 from archdiscov.assistant import bedrock_provider
 from archdiscov.assistant.bedrock_provider import BedrockProvider
 from archdiscov.assistant.config import (
-    ProviderConfigError,
-    ProviderConfigErrorCode,
     parse_provider_config,
 )
 from archdiscov.assistant.conversation import Conversation
@@ -104,10 +101,9 @@ def _request(**limits: Any) -> CompletionRequest:
 # ---- construction ------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("role_arn", [None, ROLE], ids=["profile", "role"])
-def test_a_configuration_builds_the_adapter_without_a_request(
-    tmp_path: Path, monkeypatch, role_arn: str | None
-) -> None:
+def test_a_configuration_builds_the_adapter_without_a_request(tmp_path: Path, monkeypatch) -> None:
+    # Even with a role, which is assumed on the first request; a profile that cannot be
+    # loaded is the case `test_providers.py` reaches through the configuration.
     _aws_files(tmp_path, monkeypatch)
     api = BotocoreApi([])
     monkeypatch.setattr(
@@ -115,7 +111,7 @@ def test_a_configuration_builds_the_adapter_without_a_request(
         "BedrockProvider",
         partial(BedrockProvider, session_factory=api.session_factory),
     )
-    fields = bedrock_fields() if role_arn is None else bedrock_fields(role_arn=role_arn)
+    fields = bedrock_fields(role_arn=ROLE)
     _config, provider = load_provider(write_provider_config(tmp_path / "provider.toml", fields))
     assert isinstance(provider, BedrockProvider)
     assert (provider.model, provider.region, provider.profile) == (MODEL, REGION, PROFILE)
@@ -123,23 +119,8 @@ def test_a_configuration_builds_the_adapter_without_a_request(
     assert api.requests == []
 
 
-def test_a_profile_that_cannot_be_loaded_fails_before_any_request(
-    tmp_path: Path, monkeypatch
-) -> None:
-    # Any botocore failure while loading the profile is this one configuration error; a
-    # missing profile is the case `test_providers.py` reaches through the configuration.
-    _aws_files(tmp_path, monkeypatch, config="[profile broken\n")
-    api = BotocoreApi([])
-    with pytest.raises(ProviderConfigError) as raised:
-        _provider(api, profile=PROFILE)
-    error = raised.value
-    assert error.code == ProviderConfigErrorCode.PROFILE_UNAVAILABLE and error.profile == PROFILE
-    assert api.requests == []
-
-
-@pytest.mark.parametrize("fields", [{}, {"role_arn": ROLE}], ids=["profile", "role"])
 def test_only_the_configuration_chooses_the_target_credential_and_retries(
-    tmp_path: Path, monkeypatch, fields: dict
+    tmp_path: Path, monkeypatch
 ) -> None:
     profile_endpoint = (
         "max_attempts = 7\nretry_mode = adaptive\nservices = hostile\n\n"
@@ -149,41 +130,40 @@ def test_only_the_configuration_chooses_the_target_credential_and_retries(
     for name, value in HOSTILE_ENVIRONMENT.items():
         monkeypatch.setenv(name, value)
     unavailable = AwsResponse(503, {"message": "busy"}, {"x-amzn-ErrorType": "x"})
-    served = [unavailable] if not fields else [assumed_role_response(), unavailable]
-    api = BotocoreApi(served)
+    api = BotocoreApi([assumed_role_response(), unavailable])
     with pytest.raises(ProviderUnavailableError):
-        complete(_provider(api, **fields), _request())
-    # One attempt, whatever the environment and the profile say about retries.
-    *assumed, sent = api.requests
+        complete(_provider(api, role_arn=ROLE), _request())
+    # One attempt, whatever the environment and the profile say about retries, and the role
+    # assumed with the profile's own key.
+    assumed, sent = api.requests
     assert sent.url == CONVERSE
-    assert signing_key(sent) == (ROLE_KEY if fields else ACCESS_KEY)
-    for request in assumed:
-        assert request.url == f"https://sts.{REGION}.amazonaws.com/"
-        assert signing_key(request) == ACCESS_KEY
-        assert f"RoleArn={ROLE.replace(':', '%3A').replace('/', '%2F')}" in request.body
-        assert "RoleSessionName=archdiscov-assistant" in request.body
+    assert signing_key(sent) == ROLE_KEY
+    assert assumed.url == f"https://sts.{REGION}.amazonaws.com/"
+    assert signing_key(assumed) == ACCESS_KEY
+    assert f"RoleArn={ROLE.replace(':', '%3A').replace('/', '%2F')}" in assumed.body
+    assert "RoleSessionName=archdiscov-assistant" in assumed.body
     body = sent.body.decode()
     # Short values such as `AWS_MAX_ATTEMPTS` occur in any body, as in `maxTokens`.
     assert not any(value in body for value in HOSTILE_ENVIRONMENT.values() if len(value) > 4)
 
 
-def test_the_role_is_assumed_once_and_an_invalid_answer_is_an_authentication_error(
-    tmp_path: Path, monkeypatch
+def test_the_role_is_assumed_once_and_no_credential_or_request_reaches_a_rendering_or_log(
+    tmp_path: Path, monkeypatch, caplog
 ) -> None:
     _aws_files(tmp_path, monkeypatch)
-    rejected = AwsResponse(400, {"message": "no"}, {"x-amzn-ErrorType": "x"})
-    api = BotocoreApi([assumed_role_response(), rejected, rejected])
+    caplog.set_level(logging.DEBUG)
+    # Building the adapter quiets these again; the contract checks that for every adapter.
+    for name in bedrock_provider._SDK_LOGGERS:
+        logging.getLogger(name).setLevel(logging.DEBUG)
+    api = BotocoreApi([assumed_role_response(), _rejected(), _rejected()])
     provider = _provider(api, role_arn=ROLE)
     for _ in range(2):
         with pytest.raises(ProviderUnavailableError):
             complete(provider, _request())
     assert [signing_key(request) for request in api.requests] == [ACCESS_KEY, ROLE_KEY, ROLE_KEY]
-
-    api = BotocoreApi([assumed_role_response(token=None)])
-    with pytest.raises(ProviderAuthenticationError) as raised:
-        complete(_provider(api, role_arn=ROLE), _request())
-    assert isinstance(raised.value.__cause__, CredentialRetrievalError)
-    assert len(api.requests) == 1
+    for rendering in (*secret_renderings(provider), caplog.text):
+        for secret in (SECRET_KEY, ROLE_SECRET, "roleToken", QUESTION):
+            assert secret not in rendering
 
 
 def test_a_role_sts_rejects_is_an_authentication_error_without_its_message(
@@ -234,20 +214,3 @@ def test_a_configured_endpoint_is_used_and_proxy_variables_are_not(
     assert headers["Authorization"].startswith(f"AWS4-HMAC-SHA256 Credential={ACCESS_KEY}/")
     assert body["messages"] == [{"role": "user", "content": [{"text": QUESTION}]}]
     assert proxy.requests == []
-
-
-def test_no_credential_or_request_body_reaches_a_rendering_or_log(
-    tmp_path: Path, monkeypatch, caplog
-) -> None:
-    _aws_files(tmp_path, monkeypatch)
-    caplog.set_level(logging.DEBUG)
-    for name in bedrock_provider._SDK_LOGGERS:
-        logging.getLogger(name).setLevel(logging.DEBUG)
-    provider = _provider(BotocoreApi([assumed_role_response(), _rejected()]), role_arn=ROLE)
-    with pytest.raises(ProviderUnavailableError):
-        complete(provider, _request())
-    for name in bedrock_provider._SDK_LOGGERS:
-        assert logging.getLogger(name).getEffectiveLevel() == logging.WARNING
-    for rendering in (*secret_renderings(provider), caplog.text):
-        for secret in (SECRET_KEY, ROLE_SECRET, "roleToken", QUESTION):
-            assert secret not in rendering

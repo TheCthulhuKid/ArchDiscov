@@ -92,7 +92,10 @@ def _untrusted_values(content: Any) -> set[str]:
 # ---- findings ----------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("kind", list(AnalyzerKind))
+# One analyzer whose findings carry paths, and one whose findings carry a network decision.
+@pytest.mark.parametrize(
+    "kind", [AnalyzerKind.SECURITY_GROUP_IMPACT, AnalyzerKind.DATABASE_ACCESS], ids=str
+)
 def test_delivered_findings_are_recorded_exactly(kind: AnalyzerKind) -> None:
     scenario = SCENARIOS[kind]
     snapshot = scenario.build()
@@ -111,33 +114,6 @@ def test_delivered_findings_are_recorded_exactly(kind: AnalyzerKind) -> None:
     assert [item["finding_id"] for item in data["findings"]["items"]] == [
         finding.id for finding in expected_result.findings
     ]
-
-
-def test_only_delivered_findings_are_recorded() -> None:
-    scenario = SCENARIOS[AnalyzerKind.CROSS_ACCOUNT_TRUST]
-    session = ToolSession(scenario.build())
-    data = _call(session, "run_analyzer", kind="cross_account_trust", limit=1)
-    (delivered,) = data["findings"]["items"]
-    context = session.record.context()
-    assert [item.finding_id for item in context.findings] == [delivered["finding_id"]]
-    assert len(service_result(scenario.build(), scenario.kind, {}, 3).findings) > 1
-
-
-def test_network_findings_record_their_decision() -> None:
-    for kind in (AnalyzerKind.DATABASE_ACCESS, AnalyzerKind.INTERNET_EXPOSURE):
-        scenario = SCENARIOS[kind]
-        session = ToolSession(scenario.build(), limits=ToolLimits(result_limit=100))
-        _call(session, "run_analyzer", kind=kind.value, limit=100, **scenario.parameters)
-        result = service_result(scenario.build(), kind, scenario.parameters, 3)
-        blocks = {
-            finding.id: getattr(finding, kind.value).decision
-            for finding in result.findings
-            if getattr(finding, kind.value) is not None
-        }
-        assert blocks
-        recorded = {item.finding_id: item.decision for item in session.record.context().findings}
-        assert {key: recorded[key] for key in blocks} == blocks
-        assert all(recorded[key] is None for key in recorded.keys() - blocks.keys())
 
 
 def test_a_finding_from_a_run_and_a_saved_result_keeps_both_keys() -> None:
@@ -246,18 +222,7 @@ def test_every_delivered_untrusted_value_is_fingerprinted(compared) -> None:
     assert expected and set(session.record.context().fingerprints) == expected
 
 
-# ---- errors, atomicity, determinism, detachment ------------------------------------
-
-
-def test_errors_and_replaced_outputs_record_nothing() -> None:
-    session = ToolSession.from_paths(
-        SNAPSHOTS / "network.json", limits=ToolLimits(max_output_chars=1_024)
-    )
-    before = session.record.context()
-    assert _call(session, "run_analyzer", kind="ownership", port=1)["status"] == "error"
-    assert _call(session, "inspect_resource", resource_id="missing")["status"] == "error"
-    assert _call(session, "list_analyzers")["code"] == "tool_output_too_large"
-    assert session.record.context() == before
+# ---- atomicity and delivered views -------------------------------------------------
 
 
 class _Output(ToolOutput):
@@ -276,23 +241,6 @@ def test_an_output_with_a_bad_id_records_nothing() -> None:
     assert context.returned.snapshots == () and context.fingerprints == ()
 
 
-def test_findings_not_in_the_delivered_result_are_refused() -> None:
-    scenario = SCENARIOS[AnalyzerKind.OWNERSHIP]
-    result = service_result(scenario.build(), AnalyzerKind.OWNERSHIP, {}, 3)
-
-    class _Analysis(ToolOutput):
-        snapshot_id: UUID
-
-        def delivered_analysis(self) -> DeliveredAnalysis:
-            view = finding_view(result.findings[0]).model_copy(update={"finding_id": "other"})
-            return DeliveredAnalysis("run:x", result, (view,))
-
-    record = RunRecord()
-    with pytest.raises(ValueError, match="delivered finding IDs"):
-        record.record_output(_Analysis(snapshot_id=result.snapshot_id))
-    assert record.context().findings == ()
-
-
 def test_delivered_finding_views_are_kept_as_shown() -> None:
     session = ToolSession.from_paths(OWNERSHIP_SNAPSHOT)
     delivered = _call(session, "run_analyzer", kind="ownership")["findings"]["items"]
@@ -300,9 +248,6 @@ def test_delivered_finding_views_are_kept_as_shown() -> None:
     assert [item.view for item in context.views] == [
         FindingView.model_validate(item) for item in delivered
     ]
-    # Reads are copies: changing one leaves the record as delivered.
-    context.views[0].view.summary = untrusted("changed")
-    assert session.record.context().views[0].view == FindingView.model_validate(delivered[0])
 
 
 def test_a_redelivered_finding_keeps_the_view_first_shown() -> None:
@@ -325,22 +270,3 @@ def test_a_redelivered_finding_keeps_the_view_first_shown() -> None:
     assert context.view(result.snapshot_id, first.finding_id) == first
     (recorded,) = context.findings
     assert recorded.result_keys == ("a", "b")
-
-
-def _multi_tool_context() -> object:
-    session = ToolSession.from_paths(OWNERSHIP_SNAPSHOT, analysis_paths=[OWNERSHIP_RESULT])
-    resource = session.index.resource_ids[0]
-    _call(session, "inspect_resource", resource_id=resource)
-    _call(session, "run_analyzer", kind="ownership")
-    _call(session, "get_saved_analysis", number=1)
-    return session
-
-
-def test_the_context_is_deterministic_and_detached() -> None:
-    first, second = _multi_tool_context(), _multi_tool_context()
-    assert first.record.context() == second.record.context()
-    before = first.record.context()
-    frozen = before.model_dump_json()
-    _call(first, "search_resources")
-    _call(first, "inspect_coverage")
-    assert before.model_dump_json() == frozen

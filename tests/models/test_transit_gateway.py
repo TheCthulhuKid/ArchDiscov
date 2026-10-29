@@ -12,14 +12,14 @@ from archdiscov.models.resources.network import (
     TransitGatewayRoute,
     TransitGatewayRouteTable,
 )
-from archdiscov.services import load_snapshot, save_snapshot
+from archdiscov.services import load_snapshot
 from archdiscov.services.snapshots import SnapshotValidationError, validate_snapshot
 from tests.paths import FIXTURES_ROOT
 
 FIXTURE = FIXTURES_ROOT / "snapshots" / "transit-gateway.json"
 
 
-def test_fixture_loads_typed_round_trips_and_cites_exact_entries(tmp_path):
+def test_fixture_loads_typed_and_cites_exact_entries():
     snapshot = load_snapshot(FIXTURE)
     gateway, app, data, table = snapshot.regions["eu-west-1"].resources[2:]
     assert isinstance(gateway, TransitGateway)
@@ -39,9 +39,6 @@ def test_fixture_loads_typed_round_trips_and_cites_exact_entries(tmp_path):
     assert table.routes_complete is True
     cited = snapshot.evidence[table.fact_evidence["/routes/2"][0]]
     assert cited.configuration_path == "Routes[2]"
-
-    saved = save_snapshot(snapshot, tmp_path / "transit-gateway.json")
-    assert load_snapshot(saved) == snapshot
 
 
 def test_impossible_routes_are_rejected():

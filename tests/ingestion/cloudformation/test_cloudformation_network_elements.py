@@ -29,6 +29,24 @@ def imported(path):
     return snapshot, resources
 
 
+def targets(snapshot, source_id):
+    return {
+        d.target.resource_id
+        for deps in snapshot.dependencies_by_region.values()
+        for d in deps
+        if d.source_id == source_id
+    }
+
+
+def reasons(snapshot, resource_id):
+    return {
+        value.reason
+        for operation in snapshot.coverage.operations
+        for value in operation.unresolved_values
+        if value.resource_id == resource_id
+    }
+
+
 def test_template_maps_nat_and_egress_only_gateways_with_their_references(tmp_path):
     snapshot, resources = imported(FIXTURES / "egress-gateways.yaml")
     nat, egress_only = resources["Nat"], resources["EgressOnly"]
@@ -38,13 +56,7 @@ def test_template_maps_nat_and_egress_only_gateways_with_their_references(tmp_pa
     cited = snapshot.evidence[nat.fact_evidence["/connectivity"][0]]
     assert cited.configuration_path == "/Resources/Nat/Properties/ConnectivityType"
     assert isinstance(resources["NatAddress"], UnknownResource)  # the EIP stays unknown
-    targets = {
-        d.target.resource_id
-        for deps in snapshot.dependencies_by_region.values()
-        for d in deps
-        if d.source_id == nat.id
-    }
-    assert targets == {resources["Public"].id, resources["NatAddress"].id}
+    assert targets(snapshot, nat.id) == {resources["Public"].id, resources["NatAddress"].id}
 
     # A value the model rejects keeps the declaration, as an unknown resource with a reason.
     template = (FIXTURES / "egress-gateways.yaml").read_text()
@@ -53,13 +65,9 @@ def test_template_maps_nat_and_egress_only_gateways_with_their_references(tmp_pa
     snapshot, resources = imported(path)
     rejected = resources["Nat"]
     assert isinstance(rejected, UnknownResource) and rejected.name == "public-nat"
-    reasons = {
-        value.reason
-        for operation in snapshot.coverage.operations
-        for value in operation.unresolved_values
-        if value.resource_id == rejected.id
-    }
-    assert "Typed resource validation failed; only its type is retained." in reasons
+    assert "Typed resource validation failed; only its type is retained." in reasons(
+        snapshot, rejected.id
+    )
 
 
 def test_template_peering_refers_to_both_vpcs_without_inventing_their_ids():
@@ -70,13 +78,7 @@ def test_template_peering_refers_to_both_vpcs_without_inventing_their_ids():
     # `!Ref` names a VPC of the template, not a deployed ID, so the sides stay unset.
     assert connection.requester.vpc_id is None and connection.accepter.vpc_id is None
     assert connection.attributes["peer_region"] == "eu-west-1"
-    targets = {
-        d.target.resource_id
-        for deps in snapshot.dependencies_by_region.values()
-        for d in deps
-        if d.source_id == connection.id
-    }
-    assert targets == {resources["App"].id, resources["Data"].id}
+    assert targets(snapshot, connection.id) == {resources["App"].id, resources["Data"].id}
 
 
 def test_template_maps_endpoints_and_prefix_lists():
@@ -86,13 +88,9 @@ def test_template_maps_endpoints_and_prefix_lists():
     assert interface.endpoint_type == "interface" and interface in resources["Service"].children
     # `!Ref` items name template resources, not deployed IDs: they are references instead.
     assert gateway.route_table_ids == [] and interface.subnet_ids == []
-    targets = {
-        d.target.resource_id
-        for deps in snapshot.dependencies_by_region.values()
-        for d in deps
-        if d.source_id == interface.id
-    }
-    assert {resources["ServiceSubnet"].id, resources["EndpointGroup"].id} <= targets
+    assert {resources["ServiceSubnet"].id, resources["EndpointGroup"].id} <= targets(
+        snapshot, interface.id
+    )
 
     office = resources["Office"]
     assert isinstance(office, ManagedPrefixList) and office.name == "office"
@@ -120,10 +118,4 @@ def test_template_maps_transit_gateways_and_qualifies_their_route_table():
         if d.target.resource_id == table.id
     }
     assert children <= to_table
-    reasons = {
-        value.reason
-        for operation in snapshot.coverage.operations
-        for value in operation.unresolved_values
-        if value.resource_id == table.id
-    }
-    assert sum("may be incomplete" in reason for reason in reasons) == 3
+    assert sum("may be incomplete" in reason for reason in reasons(snapshot, table.id)) == 3

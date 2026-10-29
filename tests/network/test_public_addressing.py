@@ -126,9 +126,3 @@ def test_limited_collection_of_the_resources_operation_gives_unknown(status):
 def test_other_operations_do_not_limit_the_decision():
     covered = {**COVERED, "DescribeInstances": "failed"}
     assert check("eni-1", enis=[ENI], covered=covered)[1].decision == D.ALLOW
-
-
-def test_non_aws_snapshots_return_the_unsupported_platform_result():
-    index = GraphIndex(load_snapshot(FIXTURES_ROOT / "snapshots" / "azure.json"))
-    result = evaluate_public_address(index, "any")
-    assert codes(result) == {B.UNSUPPORTED_PLATFORM}

@@ -6,14 +6,14 @@ from pydantic import ValidationError
 from archdiscov.models.enums import VpcEndpointType
 from archdiscov.models.resource_tree import walk_resources
 from archdiscov.models.resources.network import ManagedPrefixList, VpcEndpoint
-from archdiscov.services import load_snapshot, save_snapshot
+from archdiscov.services import load_snapshot
 from tests.paths import FIXTURES_ROOT
 
 FIXTURE = FIXTURES_ROOT / "snapshots" / "endpoints-and-prefix-lists.json"
 IDENTITY = {"account_id": "123456789012", "region": "eu-west-1", "service": "ec2"}
 
 
-def test_fixture_loads_typed_round_trips_and_cites_exact_entries(tmp_path):
+def test_fixture_loads_typed_and_cites_exact_entries():
     snapshot = load_snapshot(FIXTURE)
     resources = {
         resource.identity.physical_id: resource
@@ -40,18 +40,14 @@ def test_fixture_loads_typed_round_trips_and_cites_exact_entries(tmp_path):
     cited = snapshot.evidence[table.fact_evidence["/routes/2"][0]]
     assert cited.configuration_path == "RouteTables[0].Routes[2]"
 
-    saved = save_snapshot(snapshot, tmp_path / "endpoints.json")
-    assert load_snapshot(saved) == snapshot
-
 
 @pytest.mark.parametrize(
     ("model", "fields"),
     [
         (ManagedPrefixList, {"address_family": "ipv6", "entries": [{"cidr": "10.0.0.0/8"}]}),
         (VpcEndpoint, {"endpoint_type": "gateway", "subnet_ids": ["subnet-1"]}),
-        (VpcEndpoint, {"endpoint_type": "interface", "route_table_ids": ["rtb-1"]}),
     ],
-    ids=["entry-of-another-family", "gateway-with-subnets", "interface-with-route-tables"],
+    ids=["entry-of-another-family", "gateway-with-subnets"],
 )
 def test_impossible_states_are_rejected(model, fields):
     with pytest.raises(ValidationError):

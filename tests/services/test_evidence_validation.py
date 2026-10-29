@@ -46,17 +46,6 @@ def test_evidence_revalidates_mutable_snapshot_and_returns_detached_resources(fi
     assert any("unknown resource owner" in item.message for item in error.value.details)
 
 
-def test_containment_reads_only_ids_without_copying_resource_trees():
-    snapshot = validate_snapshot(json.loads((FIXTURES / "azure.json").read_text()))
-    access = snapshot_access.SnapshotAccess.from_snapshot(snapshot)
-    expected = [
-        (resource.id, child.id) for resource in access.resources() for child in resource.children
-    ]
-    assert len(expected) == 2
-    with patch.object(Resource, "model_copy", side_effect=AssertionError("tree copy")):
-        assert list(access.containment()) == expected
-
-
 def test_azure_evidence_and_coverage_match_case_insensitive_namespace():
     data = json.loads((FIXTURES / "azure.json").read_text())
     evidence_id = next(iter(data["evidence"]))

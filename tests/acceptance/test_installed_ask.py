@@ -9,16 +9,15 @@ fabricated or unreturned citation (rejected after the repair, exit 5), repair a 
 citation (answered after the repair), and answer over imported text that tries to instruct
 the model (shown only as quoted data).
 
-The third refuses a missing configuration, an unknown snapshot, a Bedrock profile that cannot
-be loaded, an Anthropic or OpenAI-compatible configuration without its key, and an existing
-transcript path before the run, and reports a scripted provider error and a run limit as
-answer outcomes, each with its documented exit code. In the fourth, the Anthropic adapter, the
-OpenAI-compatible adapter through each protocol, and the Bedrock adapter answer a README
-question through a mock API on one loopback port, the only connection the run may make, and
-give the fake's answer. The child sees no credentials and no checkout, except a dummy key or
-AWS profile forwarded to an adapter's run alone: its whole `PYTHONPATH` is the offline guard,
-which fails and records any other network use. Each command's JSON is checked here; its
-readable form once, since `tests/cli` renders every outcome readably in process.
+The third refuses a missing configuration, a Bedrock profile that cannot be loaded, and an
+Anthropic configuration without its key before the run, and reports a scripted provider error
+and a run limit as answer outcomes, each with its documented exit code. In the fourth, the
+Anthropic adapter, the OpenAI-compatible adapter through each protocol, and the Bedrock adapter
+answer a README question through a mock API on one loopback port, the only connection the run
+may make, and give the fake's answer. The child sees no credentials and no checkout, except a
+dummy key or AWS profile forwarded to an adapter's run alone: its whole `PYTHONPATH` is the
+offline guard, which fails and records any other network use. Each command's JSON is checked
+here; its readable form once, since `tests/cli` renders every outcome readably in process.
 """
 
 import json
@@ -180,18 +179,15 @@ def _missing_key(harness: MockedHarness, directory: Path) -> tuple[Path, list, d
 
 
 PRE_RUN = {case.__name__.strip("_"): (case, code, error) for case, code, error in PRE_RUN_ERRORS}
-# The CLI test's pre-run cases the installed command repeats, and two adapters without a key.
+# A missing configuration, shown in both forms, and the refusals that depend on the child's
+# environment, which holds no credentials; the ask service tests reach the others in process.
 REFUSALS = {
-    **{name: PRE_RUN[name] for name in ("missing_config", "unknown_snapshot", "missing_profile")},
-    **{
-        f"missing_{harness.name}_key": (
-            partial(_missing_key, harness),
-            2,
-            "provider_credential_missing",
-        )
-        for harness in (AnthropicHarness(), ResponsesHarness())
-    },
-    "existing_transcript": PRE_RUN["existing_transcript"],
+    **{name: PRE_RUN[name] for name in ("missing_config", "missing_profile")},
+    "missing_anthropic_key": (
+        partial(_missing_key, AnthropicHarness()),
+        2,
+        "provider_credential_missing",
+    ),
 }
 # Scripted runs that start and fail: (turns, extra configuration, exit code, failure reason).
 FAILED_RUNS = {
@@ -368,8 +364,7 @@ def test_errors_before_the_run_fail_safely(summary):
     assert refused["missing_profile"]["kind"] == "bedrock"
     assert refused["missing_config"]["path"].endswith("missing.toml")
     # A missing key names its variable, never a value, and stops the run before any request.
-    for kind in ("anthropic", "openai_compatible"):
-        assert refused[f"missing_{kind}_key"]["variable"] == INSTALLED_KEY_VARIABLE
+    assert refused["missing_anthropic_key"]["variable"] == INSTALLED_KEY_VARIABLE
 
 
 def test_provider_errors_and_limits_are_answer_outcomes(summary):

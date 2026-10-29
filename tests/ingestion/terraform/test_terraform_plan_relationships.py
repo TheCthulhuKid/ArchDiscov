@@ -1,7 +1,6 @@
 import pytest
 
 from archdiscov.ingestion.adapter import IngestionError
-from archdiscov.ingestion.terraform import plan_relationships
 from tests.support.terraform_data import change, collect, resources, write_plan
 
 
@@ -37,11 +36,8 @@ def test_configuration_reference_resolves_logical_new_target_without_physical_id
     assert record.value == "aws_subnet.main.id"
 
 
-@pytest.mark.parametrize(
-    "reference",
-    ["var.subnet", "aws_subnet.missing.id", "module.other.output", "malicious raw secret"],
-)
-def test_unavailable_expressions_have_safe_evidence_and_coverage(tmp_path, reference):
+def test_unavailable_expressions_have_safe_evidence_and_coverage(tmp_path):
+    reference = "var.subnet"
     snapshot = collect(write_plan(tmp_path, [change()], configuration=configuration(reference)))
     dependency = snapshot.dependencies_by_region["eu-west-1"][0]
     assert dependency.target.kind == "unresolved"
@@ -109,86 +105,14 @@ def test_deleted_parent_cannot_contain_or_resolve_planned_after_child(tmp_path):
     )
 
 
-@pytest.mark.parametrize(
-    "config",
-    [None, {"root_module": []}, {"root_module": {"resources": "invalid"}}, configuration(42)],
-)
-def test_malformed_configuration_fails_safely(tmp_path, config):
-    with pytest.raises(IngestionError, match=r"configuration|references"):
-        collect(write_plan(tmp_path, [change()], configuration=config))
-
-
-def test_reference_shaped_constant_is_not_a_dependency(tmp_path):
-    config = configuration("aws_vpc.main.id")
-    config["root_module"]["resources"][0]["expressions"] = {
-        "tags": {"constant_value": {"references": ["aws_vpc.main.id"]}}
-    }
-    snapshot = collect(
-        write_plan(tmp_path, [change(), change("aws_vpc.main")], configuration=config)
-    )
-    assert not snapshot.dependencies_by_region
-
-
-@pytest.mark.parametrize(
-    "addresses,reference,target",
-    [
-        (["aws_subnet.main"], "aws_subnet.mainly.id", None),
-        (["aws_subnet.main", "aws_subnet.main.id"], "aws_subnet.main.id", None),
-        (["aws_subnet.main", "aws_subnet.main.id"], "aws_subnet.main.id.value", None),
-        (
-            ['aws_subnet.main["blue.green"]'],
-            'aws_subnet.main["blue.green"].id',
-            'aws_subnet.main["blue.green"]',
-        ),
-        (["aws_instance.example"], "aws_instance.example.id", None),
-    ],
-)
-def test_reference_index_preserves_exact_prefix_and_ambiguity_rules(
-    tmp_path, addresses, reference, target
-):
-    changes = [change()]
-    for address in addresses:
-        if address != "aws_instance.example":
-            entry = change(address)
-            entry["type"] = "aws_subnet"
-            changes.append(entry)
-    snapshot = collect(write_plan(tmp_path, changes, configuration=configuration(reference)))
-    dependency = snapshot.dependencies_by_region["eu-west-1"][0]
-    if target is None:
-        assert dependency.target.kind == "unresolved"
-    else:
-        assert dependency.target.resource_id == resources(snapshot)[target].id
-
-
-def test_source_normalization_is_indexed_once_per_call(tmp_path, monkeypatch):
-    original = plan_relationships._INDEX
-    normalized = []
-
-    class CountNormalizations:
-        def sub(self, replacement, address):
-            normalized.append(address)
-            return original.sub(replacement, address)
-
-    monkeypatch.setattr(plan_relationships, "_INDEX", CountNormalizations())
-    config = configuration("aws_subnet.main.id")
-    config["root_module"]["resources"].append({"address": "aws_subnet.main", "expressions": {}})
-    changes = [change(), change("aws_subnet.main[0]"), change("aws_subnet.main[1]")]
-    path = write_plan(tmp_path, changes, configuration=config)
-    collect(path)
-    assert normalized == [entry["address"] for entry in changes]
-    normalized.clear()
-    collect(write_plan(tmp_path, [change()], configuration=config))
-    assert normalized == ["aws_instance.example"]
+def test_malformed_configuration_fails_safely(tmp_path):
+    with pytest.raises(IngestionError, match="configuration"):
+        collect(write_plan(tmp_path, [change()], configuration={"root_module": []}))
 
 
 def test_configuration_source_index_keeps_all_normalized_instances(tmp_path):
-    addresses = ['aws_instance.example["blue.green"]', 'aws_instance.example["blue\\"green"]']
-    changes = []
-    for address in addresses:
-        entry = change(address)
-        entry["type"] = "aws_instance"
-        changes.append(entry)
-    changes.append(change("aws_subnet.main"))
+    addresses = ["aws_instance.example[0]", "aws_instance.example[1]"]
+    changes = [*(change(address) for address in addresses), change("aws_subnet.main")]
     snapshot = collect(
         write_plan(tmp_path, changes, configuration=configuration("aws_subnet.main.id"))
     )

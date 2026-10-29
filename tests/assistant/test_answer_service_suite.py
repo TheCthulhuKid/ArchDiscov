@@ -251,6 +251,8 @@ def test_each_answer_outcome_is_reached_and_rendered_without_leaks(identity: Ide
     else:
         assert rendered.failure.reason == outcome.failure and rendered.narrative is None
         assert first == f"Answer: failed ({outcome.failure}), exit code {exit_code}"
+        # The repaired attempt may fail differently from the first, so neither is a repeat.
+        assert not any(" again" in item for item in rendered.failure.unverified)
     assert AnswerResult.model_validate_json(result.model_dump_json()) == result
     data = json.dumps(answer_data(rendered))
     for rendering in [*secret_renderings(result), text, data]:

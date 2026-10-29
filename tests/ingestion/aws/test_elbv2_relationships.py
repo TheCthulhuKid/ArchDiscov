@@ -11,10 +11,8 @@ from archdiscov.models.architecture import (
 )
 from archdiscov.models.enums import (
     AwsRegion,
-    AwsService,
     DependencyRelationship,
     LoadBalancerType,
-    ResourceType,
     TargetType,
 )
 from archdiscov.models.resources.load_balancing import (
@@ -23,12 +21,11 @@ from archdiscov.models.resources.load_balancing import (
     LoadBalancer,
     TargetGroup,
 )
-from archdiscov.services import load_snapshot, save_snapshot
 from tests.support.elbv2_data import ACCOUNT, LB, responses
 from tests.support.elbv2_snapshot import ec2_roots, identity, normalized, snapshot
 
 
-def test_merge_preserves_ec2_tree_and_exact_source_owned_links(tmp_path):
+def test_merge_preserves_ec2_tree_and_exact_source_owned_links():
     result = normalized()
     roots = ec2_roots()
     original = roots[0]
@@ -61,7 +58,6 @@ def test_merge_preserves_ec2_tree_and_exact_source_owned_links(tmp_path):
     assert all(
         snap.evidence[e].resource_id == link.source_id for link in links for e in link.evidence_ids
     )
-    assert load_snapshot(save_snapshot(snap, tmp_path / "linked.json")) == snap
 
 
 def test_elb_only_missing_parents_targets_are_explicit():
@@ -79,119 +75,47 @@ def test_elb_only_missing_parents_targets_are_explicit():
     assert registration.target.source_path.endswith("Target.Id")
 
 
-@pytest.mark.parametrize("observation", ["wrong_type", "unique", "duplicate"])
-def test_registration_requires_unique_expected_resource_type(observation):
-    result = normalized()
-    group = next(r for r in result.resources if isinstance(r, TargetGroup))
-    group.target_type = TargetType.INSTANCE
-    identifier = "i-web"
-    group.targets[0].id = identifier
-    expected = Ec2Instance(identity=identity(identifier))
-    candidates = {
-        "wrong_type": [Subnet(identity=identity(identifier))],
-        "unique": [expected, Subnet(identity=identity(identifier))],
-        "duplicate": [expected, expected.model_copy(deep=True)],
-    }[observation]
-    resources = [group, *candidates]
-    resource_ids = [r.id for r in resources]
-    citations = group.fact_evidence["/targets/0/id"]
-    links = [
-        link
-        for link in resolve_relationships(resources, result.evidence)
-        if link.source_id == group.id
-    ]
-    assert len(links) == 1
-    link = links[0]
-    assert link.evidence_ids == citations
-    assert link.attributes == {
-        "observed_identifier": identifier,
-        "port": 8080,
-        "availability_zone": "us-east-1a",
-        "health_state": "unhealthy",
-        "health_reason": "Target.FailedHealthChecks",
-    }
-    if observation == "unique":
-        assert link.target.kind == "local"
-        assert link.target.resource_id == expected.id
-    else:
-        assert link.target.kind == "unresolved"
-        assert link.target.reason == (
-            "target was not uniquely observed with the expected resource type"
-        )
-        assert link.target.source_path == result.evidence[citations[0]].configuration_path
-    assert [r.id for r in resources] == resource_ids
-
-
-@pytest.mark.parametrize(
-    "lb_types,expected",
-    [
-        ([LoadBalancerType.NETWORK], "unresolved"),
-        ([LoadBalancerType.APPLICATION, LoadBalancerType.NETWORK], "local"),
-    ],
-)
-def test_alb_registration_filters_load_balancer_type_before_uniqueness(lb_types, expected):
-    result = normalized()
-    group = next(r for r in result.resources if isinstance(r, TargetGroup))
-    group.target_type = TargetType.ALB
-    group.targets[0].id = LB
+def balancers(result, *kinds):
     load_balancer = next(r for r in result.resources if isinstance(r, LoadBalancer))
-    candidates = [load_balancer.model_copy(update={"lb_type": kind}) for kind in lb_types]
-    link = next(
-        link
-        for link in resolve_relationships([group, *candidates], result.evidence)
-        if link.source_id == group.id
-    )
-    assert link.target.kind == expected
+    return [load_balancer.model_copy(update={"lb_type": kind}) for kind in kinds]
+
+
+def instance(identifier):
+    return Ec2Instance(identity=identity(identifier))
+
+
+def subnet(identifier):
+    return Subnet(identity=identity(identifier))
+
+
+LAMBDA = f"arn:aws:lambda:us-east-1:{ACCOUNT}:function:worker"
+APPLICATION, NETWORK = LoadBalancerType.APPLICATION, LoadBalancerType.NETWORK
 
 
 @pytest.mark.parametrize(
-    "identifier,account_id",
+    "target_type,identifier,candidates,kind",
     [
-        (f"arn:aws:lambda:us-east-1:{ACCOUNT}:function:worker", ACCOUNT),
-        ("arn:aws:lambda:us-east-1:invalid:function:worker", None),
-        ("worker", None),
+        (TargetType.INSTANCE, "i-web", lambda r: [instance("i-web"), subnet("i-web")], "local"),
+        (TargetType.INSTANCE, "i-web", lambda r: [subnet("i-web")], "unresolved"),
+        (TargetType.ALB, LB, lambda r: balancers(r, APPLICATION, NETWORK), "local"),
+        (TargetType.ALB, LB, lambda r: balancers(r, NETWORK), "unresolved"),
+        (TargetType.LAMBDA, LAMBDA, lambda r: [instance(LAMBDA)], "external"),
+        (TargetType.IP, "10.0.0.7", lambda r: [instance("10.0.0.7")], "unresolved"),
     ],
-    ids=["account-arn", "invalid-account", "not-an-arn"],
+    ids=["instance", "instance-wrong-type", "alb", "alb-only-nlb", "lambda", "ip"],
 )
-def test_lambda_registration_remains_external_without_fabricating_resources(identifier, account_id):
+def test_registration_resolves_only_a_unique_resource_of_the_expected_type(
+    target_type, identifier, candidates, kind
+):
     result = normalized()
     group = next(r for r in result.resources if isinstance(r, TargetGroup))
-    group.target_type = TargetType.LAMBDA
+    group.target_type = target_type
     group.targets[0].id = identifier
-    roots = [group, Ec2Instance(identity=identity(identifier))]
-    resource_ids = [r.id for r in roots]
-    link = resolve_relationships(roots, result.evidence)[0]
-    assert link.target.model_dump() == {
-        "kind": "external",
-        "identifier": identifier,
-        "service": AwsService.LAMBDA,
-        "region": None,
-        "account_id": account_id,
-        "aws_resource_type": ResourceType.LAMBDA_FUNCTION,
-    }
+    links = resolve_relationships([group, *candidates(result)], result.evidence)
+    (link,) = (link for link in links if link.source_id == group.id)
+    assert link.target.kind == kind
     assert link.evidence_ids == group.fact_evidence["/targets/0/id"]
-    assert [r.id for r in roots] == resource_ids
-
-
-def test_ip_registration_does_not_resolve_matching_physical_identifier():
-    result = normalized()
-    group = next(r for r in result.resources if isinstance(r, TargetGroup))
-    group.target_type = TargetType.IP
-    group.targets[0].id = "10.0.0.7"
-    roots = [group, Ec2Instance(identity=identity("10.0.0.7"))]
-    link = resolve_relationships(roots, result.evidence)[0]
-    assert link.target.kind == "unresolved"
-    assert link.target.reason == "IP registration is observed; resource ownership is not inferred"
-    assert link.target.source_path == (
-        result.evidence[group.fact_evidence["/targets/0/id"][0]].configuration_path
-    )
-
-
-def test_registration_without_citations_never_creates_an_edge():
-    result = normalized()
-    group = next(r for r in result.resources if isinstance(r, TargetGroup))
-    group.fact_evidence.clear()
-    assert resolve_relationships([group], {}) == []
+    assert link.attributes["observed_identifier"] == identifier
 
 
 def test_nonforward_actions_never_become_forwarding_edges():

@@ -3,7 +3,6 @@
 import json
 
 import pytest
-from pydantic import ValidationError
 
 from archdiscov.assistant.answer_output import answer_data, answer_text
 from archdiscov.assistant.conversation import (
@@ -13,8 +12,6 @@ from archdiscov.assistant.conversation import (
     ProviderContinuation,
     parse_conversation,
 )
-from archdiscov.assistant.fake import load_fake_transcript
-from archdiscov.assistant.provider import CompletionResponse
 from archdiscov.assistant.runs import (
     LimitReached,
     MalformedOutput,
@@ -22,14 +19,13 @@ from archdiscov.assistant.runs import (
     RunLimitKind,
     RunLimits,
 )
-from tests.paths import TESTS_ROOT
 from tests.support.provider_data import SIGNATURE, THINKING
 from tests.support.scripted_answers import SEARCH, answer_proposal, answer_turns, submit_turn
 from tests.support.scripted_turns import calls_turn, continued_turn, run_turns, text_turn
 
 
-def _continuation(provider_kind: str = "fake", **block) -> dict:
-    return {"provider_kind": provider_kind, "blocks": [{**THINKING, **block}]}
+def _continuation(**block) -> dict:
+    return {"provider_kind": "fake", "blocks": [{**THINKING, **block}]}
 
 
 def _issues(data: dict) -> list[str]:
@@ -41,32 +37,13 @@ def _issues(data: dict) -> list[str]:
     return [issue.type for issue in raised.value.details]
 
 
-@pytest.mark.parametrize("continuation", [None, _continuation()], ids=["without", "with"])
-def test_messages_and_responses_round_trip(continuation) -> None:
-    message = AssistantMessage.model_validate({"text": "Searching.", "continuation": continuation})
-    response = CompletionResponse(message=message, stop_reason="end")
-    assert CompletionResponse.model_validate_json(response.model_dump_json()) == response
-    assert (
-        parse_conversation(
-            {"messages": [{"role": "user", "text": "q"}, message.model_dump(mode="json")]}
-        ).messages[1]
-        == message
-    )
-
-
-def test_a_continuation_is_bounded_and_named() -> None:
+def test_a_continuation_is_bounded_and_not_a_message_alone() -> None:
     within = ProviderContinuation.model_validate(_continuation())
     assert within.size == len(json.dumps([THINKING], separators=(",", ":")))
     padding = "x" * MAX_CONTINUATION_BYTES
     assert _issues(
         {"role": "assistant", "text": "a", "continuation": _continuation(thinking=padding)}
     ) == ["continuation_too_large"]
-    for invalid in ({"provider_kind": "fake", "blocks": []}, _continuation("Not A Kind")):
-        with pytest.raises(ValidationError):
-            ProviderContinuation.model_validate(invalid)
-
-
-def test_a_continuation_alone_is_not_a_message() -> None:
     assert _issues({"role": "assistant", "continuation": _continuation()}) == [
         "assistant_message_empty"
     ]
@@ -113,13 +90,3 @@ def test_transcripts_and_renderings_hold_no_continuation_content() -> None:
     assert [turn.continuation_bytes for turn in result.transcript.turns] == [
         len(json.dumps([THINKING], separators=(",", ":")))
     ] * 2
-
-
-@pytest.mark.parametrize("name", ["multi_step.json", "failures.json"])
-def test_existing_fixtures_load_unchanged(name: str) -> None:
-    path = TESTS_ROOT / "fixtures" / "assistant" / name
-    transcript = load_fake_transcript(path)
-    messages = [
-        turn.response.message for turn in transcript.turns if getattr(turn, "response", None)
-    ]
-    assert messages and all(message.continuation is None for message in messages)

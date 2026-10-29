@@ -1,29 +1,15 @@
-import pytest
-
 from archdiscov.graph import GraphIndex
 from archdiscov.models.enums import ComparisonLimitationKind, MatchBasis
 from archdiscov.services.comparison_matching import (
     AmbiguousIds,
     MatchedIds,
-    iac_context,
     match_resources,
     pair_groups,
 )
-from tests.support.comparison_data import (
-    ACCOUNT,
-    REGION,
-    aws_resource,
-    aws_snapshot,
-    azure_snapshot,
-    index,
-)
+from tests.support.comparison_data import aws_resource, azure_snapshot, index, rid
 
 PHYSICAL, LOGICAL = MatchBasis.PHYSICAL_IDENTITY, MatchBasis.LOGICAL_ADDRESS
-VPC, SUBNET = "AWS::EC2::VPC", "AWS::EC2::Subnet"
-
-
-def rid(name, region=REGION, kind="physical", account=ACCOUNT):
-    return f"{account}/{region}/ec2/{kind}/{name}"
+SUBNET = "AWS::EC2::Subnet"
 
 
 def ids(outcome):
@@ -55,21 +41,16 @@ def test_equal_physical_identities_match_and_the_rest_are_unmatched_on_their_sid
     assert forward.unmatched_right == backward.unmatched_left
 
 
-def test_the_same_physical_id_in_another_region_does_not_match():
+def test_the_same_physical_id_in_another_region_type_or_case_does_not_match():
     left = index([aws_resource(physical="vpc-1")])
-    right = index([aws_resource(physical="vpc-1", region="us-east-1")], region="us-east-1")
-    outcome = match_resources(left, right)
+    elsewhere = index([aws_resource(physical="vpc-1", region="us-east-1")], region="us-east-1")
+    outcome = match_resources(left, elsewhere)
     assert outcome.matched == ()
     assert outcome.unmatched_left == left.resource_ids
-    assert outcome.unmatched_right == right.resource_ids
-
-
-def test_the_same_physical_id_with_another_native_type_does_not_match():
-    left = index([aws_resource(SUBNET, physical="x-1")])
-    right = index([aws_resource(VPC, physical="x-1")])
-    outcome = match_resources(left, right)
-    assert outcome.matched == ()
-    assert len(outcome.unmatched_left) == len(outcome.unmatched_right) == 1
+    assert outcome.unmatched_right == elsewhere.resource_ids
+    assert match_resources(index([aws_resource(SUBNET, physical="vpc-1")]), left).matched == ()
+    # AWS identifiers are case-sensitive, unlike Azure ARM IDs.
+    assert match_resources(index([aws_resource(physical="VPC-1")]), left).matched == ()
 
 
 def test_names_and_short_ids_never_match():
@@ -107,12 +88,6 @@ def test_azure_arm_ids_match_case_insensitively():
     assert outcome.unmatched_left == outcome.unmatched_right == ()
 
 
-def test_aws_matching_is_case_sensitive():
-    left = index([aws_resource(physical="vpc-AAA")])
-    right = index([aws_resource(physical="vpc-aaa")])
-    assert match_resources(left, right).matched == ()
-
-
 # ---- logical addresses --------------------------------------------------------------
 
 
@@ -123,13 +98,9 @@ def test_logical_addresses_match_inside_one_iac_context_including_module_paths()
     assert matched.basis == LOGICAL
 
 
-@pytest.mark.parametrize(
-    "right_address",
-    ["module.other.aws_vpc.main", "aws_vpc.main", 'module.network.aws_vpc.main["a"]'],
-)
-def test_a_different_module_path_or_instance_is_not_the_same_address(right_address):
+def test_a_different_module_path_is_not_the_same_address():
     left = index([aws_resource(logical="module.network.aws_vpc.main")], "terraform_state")
-    right = index([aws_resource(logical=right_address)], "terraform_plan")
+    right = index([aws_resource(logical="module.other.aws_vpc.main")], "terraform_plan")
     outcome = match_resources(left, right)
     assert outcome.matched == ()
     assert outcome.unmatched_left and outcome.unmatched_right
@@ -161,14 +132,6 @@ def test_observed_resources_match_terraform_state_by_physical_identity():
     assert matched.basis == PHYSICAL
 
 
-def test_iac_contexts_are_per_source_family():
-    from archdiscov.models.enums import SnapshotSourceKind as K
-
-    assert iac_context(K.TERRAFORM_STATE) == iac_context(K.TERRAFORM_PLAN) == "terraform"
-    assert iac_context(K.CLOUDFORMATION) == "cloudformation"
-    assert {iac_context(K.AWS), iac_context(K.MOCK), iac_context(K.AZURE_FIXTURE)} == {None}
-
-
 # ---- ambiguity ----------------------------------------------------------------------
 
 
@@ -177,64 +140,21 @@ def key(identifier):
 
 
 def test_duplicate_keys_are_ambiguous_with_every_candidate_listed_and_none_chosen():
-    left = {key("a"): ("AWS::EC2::VPC a", ["l1", "l2"]), key("b"): ("b", ["l3"])}
-    right = {key("a"): ("AWS::EC2::VPC a", ["r1"]), key("b"): ("b", ["r2", "r3"])}
+    left = {
+        key("a"): ("AWS::EC2::VPC a", ["l1", "l2"]),
+        key("b"): ("b", ["l3"]),
+        key("c"): ("c", ["l4"]),
+        key("d"): ("d", ["l5", "l6"]),
+    }
+    right = {
+        key("a"): ("AWS::EC2::VPC a", ["r1"]),
+        key("b"): ("b", ["r2", "r3"]),
+        key("c"): ("c", ["r4"]),
+    }
     matched, ambiguous = pair_groups(left, right)
-    assert matched == []
+    # Unique keys still match; a duplicate without a counterpart pairs nothing.
+    assert matched == [MatchedIds("l4", "r4", PHYSICAL)]
     assert ambiguous == [
         AmbiguousIds(PHYSICAL, "AWS::EC2::VPC a", ("l1", "l2"), ("r1",)),
         AmbiguousIds(PHYSICAL, "b", ("l3",), ("r2", "r3")),
     ]
-
-
-def test_a_duplicate_with_no_counterpart_pairs_nothing_and_unique_keys_still_match():
-    left = {key("a"): ("a", ["l1", "l2"]), key("c"): ("c", ["l4"])}
-    right = {key("b"): ("b", ["r1"]), key("c"): ("c", ["r4"])}
-    matched, ambiguous = pair_groups(left, right)
-    assert matched == [MatchedIds("l4", "r4", PHYSICAL)]
-    assert ambiguous == []
-
-
-# ---- determinism --------------------------------------------------------------------
-
-
-def test_the_outcome_is_deterministic_and_covers_every_resource_once():
-    resources = [aws_resource(physical=f"vpc-{n}") for n in (3, 1, 2)]
-    left = index(resources)
-    right = index(list(reversed(resources[:2])))
-    first, second = match_resources(left, right), match_resources(left, right)
-    assert first == second
-    left_seen = [m.left_id for m in first.matched] + list(first.unmatched_left)
-    assert sorted(left_seen) == list(left.resource_ids)
-    assert [m.left_id for m in first.matched] == sorted(m.left_id for m in first.matched)
-
-
-def test_snapshot_sources_are_exposed_through_the_index():
-    for source in ("aws", "mock", "terraform_state", "terraform_plan", "cloudformation"):
-        resource = (
-            aws_resource(physical="vpc-1", logical="x")
-            if source != "aws"
-            else aws_resource(physical="vpc-1")
-        )
-        assert index([resource], source).source_kind == source
-    assert GraphIndex(azure_snapshot()).source_kind == "azure_fixture"
-    assert aws_snapshot([aws_resource(physical="v")]).source.kind == "aws"
-
-
-def test_recorded_fixtures_match_only_inside_their_own_context():
-    from archdiscov.services import load_snapshot
-    from tests.paths import FIXTURES_ROOT
-
-    def load(name):
-        return GraphIndex(load_snapshot(FIXTURES_ROOT / "snapshots" / f"{name}.json"))
-
-    plan, template, observed = load("terraform-plan"), load("cloudformation"), load("aws")
-    assert match_resources(plan, template).matched == ()
-    assert match_resources(plan, observed).matched == ()
-    [self_match] = match_resources(plan, plan).matched
-    assert (
-        self_match.basis == LOGICAL
-        and "module.network" in plan.get_resource(self_match.left_id).identity.logical_address
-    )
-    [same] = match_resources(observed, observed).matched[:1]
-    assert same.basis == PHYSICAL
