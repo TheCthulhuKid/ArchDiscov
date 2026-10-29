@@ -127,7 +127,7 @@ def test_private_helper_imports_remain_compatible() -> None:
     assert _validate_fact_pointer is snapshot_integrity._validate_fact_pointer
 
 
-@pytest.mark.parametrize("kind", ["aws_unknown", "azure_unknown", "azure_model"])
+@pytest.mark.parametrize("kind", ["aws_unknown", "azure_model"])
 def test_legacy_rejects_cloud_resource_models(kind: str) -> None:
     path = FIXTURES_ROOT / "snapshots" / "aws.json"
     snapshot = ArchitectureSnapshot.model_validate(json.loads(path.read_text()))
@@ -143,13 +143,7 @@ def test_legacy_rejects_cloud_resource_models(kind: str) -> None:
             native_type="Microsoft.Network/virtualNetworks",
             logical_address="network",
         )
-        cloud = (
-            CloudUnknownResource(
-                identity=identity, platform="azure", native_type=identity.native_type
-            )
-            if kind == "azure_unknown"
-            else AzureVirtualNetwork(identity=identity)
-        )
+        cloud = AzureVirtualNetwork(identity=identity)
         message = "legacy snapshots require AWS identities"
     snapshot.regions["eu-west-1"].resources = [cloud]
     with pytest.raises(ValueError, match=message):

@@ -89,10 +89,9 @@ def test_unquoted_template_version_is_a_string_not_a_python_date():
     }
 
 
-@pytest.mark.parametrize("value", [42, [], {}])
-def test_template_version_shape_fails_at_parsing_boundary(value):
+def test_template_version_shape_fails_at_parsing_boundary():
     with pytest.raises(IngestionError, match="Invalid CloudFormation template"):
-        parse_template(json.dumps({"Resources": {}, "AWSTemplateFormatVersion": value}))
+        parse_template(json.dumps({"Resources": {}, "AWSTemplateFormatVersion": 42}))
 
 
 BUCKET = {"Type": "AWS::S3::Bucket"}

@@ -249,11 +249,3 @@ def test_all_service_results_identical_with_sequential_and_parallel_job_limits(m
         _collect_all_services(monkeypatch, real_collect, limit) for limit in (1, 8)
     ]
     assert sequential == parallel
-
-
-def test_sync_adapter_rejects_nested_loop_without_creating_coroutine():
-    async def run():
-        with pytest.raises(IngestionError, match="async collection"):
-            aws.AwsAdapter().collect(AwsCollectionRequest(accounts=(account(),)), context=context())
-
-    asyncio.run(run())

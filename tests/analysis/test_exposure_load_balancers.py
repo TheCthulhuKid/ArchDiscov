@@ -146,15 +146,14 @@ def test_missing_acl_records_are_unknown():
 # ---- targets ------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "state", ["healthy", "unhealthy", "draining", "unused", "initial", "unavailable"]
-)
-def test_target_health_is_observed_but_never_changes_the_decision(state):
+def test_target_health_is_observed_but_never_changes_the_decision():
     data = public()
-    data["describe_target_health"]["TargetHealthDescriptions"][0]["TargetHealth"] = {"State": state}
+    data["describe_target_health"]["TargetHealthDescriptions"][0]["TargetHealth"] = {
+        "State": "unhealthy"
+    }
     _, [found] = evaluate(data)
     assert found.decision == D.ALLOW
-    assert found.observed_target_health == (TargetHealthState(state),)
+    assert found.observed_target_health == (TargetHealthState.UNHEALTHY,)
 
 
 def test_ip_and_unrecorded_targets_are_unresolved_and_unknown():

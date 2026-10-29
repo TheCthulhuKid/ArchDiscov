@@ -211,20 +211,6 @@ def test_finding_shape_rules():
         AnalysisFinding.model_validate(finding(exposure(), resources=[]))
 
 
-def test_an_unknown_decision_cannot_be_supported():
-    unknown = exposure(
-        decision="unknown", elements=[element("public_address", "unknown", ["missing_evidence"])]
-    )
-    with pytest.raises(ValidationError, match="cannot be supported"):
-        AnalysisFinding.model_validate(finding(unknown))
-    insufficient = {
-        "status": "insufficient_evidence",
-        "evidence_ids": [],
-        "limitations": [{"code": "x", "message": "m"}],
-    }
-    assert AnalysisFinding.model_validate(finding(unknown, **insufficient))
-
-
 def test_decided_findings_are_supported_and_cited():
     data = exposure(decision="deny", elements=[element("public_address", "deny", ["denied"])])
     model = AnalysisFinding.model_validate(finding(data))

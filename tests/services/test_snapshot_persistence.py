@@ -261,7 +261,7 @@ def test_coverage_and_evidence_limitations_survive(tmp_path: Path) -> None:
     assert loaded.evidence["sg-rule"].limitation == "Value unavailable"
 
 
-@pytest.mark.parametrize("defect", ["identity", "reference", "serialization"])
+@pytest.mark.parametrize("defect", ["identity", "serialization"])
 def test_invalid_mutations_never_create_output(
     snapshot: ArchitectureSnapshot,
     tmp_path: Path,
@@ -269,8 +269,6 @@ def test_invalid_mutations_never_create_output(
 ) -> None:
     if defect == "identity":
         instance(snapshot).identity.physical_id = "i-other"
-    elif defect == "reference":
-        instance(snapshot).fact_evidence["/instance_type"] = ["missing"]
     else:
         instance(snapshot).instance_type = object()
     path = tmp_path / "snapshot.json"
@@ -280,7 +278,9 @@ def test_invalid_mutations_never_create_output(
     assert list(tmp_path.iterdir()) == []
 
 
-@pytest.mark.parametrize("existing", ["valid", "invalid", "directory", "symlink", "dangling"])
+# The link-based publish refuses any existing directory entry; a dangling symlink is the
+# entry an existence check would miss.
+@pytest.mark.parametrize("existing", ["file", "dangling-symlink"])
 def test_save_refuses_every_existing_destination(
     snapshot: ArchitectureSnapshot,
     tmp_path: Path,
@@ -288,15 +288,9 @@ def test_save_refuses_every_existing_destination(
 ) -> None:
     path = tmp_path / "snapshot.json"
     target = tmp_path / "target.json"
-    if existing == "valid":
+    if existing == "file":
         save_snapshot(snapshot, path)
-    elif existing == "invalid":
-        path.write_bytes(b"not JSON")
-    elif existing == "directory":
-        path.mkdir()
     else:
-        if existing == "symlink":
-            target.write_bytes(b"original")
         path.symlink_to(target)
     original = path.read_bytes() if path.is_file() else None
     with pytest.raises(SnapshotConflictError) as error:
@@ -305,7 +299,7 @@ def test_save_refuses_every_existing_destination(
     assert error.value.path == path
     if original is not None:
         assert path.read_bytes() == original
-    if existing in {"symlink", "dangling"}:
+    else:
         assert path.is_symlink()
         assert path.readlink() == target
     assert not list(tmp_path.glob(".archdiscov-*.tmp"))

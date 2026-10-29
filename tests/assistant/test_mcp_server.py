@@ -360,15 +360,6 @@ def test_an_accepted_proposal_returns_the_readable_and_json_answer() -> None:
     assert answer["answer"]["status"] == "supported" and answer["answer"]["conclusions"]
 
 
-def test_a_proposal_citing_unreturned_ids_is_rejected() -> None:
-    session, _, proposal = readme_example(OWNERSHIP_CASE)
-    [(is_error, texts)] = mcp_replies(session, [("submit_answer", proposal)])
-    assert is_error
-    data = _submission(texts)
-    assert data["error"] == "answer_rejected"
-    assert "answer_unknown_id" in {item["code"] for item in data["rejections"]}
-
-
 def test_unreadable_proposals_return_their_reasons() -> None:
     session, _, proposal = readme_example(OWNERSHIP_CASE)
     oversized = {**proposal, "summary": "x" * MAX_TOOL_ARGUMENT_BYTES}

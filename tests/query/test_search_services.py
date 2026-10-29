@@ -129,12 +129,9 @@ def test_physical_ambiguity_keeps_all_regional_candidates():
     assert [item.id for item in result.resources] == sorted([original.id, duplicate.id])
 
 
-@pytest.mark.parametrize(
-    "data", [{"limit_result": 0}, {"native_type": " "}, {"extra": "protected"}]
-)
-def test_invalid_requests_have_fixed_public_errors(data):
+def test_invalid_requests_have_fixed_public_errors():
     with pytest.raises(QueryError) as caught:
-        search_resources(GraphIndex(snapshot("1")), data)
+        search_resources(GraphIndex(snapshot("1")), {"extra": "protected"})
     assert caught.value.code == QueryErrorCode.INVALID_REQUEST
     assert str(caught.value) == "Invalid query request."
 

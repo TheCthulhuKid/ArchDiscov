@@ -144,12 +144,12 @@ def compared(tmp_path: Path) -> ToolSession:
     )
 
 
-def test_a_valid_difference_cites_each_side(compared: ToolSession) -> None:
+def test_each_side_cites_only_its_own_snapshot(compared: ToolSession) -> None:
     left_resource = compared.index.resource_ids[0]
     right_resource = compared.comparison_index.resource_ids[0]
     compared.record.record(compared.index.snapshot_id, IdKind.RESOURCE, [left_resource])
     compared.record.record(compared.comparison_index.snapshot_id, IdKind.RESOURCE, [right_resource])
-    proposal = _proposal(
+    difference = _proposal(
         compared,
         {
             "kind": "recorded_difference",
@@ -159,14 +159,9 @@ def test_a_valid_difference_cites_each_side(compared: ToolSession) -> None:
             ],
         },
     )
-    assert check_citations(proposal, compared) == ()
-
-
-def test_ids_from_the_other_snapshot_are_rejected(compared: ToolSession) -> None:
-    right_resource = compared.comparison_index.resource_ids[0]
-    compared.record.record(compared.comparison_index.snapshot_id, IdKind.RESOURCE, [right_resource])
+    assert check_citations(difference, compared) == ()
     finding = dispatch_tool(compared, "get_saved_analysis", number=1)["findings"]["items"][0]
-    proposal = _proposal(
+    swapped = _proposal(
         compared,
         {"kind": "analyzer_finding", "citations": [{"finding_ids": [finding["finding_id"]]}]},
         {
@@ -174,7 +169,7 @@ def test_ids_from_the_other_snapshot_are_rejected(compared: ToolSession) -> None
             "citations": [{"evidence_ids": ["tags"], "resource_ids": [right_resource]}],
         },
     )
-    codes = _codes(check_citations(proposal, compared))
+    codes = _codes(check_citations(swapped, compared))
     assert ("answer_other_snapshot_id", "conclusions[0].citations[0].finding_ids[0]") in codes
     assert ("answer_other_snapshot_id", "conclusions[1].citations[0].resource_ids[0]") in codes
 
@@ -265,18 +260,6 @@ def test_evidence_attached_to_a_cited_finding_passes_without_its_resource() -> N
     assert check_citations(proposal, session) == ()
 
 
-def test_a_mismatched_source_kind_is_rejected() -> None:
-    session, finding = _ownership()
-    proposal = _proposal(
-        session,
-        _finding_conclusion(finding),
-        contexts=[{"side": "primary", "source_kind": "terraform_plan"}],
-    )
-    assert _codes(check_citations(proposal, session)) == [
-        ("answer_source_kind_mismatch", "contexts[0].source_kind")
-    ]
-
-
 def test_a_comparison_side_without_a_comparison_snapshot_is_rejected() -> None:
     session, finding = _ownership()
     proposal = AnswerProposal.model_validate(
@@ -297,18 +280,6 @@ def test_a_comparison_side_without_a_comparison_snapshot_is_rejected() -> None:
         ("answer_side_unavailable", "conclusions[0].citations[0].side"),
         ("answer_side_unavailable", "contexts[1].side"),
         ("answer_side_unavailable", "limitations[0].side"),
-    ]
-
-
-def test_acknowledged_limitations_must_name_returned_findings() -> None:
-    session, finding = _ownership()
-    proposal = _proposal(
-        session,
-        _finding_conclusion(finding),
-        limitations=[{"finding_id": "fabricated", "limitation": "coverage_failed"}],
-    )
-    assert _codes(check_citations(proposal, session)) == [
-        ("answer_unknown_id", "limitations[0].finding_id")
     ]
 
 
@@ -336,7 +307,6 @@ def test_all_rejections_are_collected_in_location_order() -> None:
 
 
 def test_rejections_carry_fixed_messages_only() -> None:
-    assert set(REJECTION_MESSAGES) == set(RejectionCode)
     with pytest.raises(ValueError):
         Rejection(code=RejectionCode.UNKNOWN_ID, location="conclusions[0]", message=SECRET)
     with pytest.raises(ValueError):

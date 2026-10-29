@@ -163,10 +163,10 @@ def test_registry_is_a_detached_mapping(registry: ToolRegistry) -> None:
     assert len(registry.tools) == len(TOOLS)
 
 
-@pytest.mark.parametrize("field", ["path", "snapshot_id"])
-def test_inputs_cannot_declare_path_or_snapshot_selectors(field: str) -> None:
+def test_inputs_cannot_declare_path_or_snapshot_selectors() -> None:
+    # Every word of a field name counts, so `snapshot_id` is as forbidden as `path`.
     with pytest.raises(TypeError, match="cannot select paths or snapshots"):
-        type(f"Bad_{field}", (ToolInput,), {"__annotations__": {field: str}})
+        type("Bad", (ToolInput,), {"__annotations__": {"snapshot_id": str}})
 
 
 def test_ordinary_field_names_are_allowed() -> None:

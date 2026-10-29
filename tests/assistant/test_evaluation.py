@@ -152,18 +152,18 @@ def test_case_outcomes_are_the_answered_statuses_and_the_failure_reasons() -> No
         _suite(),
         _suite(_case_data(), _case_data()),
         _suite(_case_data(snapshot=f"/{SECRET_PATH}/snapshot.json")),
-        _suite(_case_data(snapshot=f"../{SECRET_PATH}.json")),
         _suite(_case_data(expect={"outcomes": [SECRET_PATH]})),
         _suite(_case_data(expect={"outcomes": ["provider_error"], "statuses": ["supported"]})),
+        _suite(_case_data(expect={"outcomes": ["answered"], "rejections": ["answer_unknown_id"]})),
     ],
     ids=[
         "unknown-field",
         "no-cases",
         "duplicate-case",
-        "absolute-path",
-        "parent-path",
+        "path-outside-suite",
         "unknown-outcome",
         "status-without-answer",
+        "rejections-without-rejection",
     ],
 )
 def test_invalid_suites_are_refused_with_safe_diagnostics(data: dict) -> None:

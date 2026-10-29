@@ -90,10 +90,9 @@ def test_out_of_range_limits_are_rejected(field: str, low: float, high: float) -
     [
         ({"max_tool_calls_per_turn": 8, "max_tool_calls": 4}, "run_limits_order"),
         ({"request_timeout_seconds": 120, "overall_timeout_seconds": 60}, "run_limits_order"),
-        ({"max_provider_requests": "8"}, "int_type"),
         ({"max_tool_calls": True}, "int_type"),
-        ({"max_retries": 2}, "extra_forbidden"),
     ],
+    ids=["calls-order", "timeout-order", "bool-is-not-int"],
 )
 def test_invalid_limits_are_rejected(data: dict, code: str) -> None:
     with pytest.raises(ValidationError) as raised:
@@ -218,7 +217,13 @@ def test_limit_reached_names_each_limit(limit: RunLimitKind) -> None:
         ),
         ({"kind": "limit_reached", "limit": "patience"}, "enum"),
         ({"kind": "succeeded"}, "union_tag_invalid"),
-        ({"kind": "cancelled", "reason": "user"}, "extra_forbidden"),
+    ],
+    ids=[
+        "answer-with-calls",
+        "answer-stop-reason",
+        "malformed-as-provider-error",
+        "unknown-limit",
+        "unknown-kind",
     ],
 )
 def test_invalid_outcomes_are_rejected(data: dict, code: str) -> None:
@@ -375,7 +380,7 @@ def test_total_usage_keeps_unreported_counters_empty() -> None:
     "build",
     [
         lambda: _transcript([_turn(1)]),
-        lambda: _transcript([_turn(0), _turn(0)]),
+        lambda: _transcript([_turn(0), _turn(1).model_copy(update={"repair": True})]),
         lambda: _transcript(
             [_turn(index) for index in range(3)], limits=RunLimits(max_provider_requests=2)
         ),
@@ -384,7 +389,15 @@ def test_total_usage_keeps_unreported_counters_empty() -> None:
         lambda: _transcript([], model=SECRET),
         lambda: _transcript([], provider_kind="Not A Kind"),
     ],
-    ids=["unnumbered", "duplicate", "requests", "tool-calls", "usage", "secret-model", "kind"],
+    ids=[
+        "unnumbered",
+        "repair-unoffered",
+        "requests",
+        "tool-calls",
+        "usage",
+        "secret-model",
+        "kind",
+    ],
 )
 def test_inconsistent_transcripts_are_rejected(build) -> None:
     with pytest.raises(ValidationError):

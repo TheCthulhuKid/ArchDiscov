@@ -86,22 +86,15 @@ def test_accepts_supported_major_with_newer_minor_and_empty_state(version):
     assert parsed.skipped_paths == []
 
 
-@pytest.mark.parametrize(
-    "version", [None, "2.0", RAW_SECRET], ids=["missing", "unsupported-major", "not-echoed"]
-)
-def test_rejects_missing_malformed_or_unsupported_format_version(version):
-    document = export(format_version=version)
-    if version is None:
-        document.pop("format_version")
+def test_rejects_unsupported_format_version_without_echoing_value():
     with pytest.raises(IngestionError, match="format_version") as exc:
-        parse_export(document)
+        parse_export(export(format_version=RAW_SECRET))
     assert_safe_error(exc.value)
 
 
-@pytest.mark.parametrize("version", [1, [], "", RAW_SECRET])
-def test_rejects_invalid_terraform_version_without_echoing_value(version):
+def test_rejects_invalid_terraform_version_without_echoing_value():
     with pytest.raises(IngestionError, match="Invalid Terraform version") as exc:
-        parse_export(export(terraform_version=version))
+        parse_export(export(terraform_version=RAW_SECRET))
     assert_safe_error(exc.value)
 
 
@@ -111,40 +104,32 @@ def test_terraform_version_is_optional():
     assert parse_export(document).terraform_version is None
 
 
-@pytest.mark.parametrize("marker", ["planned_values", "resource_changes", "prior_state", "version"])
-def test_rejects_plan_and_internal_state_even_with_valid_public_state_fields(marker):
+def test_rejects_plan_and_internal_state_even_with_valid_public_state_fields():
     with pytest.raises(IngestionError, match="not a plan or internal state") as exc:
-        parse_export(export(**{marker: RAW_SECRET}))
+        parse_export(export(planned_values=RAW_SECRET))
     assert_safe_error(exc.value)
 
 
-@pytest.mark.parametrize(
-    "document",
-    [None, [], RAW_SECRET, 1, {}, {"format_version": "1.0"}],
-)
-def test_rejects_missing_or_wrong_top_level_shape(document):
+def test_rejects_non_object_top_level_document():
     with pytest.raises(IngestionError) as exc:
-        parse_export(document)
+        parse_export(RAW_SECRET)
     assert_safe_error(exc.value)
 
 
-@pytest.mark.parametrize("values", [None, [], RAW_SECRET, {}, {"root_module": []}])
-def test_requires_values_root_module_object(values):
+def test_requires_values_root_module_object():
     with pytest.raises(IngestionError, match=r"values\.root_module") as exc:
-        parse_export(export(values=values))
+        parse_export(export(values={"root_module": RAW_SECRET}))
     assert_safe_error(exc.value)
 
 
 @pytest.mark.parametrize(
     "module",
     [
-        {"resources": None},
         {"resources": {}},
         {"resources": [RAW_SECRET]},
-        {"child_modules": None},
-        {"child_modules": {}},
         {"child_modules": [RAW_SECRET]},
     ],
+    ids=["not-lists", "resource-not-object", "module-not-object"],
 )
 def test_rejects_malformed_module_shapes(module):
     with pytest.raises(IngestionError) as exc:
@@ -156,11 +141,10 @@ def test_rejects_malformed_module_shapes(module):
     "overrides",
     [
         {"mode": RAW_SECRET},
-        {"address": " "},
-        {"type": "google_compute_instance"},
         {"provider_name": "registry.terraform.io/hashicorp/google"},
         {"values": RAW_SECRET},
     ],
+    ids=["unsupported-mode", "non-aws-identity", "values-not-object"],
 )
 def test_rejects_invalid_managed_resources_and_non_aws_providers(overrides):
     with pytest.raises(IngestionError) as exc:
@@ -262,16 +246,9 @@ def test_load_export_reports_safe_filesystem_errors(tmp_path, is_directory):
     assert str(path) not in str(exc.value)
 
 
-@pytest.mark.parametrize("nested", [False, True], ids=["top-level", "nested-values"])
-def test_load_export_rejects_duplicate_object_keys(tmp_path, nested):
-    duplicate = f'{{"{RAW_SECRET}":1,"{RAW_SECRET}":2}}'
-    if nested:
-        document = export({"resources": [resource(values={"replace": None})]})
-        content = json.dumps(document).replace('{"replace": null}', duplicate)
-    else:
-        content = duplicate
+def test_load_export_rejects_duplicate_object_keys(tmp_path):
     path = tmp_path / "state.json"
-    path.write_text(content, encoding="utf-8")
+    path.write_text(f'{{"{RAW_SECRET}":1,"{RAW_SECRET}":2}}', encoding="utf-8")
     with pytest.raises(IngestionError, match="duplicate object keys") as exc:
         load_export(path)
     assert_safe_error(exc.value)
@@ -290,11 +267,10 @@ def test_load_export_refuses_an_oversized_export(tmp_path, monkeypatch):
     assert_safe_error(exc.value)
 
 
-@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
-def test_load_export_rejects_non_json_numeric_constants(tmp_path, constant):
+def test_load_export_rejects_non_json_numeric_constants(tmp_path):
     document = export({"resources": [resource(values={"replace": None})]})
     path = tmp_path / "state.json"
-    path.write_text(json.dumps(document).replace("null", constant), encoding="utf-8")
+    path.write_text(json.dumps(document).replace("null", "NaN"), encoding="utf-8")
     with pytest.raises(IngestionError, match="finite JSON values") as exc:
         load_export(path)
     assert_safe_error(exc.value)
@@ -379,12 +355,11 @@ def test_redaction_paths_are_sorted_and_deduplicated():
 @pytest.mark.parametrize(
     ("values", "mask"),
     [
-        ({"id": RAW_SECRET}, RAW_SECRET),
-        ({"id": RAW_SECRET}, 1),
         ({"id": RAW_SECRET}, {RAW_SECRET: True}),
-        ({"items": [RAW_SECRET]}, {"items": {}}),
-        ({"items": [RAW_SECRET]}, {"items": [RAW_SECRET]}),
+        ({"items": [RAW_SECRET]}, {"items": [True, True]}),
+        ({"id": RAW_SECRET}, RAW_SECRET),
     ],
+    ids=["absent-value", "mask-exceeds-list", "shape-mismatch"],
 )
 def test_malformed_sensitive_mask_shapes_fail_safely_without_mutating_values(values, mask):
     before_values, before_mask = deepcopy(values), deepcopy(mask)

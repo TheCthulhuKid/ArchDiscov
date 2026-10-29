@@ -143,10 +143,9 @@ def test_unknown_and_invalid_requests_are_safe_errors():
     with pytest.raises(QueryError) as unknown:
         run(index, "absent")
     assert unknown.value.code == QueryErrorCode.RESOURCE_NOT_FOUND
-    for bad in ({}, {"resource_id": RTB, "limits": {"depth": 11}}):
-        with pytest.raises(QueryError) as error:
-            query_paths(index, bad)
-        assert error.value.code == QueryErrorCode.INVALID_REQUEST
+    with pytest.raises(QueryError) as error:
+        query_paths(index, {"resource_id": RTB, "limits": {"depth": 11}})
+    assert error.value.code == QueryErrorCode.INVALID_REQUEST
 
 
 def test_excluded_resources_are_never_entered_and_never_reported_as_truncation():

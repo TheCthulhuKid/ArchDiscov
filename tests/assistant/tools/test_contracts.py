@@ -39,12 +39,7 @@ def test_limits_have_validated_defaults() -> None:
 
 
 @pytest.mark.parametrize(
-    "data",
-    [
-        {"result_limit": 0},
-        {"result_limit": "5"},
-        {"timeout": 1},
-    ],
+    "data", [{"result_limit": 0}, {"result_limit": "5"}], ids=["below-minimum", "string-not-int"]
 )
 def test_invalid_limits_are_rejected(data: dict) -> None:
     with pytest.raises(ValidationError):

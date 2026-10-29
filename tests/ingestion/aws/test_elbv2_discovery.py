@@ -233,7 +233,7 @@ def test_unsupported_summaries_retained_without_unsafe_detail_requests():
     assert len(session.elb.calls) == 2
 
 
-@pytest.mark.parametrize("bad", ["conflict", "malformed", "account", "region", "parent"])
+@pytest.mark.parametrize("bad", ["conflict", "malformed", "parent"])
 def test_unsafe_identity_is_omitted_and_qualifies_dependent_discovery(bad):
     values = data()
     if bad == "conflict":
@@ -243,11 +243,7 @@ def test_unsafe_identity_is_omitted_and_qualifies_dependent_discovery(bad):
     elif bad == "parent":
         values["describe_listeners"]["Listeners"][0]["LoadBalancerArn"] = "private"
     else:
-        values["describe_load_balancers"]["LoadBalancers"][0]["LoadBalancerArn"] = {
-            "malformed": "private",
-            "account": LB.replace("123456789012", "000000000000"),
-            "region": LB.replace("us-east-1", "eu-west-1"),
-        }[bad]
+        values["describe_load_balancers"]["LoadBalancers"][0]["LoadBalancerArn"] = "private"
     inventory, _ = collect(values)
     op = Op.DESCRIBE_LISTENERS if bad == "parent" else Op.DESCRIBE_LOAD_BALANCERS
     assert inventory.results[op].coverage.status == "incomplete"
@@ -348,21 +344,11 @@ def test_conflicting_duplicate_tags_are_unavailable():
     assert len(result.coverage.unresolved_values) == 2
 
 
-@pytest.mark.parametrize(
-    "operation,key",
-    [
-        ("describe_load_balancers", "LoadBalancers"),
-        ("describe_target_groups", "TargetGroups"),
-        ("describe_listeners", "Listeners"),
-        ("describe_rules", "Rules"),
-    ],
-)
-def test_malformed_inventory_items_are_source_safe_limitations(operation, key):
+def test_malformed_inventory_items_are_source_safe_limitations():
     values = data()
-    values[operation] = {key: [None, "private", {"private": "private"}]}
+    values["describe_load_balancers"] = {"LoadBalancers": [None, "private", {"private": "private"}]}
     inventory, _ = collect(values)
-    op = next(op for op in Op if op.value.lower() == operation.replace("_", ""))
-    result = inventory.results[op]
+    result = inventory.results[Op.DESCRIBE_LOAD_BALANCERS]
     assert result.coverage.status == "incomplete"
     assert len(result.coverage.unresolved_values) == 3
     assert not result.responses

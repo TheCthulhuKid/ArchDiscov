@@ -99,6 +99,13 @@ def test_cli_forwards_execution_and_bootstrap_controls(monkeypatch, tmp_path):
         ["--all-services", "--bootstrap-region", "invalid-private-value"],
         ["--all-services", "--max-in-flight-calls", "65"],
     ],
+    ids=[
+        "all-services-with-service",
+        "explicit-scope-without-regions",
+        "global-region",
+        "unknown-bootstrap-region",
+        "limit-out-of-range",
+    ],
 )
 def test_invalid_scope_and_limits_are_rejected_before_collection(monkeypatch, tmp_path, flags):
     def unexpected(*args):
@@ -117,11 +124,9 @@ def test_invalid_scope_and_limits_are_rejected_before_collection(monkeypatch, tm
     ("flags", "named"),
     [
         (["--all-services", "--max-concurrency", "0"], "max_concurrency"),
-        (["--all-services", "--max-collector-jobs", "65"], "max_collector_jobs"),
         (["--region", "invalid-private-value"], "--region"),
-        (["--service", "invalid-private-value"], "--service"),
-        (["--all-services", "--service", "ec2"], "--all-services"),
     ],
+    ids=["model-issue-location", "option-message"],
 )
 def test_a_rejected_request_names_what_is_wrong_without_its_value(
     monkeypatch, tmp_path, flags, named

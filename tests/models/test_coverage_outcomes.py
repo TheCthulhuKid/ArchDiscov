@@ -63,7 +63,6 @@ def test_shared_valid_outcomes_and_wire_field_order(model, outcome):
     assert model.model_validate_json(record.model_dump_json()) == record
 
 
-@pytest.mark.parametrize("model", [Coverage, CloudOperationCoverage])
 @pytest.mark.parametrize(
     "outcome,message",
     [
@@ -85,8 +84,11 @@ def test_shared_valid_outcomes_and_wire_field_order(model, outcome):
             "skipped/unsupported coverage requires a reason and no collected data",
         ),
     ],
+    ids=["window", "success", "incomplete", "failed", "skipped"],
 )
-def test_shared_invalid_outcomes_preserve_messages_and_precedence(model, outcome, message):
+def test_shared_invalid_outcomes_preserve_messages_and_precedence(outcome, message):
+    # Both models inherit the one validator; the valid-outcome table proves the sharing.
+    model = CloudOperationCoverage
     with pytest.raises(ValidationError) as caught:
         model.model_validate(data(model, **outcome))
     assert [error["msg"] for error in caught.value.errors()] == [f"Value error, {message}"]

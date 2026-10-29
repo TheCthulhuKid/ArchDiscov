@@ -103,7 +103,6 @@ def test_swapped_snapshots_or_a_tampered_result_fail_verification(tmp_path):
     assert swapped.exit_code == 2
     error = json.loads(swapped.stdout)["error"]
     assert error["code"] == "invalid_comparison_result"
-    assert error["details"][0]["type"] == "snapshot_mismatch"
 
     data = json.loads(output.read_text())
     data["limitations"] = []

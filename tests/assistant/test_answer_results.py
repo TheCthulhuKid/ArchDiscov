@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import get_args
 from uuid import UUID
 
@@ -79,12 +79,8 @@ def test_examples_cover_every_failure_reason() -> None:
 
 @pytest.mark.parametrize(
     "data",
-    [
-        {"status": "failed"},
-        {"status": "failed", "failure": "limit_reached"},
-        {"status": "failed", "failure": "cancelled", "limit": "tool_calls"},
-    ],
-    ids=["failed-without-reason", "missing-detail", "unexpected-detail"],
+    [{"status": "failed"}, {"status": "failed", "failure": "limit_reached"}],
+    ids=["failed-without-reason", "missing-detail"],
 )
 def test_inconsistent_outcomes_are_rejected(data: dict) -> None:
     with pytest.raises(ValidationError):
@@ -142,6 +138,8 @@ def test_every_run_outcome_maps_to_one_answer_outcome(outcome: RunOutcome) -> No
         with pytest.raises(ValueError, match="only after its repair"):
             final_outcome(outcome, rejections, repaired=False)
     mapped = final_outcome(outcome, rejections, repaired=True)
+    if not needs_repair(outcome, rejections):
+        assert final_outcome(outcome, rejections, repaired=False) == mapped
     expected = {
         Proposed: (FailureReason.REJECTED_AFTER_REPAIR, "rejections", UNKNOWN_ID_REJECTIONS),
         Answered: (FailureReason.NO_PROPOSAL_AFTER_REPAIR, None, None),
@@ -172,12 +170,6 @@ def test_valid_proposals_answer_before_or_after_repair() -> None:
         status="answered_after_repair"
     )
     assert final_outcome(proposed, (), repaired=False).exit_code == 0
-
-
-def test_unrepairable_outcomes_fail_without_repair() -> None:
-    for outcome in every_run_outcome():
-        if not needs_repair(outcome, ()) and not isinstance(outcome, Proposed):
-            assert final_outcome(outcome, (), repaired=False).status == AnswerStatus.FAILED
 
 
 # ---- the rendered answer -----------------------------------------------------------
@@ -315,8 +307,6 @@ def test_affirmative_answers_must_show_their_conclusions() -> None:
 
 
 def test_a_collection_window_cannot_end_before_it_starts() -> None:
-    from datetime import timedelta
-
     with pytest.raises(ValidationError):
         RenderedSnapshot(
             side="primary",

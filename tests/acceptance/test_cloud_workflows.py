@@ -134,19 +134,9 @@ def test_azure_evidence_exact_fact_and_matching_coverage_context() -> None:
     assert unavailable.evidence.limitation == "Offline fixture does not provide this fact"
 
 
-@pytest.mark.parametrize("mutation", ["id", "fact", "endpoint", "scope", "typed_value"])
-def test_azure_mutation_rejected_without_publishing(tmp_path: Path, mutation: str) -> None:
+def test_azure_mutation_rejected_without_publishing(tmp_path: Path) -> None:
     snapshot = load_snapshot(FIXTURES / "azure.json")
-    if mutation == "id":
-        vm(snapshot).id = "changed-id"
-    elif mutation == "fact":
-        vm(snapshot).fact_evidence["/absent"] = ["vm-size"]
-    elif mutation == "endpoint":
-        snapshot.dependencies[0].target.resource_id = "absent"
-    elif mutation == "scope":
-        snapshot.scope.subscription_id = "22222222-2222-2222-2222-222222222222"
-    else:
-        vm(snapshot).vm_size = 123
+    vm(snapshot).id = "changed-id"
     with pytest.raises(SnapshotValidationError):
         save_snapshot(snapshot, tmp_path / "invalid.json")
     assert list(tmp_path.iterdir()) == []

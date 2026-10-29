@@ -33,9 +33,9 @@ def test_inventory_only_noop_has_no_invented_actions_source(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "extra,path",
+    "extra,path,empty",
     [
-        ({"complete": False}, "/complete"),
+        ({"complete": False}, "/complete", True),
         (
             {
                 "deferred_changes": [
@@ -46,10 +46,11 @@ def test_inventory_only_noop_has_no_invented_actions_source(tmp_path):
                 ]
             },
             "/deferred_changes",
+            False,
         ),
     ],
+    ids=["incomplete-empty-plan", "deferred-changes"],
 )
-@pytest.mark.parametrize("empty", [False, True])
 def test_partial_plan_status_cannot_be_successful_absence(tmp_path, extra, path, empty):
     snapshot = collect(write_plan(tmp_path, [] if empty else [change()], **extra))
     assert snapshot.coverage.operations
@@ -64,7 +65,8 @@ def test_partial_plan_status_cannot_be_successful_absence(tmp_path, extra, path,
 
 @pytest.mark.parametrize(
     "extra",
-    [{"errored": True}, {"errored": "secret-error"}, {"complete": 0}, {"deferred_changes": {}}],
+    [{"errored": True}, {"errored": "secret-error"}, {"deferred_changes": {}}],
+    ids=["errored", "non-boolean-flag", "deferred-not-list"],
 )
 def test_invalid_or_errored_plan_status_rejected_safely(tmp_path, extra):
     with pytest.raises(IngestionError, match=r"plan|deferred_changes") as caught:

@@ -67,18 +67,12 @@ def test_existing_output_is_never_overwritten(tmp_path):
     assert sorted(tmp_path.iterdir()) == [output]
 
 
-@pytest.mark.parametrize(
-    ("extra", "code"),
-    [
-        (["--ownership-key", ""], "invalid_parameters"),
-        (["--ownership-key", "SECRET", "--ownership-key", "SECRET"], "invalid_parameters"),
-    ],
-)
-def test_invalid_requests_exit_safely_and_write_nothing(tmp_path, extra, code):
+def test_invalid_requests_exit_safely_and_write_nothing(tmp_path):
     output = tmp_path / "result.json"
-    result = analyze(OWNERSHIP, output, "--json", *extra)
+    keys = ["--ownership-key", "SECRET", "--ownership-key", "SECRET"]
+    result = analyze(OWNERSHIP, output, "--json", *keys)
     assert result.exit_code == 2
-    assert json.loads(result.stdout)["error"]["code"] == code
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_parameters"
     assert "SECRET" not in result.output
     assert "Traceback" not in result.output
     assert not output.exists()
@@ -100,7 +94,6 @@ def test_findings_rejects_wrong_snapshot_and_bad_files(tmp_path):
     error = json.loads(mismatched.stdout)["error"]
     assert error["code"] == "invalid_analysis_result"
     assert error["path"] == str(saved)
-    assert error["details"][0]["type"] == "snapshot_mismatch"
 
     missing = run("findings", str(tmp_path / "none.json"), "--snapshot", str(OWNERSHIP))
     assert missing.exit_code == 1

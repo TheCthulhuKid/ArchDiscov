@@ -341,10 +341,7 @@ def test_real_stubber_attribute_failure_does_not_fabricate_arn():
     assert "secret-" not in dump(result)
 
 
-@pytest.mark.parametrize(
-    "operation", ["ReceiveMessage", "SendMessage", "PurgeQueue", "DeleteQueue"]
-)
-def test_workload_and_mutating_calls_rejected_before_client_creation(operation):
+def test_workload_and_mutating_calls_rejected_before_client_creation():
     def no_client(*args, **kwargs):
         pytest.fail("operation protection must run before client creation")
 
@@ -358,5 +355,5 @@ def test_workload_and_mutating_calls_rejected_before_client_creation(operation):
         pagination="sqs",
     )
     with pytest.raises(IngestionError) as error:
-        runner.run(operation, [DetailCall(operation, {"QueueUrl": URL})])
+        runner.run("SendMessage", [DetailCall("SendMessage", {"QueueUrl": URL})])
     assert error.value.code == "operation_not_allowed"

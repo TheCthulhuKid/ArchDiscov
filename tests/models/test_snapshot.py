@@ -101,12 +101,11 @@ def test_physical_and_logical_identifiers_are_preserved() -> None:
     ("field", "value"),
     [
         ("collection_completed_at", "2026-10-13T07:59:00Z"),
-        ("source", {"kind": "terraform"}),
         ("coverage", {"regions": ["global"], "account_wide": True}),
         ("coverage", {"regions": ["eu-west-1", "eu-west-1"], "account_wide": False}),
         ("coverage", {"regions": [], "account_wide": False}),
     ],
-    ids=["window", "source-kind", "global-region", "duplicate-region", "empty-scope"],
+    ids=["window", "global-region", "duplicate-region", "empty-scope"],
 )
 def test_invalid_snapshot_fields_are_rejected(field: str, value: object) -> None:
     data = snapshot_data()

@@ -45,12 +45,20 @@ def test_neighbour_request_preserves_options_through_serialization():
     assert QueryNeighboursRequest.model_validate_json(request.model_dump_json()) == request
 
 
-@pytest.mark.parametrize("resource_id", ["", " ", "\t"])
-def test_neighbour_request_rejects_blank_resource_id(resource_id):
+# Every request string field shares NonEmptyString, so one field proves both constraints.
+@pytest.mark.parametrize(
+    "resource_id,error_type",
+    [("", "string_too_short"), (" ", "string_pattern_mismatch")],
+    ids=["empty", "whitespace"],
+)
+def test_neighbour_request_rejects_blank_resource_id(resource_id, error_type):
     with pytest.raises(ValidationError) as caught:
         QueryNeighboursRequest(resource_id=resource_id)
 
-    assert caught.value.errors()[0]["loc"] == ("resource_id",)
+    errors = caught.value.errors()
+    assert len(errors) == 1
+    assert errors[0]["loc"] == ("resource_id",)
+    assert errors[0]["type"] == error_type
 
 
 def test_neighbour_request_applies_nested_filter_validation():
@@ -127,17 +135,6 @@ def test_inspect_request_round_trip():
     assert QueryInspectRequest.model_validate_json(request.model_dump_json()) == request
 
 
-@pytest.mark.parametrize("resource_id", ["", " ", "\t"])
-def test_inspect_request_rejects_blank_id(resource_id):
-    with pytest.raises(ValidationError) as caught:
-        QueryInspectRequest(resource_id=resource_id)
-
-    errors = caught.value.errors()
-    assert len(errors) == 1
-    assert errors[0]["loc"] == ("resource_id",)
-    assert errors[0]["type"] in {"string_too_short", "string_pattern_mismatch"}
-
-
 def test_inspect_request_rejects_traversal_options():
     with pytest.raises(ValidationError) as caught:
         QueryInspectRequest.model_validate({"resource_id": "resource-1", "options": {}})
@@ -171,21 +168,6 @@ def test_search_request_preserves_filters():
     assert QuerySearchRequest.model_validate_json(request.model_dump_json()) == request
 
 
-@pytest.mark.parametrize("field", ["native_type", "name"])
-@pytest.mark.parametrize("value", ["", " ", "\t"])
-def test_search_request_rejects_blank_filters(field, value):
-    with pytest.raises(ValidationError) as caught:
-        QuerySearchRequest.model_validate({field: value})
-
-    errors = caught.value.errors()
-    assert len(errors) == 1
-    assert errors[0]["loc"] == (field,)
-    assert errors[0]["type"] in {
-        "string_too_short",
-        "string_pattern_mismatch",
-    }
-
-
 @pytest.mark.parametrize("value", [None, "payments", ""])
 def test_search_request_preserves_tag_filter(value):
     request = QuerySearchRequest(
@@ -195,17 +177,6 @@ def test_search_request_preserves_tag_filter(value):
     assert request.tag.key == "Team"
     assert request.tag.value == value
     assert QuerySearchRequest.model_validate_json(request.model_dump_json()) == request
-
-
-@pytest.mark.parametrize("key", ["", " ", "\t"])
-def test_tag_filter_rejects_blank_key(key):
-    with pytest.raises(ValidationError) as caught:
-        QueryTagFilter(key=key)
-
-    errors = caught.value.errors()
-    assert len(errors) == 1
-    assert errors[0]["loc"] == ("key",)
-    assert errors[0]["type"] in {"string_too_short", "string_pattern_mismatch"}
 
 
 def test_tag_filter_rejects_value_without_key():
@@ -223,20 +194,6 @@ def test_search_request_preserves_resource_id():
 
     assert request.resource_id == "resource-1"
     assert QuerySearchRequest.model_validate_json(request.model_dump_json()) == request
-
-
-@pytest.mark.parametrize("resource_id", ["", " ", "\t"])
-def test_search_request_rejects_blank_resource_id(resource_id):
-    with pytest.raises(ValidationError) as caught:
-        QuerySearchRequest(resource_id=resource_id)
-
-    errors = caught.value.errors()
-    assert len(errors) == 1
-    assert errors[0]["loc"] == ("resource_id",)
-    assert errors[0]["type"] in {
-        "string_too_short",
-        "string_pattern_mismatch",
-    }
 
 
 @pytest.mark.parametrize(

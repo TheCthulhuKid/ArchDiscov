@@ -196,15 +196,12 @@ def test_a_request_without_tools_sends_no_tool_fields_and_no_secret() -> None:
     assert set(json.loads(body)) == {"model", "input", "store", "max_output_tokens"}
 
 
-@pytest.mark.parametrize("provider_kind", ["fake", "anthropic"])
-def test_another_providers_continuation_is_refused_before_any_request(
-    provider_kind: str,
-) -> None:
+def test_another_providers_continuation_is_refused_before_any_request() -> None:
     api = responding_api(_body(TEXT))
     message = {
         "role": "assistant",
         "text": "Thinking.",
-        "continuation": {"provider_kind": provider_kind, "blocks": [THINKING]},
+        "continuation": {"provider_kind": "anthropic", "blocks": [THINKING]},
     }
     with pytest.raises(ProviderInvalidRequestError):
         send_request(

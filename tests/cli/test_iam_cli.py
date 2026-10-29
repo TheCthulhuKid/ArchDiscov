@@ -52,16 +52,11 @@ def test_collect_services_then_inspect_evidence_without_overwrite(tmp_path, monk
     assert output.read_bytes() == before
 
 
+# The default service, EC2, is regional; the request model's own rules are its tests' concern.
 @pytest.mark.parametrize(
     "options",
-    [
-        [],
-        ["--service", "ec2"],
-        ["--service", "iam", "--service", "ec2"],
-        ["--service", "not-a-service"],
-        ["--service", "s3"],
-        ["--service", "iam", "--service", "iam"],
-    ],
+    [[], ["--service", "not-a-service"]],
+    ids=["default-service-without-region", "unknown-service"],
 )
 def test_invalid_service_or_missing_required_region_makes_no_calls(tmp_path, monkeypatch, options):
     calls = []

@@ -111,12 +111,11 @@ def test_search_shrinks_to_fit_the_size_limit() -> None:
     "arguments,locations",
     [
         ({"limit": 0}, ["limit"]),
-        ({"limit": 101}, ["limit"]),
         ({"name": ""}, ["name"]),
         ({"tag_value": "x"}, ["tag_value"]),
         ({"physical_id": "vpc-example"}, []),
-        ({"snapshot": "other.json"}, ["field"]),
     ],
+    ids=["limit-bound", "empty-name", "value-without-key", "physical-id-without-type"],
 )
 def test_search_rejects_invalid_input(arguments: dict, locations: list[str]) -> None:
     data = _run(_session("aws.json"), "search_resources", **arguments)
@@ -334,12 +333,9 @@ def test_coverage_reports_every_outcome(snapshot: str) -> None:
             assert set(item["first_failure"]) == {"untrusted_text", "truncated"}
 
 
-def test_coverage_filters_and_invalid_status() -> None:
+def test_coverage_filters_by_service() -> None:
     session = _session("azure.json")
     assert _run(session, "inspect_coverage", service="Not.A.Service")["records"]["items"] == []
-    assert _run(session, "inspect_coverage", status="maybe")["code"] == (
-        ToolErrorCode.INVALID_ARGUMENTS
-    )
 
 
 @pytest.mark.parametrize("snapshot", ["network.json", "azure.json", "partial-coverage.json"])

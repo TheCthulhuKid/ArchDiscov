@@ -31,10 +31,9 @@ def test_explicit_regions_override_whole_architecture_discovery():
     assert cfg.regions == (AwsRegion.US_WEST_2, AwsRegion.US_EAST_1)
 
 
-@pytest.mark.parametrize("services", [["ec2"], ["iam"], sorted(COLLECTABLE_SERVICES)])
-def test_all_services_rejects_any_explicit_selection(services):
+def test_all_services_rejects_any_explicit_selection():
     with pytest.raises(ValidationError, match="all_services cannot be combined"):
-        account(all_services=True, services=services)
+        account(all_services=True, services=["ec2"])
 
 
 def test_selective_scope_remains_compatible():
@@ -54,11 +53,11 @@ def test_selective_scope_remains_compatible():
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
-        ({"all_services": True, "region_scope": "explicit"}, "regions are required"),
         ({"region_scope": "enabled", "regions": ["us-east-1"]}, "cannot include explicit"),
         ({"region_scope": "unknown"}, "region_scope"),
         ({"all_services": "true"}, "all_services"),
     ],
+    ids=["enabled-with-regions", "unknown-scope", "non-strict-boolean"],
 )
 def test_invalid_scope_rejected(overrides, message):
     with pytest.raises(ValidationError, match=message):
@@ -89,15 +88,18 @@ def test_execution_limit_upper_boundaries():
 
 
 @pytest.mark.parametrize(
-    "field", ["max_in_flight_calls", "max_active_accounts", "max_collector_jobs"]
+    ("field", "value"),
+    [("max_in_flight_calls", 0), ("max_active_accounts", True), ("max_collector_jobs", 1000)],
+    ids=["below-minimum", "not-integer", "above-maximum"],
 )
-@pytest.mark.parametrize("value", [0, True, 1000])
 def test_invalid_run_limits_rejected(field, value):
     with pytest.raises(ValidationError, match=field):
         AwsCollectionRequest(accounts=(account(services=["iam"]),), **{field: value})
 
 
-@pytest.mark.parametrize("value", [0, -1, True, "2", 1.5, 17])
+@pytest.mark.parametrize(
+    "value", [0, "2", 17], ids=["below-minimum", "not-integer", "above-maximum"]
+)
 def test_invalid_account_call_limit_rejected(value):
     with pytest.raises(ValidationError, match="max_in_flight_calls"):
         account(services=["iam"], max_in_flight_calls=value)

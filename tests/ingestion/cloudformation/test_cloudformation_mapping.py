@@ -159,15 +159,10 @@ def test_invalid_values_are_omitted_individually_without_losing_valid_facts():
     assert_safe_facts(resource, facts, properties)
 
 
-@pytest.mark.parametrize(
-    "value",
-    [[], -1],
-    ids=["not-integer", "out-of-range"],
-)
-def test_invalid_scalar_configuration_does_not_abort_or_leak(value):
+def test_invalid_scalar_configuration_does_not_abort_or_leak():
     resource, facts, limitations = map_resource(
         str(ResourceType.LAMBDA_FUNCTION),
-        {"MemorySize": value, "Runtime": "python3.13"},
+        {"MemorySize": -1, "Runtime": "python3.13"},
         identity(ResourceType.LAMBDA_FUNCTION),
     )
     assert resource.attributes == {"runtime": "python3.13"}

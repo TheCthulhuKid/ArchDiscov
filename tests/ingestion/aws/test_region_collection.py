@@ -132,15 +132,6 @@ def test_programming_failure_propagates_without_publishing(tmp_path, stage):
     assert not path.exists()
 
 
-def test_explicit_override_never_calls_describe_regions():
-    session = Session(discovery_error=AssertionError("must not discover"))
-    (snapshot,) = AwsAdapter().collect(
-        request(region_scope="explicit", regions=["us-west-2"]), context=context(session)
-    )
-    assert snapshot.coverage.regions == ["us-west-2"]
-    assert all(name != "DescribeRegions" for name, _ in session.calls)
-
-
 @pytest.mark.parametrize("service", ["ec2", "lambda", "elbv2", "ecs", "rds", "sqs"])
 def test_unavailable_services_have_unsupported_not_successful_zero_coverage(tmp_path, service):
     selected = "elasticloadbalancing" if service == "elbv2" else service

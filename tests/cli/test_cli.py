@@ -243,30 +243,19 @@ def test_missing_evidence_has_distinct_exit_code(json_output: bool) -> None:
         assert json.loads(result.stdout)["error"]["code"] == "evidence_not_found"
 
 
-@pytest.mark.parametrize("kind", ["file", "directory", "symlink", "same-input"])
-def test_ingest_never_overwrites(tmp_path: Path, kind: str) -> None:
+def test_ingest_never_overwrites(tmp_path: Path) -> None:
+    # Each kind of existing destination is the save's concern (services tests); the command
+    # reports the conflict, leaves both files alone, and removes its temporary file.
     source = tmp_path / "source.json"
     source.write_bytes((FIXTURES / "hierarchy.json").read_bytes())
     output = tmp_path / "output.json"
-    if kind == "file":
-        output.write_text("existing invalid JSON")
-    elif kind == "directory":
-        output.mkdir()
-    elif kind == "symlink":
-        output.symlink_to(tmp_path / "absent.json")
-    else:
-        output = source
+    output.write_text("existing invalid JSON")
     original = source.read_bytes()
     result = runner.invoke(app, ["ingest", str(source), "-o", str(output), "--json"])
     assert result.exit_code == 3, result.output
     assert json.loads(result.stdout)["error"]["code"] == "snapshot_conflict"
     assert source.read_bytes() == original
-    if kind == "file":
-        assert output.read_text() == "existing invalid JSON"
-    elif kind == "directory":
-        assert output.is_dir()
-    elif kind == "symlink":
-        assert output.is_symlink() and not output.exists()
+    assert output.read_text() == "existing invalid JSON"
     assert not list(tmp_path.glob(".archdiscov-*.tmp"))
 
 

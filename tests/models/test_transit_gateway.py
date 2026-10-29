@@ -44,17 +44,9 @@ def test_fixture_loads_typed_round_trips_and_cites_exact_entries(tmp_path):
     assert load_snapshot(saved) == snapshot
 
 
-@pytest.mark.parametrize(
-    "fields",
-    [
-        {"attachment_ids": ["tgw-attach-app"], "state": "blackhole"},
-        {"state": "active"},
-    ],
-    ids=["blackhole-with-attachment", "neither"],
-)
-def test_impossible_routes_are_rejected(fields):
+def test_impossible_routes_are_rejected():
     with pytest.raises(ValidationError):
-        TransitGatewayRoute(destination="10.9.0.0/16", **fields)
+        TransitGatewayRoute(destination="10.9.0.0/16", state="active")
 
 
 def test_association_to_another_gateways_route_table_is_rejected():

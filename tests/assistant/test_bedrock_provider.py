@@ -123,22 +123,17 @@ def test_a_configuration_builds_the_adapter_without_a_request(
     assert api.requests == []
 
 
-@pytest.mark.parametrize(
-    ("config", "credentials"),
-    [("", True), ("[profile broken\n", True), ("", False)],
-    ids=["missing", "malformed-config", "no-files"],
-)
 def test_a_profile_that_cannot_be_loaded_fails_before_any_request(
-    tmp_path: Path, monkeypatch, config: str, credentials: bool
+    tmp_path: Path, monkeypatch
 ) -> None:
-    if credentials:
-        _aws_files(tmp_path, monkeypatch, config=config)
+    # Any botocore failure while loading the profile is this one configuration error; a
+    # missing profile is the case `test_providers.py` reaches through the configuration.
+    _aws_files(tmp_path, monkeypatch, config="[profile broken\n")
     api = BotocoreApi([])
-    name = "someone-else" if not config else PROFILE
     with pytest.raises(ProviderConfigError) as raised:
-        _provider(api, profile=name)
+        _provider(api, profile=PROFILE)
     error = raised.value
-    assert error.code == ProviderConfigErrorCode.PROFILE_UNAVAILABLE and error.profile == name
+    assert error.code == ProviderConfigErrorCode.PROFILE_UNAVAILABLE and error.profile == PROFILE
     assert api.requests == []
 
 

@@ -288,23 +288,20 @@ def test_invalid_transcripts_are_rejected(data: dict, code: str) -> None:
     [
         (b"{not json", FakeScriptErrorCode.INVALID),
         (b" " * (MAX_TRANSCRIPT_BYTES + 1), FakeScriptErrorCode.TOO_LARGE),
+        (None, FakeScriptErrorCode.UNREADABLE),
     ],
+    ids=["invalid", "too-large", "missing"],
 )
 def test_bad_transcript_files_fail_clearly(
-    tmp_path: Path, content: bytes, code: FakeScriptErrorCode
+    tmp_path: Path, content: bytes | None, code: FakeScriptErrorCode
 ) -> None:
     path = tmp_path / "transcript.json"
-    path.write_bytes(content)
+    if content is not None:
+        path.write_bytes(content)
     with pytest.raises(FakeScriptError) as raised:
         load_fake_transcript(path)
     assert raised.value.code == code
     assert raised.value.path == path
-
-
-def test_missing_transcript_file_is_unreadable(tmp_path: Path) -> None:
-    with pytest.raises(FakeScriptError) as raised:
-        load_fake_transcript(tmp_path / "missing.json")
-    assert raised.value.code == FakeScriptErrorCode.UNREADABLE
 
 
 def test_negative_retry_count_is_rejected() -> None:

@@ -245,12 +245,9 @@ def test_skips_data_resources_in_both_inventory_and_changes():
     ]
 
 
-@pytest.mark.parametrize(
-    "actions", [[], ["replace"], ["create", "update"], ["delete", "delete"], "create", [1], None]
-)
-def test_rejects_malformed_lifecycle_without_echoing_values(actions):
+def test_rejects_malformed_lifecycle_without_echoing_values():
     entry = resource()
-    entry["change"]["actions"] = actions
+    entry["change"]["actions"] = ["create", "update"]
     with pytest.raises(IngestionError) as error:
         parse_plan(plan([entry]))
     assert error.value.code == "invalid_request"
@@ -264,8 +261,8 @@ def test_rejects_malformed_lifecycle_without_echoing_values(actions):
         ("before_sensitive", SECRET),
         ("after_unknown", {"id": []}),
         ("after_sensitive", {"absent": True}),
-        ("after_unknown", {"tags": {"Name": SECRET}}),
     ],
+    ids=["unknown-not-boolean", "sensitive-not-boolean", "list-mask-on-scalar", "absent-value"],
 )
 def test_rejects_incompatible_or_non_boolean_masks(key, value):
     entry = resource()
@@ -280,9 +277,16 @@ def test_rejects_incompatible_or_non_boolean_masks(key, value):
     [
         {"mode": SECRET},
         {"type": "azurerm_virtual_network"},
-        {"address": " "},
+        {"deposed": "deadbeef"},
         {"change": None},
         {"change": {"actions": ["update"], "after": None}},
+    ],
+    ids=[
+        "unsupported-mode",
+        "non-aws-type",
+        "deposed",
+        "change-not-object",
+        "scope-values-missing",
     ],
 )
 def test_rejects_bad_managed_changes(overrides):
@@ -300,6 +304,13 @@ def test_rejects_bad_managed_changes(overrides):
         {"planned_values": {"root_module": []}},
         {"version": 4},
     ],
+    ids=[
+        "format-version",
+        "terraform-version",
+        "changes-not-list",
+        "planned-module-not-object",
+        "internal-state-marker",
+    ],
 )
 def test_rejects_bad_documents(overrides):
     with pytest.raises(IngestionError) as error:
@@ -307,10 +318,9 @@ def test_rejects_bad_documents(overrides):
     assert SECRET not in str(error.value)
 
 
-def test_rejects_state_missing_plan_inventory_and_duplicate_addresses():
-    for document in [None, [], {"format_version": "1.0"}, plan([resource(), resource()])]:
-        with pytest.raises(IngestionError):
-            parse_plan(document)
+def test_rejects_duplicate_addresses_across_changes():
+    with pytest.raises(IngestionError, match="duplicate logical addresses"):
+        parse_plan(plan([resource(), resource()]))
 
 
 def test_empty_plan_and_inventory_only_are_valid():

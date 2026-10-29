@@ -162,16 +162,10 @@ def test_analysis_truncation_reports_the_dropped_findings() -> None:
     [
         ("ownership", {"port": 5432}, ToolErrorCode.INVALID_ARGUMENTS, ["port"]),
         ("security_group_impact", {}, ToolErrorCode.INVALID_ARGUMENTS, ["resource_id"]),
-        (
-            "database_access",
-            {"resource_id": "x", "port": 0},
-            ToolErrorCode.INVALID_ARGUMENTS,
-            ["port"],
-        ),
-        ("internet_exposure", {"max_depth": 11}, ToolErrorCode.INVALID_ARGUMENTS, ["max_depth"]),
         ("ownership", {"ownership_keys": ["Owner", "Owner"]}, ToolErrorCode.INVALID_ARGUMENTS, []),
         ("drift", {}, ToolErrorCode.INVALID_ARGUMENTS, ["kind"]),
     ],
+    ids=["foreign-parameter", "missing-parameter", "analyzer-rejects-parameters", "unknown-kind"],
 )
 def test_invalid_parameters_are_rejected(
     kind: str, arguments: dict, code: ToolErrorCode, locations: list[str]

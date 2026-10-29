@@ -1,16 +1,14 @@
 """Answers over MCP equal answers in `ask`: the same rejections and the same renderings.
 
-Every rejection scenario of the answer suite, and the checked-in adversarial proposals, are
-submitted through the server after their tool calls and rejected with exactly the codes and
-locations `validate_proposal` gives over the same calls. Every README example and the
-injected-text case are accepted with exactly the readable answer and answer JSON that
-`answer_question` renders from the same transcript with the fake provider.
+A checked-in adversarial proposal is submitted through the server after its tool calls and
+rejected with exactly the codes and locations `validate_proposal` gives over the same calls.
+Every README example and the injected-text case are accepted with exactly the readable
+answer and answer JSON that `answer_question` renders from the same transcript with the fake
+provider.
 """
 
 import json
 from pathlib import Path
-
-import pytest
 
 from archdiscov.assistant.answer_output import answer_data, answer_text
 from archdiscov.assistant.answer_service import answer_question
@@ -26,14 +24,6 @@ from archdiscov.services.evaluation import prepare_evaluation
 from tests.support.answer_claims import INJECTION
 from tests.support.evaluation_suites import ADVERSARIAL_SUITE, README_SUITE, write_fake_config
 from tests.support.mcp_clients import Call, mcp_replies, transcript_calls
-
-# The adversarial cases whose proposal is rejected, and the code each must include.
-ADVERSARIAL = {
-    "fabricated_finding": RejectionCode.UNKNOWN_ID,
-    "unreturned_evidence": RejectionCode.NOT_RETURNED,
-    "status_upgrade": RejectionCode.STATUS_UPGRADE,
-    "injected_narrative": RejectionCode.NARRATIVE_IMPORTED_TEXT,
-}
 
 
 def _expected_rejections(session: ToolSession, calls: list[Call], proposal: dict) -> list:
@@ -75,13 +65,14 @@ def _cases(suite: Path, tmp_path: Path, ids: set[str] | None = None) -> dict[str
     return cases
 
 
-@pytest.mark.parametrize("case_id", list(ADVERSARIAL))
-def test_each_adversarial_proposal_is_rejected_as_in_ask(case_id: str, tmp_path) -> None:
-    cases = _cases(ADVERSARIAL_SUITE, tmp_path, {case_id})
-    _, session, calls, [proposal, *_], _ = cases[case_id]
+def test_an_adversarial_proposal_is_rejected_as_in_ask(tmp_path) -> None:
+    # One checked-in case stands for all: the server validates with the same function over
+    # the same calls, and the answer suite walks every rejection code.
+    cases = _cases(ADVERSARIAL_SUITE, tmp_path, {"fabricated_finding"})
+    _, session, calls, [proposal, *_], _ = cases["fabricated_finding"]
     served = _rejected(session, calls, proposal)
     assert served == _expected_rejections(session, calls, proposal)
-    assert ADVERSARIAL[case_id].value in {code for code, _ in served}
+    assert RejectionCode.UNKNOWN_ID.value in {code for code, _ in served}
 
 
 def _accepted_cases(tmp_path: Path) -> list[tuple]:

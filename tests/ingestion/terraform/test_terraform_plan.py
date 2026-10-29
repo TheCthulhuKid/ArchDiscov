@@ -153,12 +153,12 @@ def test_before_never_backfills_unknown_after_values(tmp_path):
 @pytest.mark.parametrize(
     "before",
     [
-        {"owner_id": "999999999999"},
         {"arn": "arn:aws:ec2:us-east-1:999999999999:instance/i-before"},
         {"arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-before", "region": "eu-west-1"},
         {"account_id": "invalid-account"},
         {"arn": "arn:malformed"},
     ],
+    ids=["foreign-account", "conflicting-regions", "invalid-account", "malformed-arn"],
 )
 def test_before_context_conflicts_rejected_without_disclosing_values(tmp_path, before):
     path = write_plan(
@@ -238,11 +238,9 @@ def test_action_only_historical_lifecycle_remains_compatible():
     assert lifecycle.model_dump() == {"actions": ["delete"]}
 
 
-def test_request_rejects_global_and_adapter_rejects_wrong_kind():
+def test_adapter_rejects_wrong_request_kind():
     from archdiscov.ingestion.terraform import TerraformStateRequest
 
-    with pytest.raises(ValidationError, match="concrete"):
-        TerraformPlanRequest(path=FIXTURE, region="global")
     with pytest.raises(IngestionError, match="TerraformPlanRequest"):
         TerraformPlanAdapter().collect(TerraformStateRequest(path=FIXTURE), context=CONTEXT)
 

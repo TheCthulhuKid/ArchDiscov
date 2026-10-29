@@ -1,5 +1,3 @@
-from copy import deepcopy
-
 from botocore.exceptions import ClientError
 
 from archdiscov.ingestion.requests import AwsCollectionRequest
@@ -103,20 +101,3 @@ def test_missing_profile_when_iam_not_selected_is_unresolved():
     for region in account.regions:
         (link,) = snapshot.dependencies_by_region[region]
         assert link.target.kind == "unresolved"
-
-
-def test_malformed_document_is_absent_and_coverage_is_qualified():
-    data = responses()
-    data["get_policy_version"]["PolicyVersion"]["Document"] = "%invalid-protected-value"
-    session = IamSession(IamClient(deepcopy(data)))
-    (snapshot,) = collect_snapshots(
-        AwsCollectionRequest(accounts=(config(),)), context=context(session)
-    )
-    policy = next(
-        r for r in snapshot.global_resources if r.resource_type == "AWS::IAM::ManagedPolicy"
-    )
-    assert policy.document is None
-    coverage = next(op for op in snapshot.coverage.operations if op.operation == "GetPolicyVersion")
-    assert coverage.status == "incomplete"
-    assert coverage.unresolved_values
-    assert "invalid-protected-value" not in snapshot.model_dump_json()

@@ -87,8 +87,9 @@ def test_sensitive_paths_escape_and_safe_tag_projection():
 
 
 def test_missing_sensitive_path_fails_without_disclosing_it():
+    source = {"Resources": {"R": {"Properties": {}}}}
     with pytest.raises(IngestionError, match="does not identify a value") as error:
-        prepare_template({}, request(sensitive_paths=("/secret",)))
+        prepare_template(source, request(sensitive_paths=("/Resources/R/Properties/secret",)))
     assert "secret" not in str(error.value)
 
 
@@ -119,12 +120,8 @@ def test_sensitive_paths_permitted_cases(path):
 
 @pytest.mark.parametrize(
     "path",
-    [
-        "/Resources/R",
-        "/Outputs/O/Value",
-        "/Resources/R/Properties/Values/01",
-    ],
-    ids=["too-short", "ineligible-section", "non-canonical-index"],
+    ["/secret", "/Resources/R", "/Outputs/O/Value", "/Resources/R/Properties/Values/01"],
+    ids=["top-level", "too-short", "ineligible-section", "non-canonical-index"],
 )
 def test_sensitive_paths_reject_ineligible_or_invalid_locations(path):
     source = {

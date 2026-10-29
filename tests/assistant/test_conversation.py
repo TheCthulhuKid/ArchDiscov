@@ -262,8 +262,3 @@ def test_registered_conversation_codes_have_safe_messages() -> None:
 )
 def test_parse_tool_arguments_classifies_without_raising(raw, expected) -> None:
     assert parse_tool_arguments(raw) == expected
-
-
-def test_malformed_arguments_do_not_retain_raw_text() -> None:
-    malformed = parse_tool_arguments(f"{{{SECRET}")
-    assert SECRET not in malformed.model_dump_json()

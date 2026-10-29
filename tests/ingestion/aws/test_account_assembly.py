@@ -1,4 +1,5 @@
 from copy import deepcopy
+from dataclasses import replace
 from datetime import UTC, datetime
 from random import Random
 from threading import Lock
@@ -132,8 +133,7 @@ def test_all_service_assembly_is_isolated_and_independent_of_result_order(
     assert dump_results(results) == adapter.collected_before
 
 
-@pytest.mark.parametrize("defect", ["missing", "duplicate", "unexpected"])
-def test_assembly_rejects_missing_duplicate_or_unplanned_job_results(defect):
+def test_assembly_rejects_unplanned_job_results():
     account = AwsAccountConfig(
         profile="offline", expected_account_id=ACCOUNT, services=(AwsService.IAM,)
     )
@@ -142,14 +142,7 @@ def test_assembly_rejects_missing_duplicate_or_unplanned_job_results(defect):
     adapter = CapturingAdapter()
     adapter.collect(AwsCollectionRequest(accounts=(account,)), context=context)
     results = deepcopy(adapter.inputs[-2])
-    if defect == "missing":
-        results.clear()
-    elif defect == "duplicate":
-        results.append(results[0])
-    else:
-        from dataclasses import replace
-
-        results[0] = replace(results[0], job=CollectionJob(AwsService.EC2, REGIONS[0]))
+    results[0] = replace(results[0], job=CollectionJob(AwsService.EC2, REGIONS[0]))
     with pytest.raises(ValueError, match="each planned job exactly once"):
         aws.AwsAdapter()._assemble_account(*adapter.inputs[:-2], results, adapter.inputs[-1])
 

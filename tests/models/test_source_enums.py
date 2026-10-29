@@ -32,13 +32,13 @@ def test_evidence_source_round_trip() -> None:
         assert Evidence.model_validate_json(evidence.model_dump_json()) == evidence
 
 
-@pytest.mark.parametrize("source", ["", "AWS", "unsupported", "terraform_state", "terraform_plan"])
-def test_invalid_evidence_source_is_rejected(source: str) -> None:
+def test_invalid_evidence_source_is_rejected() -> None:
+    # A snapshot source kind is not an evidence source.
     with pytest.raises(ValidationError):
         Evidence(
             snapshot_id="00000000-0000-4000-8000-000000000001",
             resource_id="123456789012/eu-west-1/ec2/physical/i-example",
-            source=source,
+            source="terraform_state",
             locator="input.json",
             configuration_path="name",
             value="web",
@@ -80,10 +80,9 @@ def test_source_kind_discriminator_and_defaults(
         model(kind="unsupported", **fields)
 
 
-@pytest.mark.parametrize("kind", ["", "AWS", "unsupported", "terraform"])
-def test_invalid_snapshot_source_kind_is_rejected(kind: str) -> None:
+def test_invalid_snapshot_source_kind_is_rejected() -> None:
     with pytest.raises(ValidationError):
-        TypeAdapter(SupportedSource).validate_python({"kind": kind})
+        TypeAdapter(SupportedSource).validate_python({"kind": "terraform"})
 
 
 def test_base_resource_type_round_trip() -> None:

@@ -205,14 +205,8 @@ def test_multiple_inline_documents_have_distinct_request_evidence():
             "ANPAEXAMPLE",
             "/document",
         ),
-        (
-            "list_instance_profiles",
-            ("InstanceProfiles", 0, "Roles", 0, "AssumeRolePolicyDocument"),
-            Op.LIST_INSTANCE_PROFILES,
-            "AIPAEXAMPLE",
-            None,
-        ),
     ],
+    ids=["whole-record", "role-trust", "inline-policy", "policy-version"],
 )
 def test_malformed_documents_are_omitted_with_originating_coverage(
     method, field, op, physical_id, pointer

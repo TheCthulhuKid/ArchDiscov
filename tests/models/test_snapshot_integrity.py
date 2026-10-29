@@ -169,6 +169,7 @@ def test_pointer_targets_and_fact_only_citations(data: dict, pointer: str) -> No
         ("/attributes/items/01", "invalid array index"),
         ("/attributes/items/1", "array index out of bounds"),
     ],
+    ids=["missing-key", "scalar", "non-numeric-index", "index-out-of-bounds"],
 )
 def test_invalid_fact_targets(data: dict, pointer: str, diagnostic: str) -> None:
     instance = tree(data)[2]

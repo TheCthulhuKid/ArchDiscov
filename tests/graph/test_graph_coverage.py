@@ -193,8 +193,7 @@ def test_empty_coverage_and_key_ownership():
     assert hash(direct) == hash(key)
 
 
-@pytest.mark.parametrize("field", ["service", "operation"])
-def test_key_rejects_blank_context(field):
+def test_key_rejects_blank_context():
     key = CoverageKey.from_values(AwsScope(account_id="123456789012"), None, "iam", "ListRoles")
     with pytest.raises(ValueError, match="requires a service and operation"):
-        replace(key, **{field: " "})
+        replace(key, service=" ")

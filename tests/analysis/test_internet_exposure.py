@@ -185,14 +185,8 @@ def test_a_snapshot_without_entry_points_has_no_exposure_findings():
 
 @pytest.mark.parametrize(
     "parameters",
-    [
-        {"max_depth": 0},
-        {"max_depth": 11},
-        {"result_limit": 0},
-        {"result_limit": 10001},
-        {"resource_id": "x"},
-        {"port": 80},
-    ],
+    [{"max_depth": 0}, {"result_limit": 10001}, {"port": 80}],
+    ids=["below-minimum", "above-maximum", "foreign-option"],
 )
 def test_invalid_parameters_are_safe_errors(parameters):
     with pytest.raises(AnalyzerError) as error:

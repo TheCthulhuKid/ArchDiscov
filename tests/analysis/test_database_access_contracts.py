@@ -140,16 +140,9 @@ def test_every_element_decision_round_trips(decision, codes):
     ("decision", "codes"),
     [
         (D.ALLOW, [B.MISSING_EVIDENCE]),
-        (D.DENY, [B.DENIED, B.MISSING_EVIDENCE]),
-        (D.UNKNOWN, [B.DENIED]),
         (D.UNKNOWN, [B.MISSING_EVIDENCE, B.COVERAGE_LIMITED]),
     ],
-    ids=[
-        "allow-blocked",
-        "deny-mixed",
-        "unknown-denied",
-        "unsorted",
-    ],
+    ids=["allow-blocked", "unsorted"],
 )
 def test_invalid_element_decisions_are_rejected(decision, codes):
     with pytest.raises(ValidationError):

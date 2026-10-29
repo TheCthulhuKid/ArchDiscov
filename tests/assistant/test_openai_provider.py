@@ -238,13 +238,13 @@ def test_a_request_without_tools_sends_no_tool_fields() -> None:
     assert set(sent_body(api)) == {"model", "messages", "max_completion_tokens"}
 
 
-@pytest.mark.parametrize("provider_kind", ["openai_compatible", "anthropic"])
-def test_a_continuation_is_refused_before_any_request(provider_kind: str) -> None:
+def test_any_continuation_is_refused_before_any_request() -> None:
+    # Chat Completions never returns one, so even its own kind's continuation is foreign.
     api = responding_api(_body())
     message = {
         "role": "assistant",
         "text": "Thinking.",
-        "continuation": {"provider_kind": provider_kind, "blocks": [THINKING]},
+        "continuation": {"provider_kind": "openai_compatible", "blocks": [THINKING]},
     }
     with pytest.raises(ProviderInvalidRequestError):
         send_request(

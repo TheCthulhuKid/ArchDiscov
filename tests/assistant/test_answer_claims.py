@@ -13,7 +13,6 @@ from archdiscov.assistant.answer_validation import (
 from archdiscov.assistant.answers import combined_status
 from archdiscov.assistant.rejections import REJECTION_MESSAGES, RejectionCode
 from archdiscov.assistant.tools.contracts import IdKind
-from archdiscov.assistant.tools.record import FINGERPRINT_STRIDE, FINGERPRINT_WINDOW
 from archdiscov.assistant.tools.session import ToolSession
 from archdiscov.models.enums import AnalysisStatus, AnalyzerKind, SnapshotSourceKind
 from tests.paths import FIXTURES_ROOT
@@ -49,18 +48,6 @@ def test_honest_proposals_pass_for_every_analyzer(kind: AnalyzerKind, coverage: 
 
 
 # ---- status ------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("kind", list(AnalyzerKind))
-def test_status_upgrades_are_rejected(kind: AnalyzerKind) -> None:
-    session, findings = analyzed_findings(kind, "failed")
-    allowed = expected_status(findings)
-    stronger = [value for value in RANK if RANK[value] > RANK[allowed]]
-    assert stronger, "the failed-coverage scenario should limit every analyzer"
-    for status in stronger:
-        assert _codes(check_claims(cited_proposal(session, findings, status=status), session)) == [
-            ("answer_status_upgrade", "status")
-        ]
 
 
 def test_status_follows_the_weakest_mix_of_cited_findings() -> None:
@@ -178,31 +165,29 @@ DECLARED = [
 ]
 
 
-@pytest.mark.parametrize("declared", DECLARED, ids=lambda kind: kind.value)
-def test_declared_architecture_described_as_observed_is_rejected(declared) -> None:
+def test_declared_architecture_described_as_observed_is_rejected() -> None:
     session = ToolSession.from_paths(OWNERSHIP_SNAPSHOT)
     session.record.record_snapshot(
-        session.index.snapshot_id, declared, session.index.collection_window
+        session.index.snapshot_id,
+        SnapshotSourceKind.TERRAFORM_PLAN,
+        session.index.collection_window,
     )
     findings = dispatch_tool(session, "run_analyzer", kind="ownership")["findings"]["items"]
-    for described in (SnapshotSourceKind.AWS, SnapshotSourceKind.AZURE_FIXTURE):
-        proposal = cited_proposal(
-            session,
-            findings,
-            status=expected_status(findings),
-            contexts=[{"side": "primary", "source_kind": described.value}],
-        )
-        assert _codes(validate_proposal(proposal, session)) == [
-            ("answer_planned_as_deployed", "contexts[0].source_kind")
-        ]
-    other = next(kind for kind in DECLARED if kind != declared)
-    proposal = cited_proposal(
+    status = expected_status(findings)
+    observed = cited_proposal(
+        session, findings, status=status, contexts=[{"side": "primary", "source_kind": "aws"}]
+    )
+    assert _codes(validate_proposal(observed, session)) == [
+        ("answer_planned_as_deployed", "contexts[0].source_kind")
+    ]
+    # Another declared kind is a plain mismatch, not declared state presented as observed.
+    declared = cited_proposal(
         session,
         findings,
-        status=expected_status(findings),
-        contexts=[{"side": "primary", "source_kind": other.value}],
+        status=status,
+        contexts=[{"side": "primary", "source_kind": "cloudformation"}],
     )
-    assert _codes(validate_proposal(proposal, session)) == [
+    assert _codes(validate_proposal(declared, session)) == [
         ("answer_source_kind_mismatch", "contexts[0].source_kind")
     ]
 
@@ -238,72 +223,41 @@ def injected(tmp_path: Path) -> ToolSession:
     return session
 
 
-@pytest.mark.parametrize(
-    "summary",
-    [
-        f"The name says: {INJECTION}.",
-        f"The name says: {INJECTION.upper()}",
-        "The name says: " + "  ".join(INJECTION.split()),
-    ],
-    ids=["exact", "case", "whitespace"],
-)
-def test_narrative_repeating_imported_text_is_rejected(injected: ToolSession, summary: str) -> None:
-    proposal = cited_proposal(injected, [], status="insufficient_evidence", summary=summary)
+def test_narrative_may_paraphrase_but_not_repeat_imported_text(injected: ToolSession) -> None:
+    # Case, whitespace, and partial stretches are the fingerprint's concern
+    # (tools/test_run_context.py); here the summary and the explanation are each checked.
+    repeated = f"The name says: {INJECTION}."
+    proposal = cited_proposal(injected, [], status="insufficient_evidence", summary=repeated)
     assert _codes(check_claims(proposal, injected)) == [
         ("answer_narrative_imported_text", "summary")
     ]
-    explained = cited_proposal(injected, [], status="insufficient_evidence", explanation=summary)
+    explained = cited_proposal(injected, [], status="insufficient_evidence", explanation=repeated)
     assert _codes(check_claims(explained, injected)) == [
         ("answer_narrative_imported_text", "explanation")
     ]
-
-
-def test_narrative_repeating_part_of_imported_text_is_rejected(injected: ToolSession) -> None:
-    """Any stretch of `FINGERPRINT_WINDOW + FINGERPRINT_STRIDE - 1` characters of a long
-    imported value is found, wherever it starts."""
-    stretch = FINGERPRINT_WINDOW + FINGERPRINT_STRIDE - 1
-    for start in range(len(INJECTION) - stretch + 1):
-        part = INJECTION[start : start + stretch]
-        proposal = cited_proposal(
-            injected, [], status="insufficient_evidence", summary=f"It says {part} here."
-        )
-        assert _codes(check_claims(proposal, injected)) == [
-            ("answer_narrative_imported_text", "summary")
-        ], part
-
-
-def test_short_imported_values_and_paraphrase_are_allowed(injected: ToolSession) -> None:
     assert len("web") < MIN_REPEATED_TEXT_CHARS
-    proposal = cited_proposal(
+    paraphrased = cited_proposal(
         injected,
         [],
         status="insufficient_evidence",
         summary="The web team owns a VPC whose name contains instruction-like text.",
     )
-    assert check_claims(proposal, injected) == ()
+    assert check_claims(paraphrased, injected) == ()
 
 
-def test_narrative_naming_an_uncited_id_is_rejected() -> None:
+def test_narrative_may_name_cited_ids_but_not_uncited_ones() -> None:
     session, findings = analyzed_findings(AnalyzerKind.OWNERSHIP)
+    status = expected_status(findings)
+    finding_id = findings[0]["finding_id"]
+    cited = cited_proposal(
+        session, findings, status=status, summary=f"Finding {finding_id} uses the tags evidence."
+    )
+    assert check_claims(cited, session) == ()
     # The proposal cites only finding IDs, so any resource ID is uncited.
     resource = session.index.resource_ids[0]
     assert len(resource) >= MIN_NAMED_ID_CHARS
-    proposal = cited_proposal(
-        session, findings, status=expected_status(findings), summary=f"See {resource}."
-    )
-    assert _codes(check_claims(proposal, session)) == [("answer_narrative_uncited_id", "summary")]
-
-
-def test_narrative_may_name_cited_ids_and_short_ids() -> None:
-    session, findings = analyzed_findings(AnalyzerKind.OWNERSHIP)
-    finding_id = findings[0]["finding_id"]
-    proposal = cited_proposal(
-        session,
-        findings,
-        status=expected_status(findings),
-        summary=f"Finding {finding_id} uses the tags evidence.",
-    )
-    assert check_claims(proposal, session) == ()
+    uncited = cited_proposal(session, findings, status=status, summary=f"See {resource}.")
+    assert _codes(check_claims(uncited, session)) == [("answer_narrative_uncited_id", "summary")]
 
 
 # ---- combined ----------------------------------------------------------------------

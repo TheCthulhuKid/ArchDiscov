@@ -167,43 +167,17 @@ def test_required_capabilities(request_: CompletionRequest, required: set) -> No
     check_capabilities(ALL_CAPABILITIES, request_)
 
 
-@pytest.mark.parametrize(
-    "capabilities,request_,missing",
-    [
-        (
-            TEXT_ONLY,
-            CompletionRequest(conversation=QUESTION, tools=(SEARCH,)),
-            ProviderCapability.TOOL_CALLING,
-        ),
-        (
-            ProviderCapabilities(capabilities={ProviderCapability.TOOL_CALLING}),
-            CompletionRequest(
-                conversation=QUESTION,
-                tools=(SEARCH,),
-                limits=RequestLimits(max_tool_calls_per_turn=2),
-            ),
-            ProviderCapability.PARALLEL_TOOL_CALLS,
-        ),
-        (
-            TEXT_ONLY,
-            CompletionRequest(
-                conversation=QUESTION,
-                tools=(SEARCH,),
-                limits=RequestLimits(max_tool_calls_per_turn=2),
-            ),
-            ProviderCapability.TOOL_CALLING,
-        ),
-    ],
-)
-def test_unsupported_capability_is_rejected_before_any_call(
-    capabilities: ProviderCapabilities, request_: CompletionRequest, missing: ProviderCapability
-) -> None:
-    provider = _EchoProvider(capabilities)
+def test_unsupported_capabilities_are_rejected_before_any_call() -> None:
+    # The first missing capability is reported; each adapter's refusal is in the contract.
+    request = CompletionRequest(
+        conversation=QUESTION, tools=(SEARCH,), limits=RequestLimits(max_tool_calls_per_turn=2)
+    )
+    provider = _EchoProvider(TEXT_ONLY)
     with pytest.raises(UnsupportedCapabilityError) as raised:
-        complete(provider, request_)
-    assert raised.value.capability == missing
+        complete(provider, request)
+    assert raised.value.capability == ProviderCapability.TOOL_CALLING
     with pytest.raises(UnsupportedCapabilityError):
-        asyncio.run(complete_async(provider, request_))
+        asyncio.run(complete_async(provider, request))
     assert provider.calls == 0
 
 

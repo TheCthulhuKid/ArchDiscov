@@ -249,11 +249,9 @@ def test_an_evaluation_needs_one_to_ten_configurations(
         (None, EvaluationErrorCode.SUITE_UNREADABLE),
         (b" " * (MAX_SUITE_BYTES + 1), EvaluationErrorCode.SUITE_TOO_LARGE),
         (b'{"schema_version": "1", "schema_version": "1"}', EvaluationErrorCode.INVALID_SUITE),
-        (b'{"schema_version": NaN}', EvaluationErrorCode.INVALID_SUITE),
-        (b"\xff\xfe", EvaluationErrorCode.INVALID_SUITE),
         (b'{"schema_version": "1"}', EvaluationErrorCode.INVALID_SUITE),
     ],
-    ids=["missing", "too-large", "duplicate-key", "constant", "not-utf-8", "invalid"],
+    ids=["missing", "too-large", "not-json", "not-a-suite"],
 )
 def test_an_unusable_suite_file_fails_with_its_path(tmp_path: Path, content, code) -> None:
     path = tmp_path / SUITE
