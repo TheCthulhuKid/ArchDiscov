@@ -3,8 +3,6 @@
 import ast
 import re
 
-import pytest
-
 from tests.paths import PROJECT_ROOT
 from tests.support.markdown import table_rows
 
@@ -71,16 +69,23 @@ def test_every_scenario_is_listed_with_tests():
     assert len(mapping) == len(SCENARIOS)
 
 
-@pytest.mark.parametrize(
-    "reference",
-    [test for tests in rows().values() for test in tests],
-    ids=lambda ref: ref.split("/")[-1],
-)
-def test_each_listed_test_exists_and_asserts_an_outcome(reference):
+def _problem(reference: str) -> str | None:
+    """Why `reference` is not a test that asserts an outcome, or None when it is one."""
     function = resolve(reference)
-    assert function is not None, f"{reference} no longer exists"
-    assert function.name.startswith("test_")
-    assert any(isinstance(n, ast.Assert) for n in ast.walk(function))
+    if function is None:
+        return "no longer exists"
+    if not function.name.startswith("test_"):
+        return "is not a test"
+    if not any(isinstance(n, ast.Assert) for n in ast.walk(function)):
+        return "asserts nothing"
+    return None
+
+
+def test_each_listed_test_exists_and_asserts_an_outcome():
+    references = {test for tests in rows().values() for test in tests}
+    assert references
+    problems = {reference: _problem(reference) for reference in sorted(references)}
+    assert {reference: problem for reference, problem in problems.items() if problem} == {}
 
 
 def test_a_stale_reference_is_detected():

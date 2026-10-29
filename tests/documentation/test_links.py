@@ -2,15 +2,13 @@
 
 import re
 
-import pytest
-
 from tests.support.markdown import DOC_FILES, anchors, prose
 
 _LINK = re.compile(r"(?<!!)\[[^\]]*\]\(([^)\s]+)\)")
 
 
-@pytest.mark.parametrize("document", DOC_FILES, ids=lambda path: path.name)
-def test_relative_links_and_anchors_resolve(document):
+def _broken_links(document):
+    """The relative links and anchors in `document` that do not resolve."""
     broken = []
     for target in _LINK.findall(prose(document)):
         if re.match(r"[a-z][a-z0-9+.-]*:", target):
@@ -21,7 +19,12 @@ def test_relative_links_and_anchors_resolve(document):
             fragment and destination.suffix == ".md" and fragment not in anchors(destination)
         ):
             broken.append(target)
-    assert broken == []
+    return broken
+
+
+def test_relative_links_and_anchors_resolve_in_every_document():
+    broken = {document.name: _broken_links(document) for document in DOC_FILES}
+    assert {name: targets for name, targets in broken.items() if targets} == {}
 
 
 def test_anchor_extraction_follows_github_slugs():

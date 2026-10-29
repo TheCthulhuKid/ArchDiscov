@@ -39,3 +39,22 @@ def edited_index(
             if not dropped & set(dependency["evidence_ids"])
         ]
     return GraphIndex(type(snapshot).model_validate(data))
+
+
+# pl-s3's entry recorded and cited, as GetManagedPrefixListEntries returns it; the fixture
+# records the list without entries.
+S3_ENTRIES = {
+    "pl-s3": {
+        "entries": [{"cidr": "52.218.0.0/17"}],
+        "fact_evidence": {
+            "/address_family": ["pl-s3"],
+            "/owner_id": ["pl-s3"],
+            "/entries/0": ["pl-s3-entry-0"],
+        },
+    }
+}
+
+
+def prefix_list_index(changes: dict[str, dict] | None = None, **edits) -> GraphIndex:
+    """The endpoints-and-prefix-lists fixture, edited as `edited_index` edits it."""
+    return edited_index("endpoints-and-prefix-lists.json", changes, **edits)
