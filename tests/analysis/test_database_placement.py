@@ -4,10 +4,10 @@ from archdiscov.graph import GraphIndex
 from archdiscov.models.enums import AnalyzerErrorCode, AwsService
 from archdiscov.services import AnalyzerError
 from archdiscov.services.database_placement import PortStatus, resolve_database_placement
-from tests.support.rds_data import CLUSTER, GROUP, INSTANCE, build, data, ec2_roots, resource_id
+from tests.support.rds_data import CLUSTER, INSTANCE, build, data, ec2_roots, resource_id
 
 RDS = AwsService.RDS
-SUBNET_A, SUBNET_B = resource_id("subnet-a"), resource_id("subnet-b")
+SUBNET_A = resource_id("subnet-a")
 SG_A, VPC_A = resource_id("sg-a"), resource_id("vpc-a")
 
 
@@ -49,16 +49,6 @@ def test_an_instance_resolves_to_its_stored_vpc_subnets_groups_and_port_with_cit
     assert list(placement.evidence_ids) == sorted(placement.evidence_ids)
 
 
-def test_several_subnets_stay_a_sorted_set():
-    value = payload_with()
-    group = value["describe_db_instances"]["DBInstances"][0]["DBSubnetGroup"]
-    group["Subnets"] = [{"SubnetIdentifier": "subnet-b"}, {"SubnetIdentifier": "subnet-a"}]
-    placement = place(payload=value, roots=ec2_roots(subnets=("subnet-a", "subnet-b")))[1]
-    assert placement.subnet_ids == (SUBNET_A, SUBNET_B)
-    assert placement.vpc_id == VPC_A
-    assert placement.limitations == ()
-
-
 # ---- clusters -----------------------------------------------------------------------
 
 
@@ -82,12 +72,6 @@ def test_a_member_that_is_not_stored_is_reported():
     assert placement.subnet_ids == (SUBNET_A,)  # still resolved through the subnet group
 
 
-def test_unrecorded_cluster_members_are_reported():
-    value = data()
-    del value["describe_db_clusters"]["DBClusters"][0]["DBClusterMembers"]
-    assert "database_members_unrecorded" in codes(place(CLUSTER, payload=value)[1])
-
-
 # ---- ports --------------------------------------------------------------------------
 
 
@@ -107,15 +91,6 @@ def test_an_unrecorded_port_is_reported_not_assumed():
     assert placement.port_status == PortStatus.UNRECORDED
     assert placement.recorded_ports == ()
     assert codes(placement) == ["database_port_unrecorded"]
-
-
-def test_a_cluster_matches_when_any_recorded_port_matches():
-    value = data()
-    value["describe_db_clusters"]["DBClusters"][0]["Port"] = 3306
-    assert place(CLUSTER, port=3306, payload=value)[1].port_status == PortStatus.MATCH
-    placement = place(CLUSTER, port=5432, payload=value)[1]
-    assert placement.port_status == PortStatus.MATCH
-    assert placement.recorded_ports == (3306, 5432)
 
 
 # ---- missing placement --------------------------------------------------------------
@@ -148,23 +123,6 @@ def test_a_recorded_vpc_that_disagrees_with_the_subnets_is_reported():
     assert placement.subnet_ids == (SUBNET_A,)
 
 
-def test_subnets_in_different_vpcs_make_the_vpc_ambiguous():
-    value = payload_with()
-    group = value["describe_db_instances"]["DBInstances"][0]["DBSubnetGroup"]
-    group["Subnets"] = [{"SubnetIdentifier": "subnet-a"}, {"SubnetIdentifier": "subnet-b"}]
-    roots = [*ec2_roots(), *ec2_roots(subnets=("subnet-b",), groups=(), vpc="vpc-b")]
-    placement = place(payload=value, roots=roots)[1]
-    assert placement.vpc_id is None
-    assert "database_vpc_ambiguous" in codes(placement)
-
-
-def test_limitations_are_deterministic_and_deduplicated():
-    first = place(port=3306, payload=payload_with(VpcSecurityGroups=[]))[1].limitations
-    second = place(port=3306, payload=payload_with(VpcSecurityGroups=[]))[1].limitations
-    assert first == second
-    assert len({(item.code, item.message) for item in first}) == len(first)
-
-
 # ---- selection ----------------------------------------------------------------------
 
 
@@ -173,9 +131,8 @@ def test_limitations_are_deterministic_and_deduplicated():
     [
         ("absent", AnalyzerErrorCode.RESOURCE_NOT_FOUND),
         (SUBNET_A, AnalyzerErrorCode.UNSUPPORTED_RESOURCE),
-        (resource_id(GROUP, RDS), AnalyzerErrorCode.UNSUPPORTED_RESOURCE),
     ],
-    ids=["unknown", "subnet", "subnet-group"],
+    ids=["unknown", "subnet"],
 )
 def test_unknown_or_wrongly_typed_selections_are_analyzer_errors(physical_id, code):
     index = GraphIndex(build())

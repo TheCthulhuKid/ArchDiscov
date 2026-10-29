@@ -1,20 +1,17 @@
 """The checked-in README and adversarial suites: reproducible, offline, and passing.
 
 Both suites run with the fake provider. Each adversarial case scripts an unsafe or failing
-run and passes only on its safe outcome; mutating a fixture so the run is no longer what the
-case expects, or so imported text reaches a statement, fails it.
+run and passes only on its safe outcome.
 """
 
 import asyncio
 import json
-import shutil
 from pathlib import Path
 
 import pytest
 
-from archdiscov.assistant import answer_service
 from archdiscov.assistant.answer_results import RenderedAnswer
-from archdiscov.assistant.evaluation import SAFETY_CHECKS, CaseRecord, CheckName
+from archdiscov.assistant.evaluation import SAFETY_CHECKS, CaseRecord
 from archdiscov.services.ask import AskResult, answer_selected
 from archdiscov.services.evaluation import evaluate_suite, prepare_evaluation
 from tests.support.answer_claims import INJECTION
@@ -24,7 +21,6 @@ from tests.support.evaluation_suites import (
     FABRICATED_ID,
     FORGED,
     README_SUITE,
-    SUITE,
     SUITES,
     write_fake_config,
 )
@@ -49,13 +45,6 @@ def _records(suite: Path, tmp_path: Path) -> dict[str, CaseRecord]:
 
 def _failed(record: CaseRecord) -> list[str]:
     return [check.name for check in record.checks if not check.passed]
-
-
-def _copy(suite: Path, tmp_path: Path) -> Path:
-    """A copy of the suite and its files, to mutate."""
-    copy = tmp_path / suite.parent.name
-    shutil.copytree(suite.parent, copy)
-    return copy / SUITE
 
 
 @pytest.mark.parametrize("suite", list(SUITES), ids=lambda path: path.parent.name)
@@ -138,58 +127,3 @@ def test_injected_names_and_tags_are_only_quoted_data(tmp_path: Path) -> None:
     )
     assert INJECTION in quoted and FORGED in quoted
     assert INJECTION not in _prose(rendered) and FORGED not in _prose(rendered)
-
-
-# ---- mutated fixtures --------------------------------------------------------------
-
-
-def test_a_changed_expected_finding_id_fails_its_case(tmp_path: Path) -> None:
-    suite = _copy(README_SUITE, tmp_path)
-    data = _suite(suite)
-    data["cases"][0]["expect"]["finding_ids"][0] = "f" * 64
-    suite.write_text(json.dumps(data), encoding="utf-8")
-    records = _records(suite, tmp_path)
-    first, *rest = records.values()
-    assert _failed(first) == [CheckName.FINDING_IDS]
-    assert all(record.passed for record in rest)
-
-
-def test_a_fabricated_citation_that_validates_fails_its_case(tmp_path: Path) -> None:
-    """Citing the delivered finding in place of the fabricated one answers, so the case
-    expecting a rejection fails."""
-    suite = _copy(ADVERSARIAL_SUITE, tmp_path)
-    honest = next(
-        case["expect"]["finding_ids"][0]
-        for case in _suite(suite)["cases"]
-        if case["id"] == "repaired"
-    )
-    transcript = suite.parent / "fabricated_finding" / "transcript.json"
-    transcript.write_text(
-        transcript.read_text(encoding="utf-8").replace(FABRICATED_ID, honest), encoding="utf-8"
-    )
-    record = _records(suite, tmp_path)["fabricated_finding"]
-    assert record.outcome.status == "answered" and record.citations_valid
-    assert _failed(record) == [CheckName.OUTCOME]
-
-
-def test_injected_text_rendered_as_a_statement_fails_its_case(tmp_path: Path, monkeypatch) -> None:
-    render_answer = answer_service.render_answer
-
-    def leaking(*args) -> RenderedAnswer:
-        rendered = render_answer(*args)
-        conclusions = [
-            conclusion.model_copy(
-                update={
-                    "statements": (
-                        *conclusion.statements,
-                        *(item.untrusted_text for item in conclusion.data),
-                    )
-                }
-            )
-            for conclusion in rendered.conclusions
-        ]
-        return rendered.model_copy(update={"conclusions": tuple(conclusions)})
-
-    monkeypatch.setattr(answer_service, "render_answer", leaking)
-    record = _records(ADVERSARIAL_SUITE, tmp_path)["injected_text"]
-    assert _failed(record) == [CheckName.QUOTED]

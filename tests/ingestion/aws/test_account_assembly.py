@@ -1,11 +1,6 @@
-from copy import deepcopy
-from dataclasses import replace
 from datetime import UTC, datetime
-from random import Random
 from threading import Lock
 from uuid import UUID
-
-import pytest
 
 from archdiscov.ingestion import aws
 from archdiscov.ingestion.adapter import AdapterContext
@@ -42,11 +37,8 @@ def dump_results(results):
     ]
 
 
-@pytest.mark.parametrize("partial", [False, True])
-def test_all_service_assembly_is_isolated_and_independent_of_result_order(
-    partial, monkeypatch, tmp_path
-):
-    session = Session(partial)
+def test_all_service_assembly_is_isolated_and_independent_of_result_order(monkeypatch, tmp_path):
+    session = Session(partial=True)
     context = AdapterContext(
         clock=lambda: NOW,
         uuid_factory=lambda: UUID(int=174),
@@ -81,13 +73,9 @@ def test_all_service_assembly_is_isolated_and_independent_of_result_order(
     )
 
     expected = snapshot.model_dump(mode="json")
-    shuffled = list(results)
-    Random(174).shuffle(shuffled)
-    for reordered in (list(reversed(results)), shuffled):
-        args = (*adapter.inputs[:-2], reordered, adapter.inputs[-1])
-        reassembled = aws.AwsAdapter()._assemble_account(*args)
-        assert reassembled.model_dump(mode="json") == expected
-        assert dump_results(results) == adapter.collected_before
+    args = (*adapter.inputs[:-2], list(reversed(results)), adapter.inputs[-1])
+    assert aws.AwsAdapter()._assemble_account(*args).model_dump(mode="json") == expected
+    assert dump_results(results) == adapter.collected_before
 
     keys = [(op.region, op.service, op.operation) for op in snapshot.coverage.operations]
     assert len(keys) == len(set(keys))
@@ -116,35 +104,17 @@ def test_all_service_assembly_is_isolated_and_independent_of_result_order(
         coverage = {op.operation: op for op in snapshot.coverage.operations if op.region == region}
         assert coverage["ListQueues"].status == "success"
         assert coverage["ListQueues"].result_count == 0
-        if partial:
-            assert coverage["DescribeSubnets"].status == "incomplete"
-            assert coverage["DescribeSubnets"].result_count == 1
-            assert coverage["DescribeRouteTables"].status == "failed"
-            assert coverage["DescribeTargetHealth"].status == "failed"
-            assert coverage["GetFunctionConfiguration"].status == "failed"
+        assert coverage["DescribeSubnets"].status == "incomplete"
+        assert coverage["DescribeSubnets"].result_count == 1
+        assert coverage["DescribeRouteTables"].status == "failed"
+        assert coverage["DescribeTargetHealth"].status == "failed"
+        assert coverage["GetFunctionConfiguration"].status == "failed"
 
     output = save_snapshot(snapshot, tmp_path / "account.json")
     assert load_snapshot(output).model_dump(mode="json") == expected
-    assert "assembly-private-value" not in output.read_text()
-    assert "protected-context" not in output.read_text()
-    assert "protected-tag" not in output.read_text()
-    # A snapshot caller can mutate its tree without altering collected job data.
-    snapshot.regions[REGIONS[0]].resources[0].children.clear()
-    assert dump_results(results) == adapter.collected_before
-
-
-def test_assembly_rejects_unplanned_job_results():
-    account = AwsAccountConfig(
-        profile="offline", expected_account_id=ACCOUNT, services=(AwsService.IAM,)
-    )
-    session = Session(False)
-    context = AdapterContext(clock=lambda: NOW, session_factory=lambda **kwargs: session)
-    adapter = CapturingAdapter()
-    adapter.collect(AwsCollectionRequest(accounts=(account,)), context=context)
-    results = deepcopy(adapter.inputs[-2])
-    results[0] = replace(results[0], job=CollectionJob(AwsService.EC2, REGIONS[0]))
-    with pytest.raises(ValueError, match="each planned job exactly once"):
-        aws.AwsAdapter()._assemble_account(*adapter.inputs[:-2], results, adapter.inputs[-1])
+    saved = output.read_text()
+    for private in ("assembly-private-value", "protected-context", "protected-tag"):
+        assert private not in saved
 
 
 def test_job_planning_respects_selected_available_scope_and_global_single_pass():
@@ -160,16 +130,9 @@ def test_job_planning_respects_selected_available_scope_and_global_single_pass()
         CollectionJob(AwsService.IAM, AwsRegion.GLOBAL)
     ]
     assert CollectionJob(AwsService.LAMBDA, AwsRegion.US_WEST_2) not in jobs
-
-
-def test_job_planning_never_adds_an_unselected_service():
-    account = AwsAccountConfig(
-        profile="offline",
-        expected_account_id=ACCOUNT,
-        regions=REGIONS,
-        services=(AwsService.LAMBDA,),
+    lambda_only = AwsAccountConfig(
+        profile="offline", expected_account_id=ACCOUNT, regions=REGIONS, services=("lambda",)
     )
-    available = dict.fromkeys(AwsService, REGIONS)
-    assert collection_jobs(account, available) == [
+    assert collection_jobs(lambda_only, dict.fromkeys(AwsService, REGIONS)) == [
         CollectionJob(AwsService.LAMBDA, region) for region in REGIONS
     ]

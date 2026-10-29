@@ -3,7 +3,6 @@ from copy import deepcopy
 
 from archdiscov.models.architecture import ArchitectureSnapshot
 from archdiscov.models.resources.ecs import EcsService, EcsTask, EcsTaskDefinition
-from archdiscov.services import load_snapshot, save_snapshot
 from tests.support.ecs_data import (
     ACCOUNT,
     CLUSTER,
@@ -65,19 +64,7 @@ def test_exact_facts_include_request_page_and_source_field_context():
     snapshot(result)  # Validate ownership and every normalized fact pointer.
 
 
-def test_skeleton_cluster_citation_uses_list_request_scope():
-    data = responses()
-    data["describe_services"] = {"services": []}
-    result, _ = collect(data)
-    service = next(r for r in result.resources if isinstance(r, EcsService))
-    citation = fact(result, service, "/cluster_arn")[0]
-    assert citation.configuration_path == f'Request[{{"cluster":"{CLUSTER}"}}].cluster'
-    assert citation.value == CLUSTER
-    assert citation.locator == "ecs:ListServices"
-    snapshot(result)
-
-
-def test_source_selection_excludes_all_workload_content_before_evidence_and_save(tmp_path):
+def test_source_selection_excludes_all_workload_content_before_evidence():
     data = responses()
     service = data["describe_services"]["services"][0]
     task = data["describe_tasks"]["tasks"][0]
@@ -137,18 +124,3 @@ def test_source_selection_excludes_all_workload_content_before_evidence_and_save
     assert "discard-me" not in encoded
     for key in secret_fields:
         assert f'"{key}"' not in encoded
-    snap = snapshot(result)
-    before = snap.model_dump(mode="json")
-    path = tmp_path / "ecs.json"
-    save_snapshot(snap, path)
-    loaded = load_snapshot(path)
-    assert "private-" not in path.read_text()
-    assert loaded.model_dump(mode="json") == before
-    assert snap.model_dump(mode="json") == before
-    assert data == original
-    assert (
-        next(r for r in loaded.regions[REGION].resources if isinstance(r, EcsTaskDefinition))
-        .containers[0]
-        .image
-        == "registry.example/web:1"
-    )

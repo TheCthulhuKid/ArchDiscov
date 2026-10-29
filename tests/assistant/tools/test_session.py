@@ -8,38 +8,20 @@ from tests.paths import FIXTURES_ROOT
 SNAPSHOTS = FIXTURES_ROOT / "snapshots"
 
 
-def test_session_indexes_the_selected_snapshot_once() -> None:
+def test_session_indexes_the_selected_snapshots_once_with_its_own_record() -> None:
     session = ToolSession.from_paths(SNAPSHOTS / "aws.json")
     assert isinstance(session.index, GraphIndex)
     assert session.index is session.index
     assert session.index.snapshot_id == load_snapshot(SNAPSHOTS / "aws.json").snapshot_id
     assert session.comparison_index is None
-    assert session.limits == ToolLimits()
     assert session.record.returned() == ReturnedIds()
-
-
-def test_session_can_hold_a_second_snapshot_for_comparisons() -> None:
-    session = ToolSession.from_paths(
+    compared = ToolSession.from_paths(
         SNAPSHOTS / "aws.json",
         comparison_path=SNAPSHOTS / "azure.json",
         limits=ToolLimits(result_limit=5),
     )
-    assert session.comparison_index is not None
-    assert session.comparison_index is session.comparison_index
-    assert session.comparison_index.snapshot_id != session.index.snapshot_id
-    assert session.limits.result_limit == 5
-
-
-def test_session_accepts_loaded_snapshots_and_detaches_them() -> None:
-    snapshot = load_snapshot(SNAPSHOTS / "aws.json")
-    session = ToolSession(snapshot)
-    before = session.index.resource_ids
-    snapshot.regions.clear()
-    snapshot.global_resources.clear()
-    assert session.index.resource_ids == before
-
-
-def test_each_session_has_its_own_record() -> None:
-    first = ToolSession.from_paths(SNAPSHOTS / "aws.json")
-    second = ToolSession.from_paths(SNAPSHOTS / "aws.json")
-    assert first.record is not second.record
+    assert compared.comparison_index is not None
+    assert compared.comparison_index is compared.comparison_index
+    assert compared.comparison_index.snapshot_id != compared.index.snapshot_id
+    assert compared.limits.result_limit == 5
+    assert compared.record is not session.record

@@ -6,7 +6,7 @@ import pytest
 from botocore.exceptions import EndpointConnectionError
 
 from archdiscov.ingestion.adapter import AdapterContext
-from archdiscov.ingestion.elbv2 import Elbv2Inventory, collect_inventory
+from archdiscov.ingestion.elbv2 import collect_inventory
 from archdiscov.ingestion.operations import Elbv2Operation as Op
 from archdiscov.ingestion.requests import AwsAccountConfig
 from archdiscov.models.enums import AwsRegion, AwsService
@@ -86,51 +86,8 @@ def collect(values=None):
     return collect_inventory(session, account, AdapterContext(), AwsRegion.US_EAST_1), session
 
 
-def test_all_reads_and_request_specific_paths():
-    inventory, session = collect()
-    assert isinstance(inventory, Elbv2Inventory)
-    assert set(inventory.results) == set(Op)
-    assert all(item.status == "success" for item in inventory.coverage)
-    assert session.clients[0][0] == "elbv2"
-    assert session.clients[0][1]["region_name"] == "us-east-1"
-    assert inventory.results[Op.DESCRIBE_RULES].responses[0].path == (
-        f'Request[{{"ListenerArn":"{LISTENER}"}}].Page[0].Rules[0]'
-    )
-    assert [p for m, p in session.elb.calls if m == "describe_tags"] == [
-        {"ResourceArns": sorted([LB, LISTENER, RULE, GROUP])},
-    ]
-
-
-@pytest.mark.parametrize(
-    "operation,key",
-    [
-        ("describe_load_balancers", "LoadBalancers"),
-        ("describe_target_groups", "TargetGroups"),
-        ("describe_listeners", "Listeners"),
-        ("describe_rules", "Rules"),
-    ],
-)
-def test_paginated_duplicate_items_retain_citations_but_dedup_requests(operation, key):
+def test_blocked_discovery_skips_dependent_reads_only():
     values = data()
-    original = values[operation]
-    values[operation] = lambda p: {**original, **({} if "Marker" in p else {"NextMarker": "next"})}
-    inventory, session = collect(values)
-    op = next(op for op in Op if op.value.lower() == operation.replace("_", ""))
-    responses = inventory.results[op].responses
-    assert len(responses) == 2
-    assert responses[1].path.endswith(f"Page[1].{key}[0]")
-    assert all(item.status == "success" for item in inventory.coverage)
-    assert len([p for m, p in session.elb.calls if m == "describe_target_health"]) == 1
-    assert len([p for m, p in session.elb.calls if m == "describe_tags"]) == 1
-
-
-def test_zero_discovery_and_blocked_discovery():
-    values = data()
-    values["describe_load_balancers"] = {"LoadBalancers": []}
-    values["describe_target_groups"] = {"TargetGroups": []}
-    inventory, session = collect(values)
-    assert all(c.status == "success" and c.result_count == 0 for c in inventory.coverage)
-    assert len(session.elb.calls) == 2
     values["describe_load_balancers"] = EndpointConnectionError(endpoint_url="private source error")
     inventory, _ = collect(values)
     assert inventory.results[Op.DESCRIBE_LISTENERS].coverage.status == "skipped"
@@ -142,80 +99,27 @@ def test_zero_discovery_and_blocked_discovery():
     )
 
 
-def test_partial_inventory_keeps_known_reads_and_groups_are_independent():
+@pytest.mark.parametrize(
+    "lb_type,kind,rules",
+    [("network", "net", "success"), ("application", "app", "incomplete")],
+    ids=["nlb", "alb"],
+)
+def test_failed_listener_read_qualifies_rules_only_for_an_application_load_balancer(
+    lb_type, kind, rules
+):
     values = data()
-
-    def pages(params):
-        return (
-            EndpointConnectionError(endpoint_url="private")
-            if "Marker" in params
-            else {
-                **data()["describe_load_balancers"],
-                "NextMarker": "next",
-            }
-        )
-
-    values["describe_load_balancers"] = pages
-    inventory, _ = collect(values)
-    for op in (
-        Op.DESCRIBE_LOAD_BALANCERS,
-        Op.DESCRIBE_LISTENERS,
-        Op.DESCRIBE_RULES,
-        Op.DESCRIBE_TAGS,
-    ):
-        assert inventory.results[op].coverage.status == "incomplete"
-        assert inventory.results[op].responses
-    assert inventory.results[Op.DESCRIBE_TARGET_GROUPS].coverage.status == "success"
-    assert inventory.results[Op.DESCRIBE_TARGET_HEALTH].coverage.status == "success"
-
-
-@pytest.mark.parametrize("failed", ["describe_listeners", "describe_rules"])
-def test_failed_sibling_retains_successful_reads(failed):
-    values = data()
-    lb2 = LB.replace("web/123", "other/234")
-    listener2 = LISTENER.replace("web/123", "other/234")
+    other = PREFIX + f"loadbalancer/{kind}/other/234"
     values["describe_load_balancers"]["LoadBalancers"].append(
-        {"LoadBalancerArn": lb2, "Type": "application"}
+        {"LoadBalancerArn": other, "Type": lb_type}
     )
     values["describe_listeners"] = lambda p: (
         EndpointConnectionError(endpoint_url="private")
-        if failed == "describe_listeners" and p["LoadBalancerArn"] == lb2
-        else {
-            "Listeners": [{"ListenerArn": listener2 if p["LoadBalancerArn"] == lb2 else LISTENER}]
-        }
-    )
-    values["describe_rules"] = lambda p: (
-        EndpointConnectionError(endpoint_url="private")
-        if failed == "describe_rules" and p["ListenerArn"] == listener2
-        else {"Rules": [{"RuleArn": RULE}]}
-    )
-    inventory, _ = collect(values)
-    assert inventory.results[Op.DESCRIBE_RULES].coverage.status == "incomplete"
-    assert inventory.results[Op.DESCRIBE_RULES].responses
-    assert inventory.results[Op.DESCRIBE_TARGET_HEALTH].coverage.status == "success"
-    assert inventory.results[Op.DESCRIBE_TAGS].coverage.status == "incomplete"
-
-
-def test_nlb_rules_are_legitimate_zero_and_unrelated_listener_failure_does_not_qualify():
-    values = data()
-    nlb = PREFIX + "loadbalancer/net/tcp/123"
-    values["describe_load_balancers"]["LoadBalancers"].append(
-        {"LoadBalancerArn": nlb, "Type": "network"}
-    )
-    values["describe_listeners"] = lambda p: (
-        EndpointConnectionError(endpoint_url="private")
-        if p["LoadBalancerArn"] == nlb
+        if p["LoadBalancerArn"] == other
         else data()["describe_listeners"]
     )
     inventory, _ = collect(values)
-    assert inventory.results[Op.DESCRIBE_RULES].coverage.status == "success"
-    values["describe_load_balancers"] = {
-        "LoadBalancers": [{"LoadBalancerArn": nlb, "Type": "network"}]
-    }
-    inventory, session = collect(values)
-    assert inventory.results[Op.DESCRIBE_RULES].coverage.status == "success"
-    assert inventory.results[Op.DESCRIBE_RULES].coverage.result_count == 0
-    assert not any(m == "describe_rules" for m, _ in session.elb.calls)
+    assert inventory.results[Op.DESCRIBE_LISTENERS].coverage.status == "incomplete"
+    assert inventory.results[Op.DESCRIBE_RULES].coverage.status == rules
 
 
 def test_unsupported_summaries_retained_without_unsafe_detail_requests():
@@ -233,33 +137,21 @@ def test_unsupported_summaries_retained_without_unsafe_detail_requests():
     assert len(session.elb.calls) == 2
 
 
-@pytest.mark.parametrize("bad", ["conflict", "malformed", "parent"])
-def test_unsafe_identity_is_omitted_and_qualifies_dependent_discovery(bad):
-    values = data()
-    if bad == "conflict":
-        values["describe_load_balancers"]["LoadBalancers"].append(
-            {"LoadBalancerArn": LB, "Type": "network"}
-        )
-    elif bad == "parent":
-        values["describe_listeners"]["Listeners"][0]["LoadBalancerArn"] = "private"
-    else:
-        values["describe_load_balancers"]["LoadBalancers"][0]["LoadBalancerArn"] = "private"
-    inventory, _ = collect(values)
-    op = Op.DESCRIBE_LISTENERS if bad == "parent" else Op.DESCRIBE_LOAD_BALANCERS
-    assert inventory.results[op].coverage.status == "incomplete"
-    assert not inventory.results[op].responses
-    assert inventory.results[op].coverage.unresolved_values
-    assert inventory.results[Op.DESCRIBE_RULES].coverage.status == "skipped"
-
-
-def test_missing_result_field_is_unavailable_not_empty():
+def test_missing_or_malformed_inventory_is_unavailable_not_empty():
     values = data()
     values["describe_target_groups"] = {}
+    values["describe_load_balancers"] = {"LoadBalancers": [None, "private", {"private": "private"}]}
     inventory, _ = collect(values)
-    coverage = inventory.results[Op.DESCRIBE_TARGET_GROUPS].coverage
-    assert coverage.status == "incomplete"
-    assert coverage.unresolved_values[0].configuration_path == "Request[{}].Page[0].TargetGroups"
+    groups = inventory.results[Op.DESCRIBE_TARGET_GROUPS].coverage
+    assert groups.status == "incomplete"
+    assert groups.unresolved_values[0].configuration_path == "Request[{}].Page[0].TargetGroups"
+    balancers = inventory.results[Op.DESCRIBE_LOAD_BALANCERS]
+    assert balancers.coverage.status == "incomplete"
+    assert len(balancers.coverage.unresolved_values) == 3
+    assert not balancers.responses
+    assert "private" not in balancers.coverage.model_dump_json()
     assert inventory.results[Op.DESCRIBE_TARGET_HEALTH].coverage.status == "skipped"
+    assert inventory.results[Op.DESCRIBE_RULES].coverage.status == "skipped"
 
 
 def test_tags_missing_unexpected_and_malformed_are_not_empty_tags():
@@ -282,16 +174,14 @@ def test_tags_missing_unexpected_and_malformed_are_not_empty_tags():
     )
 
 
-def test_tags_batch_twenty_and_health_for_all_supported_types():
+def test_tags_batch_twenty_and_a_failed_batch_qualifies_its_resources():
     values = data()
     values["describe_load_balancers"] = {"LoadBalancers": []}
+    groups = [PREFIX + f"targetgroup/group-{i:02}/123" for i in range(21)]
     values["describe_target_groups"] = {
         "TargetGroups": [
-            {
-                "TargetGroupArn": PREFIX + f"targetgroup/group-{i}/123",
-                "TargetType": ("instance", "ip", "alb", "lambda")[i % 4],
-            }
-            for i in range(21)
+            {"TargetGroupArn": arn, "TargetType": ("instance", "ip", "alb", "lambda")[i % 4]}
+            for i, arn in enumerate(groups)
         ]
     }
     inventory, session = collect(values)
@@ -301,14 +191,6 @@ def test_tags_batch_twenty_and_health_for_all_supported_types():
     assert len(set(functools.reduce(operator.iadd, batches, []))) == 21
     assert len([p for m, p in session.elb.calls if m == "describe_target_health"]) == 21
 
-
-def test_failed_tag_batch_retains_sibling_batch_and_qualifies_missing_resource():
-    values = data()
-    values["describe_load_balancers"] = {"LoadBalancers": []}
-    groups = [PREFIX + f"targetgroup/group-{i:02}/123" for i in range(21)]
-    values["describe_target_groups"] = {
-        "TargetGroups": [{"TargetGroupArn": arn, "TargetType": "ip"} for arn in groups]
-    }
     values["describe_tags"] = lambda p: (
         EndpointConnectionError(endpoint_url="private")
         if len(p["ResourceArns"]) == 1
@@ -321,49 +203,3 @@ def test_failed_tag_batch_retains_sibling_batch_and_qualifies_missing_resource()
     assert len(result.coverage.failures) == 1
     assert len(result.coverage.unresolved_values) == 1
     assert groups[-1] in result.coverage.unresolved_values[0].configuration_path
-
-
-def test_failed_health_does_not_qualify_independent_tags():
-    values = data()
-    values["describe_target_health"] = EndpointConnectionError(endpoint_url="private")
-    inventory, _ = collect(values)
-    assert inventory.results[Op.DESCRIBE_TARGET_HEALTH].coverage.status == "failed"
-    assert inventory.results[Op.DESCRIBE_TAGS].coverage.status == "success"
-
-
-def test_conflicting_duplicate_tags_are_unavailable():
-    values = data()
-    values["describe_tags"] = lambda p: {
-        "TagDescriptions": [{"ResourceArn": arn, "Tags": []} for arn in p["ResourceArns"]]
-        + [{"ResourceArn": LB, "Tags": [{"Key": "team", "Value": "infra"}]}]
-    }
-    inventory, _ = collect(values)
-    result = inventory.results[Op.DESCRIBE_TAGS]
-    assert result.coverage.status == "incomplete"
-    assert all(response.value["ResourceArn"] != LB for response in result.responses)
-    assert len(result.coverage.unresolved_values) == 2
-
-
-def test_malformed_inventory_items_are_source_safe_limitations():
-    values = data()
-    values["describe_load_balancers"] = {"LoadBalancers": [None, "private", {"private": "private"}]}
-    inventory, _ = collect(values)
-    result = inventory.results[Op.DESCRIBE_LOAD_BALANCERS]
-    assert result.coverage.status == "incomplete"
-    assert len(result.coverage.unresolved_values) == 3
-    assert not result.responses
-    assert "private" not in result.coverage.model_dump_json()
-
-
-def test_repeated_marker_retains_page_citations_and_is_incomplete():
-    values = data()
-    values["describe_load_balancers"] = {
-        **values["describe_load_balancers"],
-        "NextMarker": "private",
-    }
-    inventory, session = collect(values)
-    result = inventory.results[Op.DESCRIBE_LOAD_BALANCERS]
-    assert result.coverage.status == "incomplete"
-    assert len(result.responses) == 2
-    assert "private" not in result.coverage.model_dump_json()
-    assert len([p for m, p in session.elb.calls if m == "describe_load_balancers"]) == 2

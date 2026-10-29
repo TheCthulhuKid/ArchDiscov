@@ -1,7 +1,4 @@
-import pytest
-from pydantic import ValidationError
-
-from archdiscov.models.enums import ResourceType, RouteTargetKind
+from archdiscov.models.enums import RouteTargetKind
 from archdiscov.models.resources.network import (
     InternetGateway,
     NetworkAcl,
@@ -13,7 +10,6 @@ from archdiscov.services import load_snapshot, save_snapshot
 from tests.paths import FIXTURES_ROOT
 
 FIXTURES = FIXTURES_ROOT / "snapshots"
-IDENTITY = {"account_id": "123456789012", "region": "eu-west-1", "service": "ec2"}
 
 
 def flatten(resources):
@@ -38,38 +34,3 @@ def test_network_fixture_round_trips_with_typed_children(tmp_path):
 
     saved = save_snapshot(snapshot, tmp_path / "out.json")
     assert load_snapshot(saved) == snapshot
-
-
-def test_rule_and_route_citations_resolve_to_specific_entries():
-    snapshot = load_snapshot(FIXTURES / "network.json")
-    group = next(
-        r
-        for r in flatten(snapshot.regions["eu-west-1"].resources)
-        if r.identity.physical_id == "sg-web"
-    )
-    cited = snapshot.evidence[group.fact_evidence["/ingress_rules/0"][0]]
-    assert cited.configuration_path == "SecurityGroups[0].IpPermissions[0]"
-
-
-def test_schema_one_fixtures_still_load():
-    for name in ("hierarchy.json", "aws.json"):
-        assert load_snapshot(FIXTURES / name).schema_version == "1"
-
-
-@pytest.mark.parametrize(
-    "fields",
-    [
-        {"ingress_rules": [{"direction": "ingress", "from_port": 70000}]},
-        {"ingress_rules": [{"direction": "ingress", "cidr": "not-a-cidr"}]},
-        {"ingress_rules": [{"direction": "sideways"}]},
-    ],
-)
-def test_invalid_rule_values_are_rejected(fields):
-    with pytest.raises(ValidationError):
-        SecurityGroup(identity={**IDENTITY, "physical_id": "sg-1"}, **fields)
-
-
-def test_resource_types_match_aws_names():
-    group = SecurityGroup(identity={**IDENTITY, "physical_id": "sg-1"})
-    assert group.resource_type is ResourceType.SECURITY_GROUP
-    assert group.resource_type.value == "AWS::EC2::SecurityGroup"

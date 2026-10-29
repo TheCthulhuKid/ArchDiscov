@@ -1,24 +1,24 @@
 """The installed `ask` command, outside the checkout, with the fake provider and no network.
 
-Four journeys, each on its own xdist worker. The first asks each README case of the
-checked-in evaluation suite with its fake transcript, over the case's files as copied: every
-README question is answered from the findings its tools returned, cited evidence is recorded
-in the answered snapshot (one record is inspected through the CLI), and answers short of
-`supported` state their limitations. The second asks the adversarial cases that submit a
-fabricated or unreturned citation (rejected after the repair, exit 5), repair a fabricated
-citation (answered after the repair), and answer over imported text that tries to instruct
-the model (shown only as quoted data).
+Four journeys, each on its own xdist worker. The first asks a README case of the checked-in
+evaluation suite with its fake transcript, over the case's files as copied: the question is
+answered from the findings its tools returned, cited evidence is recorded in the answered
+snapshot (one record is inspected through the CLI), and the answer, short of `supported`,
+states its limitations. `test_installed_evaluation.py` asks every README case through the
+installed script, and the in-process suites check each one. The second asks the adversarial
+cases that submit a fabricated or unreturned citation (rejected after the repair, exit 5),
+repair a fabricated citation (answered after the repair), and answer over imported text that
+tries to instruct the model (shown only as quoted data).
 
-The third refuses a missing configuration, an unknown snapshot, a Bedrock profile that cannot
-be loaded, an Anthropic or OpenAI-compatible configuration without its key, and an existing
-transcript path before the run, and reports a scripted provider error and a run limit as
-answer outcomes, each with its documented exit code. In the fourth, the Anthropic adapter, the
-OpenAI-compatible adapter through each protocol, and the Bedrock adapter answer a README
-question through a mock API on one loopback port, the only connection the run may make, and
-give the fake's answer. The child sees no credentials and no checkout, except a dummy key or
-AWS profile forwarded to an adapter's run alone: its whole `PYTHONPATH` is the offline guard,
-which fails and records any other network use. Each command's JSON is checked here; its
-readable form once, since `tests/cli` renders every outcome readably in process.
+The third refuses a missing configuration, a Bedrock profile that cannot be loaded, and an
+Anthropic configuration without its key before the run, and reports a scripted provider error
+and a run limit as answer outcomes, each with its documented exit code. In the fourth, the
+Anthropic adapter, the OpenAI-compatible adapter through each protocol, and the Bedrock adapter
+answer a README question through a mock API on one loopback port, the only connection the run
+may make, and give the fake's answer. The child sees no credentials and no checkout, except a
+dummy key or AWS profile forwarded to an adapter's run alone: its whole `PYTHONPATH` is the
+offline guard, which fails and records any other network use. Each command's JSON is checked
+here; its readable form once, since `tests/cli` renders every outcome readably in process.
 """
 
 import json
@@ -82,6 +82,9 @@ PATHS = {
     "injected_text": ("answered", 0, None),
 }
 
+# The README case the answers journey asks: limited coverage keeps it short of `supported`.
+# The installed evaluation journey asks every README case.
+ANSWERED = "trust_limited_coverage"
 # The examples whose files the failure and adapter cases reuse.
 SNAPSHOT = "internet_exposure"
 ADAPTED = "ownership"
@@ -142,22 +145,16 @@ def _unchanged(ws: Workspace, ask: Callable[[], dict]) -> dict:
 
 @pytest.fixture(scope="module")
 def answers(tmp_path_factory) -> dict:
-    """Each README case asked in JSON, the first also readably; the first cited evidence
-    record inspected through the CLI, and every cited ID checked in the answered snapshot."""
+    """The answered case asked in JSON and readably, and its first cited evidence record
+    inspected through the CLI."""
     ws = _suite(tmp_path_factory.mktemp("ask-answers"), "readme")
 
     def ask() -> dict:
-        examples, inspected = {}, None
-        for index, (case_id, case) in enumerate(suite_cases(ws, "readme").items()):
-            asked = _ask(ws, "readme", case, readable=index == 0)
-            cited = _evidence_ids(asked["data"]["result"]["answer"])
-            recorded = load_snapshot(Path(asked["snapshot"])).evidence
-            asked["recorded"] = all(item in recorded for item in cited)
-            if inspected is None and cited:
-                found = ws.json("evidence", cited[0], "--snapshot", asked["snapshot"])
-                inspected = (cited[0], found)
-            examples[case_id] = (case, asked)
-        return {"examples": examples, "inspected": inspected}
+        case = suite_cases(ws, "readme")[ANSWERED]
+        asked = _ask(ws, "readme", case, readable=True)
+        cited = _evidence_ids(asked["data"]["result"]["answer"])
+        found = ws.json("evidence", cited[0], "--snapshot", asked["snapshot"])
+        return {"case": case, "asked": asked, "cited": cited, "inspected": found}
 
     return _unchanged(ws, ask)
 
@@ -180,18 +177,15 @@ def _missing_key(harness: MockedHarness, directory: Path) -> tuple[Path, list, d
 
 
 PRE_RUN = {case.__name__.strip("_"): (case, code, error) for case, code, error in PRE_RUN_ERRORS}
-# The CLI test's pre-run cases the installed command repeats, and two adapters without a key.
+# A missing configuration, shown in both forms, and the refusals that depend on the child's
+# environment, which holds no credentials; the ask service tests reach the others in process.
 REFUSALS = {
-    **{name: PRE_RUN[name] for name in ("missing_config", "unknown_snapshot", "missing_profile")},
-    **{
-        f"missing_{harness.name}_key": (
-            partial(_missing_key, harness),
-            2,
-            "provider_credential_missing",
-        )
-        for harness in (AnthropicHarness(), ResponsesHarness())
-    },
-    "existing_transcript": PRE_RUN["existing_transcript"],
+    **{name: PRE_RUN[name] for name in ("missing_config", "missing_profile")},
+    "missing_anthropic_key": (
+        partial(_missing_key, AnthropicHarness()),
+        2,
+        "provider_credential_missing",
+    ),
 }
 # Scripted runs that start and fail: (turns, extra configuration, exit code, failure reason).
 FAILED_RUNS = {
@@ -299,41 +293,31 @@ def adapters(tmp_path_factory) -> dict:
 
 
 @ANSWERS
-def test_every_readme_question_is_answered_from_tool_returned_findings(answers):
-    examples = answers["examples"]
-    assert set(README_QUESTIONS) <= {case["question"] for case, _ in examples.values()}
-    limited = set()
-    for case_id, (case, asked) in examples.items():
-        answer = asked["data"]["result"]["answer"]
-        expect = case["expect"]
-        assert answer["outcome"]["status"] == "answered", case_id
-        assert answer["status"] in expect["statuses"], case_id
-        # The cited findings are exactly those the example's tools returned.
-        citations = [item for c in answer["conclusions"] for item in c["citations"]]
-        cited = {item for citation in citations for item in citation["finding_ids"]}
-        assert cited == set(expect.get("finding_ids", ())), case_id
-        assert answer["conclusions"], case_id
-        assert asked["data"]["summary"]["provider_kind"] == "fake", case_id
-        # A finding that supports anything cites evidence the answered snapshot records;
-        # insufficient evidence may cite none.
-        for finding in _findings(answer):
-            if finding["status"] != "insufficient_evidence":
-                assert finding["evidence_ids"], case_id
-        assert asked["recorded"], case_id
-        # An answer short of supported states its limitations.
-        if answer["status"] != "supported":
-            assert answer["qualifications"], case_id
-            limited.add(case_id)
-    assert {"trust_limited_coverage", "internet_insufficient_evidence", "ownership_planned"} <= (
-        limited
-    )
-    evidence_id, inspected = answers["inspected"]
-    assert inspected["evidence_id"] == evidence_id
-    [(_, first)] = [item for item in examples.values() if item[1]["readable"] is not None]
-    lines = first["readable"].splitlines()
+def test_a_readme_question_is_answered_from_tool_returned_findings_with_its_limitations(
+    answers,
+):
+    case, asked = answers["case"], answers["asked"]
+    answer = asked["data"]["result"]["answer"]
+    assert case["question"] in README_QUESTIONS
+    assert answer["outcome"]["status"] == "answered"
+    assert asked["data"]["summary"]["provider_kind"] == "fake"
+    # The cited findings are exactly those the case's tools returned. A finding that supports
+    # anything cites evidence the answered snapshot records; insufficient evidence may cite none.
+    citations = [item for c in answer["conclusions"] for item in c["citations"]]
+    cited = {item for citation in citations for item in citation["finding_ids"]}
+    assert cited == set(case["expect"]["finding_ids"])
+    for finding in _findings(answer):
+        assert finding["evidence_ids"] or finding["status"] == "insufficient_evidence"
+    recorded = load_snapshot(Path(asked["snapshot"])).evidence
+    assert all(item in recorded for item in answers["cited"])
+    assert answers["inspected"]["evidence_id"] == answers["cited"][0]
+    # Limited coverage keeps the answer short of supported, and it says why.
+    assert answer["status"] == "partial"
+    assert answer["qualifications"]
+    lines = asked["readable"].splitlines()
     assert "Provider: fake, model fake" in lines
     assert "Answer: answered, exit code 0" in lines
-    assert f"Status: {first['data']['result']['answer']['status']}" in lines
+    assert "Status: partial" in lines
 
 
 @PATHS_GROUP
@@ -368,8 +352,7 @@ def test_errors_before_the_run_fail_safely(summary):
     assert refused["missing_profile"]["kind"] == "bedrock"
     assert refused["missing_config"]["path"].endswith("missing.toml")
     # A missing key names its variable, never a value, and stops the run before any request.
-    for kind in ("anthropic", "openai_compatible"):
-        assert refused[f"missing_{kind}_key"]["variable"] == INSTALLED_KEY_VARIABLE
+    assert refused["missing_anthropic_key"]["variable"] == INSTALLED_KEY_VARIABLE
 
 
 def test_provider_errors_and_limits_are_answer_outcomes(summary):

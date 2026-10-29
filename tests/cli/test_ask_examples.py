@@ -1,9 +1,10 @@
 """The README example questions, answered through the `ask` command with fake transcripts.
 
-Each example is written to a temporary directory and run in both output forms with the
-fake provider; the validated status, the cited findings and differences, and the
-qualifications are checked against what the example's tools returned. That each adapter gives
-the fake's answer is `tests/assistant/test_answer_service_suite.py`'s to show.
+Each example is written to a temporary directory and run with the fake provider; the
+validated status, the cited findings and differences, and the qualifications in the JSON
+answer are checked against what the example's tools returned. The readable rendering is the
+goldens' to show (`test_answer_output.py`), and that each adapter gives the fake's answer is
+`tests/assistant/test_answer_service_suite.py`'s.
 """
 
 import json
@@ -46,14 +47,6 @@ QUALIFICATIONS = {
     "ownership_compared": (PARTIAL_ANSWER, RECORDED_DIFFERENCES),
 }
 DECLARED = {"ownership_planned"}
-
-
-def _ask(name: str, tmp_path: Path, *flags: str):
-    run = write_example(EXAMPLES[name], tmp_path)
-    result = runner.invoke(app, ["ask", *run.arguments, *flags])
-    assert result.exit_code == 0, result.output
-    assert result.stderr == ""
-    return run, result.stdout
 
 
 def _readme_questions() -> list[str]:
@@ -101,8 +94,11 @@ def _cited(answer: RenderedAnswer, run: ExampleRun) -> None:
 @pytest.mark.parametrize("name", list(EXAMPLES))
 def test_each_example_answers_in_json(tmp_path: Path, name: str) -> None:
     example = EXAMPLES[name]
-    run, output = _ask(name, tmp_path, "--json")
-    result = json.loads(output)["result"]
+    run = write_example(example, tmp_path)
+    asked = runner.invoke(app, ["ask", *run.arguments, "--json"])
+    assert asked.exit_code == 0, asked.output
+    assert asked.stderr == ""
+    result = json.loads(asked.stdout)["result"]
     assert result["exit_code"] == 0
     answer = RenderedAnswer.model_validate(result["answer"])
     assert answer.outcome.status == "answered" and answer.status == example.status
@@ -113,23 +109,3 @@ def test_each_example_answers_in_json(tmp_path: Path, name: str) -> None:
     assert [snapshot.declared for snapshot in answer.snapshots] == [name in DECLARED] * len(sides)
     for view in (view for conclusion in answer.conclusions for view in conclusion.findings):
         assert view.finding_id in run.finding_ids
-
-
-@pytest.mark.parametrize("name", list(EXAMPLES))
-def test_each_example_answers_readably(tmp_path: Path, name: str) -> None:
-    example = EXAMPLES[name]
-    run, output = _ask(name, tmp_path)
-    lines = output.splitlines()
-    assert "Answer: answered, exit code 0" in lines
-    assert f"Status: {example.status}" in lines
-    for qualification in QUALIFICATIONS[name]:
-        assert f"  - {qualification}" in lines
-    for finding_id in run.finding_ids:
-        assert any(line.strip().startswith(f"Finding {finding_id} (") for line in lines)
-    for side, resource_ids in run.difference_ids.items():
-        assert f"     Cited on the {side} snapshot: resources {', '.join(resource_ids)}" in lines
-    if name in DECLARED:
-        assert (
-            "  Source: terraform_plan, declared or planned configuration, not deployed state"
-            in (lines)
-        )

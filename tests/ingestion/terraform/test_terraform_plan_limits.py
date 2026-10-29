@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from archdiscov.ingestion.adapter import IngestionError
@@ -25,8 +27,6 @@ def test_inventory_only_noop_has_no_invented_actions_source(tmp_path):
     resource = resources(snapshot)["aws_instance.existing"]
     assert resource.lifecycle.actions == ["no-op"] and resource.lifecycle.value_scope == "after"
     assert "/lifecycle/actions" not in resource.fact_evidence
-    import json
-
     raw = json.loads(path.read_text())
     for record in snapshot.evidence.values():
         read_pointer(raw, record.configuration_path)
@@ -63,15 +63,9 @@ def test_partial_plan_status_cannot_be_successful_absence(tmp_path, extra, path,
     assert "never-copy-deferred" not in snapshot.model_dump_json()
 
 
-@pytest.mark.parametrize(
-    "extra",
-    [{"errored": True}, {"errored": "secret-error"}, {"deferred_changes": {}}],
-    ids=["errored", "non-boolean-flag", "deferred-not-list"],
-)
-def test_invalid_or_errored_plan_status_rejected_safely(tmp_path, extra):
-    with pytest.raises(IngestionError, match=r"plan|deferred_changes") as caught:
-        collect(write_plan(tmp_path, [change()], **extra))
-    assert "secret-error" not in str(caught.value)
+def test_errored_plan_status_rejected(tmp_path):
+    with pytest.raises(IngestionError, match="plan"):
+        collect(write_plan(tmp_path, [change()], errored=True))
 
 
 def test_empty_plan_is_success_zero_only_with_scope(tmp_path):

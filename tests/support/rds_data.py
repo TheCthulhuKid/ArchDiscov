@@ -156,10 +156,10 @@ def ec2_identity(physical_id):
     )
 
 
-def ec2_roots(subnets=("subnet-a",), groups=("sg-a",), vpc="vpc-a"):
+def ec2_roots(subnets=("subnet-a",), groups=("sg-a",)):
     return [
         Vpc(
-            identity=ec2_identity(vpc),
+            identity=ec2_identity("vpc-a"),
             children=[
                 *(Subnet(identity=ec2_identity(s)) for s in subnets),
                 *(SecurityGroup(identity=ec2_identity(g)) for g in groups),

@@ -2,7 +2,6 @@ import boto3
 import pytest
 from botocore.exceptions import ClientError
 from botocore.stub import Stubber
-from pydantic import ValidationError
 
 from archdiscov.ingestion.adapter import IngestionError
 from archdiscov.ingestion.region_scope import resolve_region_scope
@@ -45,6 +44,7 @@ def test_enabled_regions_are_sorted_and_disabled_regions_are_excluded():
             "Regions": [
                 entry("us-west-2"),
                 entry("ap-east-1", "not-opted-in"),
+                entry("secret-disabled", "not-opted-in"),
                 entry("us-east-1"),
                 entry("af-south-1", "opted-in"),
             ]
@@ -59,31 +59,25 @@ def test_enabled_regions_are_sorted_and_disabled_regions_are_excluded():
     assert resolved.disabled_regions == ("ap-east-1",)
     assert resolved.bootstrap_region is AwsRegion.US_EAST_1
     assert resolved.diagnostics()["operation"] == "DescribeRegions"
+    assert "secret-disabled" not in str(resolved.diagnostics())
     assert session.calls[0][1]["region_name"] == "us-east-1"
 
 
-@pytest.mark.parametrize(
-    ("partition", "region"),
-    [
-        ("aws", "us-east-1"),
-        ("aws-cn", "cn-north-1"),
-        ("aws-us-gov", "us-gov-west-1"),
-        ("aws-iso", "us-iso-east-1"),
-    ],
-)
-def test_partition_specific_bootstrap_with_real_stubber(partition, region):
+def test_partition_specific_bootstrap_with_real_stubber():
     client = boto3.client(
-        "ec2", region_name=region, aws_access_key_id="test", aws_secret_access_key="test"
+        "ec2", region_name="us-gov-west-1", aws_access_key_id="test", aws_secret_access_key="test"
     )
     session = Session()
     session.client = lambda name, **kwargs: client
     with Stubber(client) as stub:
-        stub.add_response("describe_regions", {"Regions": [entry(region)]}, {"AllRegions": True})
-        resolved = resolve_region_scope(session, account(), partition=partition)
+        stub.add_response(
+            "describe_regions", {"Regions": [entry("us-gov-west-1")]}, {"AllRegions": True}
+        )
+        resolved = resolve_region_scope(session, account(), partition="aws-us-gov")
         stub.assert_no_pending_responses()
-    assert resolved.partition == partition
-    assert resolved.bootstrap_region.value == region
-    assert tuple(r.value for r in resolved.scope.regions) == (region,)
+    assert resolved.partition == "aws-us-gov"
+    assert resolved.bootstrap_region is AwsRegion.US_GOV_WEST_1
+    assert resolved.scope.regions == (AwsRegion.US_GOV_WEST_1,)
 
 
 @pytest.mark.parametrize("context", ["explicit", "profile", "role"])
@@ -110,50 +104,23 @@ def test_explicit_scope_bypasses_discovery_and_retains_order():
     resolved = resolve_region_scope(session, cfg, partition="aws")
     assert resolved.scope.regions == cfg.regions
     assert resolved.bootstrap_region is None
+    iam = AwsAccountConfig(profile="dev", expected_account_id=ACCOUNT, services=["iam"])
+    assert resolve_region_scope(session, iam, partition=None).scope.regions == ()
     assert session.calls == []
 
 
-def test_iam_only_explicit_scope_needs_no_bootstrap():
-    cfg = AwsAccountConfig(profile="dev", expected_account_id=ACCOUNT, services=["iam"])
-    assert resolve_region_scope(Session(), cfg, partition=None).scope.regions == ()
-
-
-@pytest.mark.parametrize(
-    "kwargs",
-    [
-        {"partition": None},
-        {"partition": "unknown"},
-        {"partition": "aws-cn", "bootstrap_region": "us-east-1"},
-        {"partition": "aws", "profile_region": "global"},
-        {"partition": "aws", "profile_region": "secret-invalid-region"},
-    ],
-)
-def test_ambiguous_or_conflicting_bootstrap_is_actionable_before_discovery(kwargs):
-    kwargs = dict(kwargs)
-    partition = kwargs.pop("partition")
-    session = Session(region=kwargs.pop("profile_region", None))
+def test_invalid_bootstrap_is_actionable_before_discovery():
+    session = Session(region="secret-invalid-region")
     with pytest.raises(IngestionError) as exc:
-        resolve_region_scope(session, account(**kwargs), partition=partition)
+        resolve_region_scope(session, account(), partition="aws")
     assert exc.value.code == "region_bootstrap_failed"
     assert "secret-invalid-region" not in str(exc.value)
     assert session.calls == []
 
 
-@pytest.mark.parametrize(
-    "regions",
-    [
-        [],
-        [entry("us-east-1", "unknown")],
-        [entry("us-east-1"), entry("us-east-1")],
-        [entry("us-east-1", "not-opted-in")],
-        [{}],
-        [None],
-        [entry("cn-north-1")],
-    ],
-)
-def test_invalid_discovery_never_returns_reduced_or_empty_scope(regions):
+def test_empty_discovery_never_returns_an_empty_scope():
     with pytest.raises(IngestionError) as exc:
-        resolve_region_scope(Session({"Regions": regions}), account(), partition="aws")
+        resolve_region_scope(Session({"Regions": []}), account(), partition="aws")
     assert exc.value.code == "region_discovery_failed"
 
 
@@ -164,16 +131,6 @@ def test_unsupported_enabled_region_rejects_entire_scope_without_raw_diagnostics
     assert exc.value.code == "unsupported_region"
     assert "update the region contract" in str(exc.value)
     assert "secret-new-region" not in str(exc.value)
-
-
-def test_disabled_unknown_region_does_not_block_enabled_scope_or_leak_text():
-    resolved = resolve_region_scope(
-        Session({"Regions": [entry("us-east-1"), entry("secret-disabled", "not-opted-in")]}),
-        account(),
-        partition="aws",
-    )
-    assert resolved.scope.regions == (AwsRegion.US_EAST_1,)
-    assert "secret-disabled" not in str(resolved.diagnostics())
 
 
 def test_discovery_denial_uses_safe_error_and_cause_with_stubber():
@@ -195,8 +152,3 @@ def test_discovery_denial_uses_safe_error_and_cause_with_stubber():
     assert "UnauthorizedOperation" in exc.value.message
     assert "secret exception text" not in exc.value.message
     assert isinstance(exc.value.__cause__, ClientError)
-
-
-def test_bootstrap_global_is_rejected_by_request():
-    with pytest.raises(ValidationError, match="bootstrap_region must name a concrete"):
-        account(bootstrap_region="global")

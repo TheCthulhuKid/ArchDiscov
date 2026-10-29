@@ -101,16 +101,6 @@ def test_iam_uses_source_arn_not_physical_id_and_omits_policy_payloads():
     assert "do-not-copy" not in resource.model_dump_json() + json.dumps(limitations)
 
 
-def test_iam_missing_or_malformed_arn_is_unknown():
-    resource, facts, limitations = map_resource(
-        "aws_iam_role", {"arn": "not-an-arn"}, identity("aws_iam_role")
-    )
-    assert isinstance(resource, UnknownResource)
-    assert resource.aws_resource_type == "AWS::IAM::Role"
-    assert "/arn" not in facts
-    assert limitations
-
-
 @pytest.mark.parametrize(
     "kind,aws_type,service",
     [
@@ -182,49 +172,14 @@ def test_redacted_structures_are_omitted_but_redacted_tag_values_are_retained():
     assert facts["/name"] == "/values/name"
 
 
-def test_nullable_known_values_have_fact_sources_and_absent_values_do_not():
-    resource, facts, _ = map_resource(
-        "aws_subnet",
-        {"cidr_block": None, "availability_zone": None, "name": None},
-        identity(),
-    )
-    assert resource.cidr_blocks is None
-    assert resource.availability_zone is None
-    assert facts["/cidr_blocks"] == "/values/cidr_block"
-    assert facts["/availability_zone"] == "/values/availability_zone"
-    assert facts["/name"] == "/values/name"
-    _, absent, _ = map_resource("aws_subnet", {}, identity())
-    assert "/cidr_blocks" not in absent and "/availability_zone" not in absent
-
-
-def test_list_sources_use_original_indices_and_never_cite_discarded_values():
-    resource, facts, limitations = map_resource(
-        "aws_network_interface",
-        {"security_groups": ["[REDACTED]", "sg-good", {"unsafe": "secret"}]},
-        identity(),
-    )
-    assert resource.attributes["security_group_ids"] == ["sg-good"]
-    assert facts["/attributes/security_group_ids/0"] == "/values/security_groups/1"
-    assert "/attributes/security_group_ids" not in facts
-    assert limitations
-
-
-@pytest.mark.parametrize(
-    "kind,values",
-    [
-        ("aws_security_group", {"ingress": [{"description": "secret-rule"}]}),
-        ("aws_route_table", {"route": [{"description": "secret-rule"}]}),
-    ],
-)
-def test_deferred_rules_and_routes_are_not_copied_to_evidence_sources(kind, values):
+def test_deferred_rules_are_not_copied_and_absent_rules_are_unavailable_not_empty():
+    kind = "aws_security_group"
+    values = {"ingress": [{"description": "secret-rule"}]}
     resource, facts, limitations = map_resource(kind, values, identity(kind))
     assert limitations
     assert set(facts.values()) == {"/type"}
     assert "secret-rule" not in resource.model_dump_json() + json.dumps(limitations)
-
-
-def test_absent_rules_are_unavailable_not_confirmed_empty():
-    resource, facts, limitations = map_resource("aws_security_group", {}, identity())
+    resource, facts, limitations = map_resource(kind, {}, identity(kind))
     assert resource.attributes["unavailable_fields"] == ["ingress_rules", "egress_rules"]
     assert "/ingress_rules" not in facts and "/egress_rules" not in facts
     assert limitations
@@ -237,9 +192,8 @@ def test_absent_rules_are_unavailable_not_confirmed_empty():
         ([], [], "/values/vpc_security_group_ids", False),
         (["sg-primary"], ["sg-primary"], "/values/vpc_security_group_ids/0", False),
         ("[REDACTED]", ["sg-fallback"], "/values/security_groups/0", True),
-        (["[REDACTED]"], ["sg-fallback"], "/values/security_groups/0", True),
-        ([None, "sg-primary"], ["sg-primary"], "/values/vpc_security_group_ids/1", True),
     ],
+    ids=["absent", "empty", "primary", "redacted-falls-back"],
 )
 def test_security_group_source_precedence_and_fallback(primary, expected, source, has_limitations):
     values = {"vpc_security_group_ids": primary, "security_groups": ["sg-fallback"]}

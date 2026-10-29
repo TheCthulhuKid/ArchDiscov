@@ -1,10 +1,8 @@
 """Explaining failed runs from the outcome and the run record alone.
 
-Outcomes come from every run outcome after its repair, and from every provider error code,
-so a new failure reason, malformed reason, limit, or code fails here until it is explained.
+The answer service suite renders every failure outcome; the cases here show what an
+explanation states.
 """
-
-import pytest
 
 from archdiscov.assistant import answer_rendering
 from archdiscov.assistant.answer_rendering import (
@@ -12,108 +10,44 @@ from archdiscov.assistant.answer_rendering import (
     RETRIEVED_NOT_ANSWER,
     render_failure,
 )
-from archdiscov.assistant.answer_results import (
-    AnswerOutcome,
-    FailureReason,
-    RenderedAnswer,
-    final_outcome,
-)
-from archdiscov.assistant.answer_validation import validate_proposal
-from archdiscov.assistant.fake import FakeProvider, FakeTranscript
-from archdiscov.assistant.orchestrator import run_assistant
+from archdiscov.assistant.answer_results import AnswerOutcome
 from archdiscov.assistant.provider import PROVIDER_ERROR_MESSAGES, ProviderErrorCode
 from archdiscov.assistant.rejections import MAX_LISTED_REJECTIONS, RejectionCode, reject
-from archdiscov.assistant.runs import MalformedOutputReason, Proposed, RunLimitKind
 from archdiscov.assistant.tools.contracts import ToolLimits
 from archdiscov.assistant.tools.session import ToolSession
 from archdiscov.models.enums import AnalyzerKind, SnapshotSourceKind
-from archdiscov.services.snapshots import load_snapshot
 from tests.paths import FIXTURES_ROOT
-from tests.support.answer_claims import INJECTION, analyzed_findings, dispatch_tool
-from tests.support.answer_scenarios import finding_proposal, proposed_run
+from tests.support.answer_claims import analyzed_findings, dispatch_tool
 from tests.support.audit_scenarios import SCENARIOS, with_coverage
-from tests.support.run_outcomes import UNKNOWN_ID_REJECTIONS, every_run_outcome
-from tests.support.secrets import SECRET
 
 OWNERSHIP_SNAPSHOT = FIXTURES_ROOT / "analysis" / "ownership-snapshot.json"
+CANCELLED = AnswerOutcome(status="failed", failure="cancelled")
 
 
-def _failures() -> list[AnswerOutcome]:
-    """A failed answer outcome for every run outcome and every provider error code."""
-    outcomes = [
-        final_outcome(
-            item, UNKNOWN_ID_REJECTIONS if isinstance(item, Proposed) else (), repaired=True
-        )
-        for item in every_run_outcome()
-    ]
-    outcomes += [
-        AnswerOutcome(status="failed", failure="provider_error", provider_error=code)
-        for code in ProviderErrorCode
-    ]
-    return outcomes
-
-
-FAILURES = _failures()
-
-
-def _id(outcome: AnswerOutcome) -> str:
-    detail = outcome.malformed or outcome.provider_error or outcome.limit or ""
-    return f"{outcome.failure}-{detail}"
-
-
-def test_examples_cover_every_failure_reason() -> None:
-    assert {item.failure for item in FAILURES} == set(FailureReason)
-
-
-def _session(*, retrieve: bool) -> ToolSession:
-    session = ToolSession.from_paths(OWNERSHIP_SNAPSHOT)
-    if retrieve:
-        dispatch_tool(session, "run_analyzer", kind="ownership")
-    return session
-
-
-@pytest.mark.parametrize("outcome", FAILURES, ids=_id)
-def test_every_failure_is_explained(outcome: AnswerOutcome) -> None:
-    rendered = render_failure(_session(retrieve=False), outcome)
-    assert RenderedAnswer.model_validate_json(rendered.model_dump_json()) == rendered
-    failure = rendered.failure
-    assert failure.reason == outcome.failure
+def test_a_failure_states_why_the_run_stopped_and_shows_no_answer() -> None:
+    code = ProviderErrorCode.TIMEOUT
+    outcome = AnswerOutcome(status="failed", failure="provider_error", provider_error=code)
+    rendered = render_failure(ToolSession.from_paths(OWNERSHIP_SNAPSHOT), outcome)
     assert rendered.status is None and rendered.narrative is None and not rendered.conclusions
-    assert NOT_VALIDATED in failure.unverified
-    assert failure.retrieved == ()
-    assert "The run retrieved no analyzer findings." in failure.unverified
-    assert RETRIEVED_NOT_ANSWER not in failure.unverified
-    # The repaired attempt may fail differently from the first, so neither is called a repeat.
-    assert not any(" again" in item for item in failure.unverified)
+    failure = rendered.failure
+    assert failure.reason == outcome.failure and failure.retrieved == ()
+    assert failure.unverified == (
+        f"The provider failed ({code}): {PROVIDER_ERROR_MESSAGES[code]}",
+        NOT_VALIDATED,
+        "The run retrieved no analyzer findings.",
+    )
 
 
 def test_a_failure_shows_what_the_run_retrieved_as_unverified() -> None:
-    session = _session(retrieve=True)
-    failure = render_failure(session, FAILURES[0]).failure
+    session = ToolSession.from_paths(OWNERSHIP_SNAPSHOT)
+    dispatch_tool(session, "run_analyzer", kind="ownership")
+    before = session.record.context()
+    failure = render_failure(session, CANCELLED).failure
+    assert session.record.context() == before
     assert RETRIEVED_NOT_ANSWER in failure.unverified
     assert "The run retrieved 1 finding(s) from these analyzers: ownership." in failure.unverified
     (conclusion,) = failure.retrieved
     assert conclusion.findings == tuple(item.view for item in session.record.context().views)
-
-
-def test_provider_errors_are_stated_with_their_fixed_message() -> None:
-    for code in ProviderErrorCode:
-        outcome = AnswerOutcome(status="failed", failure="provider_error", provider_error=code)
-        first = render_failure(_session(retrieve=False), outcome).failure.unverified[0]
-        assert first == f"The provider failed ({code}): {PROVIDER_ERROR_MESSAGES[code]}"
-
-
-def test_each_limit_and_malformed_reason_has_its_own_statement() -> None:
-    for field, values in (("limit", RunLimitKind), ("malformed", MalformedOutputReason)):
-        failure = "limit_reached" if field == "limit" else "malformed_output"
-        stated = {
-            render_failure(
-                _session(retrieve=False),
-                AnswerOutcome(status="failed", failure=failure, **{field: value}),
-            ).failure.unverified[0]
-            for value in values
-        }
-        assert len(stated) == len(values)
 
 
 def test_rejections_are_listed_with_their_locations_up_to_a_bound() -> None:
@@ -122,7 +56,8 @@ def test_rejections_are_listed_with_their_locations_up_to_a_bound() -> None:
         for number in range(MAX_LISTED_REJECTIONS + 5)
     )
     outcome = AnswerOutcome(status="failed", failure="rejected_after_repair", rejections=rejections)
-    unverified = render_failure(_session(retrieve=False), outcome).failure.unverified
+    session = ToolSession.from_paths(OWNERSHIP_SNAPSHOT)
+    unverified = render_failure(session, outcome).failure.unverified
     listed = [item for item in unverified if item.startswith("Rejected at ")]
     assert len(listed) == MAX_LISTED_REJECTIONS
     assert listed[0] == (
@@ -132,51 +67,11 @@ def test_rejections_are_listed_with_their_locations_up_to_a_bound() -> None:
     assert "5 more rejections are not listed." in unverified
 
 
-def test_a_rejected_run_never_shows_its_narrative_or_secrets() -> None:
-    session = ToolSession.from_paths(OWNERSHIP_SNAPSHOT)
-    finding = dispatch_tool(session, "run_analyzer", kind="ownership")["findings"]["items"][0]
-    # Overstated, so validation rejects it; the narrative carries a secret and an instruction.
-    proposal = finding_proposal(
-        session,
-        [],
-        status="supported",
-        summary=f"{INJECTION} {SECRET}",
-        explanation=f"Fabricated claim {SECRET}.",
-        conclusions=[
-            {
-                "kind": "analyzer_finding",
-                "citations": [{"finding_ids": [finding["finding_id"], "invented"]}],
-            }
-        ],
-    )
-    run = proposed_run(session, [], proposal)
-    rejections = validate_proposal(run.outcome.proposal, session)
-    assert rejections
-    rendered = render_failure(session, final_outcome(run.outcome, rejections, repaired=True))
-    text = rendered.model_dump_json()
-    for leaked in (SECRET, INJECTION, "Fabricated claim"):
-        assert leaked not in text
-    assert any(item.startswith("Rejected at ") for item in rendered.failure.unverified)
-
-
-def test_explaining_a_failure_makes_no_provider_call() -> None:
-    session = _session(retrieve=False)
-    provider = FakeProvider(
-        FakeTranscript.model_validate({"turns": [{"kind": "fail", "error": "provider_timeout"}]})
-    )
-    run = run_assistant("q", provider=provider, session=session, provider_kind="fake", model="f")
-    made = len(provider.requests)
-    before = session.record.context()
-    render_failure(session, final_outcome(run.outcome, (), repaired=True))
-    assert len(provider.requests) == made
-    assert session.record.context() == before
-
-
 def test_retrieved_findings_are_grouped_and_bounded(monkeypatch) -> None:
     session, delivered = analyzed_findings(AnalyzerKind.SECURITY_GROUP_IMPACT)
     monkeypatch.setattr(answer_rendering, "MAX_CITED_IDS", 5)
     monkeypatch.setattr(answer_rendering, "MAX_RETRIEVED", 2)
-    failure = render_failure(session, AnswerOutcome(status="failed", failure="cancelled")).failure
+    failure = render_failure(session, CANCELLED).failure
     assert [len(item.findings) for item in failure.retrieved] == [5, 5]
     assert f"{len(delivered) - 10} more retrieved findings are not shown." in failure.unverified
 
@@ -190,7 +85,7 @@ def test_retrieved_findings_are_grouped_by_analyzer() -> None:
         )
     analyzers = {finding.analyzer for finding in session.record.context().findings}
     assert len(analyzers) == 2
-    failure = render_failure(session, AnswerOutcome(status="failed", failure="cancelled")).failure
+    failure = render_failure(session, CANCELLED).failure
     named = [
         {kind for kind in analyzers if any(f"the {kind} analyzer" in s for s in item.statements)}
         for item in failure.retrieved
@@ -202,9 +97,7 @@ def test_coverage_that_did_not_succeed_is_stated() -> None:
     scenario = SCENARIOS[AnalyzerKind.OWNERSHIP]
     session = ToolSession(with_coverage(scenario.build(), "failed"))
     operations = len(session.index.coverage_records())
-    unverified = render_failure(
-        session, AnswerOutcome(status="failed", failure="cancelled")
-    ).failure.unverified
+    unverified = render_failure(session, CANCELLED).failure.unverified
     assert unverified[-1] == (
         f"The primary snapshot records collection that did not succeed for {operations} "
         f"operation(s): {operations} failed."
@@ -218,23 +111,8 @@ def test_declared_snapshots_are_qualified_in_failures_too() -> None:
         SnapshotSourceKind.TERRAFORM_PLAN,
         session.index.collection_window,
     )
-    rendered = render_failure(session, AnswerOutcome(status="failed", failure="cancelled"))
+    rendered = render_failure(session, CANCELLED)
     assert rendered.snapshots[0].declared
     assert rendered.qualifications == (
         "The primary snapshot is a Terraform plan: planned changes, not deployed state.",
     )
-
-
-def test_only_failed_runs_are_explained_as_failures() -> None:
-    with pytest.raises(ValueError, match="only a failed run"):
-        render_failure(_session(retrieve=False), AnswerOutcome(status="answered"))
-
-
-def test_a_snapshot_compared_with_itself_shows_its_findings_once() -> None:
-    snapshot = load_snapshot(OWNERSHIP_SNAPSHOT)
-    session = ToolSession(snapshot, comparison=snapshot)
-    dispatch_tool(session, "run_analyzer", kind="ownership")
-    failure = render_failure(session, AnswerOutcome(status="failed", failure="cancelled")).failure
-    (conclusion,) = failure.retrieved
-    assert conclusion.citations[0].side == "primary"
-    assert not any("more retrieved" in item for item in failure.unverified)

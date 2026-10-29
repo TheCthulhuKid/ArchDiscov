@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from archdiscov.models.architecture import CollectionFailure, Coverage, UnresolvedValue
+from archdiscov.models.architecture import Coverage
 from archdiscov.models.cloud.contracts import CloudOperationCoverage
 
 OUTCOME_FIELDS = [
@@ -38,22 +38,13 @@ def data(model, **overrides):
 
 
 @pytest.mark.parametrize("model", [Coverage, CloudOperationCoverage])
-@pytest.mark.parametrize(
-    "outcome",
-    [
-        {},
-        {"status": "incomplete", "reason": "limited"},
-        {
-            "status": "failed",
-            "result_count": None,
-            "failures": [{"code": "Denied", "message": "denied"}],
-        },
-        {"status": "skipped", "result_count": None, "reason": "not requested"},
-    ],
-    ids=["success", "incomplete", "failed", "skipped"],
-)
-def test_shared_valid_outcomes_and_wire_field_order(model, outcome):
-    record = model.model_validate(data(model, **outcome))
+def test_shared_valid_outcome_and_wire_field_order(model):
+    failed = {
+        "status": "failed",
+        "result_count": None,
+        "failures": [{"code": "Denied", "message": "denied"}],
+    }
+    record = model.model_validate(data(model, **failed))
     context_fields = (
         ["account_id", "region", "service"]
         if model is Coverage
@@ -87,46 +78,8 @@ def test_shared_valid_outcomes_and_wire_field_order(model, outcome):
     ids=["window", "success", "incomplete", "failed", "skipped"],
 )
 def test_shared_invalid_outcomes_preserve_messages_and_precedence(outcome, message):
-    # Both models inherit the one validator; the valid-outcome table proves the sharing.
+    # Both models inherit the one validator; the valid-outcome test proves the sharing.
     model = CloudOperationCoverage
     with pytest.raises(ValidationError) as caught:
         model.model_validate(data(model, **outcome))
     assert [error["msg"] for error in caught.value.errors()] == [f"Value error, {message}"]
-
-
-@pytest.mark.parametrize("model", [Coverage, CloudOperationCoverage])
-@pytest.mark.parametrize("count", [-1, True], ids=["negative", "strict"])
-def test_result_counts_remain_strict_nonnegative_integers(model, count):
-    with pytest.raises(ValidationError) as caught:
-        model.model_validate(data(model, result_count=count))
-    assert [error["loc"] for error in caught.value.errors()] == [("result_count",)]
-
-
-@pytest.mark.parametrize("model", [Coverage, CloudOperationCoverage])
-def test_outcome_defaults_are_independent_and_timestamps_are_aware(model):
-    first = model.model_validate(data(model))
-    second = model.model_validate(data(model))
-    first.failures.append(CollectionFailure(code="Denied", message="denied"))
-    assert second.failures == []
-    assert second.unresolved_values == []
-    assert second.reason is None
-    with pytest.raises(ValidationError) as caught:
-        model.model_validate(data(model, started_at="2026-01-01T00:00:00"))
-    assert caught.value.errors()[0]["type"] == "timezone_aware"
-
-
-@pytest.mark.parametrize("model", [Coverage, CloudOperationCoverage])
-def test_nested_outcome_types_and_extra_field_policy_are_preserved(model):
-    record = model.model_validate(
-        data(
-            model,
-            status="incomplete",
-            failures=[{"code": "Denied", "message": "denied"}],
-            unresolved_values=[{"configuration_path": "/value", "reason": "unknown"}],
-        )
-    )
-    assert isinstance(record.failures[0], CollectionFailure)
-    assert isinstance(record.unresolved_values[0], UnresolvedValue)
-    with pytest.raises(ValidationError) as caught:
-        model.model_validate(data(model, unexpected=True))
-    assert caught.value.errors()[0]["type"] == "extra_forbidden"

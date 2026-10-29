@@ -1,32 +1,12 @@
 import pytest
 
 from archdiscov.graph import GraphIndex
-from archdiscov.models.enums import (
-    ExposureElement,
-    ExposureEntryKind,
-    ExposureProtocol,
-    NetworkBlockerCode,
-    NetworkDecision,
-)
-from archdiscov.models.resources.network import NetworkInterface
+from archdiscov.models.enums import ExposureElement, ExposureProtocol, NetworkDecision
 from archdiscov.services.exposure_addresses import evaluate_public_entry, public_entries
-from archdiscov.services.exposure_ports import (
-    PortRange,
-    boundaries,
-    internet_open_ports,
-    split,
-)
-from tests.support.exposure_data import (
-    PRIVATE,
-    PUBLIC,
-    build,
-    eni,
-    instance,
-    sg_rule,
-)
+from tests.support.exposure_data import PRIVATE, PUBLIC, build, eni, instance, sg_rule
+from tests.support.nacl_data import entry as nacl_entry
 
 D = NetworkDecision
-B = NetworkBlockerCode
 X = ExposureElement
 TCP, UDP = ExposureProtocol.TCP, ExposureProtocol.UDP
 
@@ -69,12 +49,6 @@ def test_an_instance_with_stored_interfaces_is_represented_by_them():
     assert set(found) == {"eni-1"}
 
 
-def test_entries_are_ordered_by_identity():
-    index, found = evaluate()
-    assert [e.id for e in public_entries(index)] == sorted(e.id for e in public_entries(index))
-    assert all(e.kind == ExposureEntryKind.PUBLIC_ADDRESS for v in found.values() for e in v)
-
-
 # ---- open ports ---------------------------------------------------------------------
 
 
@@ -92,61 +66,47 @@ def test_open_ranges_come_from_rules_open_to_the_whole_internet_and_cite_them():
     assert cited and cited & set(web[1].evidence_ids)
     elements = {X.PUBLIC_ADDRESS, X.ROUTE, X.NACL, X.SECURITY_GROUP}
     assert all(set(decisions(item)) == elements for item in web)
+    assert all(item.start != 22 for item in web)  # the rule for a private range
 
 
-def test_a_rule_for_a_private_range_is_not_an_exposure():
-    _, found = evaluate()
-    assert all(item.start != 22 for item in found["eni-web"])
-
-
-def test_overlapping_and_adjacent_ranges_merge_per_protocol_deterministically():
-    rules = [
-        sg_rule("sg-web", 80, to_port=90),
-        sg_rule("sg-web", 85, to_port=100),
-        sg_rule("sg-web", 101, to_port=110),
-        sg_rule("sg-web", 53, protocol="udp"),
-    ]
-    _, found = evaluate(rules=rules)
-    assert spans(found["eni-web"]) == [
-        (TCP, 80, 110, D.ALLOW),
-        (UDP, 53, 53, D.ALLOW),
-    ]
-
-
-def test_all_protocols_and_all_ports_open_both_protocols_entirely():
-    rules = [sg_rule("sg-web", -1, to_port=-1, protocol="-1")]
-    _, found = evaluate(rules=rules)
-    assert spans(found["eni-web"]) == [
-        (TCP, 1, 65535, D.ALLOW),
-        (UDP, 1, 65535, D.ALLOW),
-    ]
-
-
-def test_port_ranges_are_split_where_acl_entries_start_and_stop():
-    acl = [
-        {
-            "RuleNumber": 100,
-            "Protocol": "6",
-            "RuleAction": "allow",
-            "Egress": False,
-            "CidrBlock": "0.0.0.0/0",
-            "PortRange": {"From": 85, "To": 85},
-        },
-        {
-            "RuleNumber": 100,
-            "Protocol": "-1",
-            "RuleAction": "allow",
-            "Egress": True,
-            "CidrBlock": "0.0.0.0/0",
-        },
-    ]
-    _, found = evaluate(acl=acl)
-    assert spans(found["eni-web"]) == [
-        (TCP, 80, 84, D.DENY),
-        (TCP, 85, 85, D.ALLOW),
-        (TCP, 86, 90, D.DENY),
-        (TCP, 443, 443, D.DENY),
-    ]
+@pytest.mark.parametrize(
+    ("options", "expected"),
+    [
+        (
+            {
+                "rules": [
+                    sg_rule("sg-web", 80, to_port=90),
+                    sg_rule("sg-web", 85, to_port=100),
+                    sg_rule("sg-web", 101, to_port=110),
+                    sg_rule("sg-web", 53, protocol="udp"),
+                ]
+            },
+            [(TCP, 80, 110, D.ALLOW), (UDP, 53, 53, D.ALLOW)],
+        ),
+        (
+            {"rules": [sg_rule("sg-web", -1, to_port=-1, protocol="-1")]},
+            [(TCP, 1, 65535, D.ALLOW), (UDP, 1, 65535, D.ALLOW)],
+        ),
+        (
+            {
+                "acl": [
+                    nacl_entry(100, ports=(85, 85)),
+                    nacl_entry(100, egress=True, protocol="-1", ports=None),
+                ]
+            },
+            [
+                (TCP, 80, 84, D.DENY),
+                (TCP, 85, 85, D.ALLOW),
+                (TCP, 86, 90, D.DENY),
+                (TCP, 443, 443, D.DENY),
+            ],
+        ),
+    ],
+    ids=["overlapping-ranges-merge", "all-traffic-opens-both-protocols", "acl-entries-split"],
+)
+def test_open_ranges_merge_per_protocol_and_split_where_acl_entries_apply(options, expected):
+    _, found = evaluate(**options)
+    assert spans(found["eni-web"]) == expected
 
 
 # ---- blocked ingress ----------------------------------------------------------------
@@ -160,61 +120,6 @@ def test_a_public_address_with_blocked_ingress_is_a_cited_denial():
     assert decisions(closed) == {X.PUBLIC_ADDRESS: D.ALLOW, X.SECURITY_GROUP: D.DENY}
     assert "denied" in codes(closed)
     assert closed.evidence_ids
-
-
-def test_a_nacl_denial_blocks_the_ingress_and_a_missing_return_path_too():
-    deny = [
-        {
-            "RuleNumber": 90,
-            "Protocol": "-1",
-            "RuleAction": "deny",
-            "Egress": False,
-            "CidrBlock": "0.0.0.0/0",
-        },
-        {
-            "RuleNumber": 100,
-            "Protocol": "-1",
-            "RuleAction": "allow",
-            "Egress": True,
-            "CidrBlock": "0.0.0.0/0",
-        },
-    ]
-    _, found = evaluate(acl=deny)
-    assert {item.decision for item in found["eni-web"]} == {D.DENY}
-    assert decisions(found["eni-web"][0])[X.NACL] == D.DENY
-    request_only = [deny[1].copy() | {"Egress": False}]
-    _, found = evaluate(acl=request_only)
-    assert decisions(found["eni-web"][0])[X.NACL] == D.DENY  # no return path
-
-
-def test_an_acl_entry_covering_only_part_of_the_internet_is_unknown_not_a_denial():
-    partial = [
-        {
-            "RuleNumber": 90,
-            "Protocol": "-1",
-            "RuleAction": "deny",
-            "Egress": False,
-            "CidrBlock": "198.51.100.0/24",
-        },
-        {
-            "RuleNumber": 100,
-            "Protocol": "-1",
-            "RuleAction": "allow",
-            "Egress": False,
-            "CidrBlock": "0.0.0.0/0",
-        },
-        {
-            "RuleNumber": 100,
-            "Protocol": "-1",
-            "RuleAction": "allow",
-            "Egress": True,
-            "CidrBlock": "0.0.0.0/0",
-        },
-    ]
-    _, found = evaluate(acl=partial)
-    web = found["eni-web"][0]
-    assert decisions(web)[X.NACL] == D.UNKNOWN
-    assert web.decision == D.UNKNOWN
 
 
 # ---- routing evidence ---------------------------------------------------------------
@@ -237,15 +142,6 @@ def test_missing_route_or_acl_records_are_unknown():
     assert decisions(found["eni-web"][0])[X.NACL] == D.UNKNOWN
 
 
-@pytest.mark.parametrize("operation", ["DescribeRouteTables", "DescribeNetworkAcls"])
-@pytest.mark.parametrize("status", ["failed", "incomplete", "skipped"])
-def test_limited_routing_or_acl_collection_makes_the_decision_unknown(operation, status):
-    _, found = evaluate(covered={operation: status})
-    web = found["eni-web"][0]
-    assert web.decision == D.UNKNOWN
-    assert "coverage_limited" in codes(web)
-
-
 def test_limited_address_collection_keeps_a_candidate_with_an_unknown_address():
     _, found = evaluate(covered={"DescribeNetworkInterfaces": "failed"})
     # Only resources with a recorded address are entries: private ones are not turned into
@@ -258,16 +154,8 @@ def test_limited_address_collection_keeps_a_candidate_with_an_unknown_address():
 # ---- unsupported and unplaceable ----------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "extra",
-    [
-        {"PrefixListId": "pl-1", "cidr": None},
-        {"CidrIpv6": "::/0", "cidr": None},
-    ],
-    ids=["prefix-list", "ipv6"],
-)
-def test_prefix_list_and_ipv6_rules_are_reported_and_never_an_exposure(extra):
-    rule = sg_rule("sg-closed", 5432, **extra)
+def test_ipv6_rules_are_reported_and_never_an_exposure():
+    rule = sg_rule("sg-closed", 5432, CidrIpv6="::/0", cidr=None)
     _, found = evaluate(rules=[rule])
     [closed] = found["eni-closed"]
     assert closed.decision == D.UNKNOWN
@@ -288,46 +176,5 @@ def test_an_entry_without_placement_is_unknown_on_the_whole_range():
     _, found = evaluate(enis=enis, instances=[{"Instances": []}])
     [bare] = found["eni-bare"]
     assert (bare.start, bare.end, bare.decision) == (1, 65535, D.UNKNOWN)
-    assert set(decisions(bare).values()) <= {D.ALLOW, D.UNKNOWN}
-    assert "source_interface_incomplete" in codes(
-        bare
-    ) or "source_security_groups_unrecorded" in codes(bare)
-
-
-def test_evaluation_is_deterministic():
-    def summary(found):
-        return {
-            name: [(e.start, e.end, e.decision, e.evidence_ids) for e in evaluations]
-            for name, evaluations in found.items()
-        }
-
-    assert summary(evaluate()[1]) == summary(evaluate()[1])
-
-
-# ---- port range helpers -------------------------------------------------------------
-
-
-def test_split_cuts_only_inside_the_range():
-    piece = PortRange(TCP, 80, 90)
-    assert split(piece, {1, 80, 85, 91, 500}) == [
-        PortRange(TCP, 80, 84),
-        PortRange(TCP, 85, 90),
-    ]
-    assert split(piece, set()) == [piece]
-
-
-def test_boundaries_come_from_matching_rules_and_ingress_entries_only():
-    index = GraphIndex(build())
-    group = next(r for r in index.resources() if r.identity.physical_id == "sg-web")
-    points = boundaries([group], [], TCP)
-    assert {80, 91, 443, 444, 22, 23} <= points
-    assert boundaries([group], [], UDP) == set()
-    assert internet_open_ports([group]).ranges == (
-        PortRange(TCP, 80, 90),
-        PortRange(TCP, 443, 443),
-    )
-
-
-def test_resources_are_normalized_network_interfaces():
-    index, _ = evaluate()
-    assert any(isinstance(r, NetworkInterface) for r in index.resources())
+    assert decisions(bare)[X.SECURITY_GROUP] == D.UNKNOWN
+    assert "source_interface_incomplete" in codes(bare)

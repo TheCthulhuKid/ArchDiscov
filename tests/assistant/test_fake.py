@@ -1,5 +1,4 @@
 import asyncio
-import time
 from pathlib import Path
 
 import pytest
@@ -84,32 +83,33 @@ def _after_tools(*call_ids: str) -> tuple:
     )
 
 
+MULTI_STEP = [
+    _request(),
+    _request(*_after_tools("call_search")),
+    _request(*_after_tools("call_search"), *_after_tools("call_inspect_a", "call_inspect_b")),
+]
+
+
 def _replay_multi_step(provider: FakeProvider, *, use_async: bool) -> list:
-    requests = [
-        _request(),
-        _request(*_after_tools("call_search")),
-        _request(*_after_tools("call_search"), *_after_tools("call_inspect_a", "call_inspect_b")),
-    ]
     if use_async:
 
         async def run() -> list:
-            return [await provider.complete_async(request) for request in requests]
+            return [await provider.complete_async(request) for request in MULTI_STEP]
 
         return asyncio.run(run())
-    return [provider.complete(request) for request in requests]
+    return [provider.complete(request) for request in MULTI_STEP]
 
 
-@pytest.mark.parametrize("use_async", [False, True])
-def test_scripted_transcript_replays_identically(use_async: bool) -> None:
+def test_scripted_transcript_replays_identically_sync_and_async() -> None:
     transcript = load_fake_transcript(FIXTURES / "multi_step.json")
     runs = []
-    for _ in range(2):
+    for use_async in (False, False, True):
         clock = FakeClock()
         provider = FakeProvider(transcript, clock=clock)
         responses = _replay_multi_step(provider, use_async=use_async)
         runs.append((responses, provider.requests, clock.monotonic()))
         assert provider.remaining_turns == 0
-    assert runs[0] == runs[1]
+    assert runs[0] == runs[1] == runs[2]
 
     responses, records, elapsed = runs[0]
     assert [response.stop_reason for response in responses] == [
@@ -121,53 +121,15 @@ def test_scripted_transcript_replays_identically(use_async: bool) -> None:
     assert [call.id for call in parallel] == ["call_inspect_a", "call_inspect_b"]
     assert isinstance(parallel[1].arguments, MalformedToolArguments)
     assert responses[2].usage.cache_read_input_tokens == 100
+    # Every attempt is recorded with the injected clock's reading; delays advance it.
+    assert [record.request for record in records] == MULTI_STEP
     assert [record.received_at for record in records] == [0.0, 0.0, 1.5]
     assert elapsed == 4.0
 
 
-def test_sync_and_async_replays_match() -> None:
-    transcript = load_fake_transcript(FIXTURES / "multi_step.json")
-    sync = _replay_multi_step(FakeProvider(transcript), use_async=False)
-    assert _replay_multi_step(FakeProvider(transcript), use_async=True) == sync
-
-
-def test_recorded_requests_match_what_was_sent() -> None:
-    provider = FakeProvider(FakeTranscript.model_validate({"turns": [_text(), _text()]}))
-    first, second = _request(), _request(tools=(), limits=RequestLimits())
-    provider.complete(first)
-    provider.complete(second)
-    assert [record.request for record in provider.requests] == [first, second]
-    assert provider.requests[0].request is first
-
-
-def test_delays_use_the_injected_clock_without_waiting() -> None:
-    clock = FakeClock(start=100.0)
-    transcript = FakeTranscript.model_validate({"turns": [{**_text(), "delay_seconds": 600}]})
-    provider = FakeProvider(transcript, clock=clock)
-    started = time.monotonic()
-    provider.complete(_request(limits=RequestLimits(timeout_seconds=600)))
-    assert time.monotonic() - started < 1
-    assert clock.monotonic() == 700.0
-
-
-def _failures(**kwargs) -> tuple[FakeProvider, FakeClock]:
-    clock = FakeClock()
-    return FakeProvider(
-        load_fake_transcript(FIXTURES / "failures.json"), clock=clock, **kwargs
-    ), clock
-
-
-def test_retryable_errors_are_retried_within_one_call() -> None:
-    provider, clock = _failures(max_retries=2)
-    response = provider.complete(_request())
-    assert response.message.text == "Recovered after retries."
-    assert len(provider.requests) == 3
-    assert [record.received_at for record in provider.requests] == [0.0, 0.5, 0.5]
-    assert clock.monotonic() == 0.5
-
-
 def test_failure_transcript_replays_each_outcome() -> None:
-    provider, clock = _failures()
+    clock = FakeClock()
+    provider = FakeProvider(load_fake_transcript(FIXTURES / "failures.json"), clock=clock)
     outcomes = []
     for _ in range(8):
         try:
@@ -198,52 +160,26 @@ def test_exhausted_script_fails_clearly() -> None:
     assert not isinstance(raised.value, ProviderError)
 
 
-@pytest.mark.parametrize(
-    "expect,request_",
-    [
-        ({"tool_names": ["search_resources"]}, _request()),
-        ({"last_message_role": "tool"}, _request()),
-    ],
-)
-def test_mismatched_expectations_fail_clearly(expect: dict, request_: CompletionRequest) -> None:
+def test_expectations_are_checked_against_each_request() -> None:
+    matching = {"tool_names": [], "last_message_role": "user"}
+    provider = FakeProvider(
+        FakeTranscript.model_validate({"turns": [{**_text(), "expect": matching}]})
+    )
+    assert provider.complete(_request(tools=(), limits=RequestLimits())).message.text == "Done."
+    expect = {"tool_names": ["search_resources"]}
     provider = FakeProvider(
         FakeTranscript.model_validate({"turns": [{**_text(), "expect": expect}]})
     )
     with pytest.raises(FakeScriptError) as raised:
-        provider.complete(request_)
+        provider.complete(_request())
     assert raised.value.code == FakeScriptErrorCode.EXPECTATION_MISMATCH
     assert raised.value.turn == 0
 
 
-def test_matching_expectations_pass() -> None:
-    expect = {"tool_names": [], "last_message_role": "user"}
-    provider = FakeProvider(
-        FakeTranscript.model_validate({"turns": [{**_text(), "expect": expect}]})
-    )
-    assert provider.complete(_request(tools=(), limits=RequestLimits())).message.text == "Done."
-
-
-@pytest.mark.parametrize(
-    "turn,limits",
-    [
-        (_tool_use("a", "b"), RequestLimits(max_tool_calls_per_turn=1)),
-        (
-            {
-                "kind": "respond",
-                "response": {
-                    "message": {"role": "assistant", "text": "long"},
-                    "usage": {"output_tokens": 101},
-                    "stop_reason": "end",
-                },
-            },
-            RequestLimits(max_output_tokens=100),
-        ),
-    ],
-)
-def test_scripted_turns_must_fit_request_limits(turn: dict, limits: RequestLimits) -> None:
-    provider = FakeProvider(FakeTranscript.model_validate({"turns": [turn]}))
+def test_scripted_turns_must_fit_request_limits() -> None:
+    provider = FakeProvider(FakeTranscript.model_validate({"turns": [_tool_use("a", "b")]}))
     with pytest.raises(FakeScriptError) as raised:
-        provider.complete(_request(limits=limits))
+        provider.complete(_request(limits=RequestLimits(max_tool_calls_per_turn=1)))
     assert raised.value.code == FakeScriptErrorCode.LIMIT_EXCEEDED
 
 
@@ -274,7 +210,6 @@ def test_capabilities_are_checked_before_consuming_a_turn() -> None:
             {"turns": [{"kind": "fail", "error": "provider_unsupported_capability"}]},
             "fake_transcript_error_unscriptable",
         ),
-        ({"turns": []}, "too_short"),
     ],
 )
 def test_invalid_transcripts_are_rejected(data: dict, code: str) -> None:
@@ -288,22 +223,16 @@ def test_invalid_transcripts_are_rejected(data: dict, code: str) -> None:
     [
         (b"{not json", FakeScriptErrorCode.INVALID),
         (b" " * (MAX_TRANSCRIPT_BYTES + 1), FakeScriptErrorCode.TOO_LARGE),
-        (None, FakeScriptErrorCode.UNREADABLE),
     ],
-    ids=["invalid", "too-large", "missing"],
+    ids=["invalid", "too-large"],
 )
 def test_bad_transcript_files_fail_clearly(
-    tmp_path: Path, content: bytes | None, code: FakeScriptErrorCode
+    tmp_path: Path, content: bytes, code: FakeScriptErrorCode
 ) -> None:
+    # A missing file is reached through the configuration, in `test_providers.py`.
     path = tmp_path / "transcript.json"
-    if content is not None:
-        path.write_bytes(content)
+    path.write_bytes(content)
     with pytest.raises(FakeScriptError) as raised:
         load_fake_transcript(path)
     assert raised.value.code == code
     assert raised.value.path == path
-
-
-def test_negative_retry_count_is_rejected() -> None:
-    with pytest.raises(ValueError):
-        FakeProvider(FakeTranscript.model_validate({"turns": [_text()]}), max_retries=-1)

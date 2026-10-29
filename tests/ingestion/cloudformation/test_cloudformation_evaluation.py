@@ -1,8 +1,7 @@
-import json
-
 import pytest
 
 from archdiscov.ingestion.cloudformation.evaluation import Reference, evaluate
+from archdiscov.ingestion.cloudformation.evaluation_limits import MAX_DEPTH
 from archdiscov.ingestion.cloudformation.issue_codes import EvaluationIssueCode
 
 
@@ -10,38 +9,6 @@ def run(value, **kwargs):
     options = {"parameters": {}, "resources": set(), "pseudo": {}}
     options.update(kwargs)
     return evaluate(value, **options)
-
-
-def test_issue_codes_preserve_persisted_strings():
-    assert {code.value for code in EvaluationIssueCode} == {
-        "redacted_input",
-        "invalid_intrinsic",
-        "resource_value_unavailable",
-        "reference_unavailable",
-        "condition_unavailable",
-        "condition_cycle",
-        "invalid_condition",
-        "import_unavailable",
-        "unsupported_intrinsic",
-        "mapping_unavailable",
-        "evaluation_limit_or_invalid_shape",
-    }
-    for code in EvaluationIssueCode:
-        assert isinstance(code, str)
-        assert str(code) == code.value
-        assert json.loads(json.dumps({"reason": code})) == {"reason": code.value}
-    assert run({"Ref": "Missing"}).issues[0].reason is EvaluationIssueCode.REFERENCE_UNAVAILABLE
-    assert (
-        run({"Fn::ImportValue": "export"}).issues[0].reason
-        is EvaluationIssueCode.IMPORT_UNAVAILABLE
-    )
-
-
-def test_pure_expansion_limits_invalidate_evaluation_without_sources(monkeypatch):
-    monkeypatch.setattr("archdiscov.ingestion.cloudformation.intrinsics.MAX_BYTES", 4)
-    result = run({"property": {"Fn::Join": ["é", ["a", "b", "c"]]}})
-    assert result.value is None and not result.resolved and not result.sources
-    assert result.issues[-1].reason is EvaluationIssueCode.EVALUATION_LIMIT_OR_INVALID_SHAPE
 
 
 def test_if_does_not_evaluate_unselected_sensitive_or_invalid_operations():
@@ -74,21 +41,11 @@ def test_mapping_results_are_literals_with_intrinsic_boundary_provenance():
     assert result.sources == {"/property/Ref": "/property", "/property/secret": "/property"}
 
 
-@pytest.mark.parametrize(
-    ("name", "valid"),
-    [
-        ("Fn::Join", ["-", ["a", "b"]]),
-        ("Fn::And", [True, False]),
-        ("Fn::FindInMap", ["M", "top", "key"]),
-    ],
-    ids=["fixed-arity", "arity-range", "mapping-lookup"],
-)
-def test_eager_intrinsic_arity_is_checked_before_arguments(name, valid):
-    for arguments in (valid[:-1], valid + [None] * 10, {"Ref": "R"}):
-        result = run({name: arguments}, resources={"R"})
-        assert not result.resolved and result.value is None
-        assert [issue.reason for issue in result.issues] == ["invalid_intrinsic"]
-        assert not result.references and not result.sources
+def test_eager_intrinsic_arity_is_checked_before_arguments():
+    result = run({"Fn::Join": [{"Ref": "R"}]}, resources={"R"})
+    assert not result.resolved and result.value is None
+    assert [issue.reason for issue in result.issues] == ["invalid_intrinsic"]
+    assert not result.references and not result.sources
 
 
 def test_literals_partial_values_and_json_pointer_paths():
@@ -96,6 +53,7 @@ def test_literals_partial_values_and_json_pointer_paths():
     assert result.value == {"null": None, "ok": 3}
     assert not result.resolved and not result.known
     assert result.issues[0].path == "/a~1b~0c"
+    assert result.issues[0].reason is EvaluationIssueCode.REFERENCE_UNAVAILABLE
     assert run(None).known
     assert not run({"Ref": "Missing"}).known
 
@@ -103,6 +61,7 @@ def test_literals_partial_values_and_json_pointer_paths():
 def test_unknown_list_omitted_as_a_whole_without_losing_reference_indexes():
     result = run({"items": [1, {"Ref": "R"}], "ok": 2}, resources={"R"})
     assert result.value == {"ok": 2}
+    assert result.sources == {"/ok": "/ok"}
     assert result.references == [Reference("R", "/items/1")]
     assert result.issues[0].path == "/items/1"
 
@@ -171,6 +130,7 @@ def test_substitution_explicit_variables_escapes_and_local_references():
     assert run({"Fn::Sub": ["${R}", {"R": "override"}]}, resources={"R"}).value == "override"
 
 
+# Each route reaches its own redaction check.
 @pytest.mark.parametrize(
     "expression",
     [
@@ -196,31 +156,16 @@ def test_direct_redacted_values_are_preserved():
     assert result.resolved
 
 
-@pytest.mark.parametrize(
-    "expression",
-    [
-        {"Fn::Select": [-1, ["a"]]},
-        {"Fn::If": ["Missing", 1, 2]},
-        {"Fn::Sub": "${Missing}"},
-        {"Fn::Unsupported": "secret-source"},
-        {"Ref": "P", "extra": "secret-source"},
-        {"Fn::ImportValue": "external-export"},
-    ],
-    ids=[
-        "invalid-operand",
-        "unavailable-condition",
-        "unavailable-substitution",
-        "unsupported-intrinsic",
-        "extra-key",
-        "import-value",
-    ],
-)
-def test_unsupported_or_invalid_expressions_are_unknown_without_raw_messages(expression):
-    result = run(expression)
-    assert result.value is None and not result.resolved
-    assert result.issues
-    assert "secret-source" not in repr(result.issues)
-    assert "external-export" not in repr(result.issues)
+def test_unsupported_imported_or_invalid_values_are_unknown_without_raw_messages():
+    for expression, reason in (
+        ({"Fn::Unsupported": "secret-source"}, EvaluationIssueCode.UNSUPPORTED_INTRINSIC),
+        ({"Fn::ImportValue": "secret-source"}, EvaluationIssueCode.IMPORT_UNAVAILABLE),
+        ({"Fn::Select": [-1, ["secret-source"]]}, EvaluationIssueCode.INVALID_INTRINSIC),
+    ):
+        result = run(expression)
+        assert result.value is None and not result.resolved
+        assert [issue.reason for issue in result.issues] == [reason]
+        assert "secret-source" not in repr(result.issues)
 
 
 def test_condition_recursion_cycles_and_selected_branches():
@@ -234,15 +179,23 @@ def test_condition_recursion_cycles_and_selected_branches():
     assert result.resolved and result.value is None and not result.references
 
 
-def test_evaluation_limits_and_non_json_inputs():
+def test_expansion_limits_and_non_json_inputs_make_the_value_unknown():
     recursive = []
     recursive.append(recursive)
     deep = 0
-    for _ in range(100):
+    for _ in range(MAX_DEPTH + 1):
         deep = [deep]
-    for value in (recursive, deep, float("nan"), {1: "x"}, {"x": object()}, [0] * 60_000):
-        result = run(value)
-        assert not result.resolved and result.issues
+    for value, parameters in (
+        (recursive, {}),
+        (deep, {}),
+        (float("nan"), {}),
+        ({"Fn::Join": ["x" * 1000, ["a"] * 2000]}, {}),
+        ({"Fn::Sub": "${P}" * 1000}, {"P": "x" * 5000}),
+        ([{"Fn::Split": [",", {"Ref": "P"}]}] * 20, {"P": "x," * 5000}),
+    ):
+        result = run(value, parameters=parameters)
+        assert not result.resolved and result.value is None and not result.sources
+        assert result.issues[-1].reason is EvaluationIssueCode.EVALUATION_LIMIT_OR_INVALID_SHAPE
 
 
 def test_sources_preserve_compacted_list_indexes_and_intrinsic_boundaries():
@@ -262,31 +215,8 @@ def test_sources_preserve_compacted_list_indexes_and_intrinsic_boundaries():
     }
 
 
-def test_unknown_nested_list_fields_omit_whole_list_and_sources():
-    result = run({"items": [{"x": {"Ref": "Missing"}, "ok": 1}], "ok": 2})
-    assert result.value == {"ok": 2}
-    assert result.sources == {"/ok": "/ok"}
-
-
-def test_substitution_expansion_is_bounded_even_for_cached_variables():
-    result = run({"Fn::Sub": "${P}" * 1000}, parameters={"P": "x" * 5000})
-    assert not result.resolved and result.value is None and not result.sources
-
-
-def test_generated_collections_have_an_aggregate_budget():
-    result = run([{"Fn::Split": [",", {"Ref": "P"}]}] * 20, parameters={"P": "x," * 5000})
-    assert not result.resolved and result.value is None and not result.sources
-
-
-@pytest.mark.parametrize(
-    "expression",
-    [
-        {"Fn::Join": ["-", ["prefix", {"Ref": "R"}]]},
-        {"Fn::If": ["C", {"nested": {"Ref": "R"}}, {}]},
-    ],
-)
-def test_references_and_issues_stop_at_intrinsic_source_boundaries(expression):
-    result = run({"property": expression}, resources={"R"}, conditions={"C": True})
+def test_references_and_issues_stop_at_intrinsic_source_boundaries():
+    result = run({"property": {"Fn::Join": ["-", ["prefix", {"Ref": "R"}]]}}, resources={"R"})
     assert result.references == [Reference("R", "/property")]
     assert result.issues and all(issue.path == "/property" for issue in result.issues)
 

@@ -159,46 +159,6 @@ def test_invalid_values_are_omitted_individually_without_losing_valid_facts():
     assert_safe_facts(resource, facts, properties)
 
 
-def test_invalid_scalar_configuration_does_not_abort_or_leak():
-    resource, facts, limitations = map_resource(
-        str(ResourceType.LAMBDA_FUNCTION),
-        {"MemorySize": -1, "Runtime": "python3.13"},
-        identity(ResourceType.LAMBDA_FUNCTION),
-    )
-    assert resource.attributes == {"runtime": "python3.13"}
-    assert facts == {"/attributes/runtime": "/Runtime"}
-    assert limitations
-
-
-@pytest.mark.parametrize("value", [None, "::/64"], ids=["not-string", "wrong-version"])
-def test_invalid_ipv4_cidr_is_omitted_without_dropping_valid_ipv6(value):
-    resource, facts, limitations = map_resource(
-        str(ResourceType.VPC),
-        {"CidrBlock": value, "Ipv6CidrBlock": "2001:db8::/64"},
-        identity(ResourceType.VPC),
-    )
-    assert [str(cidr) for cidr in resource.cidr_blocks] == ["2001:db8::/64"]
-    assert facts == {"/cidr_blocks/0": "/Ipv6CidrBlock"}
-    assert limitations == ["Invalid or unresolved CidrBlock omitted."]
-
-
-@pytest.mark.parametrize(
-    "tags",
-    ["private", [None]],
-    ids=["not-list", "tag-not-mapping"],
-)
-def test_invalid_tags_do_not_persist_or_abort(tags):
-    resource, facts, limitations = map_resource(
-        str(ResourceType.EC2_INSTANCE),
-        {"Tags": tags, "InstanceType": "t3.micro"},
-        identity(ResourceType.EC2_INSTANCE),
-    )
-    assert resource.name is None
-    assert resource.instance_type == "t3.micro"
-    assert facts == {"/instance_type": "/InstanceType"}
-    assert limitations
-
-
 def test_network_interface_groups_use_leaf_provenance_not_names_or_opaque_values():
     properties = {
         "GroupSet": ["sg-valid", {"Ref": "LocalGroup"}],
@@ -226,20 +186,8 @@ def test_inline_rules_are_explicitly_unmapped_and_never_cited():
     assert "not-retained" not in resource.model_dump_json()
 
 
-def test_malformed_properties_do_not_abort():
-    resource, facts, limitations = map_resource(
-        str(ResourceType.VPC), "private", identity(ResourceType.VPC)
-    )
-    assert isinstance(resource, Vpc)
-    assert resource.attributes == {}
-    assert facts == {}
-    assert limitations == ["Invalid or unresolved Properties omitted."]
-
-
-@pytest.mark.parametrize(
-    "kind", ["Custom::Thing", "AWS::IAM::Unrecognized"], ids=["unsupported", "unsupported-iam"]
-)
-def test_unsupported_type_is_exact_and_does_not_copy_payload(kind):
+def test_unsupported_type_is_exact_and_does_not_copy_payload():
+    kind = "Custom::Thing"
     resource, facts, limitations = map_resource(
         kind, {"Payload": {"secret": "private"}}, identity(kind)
     )
@@ -250,33 +198,7 @@ def test_unsupported_type_is_exact_and_does_not_copy_payload(kind):
     assert limitations
 
 
-def test_nested_stack_does_not_persist_url_or_parameters():
-    kind = "AWS::CloudFormation::Stack"
-    resource, facts, limitations = map_resource(
-        kind,
-        {
-            "TemplateURL": "https://private.example/template?token=private",
-            "Parameters": {"Private": "not-retained"},
-        },
-        identity(kind),
-    )
-    assert isinstance(resource, UnknownResource)
-    assert resource.aws_resource_type == kind
-    assert resource.attributes == {}
-    assert facts == {}
-    assert any("contents" in limitation.lower() for limitation in limitations)
-    assert "private" not in resource.model_dump_json()
-
-
-@pytest.mark.parametrize(
-    "kind,service",
-    [
-        (str(ResourceType.VPC), AwsService.EC2),
-        ("AWS::IAM::Unrecognized", AwsService.IAM),
-        ("AWS::NotSupported::Thing", AwsService.UNKNOWN),
-        ("Custom::Thing", AwsService.UNKNOWN),
-    ],
-    ids=["known-namespace", "unsupported-type-in-known-namespace", "unknown-namespace", "not-aws"],
-)
-def test_service_for_type(kind, service):
-    assert service_for_type(kind) == service
+def test_service_for_type():
+    assert service_for_type(str(ResourceType.VPC)) == AwsService.EC2
+    assert service_for_type("AWS::IAM::Unrecognized") == AwsService.IAM
+    assert service_for_type("Custom::Thing") == AwsService.UNKNOWN

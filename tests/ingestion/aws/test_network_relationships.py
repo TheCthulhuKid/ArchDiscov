@@ -21,7 +21,6 @@ from tests.support.network_data import (
     SG,
     SG_RULES,
     SHARED_TRANSIT_GATEWAY,
-    SUBNET,
     TRANSIT_GATEWAY,
     TRANSIT_GATEWAY_ATTACHMENTS,
     TRANSIT_GATEWAY_ROUTE_TABLE,
@@ -58,18 +57,16 @@ def build(items=ITEMS, unavailable=None, **details):
     return result, snapshot
 
 
-def test_snapshot_with_all_relationships_passes_integrity_validation():
-    result, snapshot = build()
-    assert snapshot.dependencies_by_region  # validated with the snapshot's integrity checks
+def test_associations_gateways_acls_interfaces_and_memberships_are_linked():
+    acl = {
+        **FULL[Op.DESCRIBE_NETWORK_ACLS][0],
+        "Associations": [{"NetworkAclAssociationId": "aclassoc-1", "SubnetId": "subnet-1"}],
+    }
+    result, _ = build({**ITEMS, Op.DESCRIBE_NETWORK_ACLS: [acl]})
     assert all(d.relationship is DependencyRelationship.ATTACHED_TO for d in result.dependencies)
-    ids = [d.evidence_ids[0] for d in result.dependencies]
     for dep in result.dependencies:
         assert result.evidence[dep.evidence_ids[0]].resource_id == dep.source_id
-    assert len(ids) == len(result.dependencies)
 
-
-def test_associations_gateways_acls_and_interfaces_resolve_locally():
-    result, _ = build()
     main, subnet_assoc = deps(result, Kind.ROUTE_TABLE_ASSOCIATION, "rtb-1")
     assert main.target == LocalTarget(resource_id=rid("vpc-1")) and main.attributes["main"] is True
     assert subnet_assoc.target == LocalTarget(resource_id=rid("subnet-1"))
@@ -78,27 +75,21 @@ def test_associations_gateways_acls_and_interfaces_resolve_locally():
 
     (igw,) = deps(result, Kind.INTERNET_GATEWAY_ATTACHMENT)
     assert igw.source_id == rid("igw-1") and igw.target == LocalTarget(resource_id=rid("vpc-1"))
+    (acl_assoc,) = deps(result, Kind.NETWORK_ACL_ASSOCIATION)
+    assert acl_assoc.target == LocalTarget(resource_id=rid("subnet-1"))
+    assert acl_assoc.attributes["association_id"] == "aclassoc-1"
 
     (eni,) = deps(result, Kind.INSTANCE_INTERFACE)
     assert eni.source_id == rid("eni-1") and eni.target == LocalTarget(resource_id=rid("i-1"))
     assert eni.attributes["status"] == "attached"
 
-
-def test_network_acl_association_targets_subnet():
-    items = {
-        **ITEMS,
-        Op.DESCRIBE_NETWORK_ACLS: [
-            {
-                "NetworkAclId": "acl-1",
-                "VpcId": "vpc-1",
-                "Associations": [{"NetworkAclAssociationId": "aclassoc-1", "SubnetId": "subnet-1"}],
-            }
-        ],
-    }
-    result, _ = build(items)
-    (dep,) = deps(result, Kind.NETWORK_ACL_ASSOCIATION)
-    assert dep.target == LocalTarget(resource_id=rid("subnet-1"))
-    assert dep.attributes["association_id"] == "aclassoc-1"
+    memberships = deps(result, Kind.SECURITY_GROUP_MEMBERSHIP, "i-1")
+    local, missing = sorted(memberships, key=lambda d: d.evidence_ids[0])
+    assert local.target == LocalTarget(resource_id=rid("sg-1"))
+    assert isinstance(missing.target, UnresolvedTarget)
+    assert missing.target.source_path == "Reservations[0].Instances[0].SecurityGroups[1].GroupId"
+    (eni_member,) = deps(result, Kind.SECURITY_GROUP_MEMBERSHIP, "eni-1")
+    assert eni_member.target == LocalTarget(resource_id=rid("sg-1"))
 
 
 def test_route_targets_and_peering_sides_resolve_locally_or_externally():
@@ -303,17 +294,6 @@ def test_transit_gateway_attachments_and_route_tables_link_or_stay_external():
         assert (target.identifier, target.account_id) == ("tgw-shared", "210987654321")
 
 
-def test_security_group_membership_local_and_missing():
-    result, _ = build()
-    memberships = deps(result, Kind.SECURITY_GROUP_MEMBERSHIP, "i-1")
-    local, missing = sorted(memberships, key=lambda d: d.evidence_ids[0])
-    assert local.target == LocalTarget(resource_id=rid("sg-1"))
-    assert isinstance(missing.target, UnresolvedTarget)
-    assert missing.target.source_path == "Reservations[0].Instances[0].SecurityGroups[1].GroupId"
-    (eni_member,) = deps(result, Kind.SECURITY_GROUP_MEMBERSHIP, "eni-1")
-    assert eni_member.target == LocalTarget(resource_id=rid("sg-1"))
-
-
 def test_security_group_references_local_external_and_prefix_list():
     other = {
         "GroupId": "sg-2",
@@ -373,12 +353,3 @@ def test_failed_counterpart_operation_yields_unresolved_not_local():
     assert isinstance(igw_route.target, UnresolvedTarget)
     assert "DescribeInternetGateways did not complete" in igw_route.target.reason
     assert igw_route.target.source_path == "RouteTables[0].Routes[1].GatewayId"
-
-
-def test_missing_subnet_leaves_unresolved_association_without_inventing_parent():
-    items = {Op.DESCRIBE_VPCS: [VPC], Op.DESCRIBE_ROUTE_TABLES: [FULL[Op.DESCRIBE_ROUTE_TABLES][0]]}
-    result, _ = build(items)
-    assoc = deps(result, Kind.ROUTE_TABLE_ASSOCIATION, "rtb-1")[1]
-    assert isinstance(assoc.target, UnresolvedTarget)
-    assert "subnet-1 was not present" in assoc.target.reason
-    assert SUBNET["SubnetId"] not in by_id(result)

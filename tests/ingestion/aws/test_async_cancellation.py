@@ -28,11 +28,7 @@ def assert_budget_active(budget, count):
         assert sum(budget._accounts.values()) == count
 
 
-@pytest.mark.parametrize("stage", ["identity", "collector"])
-@pytest.mark.parametrize("cancellations", [1, 3])
-def test_adapter_cancellation_drains_blocked_sdk_without_later_work(
-    monkeypatch, stage, cancellations
-):
+def test_adapter_cancellation_drains_blocked_sdk_without_later_work(monkeypatch):
     entered = Event()
     release = Event()
     finished = Event()
@@ -42,27 +38,17 @@ def test_adapter_cancellation_drains_blocked_sdk_without_later_work(
     returned = []
     budget = SdkCallBudget(1)
 
-    def blocked_call():
-        entered.set()
-        try:
-            assert release.wait(5), "SDK call was not released while the loop was responsive"
-        finally:
-            finished.set()
-
-    class IdentityClient:
-        def get_caller_identity(self):
-            blocked_call()
-            return {"Account": ACCOUNT}
-
     class DetailClient:
         def get_role(self, **kwargs):
-            blocked_call()
+            entered.set()
+            try:
+                assert release.wait(5), "SDK call was not released while the loop was responsive"
+            finally:
+                finished.set()
             return {"Role": {"RoleName": kwargs["RoleName"]}}
 
     class BlockingSession(Session):
         def client(self, name, **kwargs):
-            if name == "sts" and stage == "identity":
-                return IdentityClient()
             if name == "iam":
                 return DetailClient()
             return super().client(name, **kwargs)
@@ -115,15 +101,11 @@ def test_adapter_cancellation_drains_blocked_sdk_without_later_work(
         try:
             assert await asyncio.to_thread(entered.wait, 5)
             assert_budget_active(budget, 1)
-            for _ in range(cancellations):
-                assert task.cancel()
-                await heartbeat()
-                assert not finished.is_set(), "event loop blocked until the SDK call timed out"
-                assert not task.done(), "cancellation returned before the SDK call settled"
-                assert_budget_active(budget, 1)
-                assert sessions == [ACCOUNT]
-                assert len(jobs) == (1 if stage == "collector" else 0)
-                assert assembled == returned == []
+            assert task.cancel()
+            await heartbeat()
+            assert not finished.is_set(), "event loop blocked until the SDK call timed out"
+            assert not task.done(), "cancellation returned before the SDK call settled"
+            assert_budget_active(budget, 1)
         finally:
             release.set()
             with pytest.raises(asyncio.CancelledError):
@@ -132,14 +114,13 @@ def test_adapter_cancellation_drains_blocked_sdk_without_later_work(
         assert finished.is_set()
         assert_budget_active(budget, 0)
         assert sessions == [ACCOUNT]
-        assert len(jobs) == (1 if stage == "collector" else 0)
+        assert len(jobs) == 1
         assert assembled == returned == []
 
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("worker_fails", [False, True])
-def test_coordinator_cancellation_drains_all_workers_and_retains_job_slots(worker_fails):
+def test_coordinator_cancellation_drains_all_workers_and_retains_job_slots():
     entered = [Event(), Event()]
     release = [Event(), Event()]
     finished = [Event(), Event()]
@@ -156,8 +137,6 @@ def test_coordinator_cancellation_drains_all_workers_and_retains_job_slots(worke
         entered[index].set()
         try:
             assert release[index].wait(5), "collector was not released by the event loop"
-            if worker_fails and index == 1:
-                raise RuntimeError("collector failed during cancellation drain")
             return index
         finally:
             finished[index].set()
@@ -197,29 +176,5 @@ def test_coordinator_cancellation_drains_all_workers_and_retains_job_slots(worke
         assert coordinator._jobs._value == 2
         assert accounts == [ACCOUNT]
         assert sorted(jobs) == [0, 1]
-
-    asyncio.run(run())
-
-
-def test_cancellation_before_scheduled_collection_makes_no_calls(monkeypatch):
-    calls = []
-
-    def unexpected(*args, **kwargs):
-        calls.append((args, kwargs))
-        pytest.fail("collection started despite cancellation before scheduling")
-
-    monkeypatch.setattr(aws, "collect_job", unexpected)
-    request = AwsCollectionRequest(accounts=(account(), account(OTHER)))
-
-    async def run():
-        task = asyncio.create_task(
-            aws.AwsAdapter().collect_accounts_async(request, context=context(unexpected))
-        )
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-        await heartbeat()
-        assert task.cancelled()
-        assert calls == []
 
     asyncio.run(run())

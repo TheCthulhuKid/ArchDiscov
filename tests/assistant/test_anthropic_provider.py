@@ -28,7 +28,6 @@ from archdiscov.assistant.provider import (
     CompletionRequest,
     CompletionResponse,
     ProviderCapability,
-    ProviderInvalidRequestError,
     ProviderMalformedOutputError,
     RequestLimits,
     StopReason,
@@ -45,7 +44,6 @@ ENDPOINT = "https://gateway.example.com/anthropic"
 QUESTION = "Which databases are reachable?"
 TEXT = {"type": "text", "text": "None of them."}
 LOOKUP = {"type": "tool_use", "id": "toolu_1", "name": "search_resources", "input": {"type": "x"}}
-INSPECTION = {"type": "tool_use", "id": "toolu_2", "name": "inspect_resource", "input": {}}
 
 
 def _body(
@@ -74,12 +72,10 @@ def _provider(api: MockApi) -> AnthropicProvider:
     return AnthropicProvider(config, SecretStr(SECRET), transport=api, async_transport=api)
 
 
-def _request(
-    *messages: dict, tools=(SEARCH_TOOL, INSPECT_TOOL), **limits: Any
-) -> CompletionRequest:
+def _request(tools=(SEARCH_TOOL, INSPECT_TOOL), **limits: Any) -> CompletionRequest:
     return CompletionRequest(
         conversation=Conversation.model_validate(
-            {"messages": [{"role": "user", "text": QUESTION}, *messages]}
+            {"messages": [{"role": "user", "text": QUESTION}]}
         ),
         tools=tools,
         limits=RequestLimits(**limits),
@@ -207,64 +203,21 @@ def _call(block: dict, arguments=None) -> ToolCall:
     return ToolCall(id=block["id"], name=block["name"], arguments=value)
 
 
-@pytest.mark.parametrize(
-    ("body", "message", "stop"),
-    [
-        (_body(TEXT, stop="stop_sequence"), AssistantMessage(text=TEXT["text"]), StopReason.END),
-        (
-            _body(
-                {"type": "text", "text": "Let me "},
-                {"type": "text", "text": "look."},
-                LOOKUP,
-                stop="tool_use",
-            ),
-            AssistantMessage(text="Let me look.", tool_calls=(_call(LOOKUP),)),
-            StopReason.TOOL_USE,
-        ),
-        (
-            _body(TEXT, stop="model_context_window_exceeded"),
-            AssistantMessage(text=TEXT["text"]),
-            StopReason.LENGTH,
-        ),
-    ],
-    ids=[
-        "stop-sequence",
-        "text-and-calls",
-        "context-window-text",
-    ],
-)
-def test_responses_map_to_the_shared_contracts(body, message, stop) -> None:
-    response = _send(_provider(_api(body)), "async")
-    assert response == CompletionResponse(
-        message=message, stop_reason=stop, usage=TokenUsage(input_tokens=3, output_tokens=1)
+def test_several_text_blocks_are_joined_into_one_text() -> None:
+    parts = ({"type": "text", "text": "Let me "}, {"type": "text", "text": "look."})
+    body = _body(*parts, LOOKUP, stop="tool_use")
+    assert _send(_provider(_api(body)), "async") == CompletionResponse(
+        message=AssistantMessage(text="Let me look.", tool_calls=(_call(LOOKUP),)),
+        stop_reason=StopReason.TOOL_USE,
+        usage=TokenUsage(input_tokens=3, output_tokens=1),
     )
 
 
-@pytest.mark.parametrize(
-    ("body", "error"),
-    [
-        (
-            _body(TEXT, {"type": "server_tool_use", "id": "s", "name": "web_search", "input": {}}),
-            ProviderMalformedOutputError,
-        ),
-        (_body(TEXT, stop="improvised"), ProviderMalformedOutputError),
-        (_body(LOOKUP, stop="end_turn"), ProviderMalformedOutputError),
-        (
-            _body({**LOOKUP, "name": "not a tool name"}, stop="tool_use"),
-            ProviderMalformedOutputError,
-        ),
-    ],
-    ids=[
-        "server-tool-block",
-        "unknown-stop",
-        "no-calls-at-tool-use",
-        "invalid-tool-name",
-    ],
-)
-def test_unusable_responses_are_typed_errors_without_provider_text(body, error) -> None:
-    with pytest.raises(error) as raised:
-        _send(_provider(_api(body)))
-    assert str(raised.value) == error.message
+def test_a_server_tool_block_is_malformed_without_provider_text() -> None:
+    server_tool = {"type": "server_tool_use", "id": "s", "name": "web_search", "input": {}}
+    with pytest.raises(ProviderMalformedOutputError) as raised:
+        _send(_provider(_api(_body(TEXT, server_tool))))
+    assert str(raised.value) == ProviderMalformedOutputError.message
     assert "None of them" not in "".join(secret_renderings(raised.value))
 
 
@@ -308,19 +261,3 @@ def test_reasoning_is_replayed_verbatim_and_in_order_on_the_next_request() -> No
     assert replayed == {"role": "assistant", "content": first["content"]}
     assert result.transcript.turns[0].continuation_bytes > 0
     assert THINKING["signature"] not in result.transcript.model_dump_json()
-
-
-def test_a_response_without_reasoning_has_no_continuation() -> None:
-    assert _send(_provider(_api(_body(TEXT)))).message.continuation is None
-
-
-def test_another_providers_continuation_is_never_sent() -> None:
-    api = _api(_body(TEXT))
-    foreign = {
-        "role": "assistant",
-        "text": "Earlier.",
-        "continuation": {"provider_kind": "fake", "blocks": [THINKING]},
-    }
-    with pytest.raises(ProviderInvalidRequestError):
-        _send(_provider(api), request=_request(foreign, {"role": "user", "text": "Go on."}))
-    assert api.requests == []

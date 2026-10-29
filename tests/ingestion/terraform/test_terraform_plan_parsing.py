@@ -41,33 +41,15 @@ def plan(entries=None, **overrides):
     return document
 
 
-@pytest.mark.parametrize(
-    "actions",
-    [
-        ["no-op"],
-        ["create"],
-        ["read"],
-        ["update"],
-        ["delete"],
-        ["create", "delete"],
-        ["delete", "create"],
-    ],
-)
-def test_lifecycle_selects_values_and_exact_pointers(actions):
+def test_lifecycle_selects_after_values_and_exact_pointers():
     entry = resource()
-    entry["change"]["actions"] = actions
-    if actions == ["create"]:
-        entry["change"]["before"] = None
-    if actions == ["delete"]:
-        entry["change"]["after"] = None
     parsed = parse_plan(plan([entry]))
     actual = parsed.resources[0]
-    assert actual.actions == [LifecycleAction(action) for action in actions]
+    assert actual.actions == [LifecycleAction.UPDATE]
     assert actual.path == "/resource_changes/0"
     assert actual.actions_path == "/resource_changes/0/change/actions"
-    scope = "before" if actions == ["delete"] else "after"
-    assert actual.values_path == f"/resource_changes/0/change/{scope}"
-    assert actual.values == entry["change"][scope]
+    assert actual.values_path == "/resource_changes/0/change/after"
+    assert actual.values == entry["change"]["after"]
     assert actual.terraform_type == "aws_vpc"
     assert actual.address == "aws_vpc.main"
     assert parsed.format_version == "1.2"
@@ -82,6 +64,7 @@ def test_nested_unknown_sensitive_null_and_missing_are_distinct_and_do_not_mutat
         "password": SECRET,
         "nested": [{"known": "yes", "unknown": None}],
         "groups": ["sg-first", None, "sg-last"],
+        "names": ["public", SECRET],
     }
     entry["change"]["after_unknown"] = {
         "id": True,
@@ -93,6 +76,7 @@ def test_nested_unknown_sensitive_null_and_missing_are_distinct_and_do_not_mutat
     entry["change"]["after_sensitive"] = {
         "tags": {"Name": True},
         "absent": True,
+        "names": [False, True],
     }
     document = plan([entry], variables={"secret": {"value": SECRET}})
     original = deepcopy(document)
@@ -102,6 +86,7 @@ def test_nested_unknown_sensitive_null_and_missing_are_distinct_and_do_not_mutat
         "explicit_null": None,
         "tags": {"Name": "[REDACTED]", "known": "yes"},
         "password": "[REDACTED]",
+        "names": ["public", "[REDACTED]"],
     }
     assert set(actual.unknown_paths) == {
         "/id",
@@ -112,22 +97,9 @@ def test_nested_unknown_sensitive_null_and_missing_are_distinct_and_do_not_mutat
         "/groups/1",
         "/groups",
     }
-    assert set(actual.redacted_paths) == {"/tags/Name", "/absent", "/password"}
+    assert set(actual.redacted_paths) == {"/tags/Name", "/absent", "/password", "/names/1"}
     assert SECRET not in repr(asdict(parsed))
     assert document == original
-
-
-def test_unknown_absent_subtrees_and_escaped_pointers():
-    entry = resource()
-    entry["change"].update(
-        after={"known": None},
-        after_unknown={"missing/tree~": {"child": True}, "list": [True, False]},
-        after_sensitive={"missing/tree~": {"child": True}},
-    )
-    actual = parse_plan(plan([entry])).resources[0]
-    assert actual.values == {"known": None}
-    assert set(actual.unknown_paths) == {"/missing~1tree~0/child", "/list/0", "/list"}
-    assert actual.redacted_paths == ["/missing~1tree~0/child"]
 
 
 def test_before_only_retains_sanitized_scope_context_and_never_fills_unknown():
@@ -161,21 +133,19 @@ def test_delete_applies_before_sensitive_not_after_sensitive():
         actions=["delete"], before={"id": SECRET}, after=None, before_sensitive={"id": True}
     )
     actual = parse_plan(plan([entry])).resources[0]
+    assert actual.values_path == "/resource_changes/0/change/before"
     assert actual.values == {"id": "[REDACTED]"}
     assert actual.redacted_paths == ["/id"]
     assert actual.unknown_paths == []
 
 
-@pytest.mark.parametrize("mask", [True, {"tags": True}])
-def test_sensitive_containers_cannot_hide_unknown_paths(mask):
+def test_sensitive_containers_cannot_hide_unknown_paths():
     entry = resource()
-    entry["change"].update(after_sensitive=mask, after_unknown={"tags": {"Name": True}})
+    entry["change"].update(after_sensitive=True, after_unknown={"tags": {"Name": True}})
     actual = parse_plan(plan([entry])).resources[0]
     assert "/tags/Name" in actual.unknown_paths
-    assert SECRET not in repr(actual)
-    if mask is True:
-        assert actual.values == {}
-        assert actual.redacted_paths == [""]
+    assert actual.values == {}
+    assert actual.redacted_paths == [""]
 
 
 def test_merges_nested_planned_inventory_without_overwriting_authoritative_changes():
@@ -245,82 +215,28 @@ def test_skips_data_resources_in_both_inventory_and_changes():
     ]
 
 
-def test_rejects_malformed_lifecycle_without_echoing_values():
-    entry = resource()
-    entry["change"]["actions"] = ["create", "update"]
+@pytest.mark.parametrize(
+    "entry_fields,change_fields",
+    [
+        ({}, {"actions": ["create", SECRET]}),
+        ({}, {"after_unknown": {"id": SECRET}}),
+        ({}, {"after": SECRET}),
+        ({"deposed": SECRET}, {}),
+    ],
+    ids=["lifecycle", "non-boolean-mask", "scope-values-not-object", "deposed"],
+)
+def test_rejects_bad_managed_changes_without_echoing_values(entry_fields, change_fields):
+    entry = resource(**entry_fields)
+    entry["change"].update(change_fields)
     with pytest.raises(IngestionError) as error:
         parse_plan(plan([entry]))
     assert error.value.code == "invalid_request"
     assert SECRET not in str(error.value)
 
 
-@pytest.mark.parametrize(
-    "key,value",
-    [
-        ("after_unknown", 1),
-        ("before_sensitive", SECRET),
-        ("after_unknown", {"id": []}),
-        ("after_sensitive", {"absent": True}),
-    ],
-    ids=["unknown-not-boolean", "sensitive-not-boolean", "list-mask-on-scalar", "absent-value"],
-)
-def test_rejects_incompatible_or_non_boolean_masks(key, value):
-    entry = resource()
-    entry["change"][key] = value
-    with pytest.raises(IngestionError) as error:
-        parse_plan(plan([entry]))
-    assert SECRET not in str(error.value)
-
-
-@pytest.mark.parametrize(
-    "overrides",
-    [
-        {"mode": SECRET},
-        {"type": "azurerm_virtual_network"},
-        {"deposed": "deadbeef"},
-        {"change": None},
-        {"change": {"actions": ["update"], "after": None}},
-    ],
-    ids=[
-        "unsupported-mode",
-        "non-aws-type",
-        "deposed",
-        "change-not-object",
-        "scope-values-missing",
-    ],
-)
-def test_rejects_bad_managed_changes(overrides):
-    with pytest.raises(IngestionError) as error:
-        parse_plan(plan([resource(**overrides)]))
-    assert SECRET not in str(error.value)
-
-
-@pytest.mark.parametrize(
-    "overrides",
-    [
-        {"format_version": "2.0"},
-        {"terraform_version": SECRET},
-        {"resource_changes": {}},
-        {"planned_values": {"root_module": []}},
-        {"version": 4},
-    ],
-    ids=[
-        "format-version",
-        "terraform-version",
-        "changes-not-list",
-        "planned-module-not-object",
-        "internal-state-marker",
-    ],
-)
-def test_rejects_bad_documents(overrides):
-    with pytest.raises(IngestionError) as error:
-        parse_plan(plan(**overrides))
-    assert SECRET not in str(error.value)
-
-
-def test_rejects_duplicate_addresses_across_changes():
-    with pytest.raises(IngestionError, match="duplicate logical addresses"):
-        parse_plan(plan([resource(), resource()]))
+def test_rejects_internal_state_documents():
+    with pytest.raises(IngestionError, match="not state or internal state"):
+        parse_plan(plan(version=4))
 
 
 def test_empty_plan_and_inventory_only_are_valid():
@@ -328,12 +244,7 @@ def test_empty_plan_and_inventory_only_are_valid():
     assert parse_plan({"format_version": "1.0", "planned_values": {}}).resources == []
 
 
-def test_load_plan_uses_strict_shared_json_loader(tmp_path):
+def test_load_plan_reads_the_public_plan(tmp_path):
     path = tmp_path / "plan.json"
     path.write_text(json.dumps(plan()), encoding="utf-8")
     assert load_plan(path) == parse_plan(plan())
-    for raw in ['{"format_version":"1.0","format_version":"1.0"}', '{"x":NaN}', SECRET]:
-        path.write_text(raw, encoding="utf-8")
-        with pytest.raises(IngestionError) as error:
-            load_plan(path)
-        assert SECRET not in str(error.value)

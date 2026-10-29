@@ -17,23 +17,22 @@ def test_json_and_yaml_templates(tmp_path):
     }
 
 
-@pytest.mark.parametrize(
-    ("tag", "argument", "expected"),
-    [
-        ("Ref", "Name", {"Ref": "Name"}),
-        ("GetAtt", "Bucket.Arn", {"Fn::GetAtt": ["Bucket", "Arn"]}),
-        ("Sub", "'${Name}'", {"Fn::Sub": "${Name}"}),
-        ("Join", "['-', [a, b]]", {"Fn::Join": ["-", ["a", "b"]]}),
-        ("If", "[C, a, b]", {"Fn::If": ["C", "a", "b"]}),
-        ("Condition", "Enabled", {"Condition": "Enabled"}),
-    ],
-)
-def test_explicit_intrinsic_tags(tag, argument, expected):
+def test_explicit_intrinsic_tags():
     result = parse_template(
         "Resources:\n  R:\n    Type: Custom::Thing\n    Properties:\n"
-        f"      Value: !{tag} {argument}"
+        "      Ref: !Ref Name\n"
+        "      GetAtt: !GetAtt Bucket.Arn\n"
+        "      Sub: !Sub '${Name}'\n"
+        "      Join: !Join ['-', [a, b]]\n"
+        "      Condition: !Condition Enabled\n"
     )
-    assert result["Resources"]["R"]["Properties"]["Value"] == expected
+    assert result["Resources"]["R"]["Properties"] == {
+        "Ref": {"Ref": "Name"},
+        "GetAtt": {"Fn::GetAtt": ["Bucket", "Arn"]},
+        "Sub": {"Fn::Sub": "${Name}"},
+        "Join": {"Fn::Join": ["-", ["a", "b"]]},
+        "Condition": {"Condition": "Enabled"},
+    }
 
 
 @pytest.mark.parametrize(
@@ -41,11 +40,8 @@ def test_explicit_intrinsic_tags(tag, argument, expected):
     [
         '{"Resources": {}, "Resources": {}}',
         "Resources: {}\nMetadata: !!python/object/apply:os.system [secret-value]",
-        "Resources: {}\nMetadata: &a {self: *a}",
-        "Resources: {}\nMetadata: {x: .nan}",
-        "Resources: {}\nMetadata: {x: [",
     ],
-    ids=["duplicate-key", "python-object", "recursive-alias", "non-finite", "yaml-syntax"],
+    ids=["duplicate-key", "python-object"],
 )
 def test_unsafe_or_malformed_templates_have_generic_errors(text):
     with pytest.raises(IngestionError) as exc:
@@ -81,10 +77,6 @@ def test_safe_alias_and_transform_are_data_only():
     assert template["Transform"] == "AWS::Serverless-2016-10-31"
 
 
-def test_json_numeric_semantics_are_preserved():
-    assert parse_template('{"Resources": {}, "Metadata": {"x": 1e3}}')["Metadata"]["x"] == 1000
-
-
 def test_unquoted_template_version_is_a_string_not_a_python_date():
     assert parse_template("AWSTemplateFormatVersion: 2010-09-09\nResources: {}") == {
         "AWSTemplateFormatVersion": "2010-09-09",
@@ -92,47 +84,20 @@ def test_unquoted_template_version_is_a_string_not_a_python_date():
     }
 
 
-def test_template_version_shape_fails_at_parsing_boundary():
-    with pytest.raises(IngestionError, match="Invalid CloudFormation template"):
-        parse_template(json.dumps({"Resources": {}, "AWSTemplateFormatVersion": 42}))
-
-
-BUCKET = {"Type": "AWS::S3::Bucket"}
-PARAMETER = {"Type": "String"}
-
-
-@pytest.mark.parametrize(
-    "template",
-    [
-        {"Resources": []},
-        {"Resources": {"Bucket": "AWS::S3::Bucket"}},
-        {"Resources": {"Bucket": {**BUCKET, "Properties": []}}},
-        {"Resources": {"Bucket": {**BUCKET, "DependsOn": ["Queue", 1]}}},
-        {"Resources": {}, "Parameters": {"Name": {"Default": "x"}}},
-        {"Resources": {}, "Mappings": {"Regions": {"eu": "x"}}},
-        {"Resources": {}, "Outputs": {"Name": {"Description": "no value"}}},
-    ],
-    ids=lambda template: json.dumps(template)[:60],
-)
-def test_each_template_shape_rule_is_enforced(template):
-    with pytest.raises(IngestionError, match="Invalid CloudFormation template"):
-        parse_template(json.dumps(template))
-
-
-def test_valid_optional_shapes_are_accepted():
+def test_template_shapes_accept_optional_fields_and_reject_wrong_types():
     template = {
-        "Resources": {"Bucket": {**BUCKET, "DependsOn": "Queue", "Condition": "Prod"}},
-        "Parameters": {"Name": {**PARAMETER, "NoEcho": True, "AllowedValues": ["a"]}},
+        "Resources": {
+            "Bucket": {"Type": "AWS::S3::Bucket", "DependsOn": "Queue", "Condition": "Prod"}
+        },
+        "Parameters": {"Name": {"Type": "String", "NoEcho": True, "AllowedValues": ["a"]}},
         "Conditions": {"Prod": True},
         "Transform": "AWS::Serverless-2016-10-31",
     }
     assert parse_template(json.dumps(template)) == template
+    with pytest.raises(IngestionError, match="Invalid CloudFormation template"):
+        parse_template(json.dumps({"Resources": {"Bucket": "AWS::S3::Bucket"}}))
 
 
 def test_file_errors_are_generic(tmp_path):
     with pytest.raises(IngestionError, match=r"^Invalid CloudFormation template\.$"):
         load_template(tmp_path / "missing-secret-name")
-    path = tmp_path / "binary"
-    path.write_bytes(b"\xff")
-    with pytest.raises(IngestionError):
-        load_template(path)

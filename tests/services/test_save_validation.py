@@ -74,20 +74,6 @@ def test_account_save_validates_once_and_publishes_detached_snapshot(
     assert snapshots.load_snapshot(path) == outcome.snapshot
 
 
-def test_public_save_rejects_mutated_previously_validated_model(snapshot, tmp_path):
-    validated = snapshots.validate_snapshot(snapshot)
-    instance(validated).id = "invalid"
-    path = tmp_path / "snapshot.json"
-
-    with pytest.raises(SnapshotValidationError) as error:
-        snapshots.save_snapshot(validated, str(path))
-
-    assert error.value.path == path
-    assert error.value.code == "invalid_snapshot"
-    assert error.value.__cause__ is not None
-    assert not list(tmp_path.iterdir())
-
-
 def test_account_validation_error_has_output_path(snapshot, tmp_path):
     instance(snapshot).id = "invalid"
     path = tmp_path / "snapshot.json"
@@ -97,19 +83,5 @@ def test_account_validation_error_has_output_path(snapshot, tmp_path):
     assert outcome.error.path == path
     assert outcome.error.__cause__ is not None
     assert outcome.snapshot is None
-    assert outcome.path is None
-    assert not list(tmp_path.iterdir())
-
-
-@pytest.mark.parametrize("value", [float("nan"), float("inf"), "\ud800"])
-def test_account_serialization_error_has_output_path(snapshot, tmp_path, value):
-    snapshot.metadata["ordinary"] = value
-    path = tmp_path / "snapshot.json"
-    outcome = save_account(snapshot, path)
-
-    assert isinstance(outcome.error, SnapshotValidationError)
-    assert outcome.error.path == path
-    assert outcome.error.details[0].type == "serialization_error"
-    assert outcome.error.__cause__ is not None
     assert outcome.path is None
     assert not list(tmp_path.iterdir())

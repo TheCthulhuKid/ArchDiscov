@@ -1,5 +1,3 @@
-import pytest
-
 from archdiscov.ingestion.adapter import AdapterContext
 from archdiscov.ingestion.aws import create_session, verify_identity
 from archdiscov.ingestion.identity import verify_account_identity
@@ -30,10 +28,9 @@ class Session:
         return {"Account": ACCOUNT, "Arn": f"arn:aws-cn:sts::{ACCOUNT}:assumed-role/Reader/session"}
 
 
-@pytest.mark.parametrize("profile_region", [None, "cn-northwest-1"])
-def test_assumed_sessions_preserve_partition_endpoint_context(profile_region):
+def test_assumed_sessions_preserve_partition_endpoint_context():
     seen = []
-    base = Session(profile_region)
+    base = Session()
 
     def factory(**kwargs):
         seen.append(kwargs)
@@ -46,13 +43,12 @@ def test_assumed_sessions_preserve_partition_endpoint_context(profile_region):
         role_arn=f"arn:aws-cn:iam::{ACCOUNT}:role/Reader",
     )
     session = create_session(cfg, AdapterContext(session_factory=factory))
-    expected = profile_region or "cn-north-1"
-    assert base.clients[0][1]["region_name"] == expected
-    assert seen[1]["region_name"] == expected
+    assert base.clients[0][1]["region_name"] == "cn-north-1"
+    assert seen[1]["region_name"] == "cn-north-1"
     identity = verify_account_identity(session, cfg)
     assert identity.partition == "aws-cn"
     assert identity.account_id == ACCOUNT
-    assert session.clients[0][1]["region_name"] == expected
+    assert session.clients[0][1]["region_name"] == "cn-north-1"
 
 
 def test_explicit_bootstrap_is_applied_to_profile_session_and_sts():

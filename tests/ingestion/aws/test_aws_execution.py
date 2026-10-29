@@ -1,9 +1,8 @@
 import threading
-from datetime import UTC, datetime, timedelta
 
 import boto3
 import pytest
-from botocore.exceptions import ClientError, EndpointConnectionError
+from botocore.exceptions import ClientError
 from botocore.stub import Stubber
 
 from archdiscov.ingestion.adapter import AdapterContext, IngestionError
@@ -24,15 +23,6 @@ from tests.support.aws_execution import (
 )
 
 SECRET = "AKIASECRETVALUE/very-secret"
-
-
-class Clock:
-    def __init__(self):
-        self.now = datetime(2025, 1, 1, tzinfo=UTC)
-
-    def __call__(self):
-        self.now += timedelta(seconds=1)
-        return self.now
 
 
 class Tracker:
@@ -58,7 +48,7 @@ def client_error(code="Throttling", message=SECRET):
 # --- identity ---------------------------------------------------------------
 
 
-def test_identity_success_with_stubber():
+def test_identity_verification_with_stubber():
     sts = boto3.client(
         "sts", region_name="us-east-1", aws_access_key_id="a", aws_secret_access_key="b"
     )
@@ -67,33 +57,19 @@ def test_identity_success_with_stubber():
             "get_caller_identity",
             {"Account": ACCOUNT, "UserId": "U", "Arn": "arn:aws:iam::123456789012:user/u"},
         )
-        assert verify_identity(FakeSession(sts), account()) == ACCOUNT
-
-
-def test_identity_mismatch_aborts():
-    sts = boto3.client(
-        "sts", region_name="us-east-1", aws_access_key_id="a", aws_secret_access_key="b"
-    )
-    with Stubber(sts) as stub:
         stub.add_response(
             "get_caller_identity",
             {"Account": "999999999999", "UserId": "U", "Arn": "arn:aws:iam::999999999999:user/u"},
         )
-        with pytest.raises(IngestionError) as exc:
-            verify_identity(FakeSession(sts), account())
-    assert exc.value.code == "account_mismatch"
-
-
-def test_identity_client_error_is_sanitized():
-    sts = boto3.client(
-        "sts", region_name="us-east-1", aws_access_key_id="a", aws_secret_access_key="b"
-    )
-    with Stubber(sts) as stub:
         stub.add_client_error("get_caller_identity", "ExpiredToken", SECRET)
-        with pytest.raises(IngestionError) as exc:
+        assert verify_identity(FakeSession(sts), account()) == ACCOUNT
+        with pytest.raises(IngestionError) as mismatch:
             verify_identity(FakeSession(sts), account())
-    assert exc.value.code == "identity_failed"
-    assert SECRET not in exc.value.message
+        with pytest.raises(IngestionError) as failure:
+            verify_identity(FakeSession(sts), account())
+    assert mismatch.value.code == "account_mismatch"
+    assert failure.value.code == "identity_failed"
+    assert SECRET not in failure.value.message
 
 
 def test_profile_session_construction_and_client_config():
@@ -177,21 +153,15 @@ def test_assume_role_failure_is_identity_failed():
 
 
 def test_disallowed_operation_rejected_before_any_client_call():
-    client = FakeClient(pages=[])
+    client = FakeClient(pages=[{"Vpcs": []}])
     run, session = operation_runner(client)
     with pytest.raises(IngestionError) as exc:
         run.run(task(operation="DeleteVpc"))
     assert exc.value.code == "operation_not_allowed"
-    assert session.client_calls == []
-    assert client.calls == 0
-
-
-def test_run_many_rejects_disallowed_before_running_any_task():
-    client = FakeClient(pages=[{"Vpcs": []}])
-    run, session = operation_runner(client)
     with pytest.raises(IngestionError):
         run.run_many([task(), task(region=AwsRegion.US_WEST_2, operation="TerminateInstances")])
     assert session.client_calls == []
+    assert client.calls == 0
 
 
 def test_allowlist_contains_only_read_and_identity_operations():
@@ -209,22 +179,14 @@ def test_allowlist_contains_only_read_and_identity_operations():
 # --- runner -------------------------------------------------------------------
 
 
-def test_multi_page_success():
-    client = FakeClient(
-        pages=[{"Vpcs": [{"VpcId": "a"}]}, {"Vpcs": [{"VpcId": "b"}, {"VpcId": "c"}]}]
-    )
-    run, _ = operation_runner(client)
-    result = run.run(task())
-    assert [i["VpcId"] for i in result.items] == ["a", "b", "c"]
-    assert result.coverage.status == CoverageStatus.SUCCESS
-    assert result.coverage.result_count == 3
-
-
-def test_success_with_zero_results():
+def test_success_with_zero_results_and_one_record_per_operation():
     run, _ = operation_runner(FakeClient(pages=[{"Vpcs": []}]))
     result = run.run(task())
     assert result.coverage.status == CoverageStatus.SUCCESS
     assert result.coverage.result_count == 0
+    with pytest.raises(IngestionError) as exc:
+        run.run(task())
+    assert exc.value.code == "invalid_request"
 
 
 def test_first_call_failure_is_failed_and_sanitized():
@@ -233,9 +195,11 @@ def test_first_call_failure_is_failed_and_sanitized():
     assert result.items == []
     assert result.coverage.status == CoverageStatus.FAILED
     assert result.coverage.result_count is None
-    dumped = result.coverage.model_dump_json()
-    assert SECRET not in dumped
+    assert SECRET not in result.coverage.model_dump_json()
     assert result.coverage.failures[0].code == "Throttling"
+    run, _ = operation_runner(FakeClient(pages=[client_error(code=f"Bad {SECRET}")]))
+    assert run.run(task()).coverage.failures[0].code == "ClientError"
+    assert sanitize_failure(RuntimeError(SECRET), "DescribeVpcs").code == "UnexpectedError"
 
 
 def test_failure_after_first_page_is_incomplete_with_retained_items():
@@ -245,25 +209,6 @@ def test_failure_after_first_page_is_incomplete_with_retained_items():
     assert result.coverage.status == CoverageStatus.INCOMPLETE
     assert result.coverage.result_count == 1
     assert SECRET not in result.coverage.model_dump_json()
-
-
-def test_non_paginated_call_and_exhausted_retries():
-    run, _ = operation_runner(FakeClient(error=EndpointConnectionError(endpoint_url=SECRET)))
-    result = run.run(task())
-    assert result.coverage.status == CoverageStatus.FAILED
-    assert result.coverage.failures[0].code == "EndpointConnectionError"
-    assert SECRET not in result.coverage.model_dump_json()
-
-
-def test_unknown_exception_text_not_leaked():
-    failure = sanitize_failure(RuntimeError(SECRET), "DescribeVpcs")
-    assert failure.code == "UnexpectedError"
-    assert SECRET not in failure.model_dump_json()
-
-
-def test_unsafe_client_error_code_is_replaced():
-    run, _ = operation_runner(FakeClient(pages=[client_error(code=f"Bad {SECRET}")]))
-    assert run.run(task()).coverage.failures[0].code == "ClientError"
 
 
 def test_non_paginated_success_uses_single_call():
@@ -281,14 +226,6 @@ def test_skipped_and_unsupported_outcomes():
     assert skipped.coverage.reason == "service not selected"
 
 
-def test_duplicate_coverage_record_rejected():
-    run, _ = operation_runner(FakeClient(pages=[{"Vpcs": []}]))
-    run.run(task())
-    with pytest.raises(IngestionError) as exc:
-        run.run(task())
-    assert exc.value.code == "invalid_request"
-
-
 def test_bounded_concurrency_and_deterministic_order():
     tracker = Tracker()
     run, _ = operation_runner(FakeClient(delay=0.02, tracker=tracker), max_concurrency=2)
@@ -301,36 +238,15 @@ def test_bounded_concurrency_and_deterministic_order():
     assert all(r.coverage.status == CoverageStatus.SUCCESS for r in results)
 
 
-def test_concurrency_of_one_is_serial():
-    tracker = Tracker()
-    run, _ = operation_runner(FakeClient(delay=0.01, tracker=tracker), max_concurrency=1)
-    run.run_many(task(region=r, paginate=False) for r in (AwsRegion.US_WEST_2, AwsRegion.US_EAST_1))
-    assert tracker.max == 1
-
-
 def test_stubber_paginated_describe_vpcs():
     ec2 = boto3.client(
         "ec2", region_name="us-east-1", aws_access_key_id="a", aws_secret_access_key="b"
     )
     with Stubber(ec2) as stub:
         stub.add_response("describe_vpcs", {"Vpcs": [{"VpcId": "vpc-1"}], "NextToken": "n"})
-        stub.add_response("describe_vpcs", {"Vpcs": [{"VpcId": "vpc-2"}]})
+        stub.add_response("describe_vpcs", {"Vpcs": [{"VpcId": "vpc-2"}]}, {"NextToken": "n"})
         run, _ = operation_runner(ec2)
         result = run.run(task())
     assert [v["VpcId"] for v in result.items] == ["vpc-1", "vpc-2"]
+    assert result.coverage.status == CoverageStatus.SUCCESS
     assert result.coverage.result_count == 2
-
-
-def test_stubber_failure_after_first_page_is_incomplete():
-    ec2 = boto3.client(
-        "ec2", region_name="us-east-1", aws_access_key_id="a", aws_secret_access_key="b"
-    )
-    with Stubber(ec2) as stub:
-        stub.add_response("describe_vpcs", {"Vpcs": [{"VpcId": "vpc-1"}], "NextToken": "n"})
-        stub.add_client_error("describe_vpcs", "RequestLimitExceeded", SECRET)
-        run, _ = operation_runner(ec2)
-        result = run.run(task())
-    assert result.coverage.status == CoverageStatus.INCOMPLETE
-    assert [v["VpcId"] for v in result.items] == ["vpc-1"]
-    assert result.coverage.failures[0].code == "RequestLimitExceeded"
-    assert SECRET not in result.coverage.model_dump_json()

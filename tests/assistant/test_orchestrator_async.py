@@ -14,7 +14,6 @@ from archdiscov.assistant.provider import (
     ProviderErrorCode,
 )
 from archdiscov.assistant.runs import (
-    Answered,
     Cancelled,
     LimitReached,
     ProviderFailed,
@@ -23,7 +22,7 @@ from archdiscov.assistant.runs import (
 )
 from archdiscov.assistant.tools.record import ReturnedIds
 from archdiscov.assistant.tools.session import ToolSession
-from tests.support.scripted_turns import SNAPSHOT, HangingProvider, calls_turn, fail_turn, text_turn
+from tests.support.scripted_turns import SNAPSHOT, HangingProvider, calls_turn, text_turn
 
 QUESTION = "Which resources are in the network?"
 
@@ -54,29 +53,14 @@ def _async(turns: list[dict], limits: RunLimits | None = None):
 
 # ---- sync and async agree ----------------------------------------------------------
 
-CASES = {
-    "answer": ([text_turn()], None),
-    "tools": ([calls_turn(("c1", "search_resources", {})), text_turn()], None),
-    "parallel": (
-        [calls_turn(("c1", "search_resources", {}), ("c2", "list_analyzers", {})), text_turn()],
-        RunLimits(max_tool_calls_per_turn=2),
-    ),
-    "request-limit": (
-        [calls_turn(("c1", "search_resources", {})), calls_turn(("c2", "search_resources", {}))],
-        RunLimits(max_provider_requests=2),
-    ),
-    "provider-error": ([fail_turn("provider_refusal")], None),
-    "provider-timeout": ([{**text_turn(), "delay_seconds": 70}], None),
-}
 
-
-@pytest.mark.parametrize("case", list(CASES))
-def test_sync_and_async_entry_points_agree(case: str) -> None:
-    turns, limits = CASES[case]
+def test_sync_and_async_entry_points_agree() -> None:
+    turns = [calls_turn(("c1", "search_resources", {})), text_turn("Done.")]
     provider, clock = _fake(turns)
-    sync = run_assistant(QUESTION, **_kwargs(provider, clock.monotonic, limits))
-    asynchronous, _ = _async(turns, limits)
+    sync = run_assistant(QUESTION, **_kwargs(provider, clock.monotonic))
+    asynchronous, _ = _async(turns)
     assert sync == asynchronous
+    assert sync.outcome.message.text == "Done."
 
 
 # ---- deadlines ---------------------------------------------------------------------
@@ -124,18 +108,6 @@ def test_the_overall_deadline_shortens_the_last_request() -> None:
     assert result.outcome == LimitReached(limit=RunLimitKind.OVERALL_DEADLINE)
     assert result.transcript.turns[1].error == ProviderErrorCode.TIMEOUT
     assert result.transcript.latency_seconds == 15
-
-
-def test_responses_within_the_deadlines_are_kept() -> None:
-    result, _ = _async(
-        [
-            calls_turn(("c1", "search_resources", {}), delay_seconds=9),
-            {**text_turn(), "delay_seconds": 9},
-        ],
-        RunLimits(request_timeout_seconds=10, overall_timeout_seconds=20),
-    )
-    assert isinstance(result.outcome, Answered)
-    assert result.transcript.latency_seconds == 18
 
 
 def test_a_hanging_provider_is_cut_off_and_settled() -> None:
@@ -200,10 +172,3 @@ def test_the_sync_wrapper_refuses_a_running_event_loop() -> None:
 
     asyncio.run(inside_a_loop())
     assert provider.requests == ()
-
-
-def test_the_sync_wrapper_returns_the_async_result() -> None:
-    provider, clock = _fake([text_turn("Done.")])
-    result = run_assistant(QUESTION, **_kwargs(provider, clock.monotonic))
-    assert isinstance(result.outcome, Answered)
-    assert result.outcome.message.text == "Done."

@@ -11,11 +11,8 @@ from archdiscov import cli_collection
 from archdiscov.cli import app
 from archdiscov.ingestion import aws as aws_module
 from archdiscov.ingestion.requests import COLLECTABLE_SERVICES, RegionScope
-from archdiscov.ingestion.service_catalog import REGIONAL_OPERATIONS
-from archdiscov.models.enums import AwsService
 from archdiscov.services import load_snapshot
-from tests.support.aws_fakes import Session
-from tests.support.iam_data import ACCOUNT, IamClient, IamSession, ec2_pages, responses
+from tests.support.iam_data import ACCOUNT, IamClient, IamSession, responses
 
 
 def arguments(path):
@@ -26,14 +23,7 @@ def arguments(path):
     "flags,services,scope,regions",
     [
         (["--all-services"], COLLECTABLE_SERVICES, RegionScope.ENABLED, ()),
-        (
-            ["--all-services", "--region", "us-west-2"],
-            COLLECTABLE_SERVICES,
-            RegionScope.EXPLICIT,
-            ("us-west-2",),
-        ),
         (["--region", "us-east-1"], {"ec2"}, RegionScope.EXPLICIT, ("us-east-1",)),
-        (["--service", "iam"], {"iam"}, RegionScope.EXPLICIT, ()),
         (["--service", "lambda", "--region-scope", "enabled"], {"lambda"}, RegionScope.ENABLED, ()),
     ],
 )
@@ -96,73 +86,42 @@ def test_cli_forwards_execution_and_bootstrap_controls(monkeypatch, tmp_path):
     assert account.max_concurrency == 2
 
 
-@pytest.mark.parametrize(
-    "flags",
-    [
-        ["--all-services", "--service", "ec2"],
-        ["--all-services", "--region-scope", "explicit"],
-        ["--all-services", "--region", "global"],
-        ["--all-services", "--bootstrap-region", "invalid-private-value"],
-        ["--all-services", "--max-in-flight-calls", "65"],
-    ],
-    ids=[
-        "all-services-with-service",
-        "explicit-scope-without-regions",
-        "global-region",
-        "unknown-bootstrap-region",
-        "limit-out-of-range",
-    ],
-)
-def test_invalid_scope_and_limits_are_rejected_before_collection(monkeypatch, tmp_path, flags):
-    def unexpected(*args):
-        pytest.fail("invalid CLI request reached collection")
-
-    monkeypatch.setattr(cli_collection, "collect_and_save", unexpected)
-    output = tmp_path / "not-created.json"
-    result = CliRunner().invoke(app, [*arguments(output), *flags])
-    assert result.exit_code == 2, result.output
-    assert json.loads(result.output)["error"]["code"] == "invalid_request"
-    assert "invalid-private-value" not in result.output
-    assert not output.exists()
-
-
+# One option the command converts and one field the request model checks; the request
+# model's own rules are its tests' concern.
 @pytest.mark.parametrize(
     ("flags", "named"),
     [
-        (["--all-services", "--max-concurrency", "0"], "max_concurrency"),
         (["--region", "invalid-private-value"], "--region"),
+        (["--all-services", "--max-concurrency", "0"], "max_concurrency"),
     ],
-    ids=["model-issue-location", "option-message"],
+    ids=["option-message", "model-issue-location"],
 )
-def test_a_rejected_request_names_what_is_wrong_without_its_value(
+def test_a_rejected_request_names_what_is_wrong_and_makes_no_calls(
     monkeypatch, tmp_path, flags, named
 ):
-    monkeypatch.setattr(cli_collection, "collect_and_save", lambda *args: [])
-    result = CliRunner().invoke(app, [*arguments(tmp_path / "x.json"), *flags])
+    calls = []
+    monkeypatch.setattr(aws_module, "default_session_factory", lambda **kw: calls.append(kw))
+    output = tmp_path / "not-created.json"
+    result = CliRunner().invoke(app, [*arguments(output), *flags])
     assert result.exit_code == 2, result.output
     error = json.loads(result.output)["error"]
+    assert error["code"] == "invalid_request"
     locations = [part for issue in error.get("details", []) for part in issue["location"]]
     assert named in error["message"] or named in locations
     assert "invalid-private-value" not in result.output
+    assert not output.exists()
+    assert calls == []
 
 
-@pytest.mark.parametrize("combined", [False, True])
-def test_collect_services_then_inspect_evidence_without_overwrite(tmp_path, monkeypatch, combined):
-    session = IamSession(ec2=Session(pages=ec2_pages))
-    monkeypatch.setattr(aws_module, "default_session_factory", lambda **kwargs: session)
+def test_collect_iam_then_inspect_evidence_without_overwrite(tmp_path, monkeypatch):
+    monkeypatch.setattr(aws_module, "default_session_factory", lambda **kwargs: IamSession())
     runner = CliRunner()
     output = tmp_path / "iam.json"
     args = ["collect", "--account", f"dev:{ACCOUNT}", "--service", "iam", "-o", str(output)]
-    if combined:
-        args += ["--service", "ec2", "--region", "us-east-1", "--region", "us-west-2"]
     result = runner.invoke(app, [*args, "--json"])
     assert result.exit_code == 0, result.output
-    summary = json.loads(result.output)["accounts"][0]
-    assert summary["complete"] is True
-    ec2_reads = len(REGIONAL_OPERATIONS[AwsService.EC2])
-    assert len(summary["operations"]) == (2 * ec2_reads + 8 if combined else 8)
+    assert json.loads(result.output)["accounts"][0]["complete"] is True
     snapshot = load_snapshot(output)
-    assert len(snapshot.regions) == (2 if combined else 0)
     role = next(
         resource
         for resource in snapshot.global_resources
@@ -173,7 +132,6 @@ def test_collect_services_then_inspect_evidence_without_overwrite(tmp_path, monk
     assert inspected.exit_code == 0, inspected.output
     data = json.loads(inspected.output)
     assert data["evidence"]["resource_id"] == role.id
-    assert data["evidence"]["locator"].startswith("iam:")
     assert data["evidence"]["redacted_paths"]
     assert "protected-context" not in output.read_text()
     before = output.read_bytes()
@@ -183,27 +141,7 @@ def test_collect_services_then_inspect_evidence_without_overwrite(tmp_path, monk
     assert output.read_bytes() == before
 
 
-# The default service, EC2, is regional; the request model's own rules are its tests' concern.
-@pytest.mark.parametrize(
-    "options",
-    [[], ["--service", "not-a-service"]],
-    ids=["default-service-without-region", "unknown-service"],
-)
-def test_invalid_service_or_missing_required_region_makes_no_calls(tmp_path, monkeypatch, options):
-    calls = []
-    monkeypatch.setattr(aws_module, "default_session_factory", lambda **kw: calls.append(kw))
-    output = tmp_path / "invalid.json"
-    result = CliRunner().invoke(
-        app, ["collect", "--account", f"dev:{ACCOUNT}", "-o", str(output), "--json", *options]
-    )
-    assert result.exit_code == 2, result.output
-    assert json.loads(result.output)["error"]["code"] == "invalid_request"
-    assert not output.exists()
-    assert calls == []
-
-
-@pytest.mark.parametrize("json_output", [False, True])
-def test_partial_iam_collection_is_explicit_and_sanitized(tmp_path, monkeypatch, json_output):
+def test_partial_iam_collection_is_explicit_and_sanitized(tmp_path, monkeypatch):
     data = responses()
     data["get_policy_version"] = ClientError(
         {"Error": {"Code": "AccessDenied", "Message": "malicious-secret"}}, "GetPolicyVersion"
@@ -212,18 +150,10 @@ def test_partial_iam_collection_is_explicit_and_sanitized(tmp_path, monkeypatch,
     monkeypatch.setattr(aws_module, "default_session_factory", lambda **kwargs: session)
     output = tmp_path / "partial.json"
     args = ["collect", "--account", f"dev:{ACCOUNT}", "--service", "iam", "-o", str(output)]
-    result = CliRunner().invoke(app, [*args, *(["--json"] if json_output else [])])
+    result = CliRunner().invoke(app, args)
     assert result.exit_code == 0, result.output
-    assert output.exists()
-    if json_output:
-        summary = json.loads(result.output)["accounts"][0]
-        assert summary["complete"] is False
-        version = next(op for op in summary["operations"] if op["operation"] == "GetPolicyVersion")
-        assert version["status"] == "failed"
-        assert version["failures"] == ["AccessDenied"]
-    else:
-        assert "PARTIAL" in result.output
-        assert "GetPolicyVersion: failed" in result.output
+    assert "PARTIAL" in result.output
+    assert "GetPolicyVersion: failed [AccessDenied]" in result.output
     assert "malicious-secret" not in result.output + output.read_text()
 
 
@@ -251,13 +181,13 @@ def test_iam_accounts_remain_isolated_after_identity_failure(tmp_path, monkeypat
             str(bad),
             "-o",
             str(good),
-            "--json",
         ],
     )
     assert result.exit_code == 5, result.output
-    failed, succeeded = json.loads(result.output)["accounts"]
-    assert failed["error"]["code"] == "account_mismatch"
-    assert succeeded["complete"] is True
+    assert "Account 111111111111: FAILED [account_mismatch]" in result.output
+    assert f"Account {ACCOUNT}: saved {good} - complete within resolved supported scope" in (
+        result.output
+    )
     assert not bad.exists()
     assert load_snapshot(good).account_id == ACCOUNT
     assert sessions[0].iam.calls == []

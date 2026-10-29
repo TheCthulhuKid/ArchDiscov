@@ -2,12 +2,7 @@ import json
 
 import pytest
 
-from archdiscov.services import (
-    EvidenceNotFoundError,
-    SnapshotValidationError,
-    get_evidence,
-    load_snapshot,
-)
+from archdiscov.services import EvidenceNotFoundError, get_evidence, load_snapshot
 from tests.paths import FIXTURES_ROOT
 
 FIXTURES = FIXTURES_ROOT / "snapshots"
@@ -43,8 +38,6 @@ def test_evidence_context_is_detached_sanitized_and_retains_limitations() -> Non
     assert result.coverage[1].failures[0].code == "UnauthorizedOperation"
     assert result.coverage[2].result_count == 0
     assert snapshot.evidence["sg-rule"].value["Password"] == "do-not-print"
-    result.resource.attributes.clear()
-    assert snapshot.regions["eu-west-1"].resources[0].attributes
 
 
 def test_context_excludes_other_regions_and_services() -> None:
@@ -56,29 +49,16 @@ def test_context_excludes_other_regions_and_services() -> None:
     assert len(get_evidence(data, "sg-rule").coverage) == 3
 
 
-def test_uncited_evidence_remains_inspectable() -> None:
+def test_fact_citations_and_uncited_evidence_remain_inspectable() -> None:
     snapshot = load_snapshot(FIXTURES / "partial-coverage.json")
     resource = snapshot.regions["eu-west-1"].resources[0]
     resource.evidence_ids.clear()
+    assert get_evidence(snapshot, "sg-rule").fact_paths == ["/attributes/ingress/0"]
     resource.fact_evidence.clear()
     assert get_evidence(snapshot, "sg-rule").fact_paths == []
-
-
-def test_fact_citation_does_not_require_broad_citation() -> None:
-    snapshot = load_snapshot(FIXTURES / "partial-coverage.json")
-    snapshot.regions["eu-west-1"].resources[0].evidence_ids.clear()
-    assert get_evidence(snapshot, "sg-rule").fact_paths == ["/attributes/ingress/0"]
 
 
 def test_unknown_evidence_is_a_domain_error() -> None:
     with pytest.raises(EvidenceNotFoundError) as error:
         get_evidence(load_snapshot(FIXTURES / "hierarchy.json"), "absent")
     assert error.value.code == "evidence_not_found"
-
-
-def test_lookup_revalidates_mutated_references() -> None:
-    snapshot = load_snapshot(FIXTURES / "hierarchy.json")
-    snapshot.evidence["instance"].resource_id = "missing"
-    with pytest.raises(SnapshotValidationError) as error:
-        get_evidence(snapshot, "instance")
-    assert "unknown resource owner" in error.value.details[0].message

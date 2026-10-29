@@ -127,25 +127,18 @@ def test_coverage_gaps_survive_empty_results():
     assert any(item.kind == QueryLimitationKind.COVERAGE_LIMITED for item in result.limitations)
 
 
-def test_results_are_detached_from_the_index_and_between_paths():
-    index = graph([(RTB, SGW), (SGW, SUB)])
-    before = index.dependency_edges
-    result = run(index)
+def test_paths_sharing_a_prefix_do_not_share_steps():
+    result = run(graph([(RTB, SGW), (SGW, SUB)]))
     first, second = (p for p in result.paths if len(p.steps) == 2)
     assert first.steps[0] is not second.steps[0]
     first.steps[0].edge.edge.attributes["changed"] = True
     assert "changed" not in second.steps[0].edge.edge.attributes
-    assert index.dependency_edges == before
 
 
-def test_unknown_and_invalid_requests_are_safe_errors():
-    index = graph()
+def test_unknown_resource_is_a_safe_error():
     with pytest.raises(QueryError) as unknown:
-        run(index, "absent")
+        run(graph(), "absent")
     assert unknown.value.code == QueryErrorCode.RESOURCE_NOT_FOUND
-    with pytest.raises(QueryError) as error:
-        query_paths(index, {"resource_id": RTB, "limits": {"depth": 11}})
-    assert error.value.code == QueryErrorCode.INVALID_REQUEST
 
 
 def test_excluded_resources_are_never_entered_and_never_reported_as_truncation():

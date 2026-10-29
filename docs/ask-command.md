@@ -212,18 +212,18 @@ how to try the command by hand with a written fake transcript or the example hel
 
 `tests/acceptance/test_installed_ask.py` runs the installed command outside the checkout,
 through the `archdiscov` script, with an offline guard that fails
-any network use and an environment without credentials. It ingests the README evaluation
-suite's case files and answers each case, including the five README example questions, in
-both output forms, inspects the cited evidence, and checks that a fabricated citation is
-rejected after the one repair. It refuses a missing configuration, an unknown snapshot, a
-Bedrock profile that cannot be loaded, an Anthropic or OpenAI-compatible configuration
-without its key, and an existing transcript path, and reports a scripted provider error and a run
-limit, each with the exit code above. It also answers a README question through the
-Anthropic adapter, the OpenAI-compatible adapter with each protocol, and the Bedrock adapter,
-each against a mock API on one loopback port, the only connection the guard allows, with the
-same answer as the fake provider. The Bedrock run alone gets a dummy AWS profile through
-`AWS_CONFIG_FILE` and `AWS_SHARED_CREDENTIALS_FILE`, and its requests are SigV4-signed
-`POST /model/{modelId}/converse` calls. In-process tests in
-`tests/cli/test_ask_cli.py` and `tests/cli/test_ask_examples.py` cover every exit code,
-the envelope, and further examples (limited coverage, insufficient evidence, a Terraform
-plan, and a comparison).
+any network use and an environment without credentials. It answers a README example
+question over the README evaluation suite's case files in both output forms, inspects the
+cited evidence, and checks that a fabricated citation is rejected after the one repair; the
+installed `evaluate` journey (`tests/acceptance/test_installed_evaluation.py`) asks every
+README case. It refuses a missing configuration, a Bedrock profile that
+cannot be loaded, and an Anthropic configuration without its key, and reports a scripted
+provider error and a run limit, each with the exit code above. It also answers a README
+question through the Anthropic adapter, the OpenAI-compatible adapter with each protocol, and
+the Bedrock adapter, each against a mock API on one loopback port, the only connection the
+guard allows, with the same answer as the fake provider. The Bedrock run alone gets a dummy
+AWS profile through `AWS_CONFIG_FILE` and `AWS_SHARED_CREDENTIALS_FILE`, and its requests are
+SigV4-signed `POST /model/{modelId}/converse` calls. In-process tests in
+`tests/cli/test_ask_cli.py`, `tests/cli/test_ask_examples.py`, and `tests/services/test_ask.py`
+cover every exit code, the envelope, and further examples (limited coverage, insufficient
+evidence, a Terraform plan, and a comparison).

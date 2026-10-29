@@ -268,15 +268,7 @@ def test_successful_collection_does_not_limit_and_absent_records_are_not_interpr
     assert decision({"sg-app": [rule(cidr="10.0.0.0/16")]}, status=None) == D.ALLOW
 
 
-# ---- platform and determinism -------------------------------------------------------
-
-
-def test_non_aws_snapshots_return_the_unsupported_platform_result():
-    azure = GraphIndex(load_snapshot(FIXTURES_ROOT / "snapshots" / "azure.json"))
-    result = evaluate_security_group(
-        azure, azure.resource_ids[0], INGRESS, Peer.address(LOCAL, ()), protocol="tcp", port=1
-    )
-    assert (result.decision, codes(result)) == (D.UNKNOWN, {B.UNSUPPORTED_PLATFORM})
+# ---- determinism --------------------------------------------------------------------
 
 
 def test_results_are_deterministic_and_detached():

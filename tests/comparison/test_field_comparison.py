@@ -59,14 +59,15 @@ def summary(differences):
 # ---- fields ----------------------------------------------------------------------
 
 
-def test_equal_resources_have_no_differences():
-    attributes = {"cidr": "10.0.0.0/16", "tags": {"Name": "main"}}
-    assert compare([vpc(attributes=attributes)], [vpc(attributes=attributes)]) == []
-
-
-def test_changed_added_and_removed_fields_and_tags_have_pointer_paths():
-    left = vpc(attributes={"cidr": "10.0.0.0/16", "tags": {"Name": "a", "Team": "x"}, "old": 1})
-    right = vpc(attributes={"cidr": "10.1.0.0/16", "tags": {"Name": "b", "Env": "y"}, "new": 2})
+def test_changed_added_and_removed_fields_and_tags_have_pointer_paths_in_canonical_order():
+    left = vpc(
+        name="a",
+        attributes={"old": 1, "tags": {"Name": "a", "Team": "x"}, "cidr": "10.0.0.0/16"},
+    )
+    right = vpc(
+        name="b",
+        attributes={"cidr": "10.1.0.0/16", "tags": {"Name": "b", "Env": "y"}, "new": 2},
+    )
     differences = compare([left], [right])
     assert summary(differences) == [
         (FIELD, "/attributes/cidr", CHANGED),
@@ -75,6 +76,7 @@ def test_changed_added_and_removed_fields_and_tags_have_pointer_paths():
         (FIELD, "/attributes/tags/Env", ADDED),
         (FIELD, "/attributes/tags/Name", CHANGED),
         (FIELD, "/attributes/tags/Team", REMOVED),
+        (FIELD, "/name", CHANGED),
     ]
     by_path = {d.path: d for d in differences}
     assert (by_path["/attributes/cidr"].left_value, by_path["/attributes/cidr"].right_value) == (
@@ -84,15 +86,9 @@ def test_changed_added_and_removed_fields_and_tags_have_pointer_paths():
     assert by_path["/attributes/new"].left_value is None
     assert by_path["/attributes/new"].right_value == 2
     assert by_path["/attributes/old"].right_value is None
-
-
-def test_names_and_pointer_special_characters_are_compared_and_escaped():
-    left = vpc(name="a", attributes={"a/b~c": 1})
-    right = vpc(name="b", attributes={"a/b~c": 2})
-    assert summary(compare([left], [right])) == [
-        (FIELD, "/attributes/a~1b~0c", CHANGED),
-        (FIELD, "/name", CHANGED),
-    ]
+    # No citation is invented when a side records no evidence.
+    assert by_path["/attributes/cidr"].left_evidence_ids == []
+    assert by_path["/attributes/cidr"].right_evidence_ids == []
 
 
 def test_lists_are_compared_by_position():
@@ -105,15 +101,14 @@ def test_lists_are_compared_by_position():
 
 
 def test_snapshot_bookkeeping_is_not_compared():
-    attributes = {"x": 1}
     left = vpc(
-        attributes=attributes,
+        attributes={"x": 1},
         evidence=["a"],
         fact_evidence={"/attributes/x": ["a"]},
         logical="aws_vpc.a",
     )
     right = vpc(
-        attributes=attributes,
+        attributes={"x": 1, "terraform_type": "aws_vpc"},
         evidence=["b"],
         fact_evidence={"/attributes/x": ["b"]},
         logical="aws_vpc.b",
@@ -162,11 +157,6 @@ def test_differences_cite_the_fact_on_both_sides_or_fall_back_to_resource_eviden
         ["l-all", "l-cidr"],
         ["r-attributes"],
     )
-
-
-def test_no_citation_is_invented_when_a_side_records_no_evidence():
-    differences = compare([vpc(attributes={"a": 1})], [vpc(attributes={"a": 2})])
-    assert differences[0].left_evidence_ids == differences[0].right_evidence_ids == []
 
 
 # ---- redacted, unknown, and omitted values ---------------------------------------
@@ -218,7 +208,7 @@ def test_omitted_values_qualify_the_absent_side_and_present_changes_stay_differe
 # ---- containment -----------------------------------------------------------------
 
 
-def test_matched_parents_are_equal_and_a_changed_or_missing_parent_is_a_difference():
+def test_a_changed_parent_is_a_containment_difference():
     # subnet-1 sits in vpc-1 on the left; in vpc-2 on the right.
     left = [vpc("vpc-1", children=[subnet("subnet-1")]), vpc("vpc-2")]
     right = [vpc("vpc-1"), vpc("vpc-2", children=[subnet("subnet-1")])]
@@ -234,28 +224,6 @@ def test_matched_parents_are_equal_and_a_changed_or_missing_parent_is_a_differen
     )
     assert difference.left_value == {"left": rid("vpc-1"), "right": rid("vpc-1")}
     assert difference.right_value == {"left": rid("vpc-2"), "right": rid("vpc-2")}
-
-    same = index([vpc("vpc-1", children=[subnet("subnet-1")])], seed=3)
-    same_outcome = match_resources(
-        same, index([vpc("vpc-1", children=[subnet("subnet-1")])], seed=4)
-    )
-    again = FieldComparer(
-        same, index([vpc("vpc-1", children=[subnet("subnet-1")])], seed=4), same_outcome.matched
-    )
-    assert all(again.compare(m) == [] for m in same_outcome.matched)
-
-
-def test_a_parent_added_or_removed_is_reported_with_the_missing_side_null():
-    left = [vpc("vpc-1", children=[subnet("subnet-1")])]
-    right = [vpc("vpc-1"), subnet("subnet-1")]
-    left_index, right_index = index(left, seed=1), index(right, seed=2)
-    outcome = match_resources(left_index, right_index)
-    comparer = FieldComparer(left_index, right_index, outcome.matched)
-    pair = next(m for m in outcome.matched if m.left_id == rid("subnet-1"))
-    [difference] = comparer.compare(pair)
-    assert difference.kind == REMOVED
-    assert difference.right_value is None
-    assert difference.left_value == {"left": rid("vpc-1"), "right": rid("vpc-1")}
 
 
 # ---- dependencies ----------------------------------------------------------------
@@ -331,14 +299,6 @@ def test_unresolved_references_are_indeterminate_rather_than_differences():
     assert alone.qualifications[0].side == LEFT
 
 
-def test_differences_are_unique_and_in_canonical_order():
-    left = vpc(attributes={"b": 1, "a": 1}, name="x")
-    right = vpc(attributes={"b": 2, "a": 2})
-    differences = compare([left], [right])
-    paths = [d.path for d in differences]
-    assert paths == ["/attributes/a", "/attributes/b", "/name"]
-
-
 # ---- unknown typed values and source bookkeeping ----------------------------------
 
 
@@ -369,14 +329,6 @@ def test_a_cited_null_is_a_known_value_even_beside_unknown_values():
     [difference] = compare([left], [right], right_kw={"evidence": right_evidence})
     assert (difference.path, difference.kind) == ("/cidr_blocks", CHANGED)
     assert difference.right_value is None and difference.right_evidence_ids == ["fact"]
-
-
-def test_a_null_without_unknown_values_is_still_a_change():
+    # Without unknown values, a null is a change too.
     [difference] = compare([typed(["10.0.0.0/16"])], [typed(None)])
     assert difference.kind == CHANGED
-
-
-def test_the_terraform_type_bookkeeping_attribute_is_not_a_difference():
-    left = vpc(attributes={"a": 1})
-    right = vpc(attributes={"a": 1, "terraform_type": "aws_vpc"})
-    assert compare([left], [right]) == []

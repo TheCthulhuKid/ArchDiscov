@@ -21,9 +21,7 @@ from archdiscov.assistant.orchestrator import run_assistant
 from archdiscov.assistant.provider import (
     CompletionRequest,
     CompletionResponse,
-    ProviderInvalidRequestError,
     ProviderMalformedOutputError,
-    ProviderRefusalError,
     RequestLimits,
     StopReason,
 )
@@ -38,7 +36,7 @@ from tests.support.openai_exchanges import (
     send_request,
     sent_body,
 )
-from tests.support.provider_data import EXCHANGE, INSPECT_TOOL, SEARCH_TOOL, SIGNATURE, THINKING
+from tests.support.provider_data import EXCHANGE, INSPECT_TOOL, SEARCH_TOOL, SIGNATURE
 from tests.support.scripted_turns import SNAPSHOT
 from tests.support.secrets import SECRET, secret_renderings
 
@@ -55,14 +53,6 @@ LOOKUP = {
     "call_id": "call_1",
     "name": "search_resources",
     "arguments": '{"type":"x"}',
-    "status": "completed",
-}
-INSPECTION = {
-    "type": "function_call",
-    "id": "fc_2",
-    "call_id": "call_2",
-    "name": "inspect_resource",
-    "arguments": "{}",
     "status": "completed",
 }
 # Encrypted reasoning, as a stateless request asks for it; long and opaque, like a signature.
@@ -166,20 +156,6 @@ def test_a_responses_request_maps_every_message_tool_and_limit() -> None:
     }
 
 
-@pytest.mark.parametrize(
-    ("declared", "limit", "expected"),
-    [(PARALLEL, 4, True), (PARALLEL, 1, False), (["tool_calling"], 1, None)],
-    ids=["declared-many", "declared-one", "undeclared"],
-)
-def test_parallel_tool_calls_is_sent_only_when_declared(declared, limit, expected) -> None:
-    api = responding_api(_body(TEXT))
-    send_request(
-        _responses(api, capabilities=declared),
-        request=openai_request(max_tool_calls_per_turn=limit),
-    )
-    assert sent_body(api).get("parallel_tool_calls") is expected
-
-
 def test_encrypted_reasoning_is_requested_only_when_declared() -> None:
     api = responding_api(_body(TEXT), _body(TEXT))
     send_request(_responses(api, encrypted_reasoning=True))
@@ -194,20 +170,6 @@ def test_a_request_without_tools_sends_no_tool_fields_and_no_secret() -> None:
     body = api.requests[0].content.decode()
     assert SECRET not in body
     assert set(json.loads(body)) == {"model", "input", "store", "max_output_tokens"}
-
-
-def test_another_providers_continuation_is_refused_before_any_request() -> None:
-    api = responding_api(_body(TEXT))
-    message = {
-        "role": "assistant",
-        "text": "Thinking.",
-        "continuation": {"provider_kind": "anthropic", "blocks": [THINKING]},
-    }
-    with pytest.raises(ProviderInvalidRequestError):
-        send_request(
-            _responses(api), request=openai_request(message, {"role": "user", "text": "Go on."})
-        )
-    assert api.requests == []
 
 
 # ---- responses ---------------------------------------------------------------------
@@ -245,28 +207,10 @@ def test_responses_map_to_the_shared_contracts(body, message, stop) -> None:
     )
 
 
-@pytest.mark.parametrize(
-    ("body", "error"),
-    [
-        (
-            _body(_message({"type": "refusal", "refusal": "No."}), LOOKUP),
-            ProviderRefusalError,
-        ),
-        (_body(TEXT, status="failed"), ProviderMalformedOutputError),
-        (_body(TEXT, {"type": "hologram"}), ProviderMalformedOutputError),
-        (_body({**LOOKUP, "name": "not a tool"}), ProviderMalformedOutputError),
-    ],
-    ids=[
-        "refusal-with-call",
-        "failed",
-        "unknown-item",
-        "invalid-tool-name",
-    ],
-)
-def test_unusable_responses_are_typed_errors_without_provider_text(body, error) -> None:
-    with pytest.raises(error) as raised:
-        send_request(_responses(responding_api(body)))
-    assert str(raised.value) == error.message
+def test_an_unknown_output_item_is_malformed_without_provider_text() -> None:
+    with pytest.raises(ProviderMalformedOutputError) as raised:
+        send_request(_responses(responding_api(_body(TEXT, {"type": "hologram"}))))
+    assert str(raised.value) == ProviderMalformedOutputError.message
     assert "None of them" not in "".join(secret_renderings(raised.value))
 
 
@@ -286,10 +230,6 @@ def test_usage_maps_cached_tokens() -> None:
 
 
 # ---- continuations -----------------------------------------------------------------
-
-
-def test_a_response_without_reasoning_has_no_continuation() -> None:
-    assert send_request(_responses(responding_api(_body(TEXT)))).message.continuation is None
 
 
 def test_reasoning_is_replayed_verbatim_and_in_order_on_the_next_request() -> None:

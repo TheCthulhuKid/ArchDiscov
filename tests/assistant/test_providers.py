@@ -13,26 +13,12 @@ from archdiscov.assistant.config import (
     parse_provider_config,
 )
 from archdiscov.assistant.fake import FakeProvider, FakeScriptError, FakeScriptErrorCode
-from archdiscov.assistant.orchestrator import run_assistant
 from archdiscov.assistant.providers import ADAPTERS, build_provider, load_provider
-from archdiscov.assistant.tools.session import ToolSession
 from tests.paths import TESTS_ROOT
-from tests.support.provider_data import (
-    ANTHROPIC,
-    BEDROCK,
-    MISSING_PROFILE,
-    OPENAI,
-    missing_profile_config,
-)
+from tests.support.provider_data import ANTHROPIC, MISSING_PROFILE, missing_profile_config
 from tests.support.secrets import SECRET, secret_renderings
 
 TRANSCRIPT = TESTS_ROOT / "fixtures" / "assistant" / "multi_step.json"
-SNAPSHOT = TESTS_ROOT / "fixtures" / "snapshots" / "network.json"
-EXAMPLES = {
-    ProviderKind.ANTHROPIC: ANTHROPIC,
-    ProviderKind.OPENAI_COMPATIBLE: OPENAI,
-    ProviderKind.BEDROCK: BEDROCK,
-}
 
 
 def _config(directory: Path, body: str) -> Path:
@@ -41,45 +27,24 @@ def _config(directory: Path, body: str) -> Path:
     return path
 
 
-def test_every_kind_has_an_adapter_and_every_real_kind_an_example() -> None:
+def test_every_kind_has_an_adapter() -> None:
     assert set(ADAPTERS) == set(ProviderKind)
-    assert set(EXAMPLES) == set(ProviderKind) - {ProviderKind.FAKE}
 
 
-@pytest.mark.parametrize("absolute", [False, True], ids=["relative", "absolute"])
-def test_the_fake_is_built_from_its_transcript(tmp_path: Path, absolute: bool) -> None:
+def test_the_fake_is_built_from_its_transcript_beside_the_configuration(tmp_path: Path) -> None:
     scripts = tmp_path / "scripts"
     scripts.mkdir()
     shutil.copy(TRANSCRIPT, scripts / "run.json")
-    transcript = (scripts / "run.json") if absolute else Path("scripts/run.json")
-    config_dir = tmp_path / "elsewhere" if absolute else tmp_path
-    config_dir.mkdir(exist_ok=True)
-    path = _config(config_dir, f'kind = "fake"\ntranscript = "{transcript.as_posix()}"\n')
-    config, provider = load_provider(path)
+    config, provider = load_provider(
+        _config(tmp_path, 'kind = "fake"\ntranscript = "scripts/run.json"\n')
+    )
     assert config.kind == ProviderKind.FAKE
     assert isinstance(provider, FakeProvider)
     turns = len(json.loads(TRANSCRIPT.read_text(encoding="utf-8"))["turns"])
     assert provider.remaining_turns == turns
 
 
-def test_a_built_fake_answers_a_run(tmp_path: Path) -> None:
-    turn = {
-        "kind": "respond",
-        "response": {"message": {"role": "assistant", "text": "Done."}, "stop_reason": "end"},
-    }
-    (tmp_path / "run.json").write_text(json.dumps({"turns": [turn]}), encoding="utf-8")
-    _, provider = load_provider(_config(tmp_path, 'kind = "fake"\ntranscript = "run.json"\n'))
-    result = run_assistant(
-        "q",
-        provider=provider,
-        session=ToolSession.from_paths(SNAPSHOT),
-        provider_kind="fake",
-        model="fake",
-    )
-    assert result.outcome.kind == "answered"
-
-
-def test_a_fake_without_a_transcript_is_refused(tmp_path: Path) -> None:
+def test_a_fake_without_a_usable_transcript_is_refused(tmp_path: Path) -> None:
     path = _config(tmp_path, 'kind = "fake"\n')
     with pytest.raises(ProviderConfigError) as raised:
         load_provider(path)
@@ -87,9 +52,6 @@ def test_a_fake_without_a_transcript_is_refused(tmp_path: Path) -> None:
     assert error.code == ProviderConfigErrorCode.TRANSCRIPT_MISSING
     assert error.path == path and error.kind == ProviderKind.FAKE
     assert str(error) == "Fake provider configuration names no transcript file."
-
-
-def test_an_unusable_transcript_is_refused_with_its_resolved_path(tmp_path: Path) -> None:
     with pytest.raises(FakeScriptError) as raised:
         load_provider(_config(tmp_path, 'kind = "fake"\ntranscript = "run.json"\n'))
     assert raised.value.code == FakeScriptErrorCode.UNREADABLE

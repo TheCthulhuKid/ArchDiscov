@@ -1,5 +1,4 @@
 import json
-from datetime import UTC, datetime
 
 import pytest
 
@@ -24,9 +23,6 @@ FIXTURES = FIXTURES_ROOT / "snapshots"
 OPERATION = "DescribeRouteTables"
 EXTRA = {
     "failed": {"failures": [{"code": "UnauthorizedOperation", "message": "denied"}]},
-    "incomplete": {"result_count": 1, "reason": "Pagination stopped"},
-    "skipped": {"reason": "Not selected"},
-    "unsupported": {"reason": "Not supported"},
     "success": {"result_count": 0},
 }
 
@@ -51,34 +47,22 @@ def index_with(tmp_path, status):
     return GraphIndex(snapshot_with(tmp_path, status))
 
 
-@pytest.mark.parametrize("status", ["failed", "incomplete", "skipped", "unsupported"])
-def test_limited_coverage_downgrades_supported_with_one_limitation(tmp_path, status):
-    index = index_with(tmp_path, status)
+def test_limited_coverage_downgrades_only_supported_conclusions(tmp_path):
+    index = index_with(tmp_path, "failed")
     resource = index.resources()[0]
     qualified = qualify_status(index, [resource, resource], AnalysisStatus.SUPPORTED)
     assert qualified.status == AnalysisStatus.PARTIAL
     [limitation] = qualified.limitations
-    assert limitation.code == f"coverage_{status}"
+    assert limitation.code == "coverage_failed"
     assert limitation.coverage.operation == OPERATION
     assert limitation.coverage.service == "ec2"
     assert limitation.coverage.location == "eu-west-1"
-
-
-def test_existing_uncertainty_is_never_upgraded(tmp_path):
     status = AnalysisStatus.INSUFFICIENT_EVIDENCE
-    index = index_with(tmp_path, "failed")
-    qualified = qualify_status(index, index.resources(), status)
-    assert qualified.status == status
-    assert len(qualified.limitations) == 1
-
-
-def test_successful_zero_and_unmatched_contexts_are_not_limitations(tmp_path):
-    index = index_with(tmp_path, "success")
-    qualified = qualify_status(index, index.resources(), AnalysisStatus.SUPPORTED)
-    assert (qualified.status, qualified.limitations) == (AnalysisStatus.SUPPORTED, [])
-    other = network_index()
-    qualified = qualify_status(other, other.resources(), AnalysisStatus.SUPPORTED)
-    assert (qualified.status, qualified.limitations) == (AnalysisStatus.SUPPORTED, [])
+    assert qualify_status(index, index.resources(), status).status == status
+    # Successful-zero collection, and contexts without recorded coverage, are no limitation.
+    for other in (index_with(tmp_path, "success"), network_index()):
+        qualified = qualify_status(other, other.resources(), AnalysisStatus.SUPPORTED)
+        assert (qualified.status, qualified.limitations) == (AnalysisStatus.SUPPORTED, [])
 
 
 class FakeOwnership:
@@ -87,7 +71,6 @@ class FakeOwnership:
 
     def __init__(self, **overrides):
         self.overrides = overrides
-        self.last = None
 
     def analyze(self, index, parameters):
         findings = []
@@ -111,12 +94,10 @@ class FakeOwnership:
             "parameters": parameters,
         }
         values.update(self.overrides)
-        result = build_result(self, index, parameters, findings)
-        self.last = result.model_copy(update=values)
-        return self.last
+        return build_result(self, index, parameters, findings).model_copy(update=values)
 
 
-def test_run_analyzer_returns_validated_detached_qualified_result(tmp_path):
+def test_run_analyzer_returns_a_validated_qualified_result(tmp_path):
     snapshot = snapshot_with(tmp_path, "failed")
     index = GraphIndex(snapshot)
     analyzer = FakeOwnership()
@@ -132,23 +113,16 @@ def test_run_analyzer_returns_validated_detached_qualified_result(tmp_path):
     assert finding.status == AnalysisStatus.PARTIAL
     assert finding.limitations[0].code == "coverage_failed"
     assert validate_analysis_result(result, snapshot) == result
-    assert result is not analyzer.last
-    result.findings[0].summary = "changed"
-    assert analyzer.last.findings[0].summary != "changed"
 
 
-def test_build_result_orders_findings_and_stamps_time(tmp_path):
+def test_build_result_orders_findings_by_id():
     index = network_index()
-    analyzer = FakeOwnership()
-    result = run_analyzer(index, {"kind": "ownership"}, registry=AnalyzerRegistry([analyzer]))
+    result = run_analyzer(
+        index, {"kind": "ownership"}, registry=AnalyzerRegistry([FakeOwnership()])
+    )
     ids = [finding.id for finding in result.findings]
     assert ids == sorted(ids)
     assert len(ids) == len([r for r in index.resource_ids if index.resource_evidence_ids(r)]) > 1
-    assert result.created_at.tzinfo is not None
-    stamped = build_result(
-        analyzer, index, OwnershipParameters(), [], created_at=datetime(2026, 1, 1, tzinfo=UTC)
-    )
-    assert stamped.created_at == datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def test_registry_is_deterministic_and_rejects_unknown_kinds():
@@ -180,26 +154,8 @@ def test_invalid_parameters_are_safe_errors():
     assert "SECRET-KEY" not in str(error.value)
 
 
-def test_an_unregistered_kind_is_a_safe_error():
-    index = network_index()
+def test_results_that_misidentify_themselves_are_rejected():
+    analyzer = FakeOwnership(analyzer_version="other")
     with pytest.raises(AnalyzerError) as error:
-        run_analyzer(index, {"kind": "internet_exposure"}, registry=AnalyzerRegistry([]))
-    assert error.value.code == AnalyzerErrorCode.UNSUPPORTED_ANALYZER
-
-
-@pytest.mark.parametrize(
-    "overrides",
-    [
-        {"snapshot_id": "00000000-0000-4000-8000-0000000000ff"},
-        {"analyzer_version": "other"},
-        {"parameters": OwnershipParameters(ownership_keys=["Other"])},
-    ],
-    ids=["snapshot", "version", "parameters"],
-)
-def test_results_that_misidentify_themselves_are_rejected(overrides):
-    index = network_index()
-    with pytest.raises(AnalyzerError) as error:
-        run_analyzer(
-            index, {"kind": "ownership"}, registry=AnalyzerRegistry([FakeOwnership(**overrides)])
-        )
+        run_analyzer(network_index(), {"kind": "ownership"}, registry=AnalyzerRegistry([analyzer]))
     assert error.value.code == AnalyzerErrorCode.INVALID_RESULT

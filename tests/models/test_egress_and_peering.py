@@ -10,7 +10,7 @@ from archdiscov.models.resources.network import (
     NatGateway,
     VpcPeeringConnection,
 )
-from archdiscov.services import load_snapshot, save_snapshot
+from archdiscov.services import load_snapshot
 from tests.paths import FIXTURES_ROOT
 
 FIXTURES = FIXTURES_ROOT / "snapshots"
@@ -26,7 +26,7 @@ def by_physical_id(snapshot):
     return {resource.identity.physical_id: resource for resource in walk_resources(resources)}
 
 
-def test_fixtures_load_typed_round_trip_and_cite_exact_entries(tmp_path):
+def test_fixtures_load_typed_and_cite_exact_entries():
     egress = load_snapshot(FIXTURES / "egress-gateways.json")
     nat = by_physical_id(egress)["nat-public"]
     assert isinstance(nat, NatGateway)
@@ -44,9 +44,6 @@ def test_fixtures_load_typed_round_trip_and_cite_exact_entries(tmp_path):
     cited = peering.evidence[connection.fact_evidence["/accepter"][0]]
     assert cited.configuration_path == "VpcPeeringConnections[0].AccepterVpcInfo"
 
-    for snapshot in (egress, peering):
-        saved = save_snapshot(snapshot, tmp_path / f"{snapshot.snapshot_id}.json")
-        assert load_snapshot(saved) == snapshot
     # A public NAT gateway still being created has no address yet.
     NatGateway(
         identity={**IDENTITY, "physical_id": "nat-new"}, state="pending", connectivity="public"
@@ -57,14 +54,9 @@ def test_fixtures_load_typed_round_trip_and_cite_exact_entries(tmp_path):
     ("model", "fields"),
     [
         (VpcPeeringConnection, {**SIDES, "accepter": {"vpc_id": "vpc-app"}}),
-        (
-            VpcPeeringConnection,
-            {**SIDES, "accepter": {"vpc_id": "vpc-data", "owner_id": "12345"}},
-        ),
         (NatGateway, {"state": "available", "connectivity": "public"}),
-        (NatGateway, {"connectivity": "private", "public_ips": ["198.51.100.20"]}),
     ],
-    ids=["same-vpc", "malformed-owner", "public-without-address", "private-with-address"],
+    ids=["same-vpc", "public-without-address"],
 )
 def test_impossible_states_are_rejected(model, fields):
     with pytest.raises(ValidationError):

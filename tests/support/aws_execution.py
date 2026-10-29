@@ -87,7 +87,7 @@ def task(**overrides):
     return OperationTask(**data)
 
 
-def detail_runner(client, monkeypatch):
+def detail_runner(client, monkeypatch, **overrides):
     # The collector's operation entries are introduced in the later discovery stage.
     monkeypatch.setattr(
         execution_common,
@@ -101,6 +101,7 @@ def detail_runner(client, monkeypatch):
         expected_account_id="123456789012",
         regions=("us-east-1",),
         services=(AwsService.ELASTIC_LOAD_BALANCING,),
+        **overrides,
     )
     return DetailRunner(
         session,

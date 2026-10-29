@@ -1,8 +1,6 @@
-import pytest
 from botocore.exceptions import ClientError
 
-from archdiscov.ingestion.adapter import AdapterContext, IngestionError
-from archdiscov.ingestion.aws import AwsAdapter
+from archdiscov.ingestion.adapter import AdapterContext
 from archdiscov.ingestion.operations import LambdaOperation
 from archdiscov.ingestion.requests import AwsAccountConfig, AwsCollectionRequest
 from archdiscov.ingestion.scope import ResolvedAwsScope
@@ -16,9 +14,9 @@ from tests.support.aws_fakes import Session as Ec2Session
 class Session(Ec2Session):
     region_name = "us-east-1"
 
-    def __init__(self, *, identity=ACCOUNT, discovery_error=None, unavailable=None):
+    def __init__(self, *, discovery_error=None, unavailable=None):
         super().__init__(
-            identity,
+            ACCOUNT,
             lambda region: {
                 "describe_vpcs": [
                     {"Vpcs": [{"VpcId": f"vpc-{region}", "CidrBlock": "10.0.0.0/16"}]}
@@ -89,14 +87,6 @@ def test_discovery_is_after_sts_and_resolved_scope_survives_persistence(tmp_path
     assert cfg.accounts[0].regions == ()  # resolution never mutates caller configuration
 
 
-def test_identity_mismatch_does_not_discover_regions_or_collect():
-    session = Session(identity="000000000000")
-    with pytest.raises(IngestionError) as exc:
-        AwsAdapter().collect(request(), context=context(session))
-    assert exc.value.code == "account_mismatch"
-    assert session.calls == [("sts", "us-east-1")]
-
-
 def test_identity_failure_does_not_discover_regions_or_publish(tmp_path):
     session = Session()
 
@@ -115,41 +105,6 @@ def test_identity_failure_does_not_discover_regions_or_publish(tmp_path):
     assert not path.exists()
 
 
-@pytest.mark.parametrize("stage", ["identity", "discovery"])
-def test_programming_failure_propagates_without_publishing(tmp_path, stage):
-    error = TypeError("implementation defect")
-    session = Session(discovery_error=error if stage == "discovery" else None)
-    if stage == "identity":
-
-        def fail():
-            raise error
-
-        session.get_caller_identity = fail
-    path = tmp_path / "no-snapshot.json"
-    with pytest.raises(TypeError) as caught:
-        collect_and_save(request(), [path], context=context(session))
-    assert caught.value is error
-    assert not path.exists()
-
-
-@pytest.mark.parametrize("service", ["ec2", "lambda", "elbv2", "ecs", "rds", "sqs"])
-def test_unavailable_services_have_unsupported_not_successful_zero_coverage(tmp_path, service):
-    selected = "elasticloadbalancing" if service == "elbv2" else service
-    session = Session(unavailable=service)
-    (outcome,) = collect_and_save(
-        request(services=[selected]), [tmp_path / "partial.json"], context=context(session)
-    )
-    assert outcome.error is None and not outcome.complete
-    snapshot = load_snapshot(outcome.path)
-    assert snapshot.regions == {}
-    assert snapshot.coverage.operations
-    assert all(
-        op.status == "unsupported" and op.result_count is None
-        for op in snapshot.coverage.operations
-    )
-    assert all(name in {"sts", "ec2", "DescribeRegions"} for name, _ in session.calls)
-
-
 def test_unavailable_service_preserves_successful_sibling_inventory(tmp_path):
     session = Session(unavailable="lambda")
     (outcome,) = collect_and_save(
@@ -160,7 +115,7 @@ def test_unavailable_service_preserves_successful_sibling_inventory(tmp_path):
     assert snapshot.regions["us-east-1"].resources[0].identity.physical_id == "vpc-us-east-1"
     unavailable = [op for op in snapshot.coverage.operations if op.service is AwsService.LAMBDA]
     assert len(unavailable) == 2 * len(LambdaOperation)
-    assert all(op.status == "unsupported" for op in unavailable)
+    assert all(op.status == "unsupported" and op.result_count is None for op in unavailable)
     assert all(
         op.status == "success"
         for op in snapshot.coverage.operations

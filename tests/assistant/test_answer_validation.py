@@ -6,7 +6,7 @@ import pytest
 
 from archdiscov.assistant.answer_validation import check_citations
 from archdiscov.assistant.answers import AnswerProposal
-from archdiscov.assistant.rejections import REJECTION_MESSAGES, Rejection, RejectionCode
+from archdiscov.assistant.rejections import Rejection, RejectionCode
 from archdiscov.assistant.tools.contracts import IdKind, ToolLimits
 from archdiscov.assistant.tools.session import ToolSession
 from archdiscov.graph import GraphIndex
@@ -23,19 +23,7 @@ OWNERSHIP_SNAPSHOT = FIXTURES_ROOT / "analysis" / "ownership-snapshot.json"
 OWNERSHIP_RESULT = FIXTURES_ROOT / "analysis" / "ownership.json"
 
 
-def _proposal(
-    session: ToolSession, *conclusions: dict, contexts: list | None = None, **fields: Any
-) -> AnswerProposal:
-    if contexts is not None:
-        return AnswerProposal.model_validate(
-            {
-                "status": "partial",
-                "contexts": contexts,
-                "conclusions": list(conclusions),
-                "summary": "Summary.",
-                **fields,
-            }
-        )
+def _proposal(session: ToolSession, *conclusions: dict, **fields: Any) -> AnswerProposal:
     contexts = [{"side": "primary", "source_kind": session.index.source_kind.value}]
     if session.comparison_index is not None:
         contexts.append(
@@ -95,21 +83,6 @@ def test_citing_delivered_findings_passes() -> None:
             for item in findings[:20]
             for limitation in item["limitations"]
         ][:100],
-    )
-    assert check_citations(proposal, session) == ()
-
-
-def test_citing_queried_configuration_passes() -> None:
-    session = ToolSession.from_paths(OWNERSHIP_SNAPSHOT)
-    resource = session.index.resource_ids[0]
-    inspected = dispatch_tool(session, "inspect_resource", resource_id=resource)
-    evidence = [item["evidence_id"] for item in inspected["evidence"]["items"]]
-    proposal = _proposal(
-        session,
-        {
-            "kind": "recorded_configuration",
-            "citations": [{"evidence_ids": evidence, "resource_ids": [resource]}],
-        },
     )
     assert check_citations(proposal, session) == ()
 
@@ -177,25 +150,6 @@ def test_each_side_cites_only_its_own_snapshot(compared: ToolSession) -> None:
 # ---- isolated rejections -----------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "field,value",
-    [
-        ("finding_ids", f"fabricated-{SECRET}"),
-        ("evidence_ids", "fabricated"),
-        ("resource_ids", "fabricated"),
-    ],
-)
-def test_fabricated_ids_are_unknown(field: str, value: str) -> None:
-    session, finding = _ownership()
-    citation = {"finding_ids": [finding["finding_id"]], field: [value]}
-    if field == "finding_ids":
-        citation = {"finding_ids": [value]}
-    proposal = _proposal(session, {"kind": "analyzer_finding", "citations": [citation]})
-    rejections = check_citations(proposal, session)
-    assert _codes(rejections) == [("answer_unknown_id", f"conclusions[0].citations[0].{field}[0]")]
-    assert SECRET not in json.dumps([item.model_dump(mode="json") for item in rejections])
-
-
 def test_ids_present_but_not_returned_are_rejected() -> None:
     # The saved result is selected for the session but never delivered by a tool.
     session = ToolSession.from_paths(OWNERSHIP_SNAPSHOT, analysis_paths=[OWNERSHIP_RESULT])
@@ -217,17 +171,6 @@ def test_ids_present_but_not_returned_are_rejected() -> None:
     ]
 
 
-def _two_inspected_resources() -> tuple[ToolSession, str, str]:
-    session = ToolSession.from_paths(FIXTURES_ROOT / "snapshots" / "network.json")
-    index = session.index
-    first, second = [
-        resource for resource in index.resource_ids if index.resource_evidence_ids(resource)
-    ][:2]
-    for resource in (first, second):
-        dispatch_tool(session, "inspect_resource", resource_id=resource)
-    return session, first, second
-
-
 def _configuration(evidence: str, *resources: str) -> dict:
     return {
         "kind": "recorded_configuration",
@@ -236,28 +179,20 @@ def _configuration(evidence: str, *resources: str) -> dict:
 
 
 def test_evidence_must_be_cited_with_its_own_resource() -> None:
-    session, first, second = _two_inspected_resources()
-    evidence = session.index.resource_evidence_ids(first)[0]
-    proposal = _proposal(session, _configuration(evidence, second))
-    assert _codes(check_citations(proposal, session)) == [
-        ("answer_evidence_detached", "conclusions[0].citations[0].evidence_ids[0]")
-    ]
+    session = ToolSession.from_paths(FIXTURES_ROOT / "snapshots" / "network.json")
+    index = session.index
+    first, second = [
+        resource for resource in index.resource_ids if index.resource_evidence_ids(resource)
+    ][:2]
+    for resource in (first, second):
+        dispatch_tool(session, "inspect_resource", resource_id=resource)
+    evidence = index.resource_evidence_ids(first)[0]
+    detached = ("answer_evidence_detached", "conclusions[0].citations[0].evidence_ids[0]")
+    for resources in ((second,), ()):
+        proposal = _proposal(session, _configuration(evidence, *resources))
+        assert _codes(check_citations(proposal, session)) == [detached]
     attached = _proposal(session, _configuration(evidence, first, second))
     assert check_citations(attached, session) == ()
-
-
-def test_evidence_cited_without_any_resource_or_finding_is_detached() -> None:
-    session, first, _ = _two_inspected_resources()
-    proposal = _proposal(session, _configuration(session.index.resource_evidence_ids(first)[0]))
-    assert _codes(check_citations(proposal, session)) == [
-        ("answer_evidence_detached", "conclusions[0].citations[0].evidence_ids[0]")
-    ]
-
-
-def test_evidence_attached_to_a_cited_finding_passes_without_its_resource() -> None:
-    session, finding = _ownership()
-    proposal = _proposal(session, _finding_conclusion(finding))
-    assert check_citations(proposal, session) == ()
 
 
 def test_a_comparison_side_without_a_comparison_snapshot_is_rejected() -> None:
@@ -309,12 +244,6 @@ def test_all_rejections_are_collected_in_location_order() -> None:
 def test_rejections_carry_fixed_messages_only() -> None:
     with pytest.raises(ValueError):
         Rejection(code=RejectionCode.UNKNOWN_ID, location="conclusions[0]", message=SECRET)
-    with pytest.raises(ValueError):
-        Rejection(
-            code=RejectionCode.UNKNOWN_ID,
-            location=f"conclusions[0].{SECRET}",
-            message=REJECTION_MESSAGES[RejectionCode.UNKNOWN_ID],
-        )
 
 
 def test_validation_does_not_change_the_run_record() -> None:

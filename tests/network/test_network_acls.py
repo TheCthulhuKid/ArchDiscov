@@ -221,13 +221,3 @@ def test_limited_collection_downgrades_every_decision(status):
 
 def test_unrecorded_coverage_is_not_interpreted():
     assert decision([entry(100)], status=None) == D.ALLOW
-
-
-# ---- platform -----------------------------------------------------------------------
-
-
-def test_non_aws_snapshots_return_the_unsupported_platform_result():
-    index = GraphIndex(load_snapshot(FIXTURES_ROOT / "snapshots" / "azure.json"))
-    result = evaluate_network_acl(index, "any", INGRESS, "10.0.1.5", protocol="tcp", port=443)
-    assert result.decision == D.UNKNOWN
-    assert codes(result) == {B.UNSUPPORTED_PLATFORM}

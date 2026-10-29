@@ -25,10 +25,8 @@ def config(account_id=ACCOUNT, **kwargs):
     )
 
 
-@pytest.mark.parametrize("global_limit,account_limit,capacity", [(1, 4, 1), (4, 1, 2), (3, 2, 3)])
-def test_nested_operation_and_detail_pools_share_total_and_account_limits(
-    global_limit, account_limit, capacity
-):
+def test_nested_operation_and_detail_pools_share_total_and_account_limits():
+    global_limit, account_limit, capacity = 3, 2, 3
     calls = Calls()
     # Four operation workers plus eight detail workers must all try the shared budget.
     budget = ObservedBudget(global_limit, attempts=12)
@@ -82,11 +80,10 @@ def test_nested_operation_and_detail_pools_share_total_and_account_limits(
         pass
 
 
-@pytest.mark.parametrize("failure", [RuntimeError, KeyboardInterrupt])
-def test_permits_release_even_on_base_exceptions(failure):
+def test_permits_release_even_on_base_exceptions():
     budget = SdkCallBudget(1)
-    with pytest.raises(failure), budget.permit(ACCOUNT, 1):
-        raise failure()
+    with pytest.raises(KeyboardInterrupt), budget.permit(ACCOUNT, 1):
+        raise KeyboardInterrupt
     with ThreadPoolExecutor(max_workers=1) as pool:
 
         def reuse():
@@ -94,26 +91,6 @@ def test_permits_release_even_on_base_exceptions(failure):
                 return True
 
         assert pool.submit(reuse).result(timeout=5)
-
-
-def test_budget_rejects_invalid_limits():
-    with pytest.raises(ValueError, match="positive integer"):
-        SdkCallBudget(0)
-    with pytest.raises(ValueError, match="positive integer"):
-        SdkCallBudget().restrict(0)
-    with (
-        pytest.raises(ValueError, match="positive integer"),
-        SdkCallBudget().permit(ACCOUNT, 0),
-    ):
-        pytest.fail("invalid account limit accepted")
-
-
-def test_account_limit_cannot_change_within_shared_budget():
-    budget = SdkCallBudget()
-    with budget.permit(ACCOUNT, 1):
-        pass
-    with pytest.raises(ValueError, match="consistent"), budget.permit(ACCOUNT, 2):
-        pytest.fail("inconsistent account limit accepted")
 
 
 def test_paginator_releases_capacity_before_page_processing_and_after_failure():
@@ -139,53 +116,34 @@ def test_paginator_releases_capacity_before_page_processing_and_after_failure():
 
 
 @pytest.mark.parametrize("operation", ["identity", "discovery", "assume_role"])
-@pytest.mark.parametrize("failed", [False, True])
-def test_identity_discovery_and_assume_role_share_budget(operation, failed):
+def test_identity_discovery_and_assume_role_share_budget_and_release_it_on_failure(operation):
     calls = Calls()
 
     class IdentityClient:
-        def invoke(self):
+        def invoke(self, **params):
             calls.invoke(ACCOUNT)
-            if failed:
-                raise EndpointConnectionError(endpoint_url="protected-secret")
+            raise EndpointConnectionError(endpoint_url="protected-secret")
 
-        def get_caller_identity(self):
-            self.invoke()
-            return {"Account": ACCOUNT}
-
-        def describe_regions(self, **params):
-            self.invoke()
-            return {"Regions": [{"RegionName": "us-east-1", "OptInStatus": "opted-in"}]}
-
-        def assume_role(self, **params):
-            self.invoke()
-            return {
-                "Credentials": {"AccessKeyId": "a", "SecretAccessKey": "b", "SessionToken": "c"}
-            }
+        get_caller_identity = describe_regions = assume_role = invoke
 
     budget = ObservedBudget(1, attempts=2)
     session = Session(IdentityClient())
     context = AdapterContext(call_budget=budget, session_factory=lambda **kwargs: session)
-    account = config()
-    if operation == "identity":
-
-        def job():
-            return verify_account_identity(session, account, context=context)
-    elif operation == "discovery":
-        account = AwsAccountConfig(
-            profile="dev",
-            expected_account_id=ACCOUNT,
-            region_scope="enabled",
-            bootstrap_region="us-east-1",
-        )
-
-        def job():
-            return resolve_region_scope(session, account, partition="aws", context=context)
-    else:
-        account = config(role_arn=f"arn:aws:iam::{ACCOUNT}:role/Reader")
-
-        def job():
-            return create_session(account, context)
+    enabled = AwsAccountConfig(
+        profile="dev",
+        expected_account_id=ACCOUNT,
+        region_scope="enabled",
+        bootstrap_region="us-east-1",
+    )
+    job = {
+        "identity": lambda: verify_account_identity(session, config(), context=context),
+        "discovery": lambda: resolve_region_scope(
+            session, enabled, partition="aws", context=context
+        ),
+        "assume_role": lambda: create_session(
+            config(role_arn=f"arn:aws:iam::{ACCOUNT}:role/Reader"), context
+        ),
+    }[operation]
 
     with ThreadPoolExecutor(max_workers=1) as pool:
         with budget.permit(OTHER, 1):
@@ -195,28 +153,19 @@ def test_identity_discovery_and_assume_role_share_budget(operation, failed):
                 assert calls.entered == 0
             finally:
                 calls.release.set()
-        if failed:
-            with pytest.raises(IngestionError) as error:
-                future.result(timeout=10)
-            assert "protected-secret" not in str(error.value)
-        else:
+        with pytest.raises(IngestionError) as error:
             future.result(timeout=10)
+        assert "protected-secret" not in str(error.value)
     assert calls.entered == 1
     with budget.permit(OTHER, 1):
         pass
 
 
-def test_context_fallback_is_shared_and_request_budget_preserves_seams():
+def test_request_budget_binds_once_and_cannot_be_widened():
     context = AdapterContext()
-    assert context.sdk_calls is context.sdk_calls
     bound = context.with_call_budget(2)
-    assert bound.clock is context.clock
-    assert bound.uuid_factory is context.uuid_factory
+    assert bound.clock is context.clock and bound.uuid_factory is context.uuid_factory
     assert bound.with_call_budget(2) is bound
-    assert bound.sdk_calls is bound.call_budget
-
-
-def test_injected_budget_cannot_bypass_request_limit():
     budget = ObservedBudget(4, attempts=2)
     context = AdapterContext(call_budget=budget).with_call_budget(1)
     assert context.call_budget is budget

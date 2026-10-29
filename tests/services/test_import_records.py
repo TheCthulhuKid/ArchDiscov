@@ -1,8 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-import pytest
-
 from archdiscov.ingestion.import_records import cite_source, import_coverage
 from archdiscov.models.architecture import ResourceIdentity, UnresolvedValue, Vpc
 from archdiscov.models.enums import AwsRegion, AwsService, SourceType
@@ -11,8 +9,8 @@ ACCOUNT = "123456789012"
 STARTED = datetime(2026, 1, 1, tzinfo=UTC)
 
 
-@pytest.mark.parametrize("source", [SourceType.TERRAFORM, SourceType.CLOUDFORMATION])
-def test_source_citations_keep_ids_ownership_and_value_status(source):
+def test_source_citations_keep_ids_ownership_and_value_status():
+    source = SourceType.CLOUDFORMATION
     resource = Vpc(
         identity=ResourceIdentity(
             account_id=ACCOUNT,

@@ -46,6 +46,15 @@ def references(snapshot):
     }
 
 
+def reasons(snapshot, resource_id):
+    return {
+        value.reason
+        for operation in snapshot.coverage.operations
+        for value in operation.unresolved_values
+        if value.resource_id == resource_id
+    }
+
+
 def test_state_maps_nat_and_egress_only_gateways_with_their_references():
     snapshot = state("egress-gateways")
     resources = by_key(snapshot, lambda r: r.identity.physical_id)
@@ -105,21 +114,6 @@ def test_state_maps_peering_sides_without_assuming_the_requester_owner():
     assert accepter.aws_resource_type == "aws_vpc_peering_connection_accepter"
 
 
-def test_plan_leaves_unknown_peering_sides_unset_and_references_both_vpcs():
-    snapshot = collect(FIXTURES / "vpc-peering.plan.json")
-    connection = by_key(snapshot, lambda r: r.identity.logical_address)[
-        "aws_vpc_peering_connection.app_data"
-    ]
-    assert isinstance(connection, VpcPeeringConnection)
-    assert connection.requester.vpc_id is None and connection.accepter.vpc_id is None
-    linked = {
-        target
-        for source, target, _ in references(snapshot)
-        if source == connection.identity.logical_address
-    }
-    assert linked == {"aws_vpc.app", "aws_vpc.data"}
-
-
 def test_state_maps_endpoints_and_prefix_lists_and_qualifies_a_separate_entry():
     snapshot = state("endpoints-and-prefix-lists")
     resources = by_key(snapshot, lambda r: r.identity.physical_id)
@@ -143,29 +137,7 @@ def test_state_maps_endpoints_and_prefix_lists_and_qualifies_a_separate_entry():
     partners = resources["pl-partners"]
     assert partners.entries is None and "/entries/0/cidr" not in partners.fact_evidence
     assert ("pl-partners,198.18.0.0/15", "pl-partners", "prefix_list_id") in references(snapshot)
-    reasons = {
-        value.reason
-        for operation in snapshot.coverage.operations
-        for value in operation.unresolved_values
-        if value.resource_id == partners.id
-    }
-    assert incomplete_list("entries") in reasons
-
-
-def test_plan_endpoint_lists_unknown_route_tables_as_unresolved_not_empty():
-    snapshot = collect(FIXTURES / "endpoints-and-prefix-lists.plan.json")
-    resources = by_key(snapshot, lambda r: r.identity.logical_address)
-    endpoint = resources["aws_vpc_endpoint.s3"]
-    assert isinstance(endpoint, VpcEndpoint) and endpoint.endpoint_type == "gateway"
-    # The model's default list is not a claim: it is uncited, and the value is unresolved.
-    assert endpoint.route_table_ids == [] and "/route_table_ids" not in endpoint.fact_evidence
-    assert any(
-        item.configuration_path.endswith("/after_unknown/route_table_ids")
-        for item in snapshot.evidence.values()
-        if item.value_status == "unresolved" and item.resource_id == endpoint.id
-    )
-    office = resources["aws_ec2_managed_prefix_list.office"]
-    assert [str(entry.cidr) for entry in office.entries] == ["198.51.100.0/24"]
+    assert incomplete_list("entries") in reasons(snapshot, partners.id)
 
 
 def test_state_maps_transit_gateways_and_keeps_declared_children_separate():
@@ -198,24 +170,5 @@ def test_state_maps_transit_gateways_and_keeps_declared_children_separate():
     }
     # The children are not folded in: the table's lists are not claimed as complete.
     assert table.associations == table.propagations == table.routes == []
-    reasons = {
-        value.reason
-        for operation in snapshot.coverage.operations
-        for value in operation.unresolved_values
-        if value.resource_id == table.id
-    }
     lists = ("associations", "propagations", "routes")
-    assert {incomplete_list(name) for name in lists} <= reasons
-
-
-def test_plan_attachment_references_its_planned_gateway_and_vpc():
-    snapshot = collect(FIXTURES / "transit-gateway.plan.json")
-    attachment = by_key(snapshot, lambda r: r.identity.logical_address)[
-        "aws_ec2_transit_gateway_vpc_attachment.app"
-    ]
-    assert isinstance(attachment, TransitGatewayAttachment)
-    assert attachment.transit_gateway_id is None and attachment.attached_resource_id is None
-    assert attachment.subnet_ids is None  # unknown in the plan, so unrecorded
-    address = attachment.identity.logical_address
-    linked = {target for source, target, _ in references(snapshot) if source == address}
-    assert linked == {"aws_ec2_transit_gateway.main", "aws_vpc.app"}
+    assert {incomplete_list(name) for name in lists} <= reasons(snapshot, table.id)

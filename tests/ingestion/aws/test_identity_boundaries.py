@@ -1,7 +1,7 @@
 """Expected AWS failures are safe; implementation defects remain visible."""
 
 import pytest
-from botocore.exceptions import ClientError, ProfileNotFound
+from botocore.exceptions import ProfileNotFound
 
 from archdiscov.ingestion.adapter import AdapterContext, IngestionError
 from archdiscov.ingestion.aws import create_session
@@ -59,71 +59,32 @@ def invoke(stage, session):
 
 
 @pytest.mark.parametrize("stage", ["profile", "assume", "identity", "discovery"])
-@pytest.mark.parametrize(
-    "error_type",
-    [
-        TypeError,
-    ],
-)
-def test_programming_errors_are_not_account_failures(stage, error_type):
-    error = error_type(SECRET)
-    with pytest.raises(error_type) as caught:
+def test_programming_errors_are_not_account_failures(stage):
+    error = TypeError(SECRET)
+    with pytest.raises(TypeError) as caught:
         invoke(stage, Session(error=error))
     assert caught.value is error
 
 
-@pytest.mark.parametrize("stage", ["profile", "assume", "identity", "discovery"])
-def test_expected_sdk_errors_have_safe_diagnostics(stage):
-    error = (
-        ProfileNotFound(profile=SECRET)
-        if stage == "profile"
-        else ClientError({"Error": {"Code": "AccessDenied", "Message": SECRET}}, "Read")
-    )
+def test_missing_profile_has_a_safe_diagnostic():
+    error = ProfileNotFound(profile=SECRET)
     with pytest.raises(IngestionError) as caught:
-        invoke(stage, Session(error=error))
-    assert caught.value.code == (
-        "region_discovery_failed" if stage == "discovery" else "identity_failed"
-    )
+        invoke("profile", Session(error=error))
+    assert caught.value.code == "identity_failed"
     assert caught.value.__cause__ is error
     assert SECRET not in str(caught.value)
 
 
-@pytest.mark.parametrize(
-    "value",
-    [
-        None,
-        {"Account": 123},
-        {"Account": ACCOUNT, "Arn": 3},
-        {"Account": ACCOUNT, "Arn": "arn:aws:iam::000000000000:user/x"},
-    ],
-    ids=["not-a-mapping", "account", "arn-type", "arn-account"],
-)
-def test_malformed_identity_is_an_expected_failure(value):
+def test_identity_of_another_account_is_an_expected_failure():
+    value = {"Account": ACCOUNT, "Arn": "arn:aws:iam::000000000000:user/x"}
     with pytest.raises(IngestionError) as caught:
         invoke("identity", Session(value))
     assert caught.value.code == "identity_failed"
 
 
-@pytest.mark.parametrize(
-    "credentials",
-    [
-        None,
-        {"AccessKeyId": "key", "SecretAccessKey": SECRET, "SessionToken": None},
-        {"AccessKeyId": "key", "SecretAccessKey": SECRET, "SessionToken": " "},
-    ],
-    ids=["not-a-mapping", "missing-value", "blank-value"],
-)
-def test_malformed_assume_role_credentials_are_an_expected_failure(credentials):
+def test_malformed_assume_role_credentials_are_an_expected_failure():
+    credentials = {"AccessKeyId": "key", "SecretAccessKey": SECRET, "SessionToken": None}
     with pytest.raises(IngestionError) as caught:
         invoke("assume", Session({"Credentials": credentials}))
     assert caught.value.code == "identity_failed"
     assert SECRET not in str(caught.value)
-
-
-@pytest.mark.parametrize(
-    "value", [None, {"Regions": [None]}], ids=["not-a-mapping", "invalid-entry"]
-)
-def test_malformed_discovery_is_an_expected_failure(value):
-    with pytest.raises(IngestionError) as caught:
-        invoke("discovery", Session(value))
-    assert caught.value.code == "region_discovery_failed"

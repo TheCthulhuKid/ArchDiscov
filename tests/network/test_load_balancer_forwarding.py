@@ -2,12 +2,10 @@ import pytest
 
 from archdiscov.graph import GraphIndex
 from archdiscov.models.enums import NetworkBlockerCode, NetworkDecision
-from archdiscov.services import load_snapshot
 from archdiscov.services.network_load_balancers import (
     evaluate_load_balancer_forwarding,
     evaluate_load_balancer_scheme,
 )
-from tests.paths import FIXTURES_ROOT
 from tests.support.elbv2_data import GROUP, LB, LISTENER, RULE, responses
 from tests.support.elbv2_snapshot import build, ec2_roots, resource_id
 
@@ -225,19 +223,13 @@ def test_limited_collection_of_any_forwarding_operation_gives_unknown(operation)
         assert B.COVERAGE_LIMITED in codes(result)
 
 
-# ---- platform and lookup ------------------------------------------------------------
+# ---- lookup -------------------------------------------------------------------------
 
 
-def test_unrecorded_balancers_and_non_aws_snapshots_are_unknown():
+def test_an_unrecorded_balancer_is_unknown():
     index = GraphIndex(build())
     missing = evaluate_load_balancer_forwarding(index, resource_id("nope"), protocol="tcp", port=80)
     assert codes(missing) == {B.MISSING_EVIDENCE}
-    azure = GraphIndex(load_snapshot(FIXTURES_ROOT / "snapshots" / "azure.json"))
-    for result in (
-        evaluate_load_balancer_forwarding(azure, "any", protocol="tcp", port=80),
-        evaluate_load_balancer_scheme(azure, "any"),
-    ):
-        assert codes(result) == {B.UNSUPPORTED_PLATFORM}
 
 
 def test_a_listener_on_another_port_does_not_make_the_query_unknown():

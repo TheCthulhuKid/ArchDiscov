@@ -2,13 +2,15 @@
 
 fixture -> `archdiscov mcp` over stdio -> prompt -> tool calls -> `submit_answer` -> cited
 evidence, through the installed script outside the checkout. The fixtures are the checked-in
-README suite's case files, served as copied: each case's tool calls and proposal are the ones its
-fake transcript makes for `ask`, so `ask` over the same files, run in process, is the
-reference an accepted answer must equal. The adversarial suite's proposals are submitted too:
-each unsupported claim is rejected with its code and a corrected proposal is accepted in the
-same session. The server runs with no credentials and no checkout: its whole `PYTHONPATH` is
-the offline guard, which fails and records any network use, and, for the boundary check,
-every file the server opens in the workspace.
+README suite's case files, served as copied. One session lists the tools and every README
+question's prompt and answers one case: its tool calls and proposal are the ones its fake
+transcript makes for `ask`, so `ask` over the same files, run in process, is the reference the
+accepted answer must equal (`tests/assistant/test_mcp_answers.py` compares every case in
+process). The adversarial suite's proposals are submitted too: each unsupported claim is
+rejected with its code and a corrected proposal is accepted in the same session. The server
+runs with no credentials and no checkout: its whole `PYTHONPATH` is the offline guard, which
+fails and records any network use, and, for the boundary check, every file the server opens in
+the workspace.
 """
 
 import json
@@ -36,9 +38,9 @@ from tests.support.installed_cli import (
 )
 from tests.support.mcp_clients import StdioSession, submitted_proposals, transcript_calls
 
-PROMPTS = {question: kind.value for kind, question in README_QUESTIONS.items()}
-# The case that asks about two snapshots has no prompt: its question is not a README question.
-UNPROMPTED = {"ownership_compared"}
+# The README case the installed server answers; `tests/assistant/test_mcp_answers.py` answers
+# every case in process and compares each with `ask`.
+ANSWERED = "internet_exposure"
 # Each journey is module-scoped; its tests share one xdist worker, and the two run in parallel.
 pytestmark = pytest.mark.xdist_group("phase-five")
 REFUSALS = pytest.mark.xdist_group("phase-five-refusals")
@@ -93,22 +95,19 @@ def _answered(ws: Workspace, case: dict) -> dict:
     session = _serve(ws, selection)
     with session:
         tools = [tool["name"] for tool in session.request("tools/list")["tools"]]
-        prompts = [prompt["name"] for prompt in session.request("prompts/list")["prompts"]]
-        prompt = None
-        if case["id"] not in UNPROMPTED:
-            reply = session.request("prompts/get", {"name": PROMPTS[case["question"]]})
-            [message] = reply["messages"]
-            prompt = message["content"]["text"]
-        assert not any(is_error for is_error, _ in _replay(session, transcript)), case["id"]
+        prompts = {}
+        for prompt in session.request("prompts/list")["prompts"]:
+            [message] = session.request("prompts/get", {"name": prompt["name"]})["messages"]
+            prompts[prompt["name"]] = message["content"]["text"]
+        assert not any(is_error for is_error, _ in _replay(session, transcript))
         is_error, served = session.tool("submit_answer", proposal)
-        assert not is_error, (case["id"], served)
+        assert not is_error, served
         evidence = _first_evidence(session, json.loads(served[2])["answer"])
     return {
         "case": case,
         "ask": asked,
         "tools": tools,
         "prompts": prompts,
-        "prompt": prompt,
         "served": served,
         "evidence": evidence,
         "session": session,
@@ -120,52 +119,47 @@ def summary(tmp_path_factory) -> dict:
     ws = Workspace(tmp_path_factory.mktemp("phase-five"))
     shutil.copytree(README_SUITE.parent, ws.path("fixtures", "readme"))
     fixtures = {path: digest(path) for path in ws.path("fixtures").rglob("*") if path.is_file()}
-    cases = {case_id: _answered(ws, case) for case_id, case in suite_cases(ws, "readme").items()}
+    run = _answered(ws, suite_cases(ws, "readme")[ANSWERED])
     # Serving never changes a fixture, and nothing reaches the network.
     assert {path: digest(path) for path in fixtures} == fixtures
-    return {"cases": cases, "network": ws.guard.attempts}
+    return {"run": run, "network": ws.guard.attempts}
 
 
-def test_every_readme_question_is_answered_from_its_prompt(summary):
-    expected_tools = [*(tool.name for tool in default_registry().declarations()), "submit_answer"]
-    asked = set()
-    for case_id, run in summary["cases"].items():
-        assert run["tools"] == expected_tools, case_id
-        assert run["prompts"] == [kind.value for kind in README_QUESTIONS], case_id
-        if case_id in UNPROMPTED:
-            assert run["prompt"] is None and run["case"]["question"] not in PROMPTS
-            continue
-        assert run["prompt"] == run["case"]["question"], case_id
-        asked.add(run["prompt"])
-    assert asked == set(README_QUESTIONS.values())
+def test_every_readme_question_is_a_prompt_and_one_is_answered_from_it(summary):
+    run = summary["run"]
+    assert run["tools"] == [
+        *(tool.name for tool in default_registry().declarations()),
+        "submit_answer",
+    ]
+    assert list(run["prompts"].items()) == [
+        (kind.value, question) for kind, question in README_QUESTIONS.items()
+    ]
+    assert run["case"]["question"] in run["prompts"].values()
 
 
-def test_every_accepted_answer_equals_what_ask_gives(summary):
-    for case_id, run in summary["cases"].items():
-        present, readable, data = run["served"]
-        assert present == PRESENT_ANSWER, case_id
-        # `ask` prints its run summary, a blank line, and then the readable answer; the
-        # answer JSON is `ask`'s result.
-        _, ask_readable = run["ask"]["readable"].split("\n\n", 1)
-        assert readable == ask_readable.rstrip("\n"), case_id
-        assert json.loads(data) == run["ask"]["data"]["result"], case_id
-        assert json.loads(data)["answer"]["outcome"]["status"] == "answered", case_id
+def test_the_accepted_answer_equals_what_ask_gives(summary):
+    run = summary["run"]
+    present, readable, data = run["served"]
+    assert present == PRESENT_ANSWER
+    # `ask` prints its run summary, a blank line, and then the readable answer; the answer
+    # JSON is `ask`'s result.
+    _, ask_readable = run["ask"]["readable"].split("\n\n", 1)
+    assert readable == ask_readable.rstrip("\n")
+    assert json.loads(data) == run["ask"]["data"]["result"]
+    assert json.loads(data)["answer"]["outcome"]["status"] == "answered"
 
 
 def test_cited_evidence_is_retrieved_through_a_tool(summary):
-    retrieved = [run["evidence"] for run in summary["cases"].values() if run["evidence"]]
-    for evidence in retrieved:
-        is_error, [text] = evidence["reply"]
-        assert not is_error, evidence["id"]
-        assert json.loads(text)["evidence"]["evidence_id"] == evidence["id"]
-    assert len(retrieved) >= len(README_QUESTIONS)
+    evidence = summary["run"]["evidence"]
+    is_error, [text] = evidence["reply"]
+    assert not is_error
+    assert json.loads(text)["evidence"]["evidence_id"] == evidence["id"]
 
 
 def test_the_server_exits_cleanly_and_nothing_reaches_the_network(summary):
-    for case_id, run in summary["cases"].items():
-        session = run["session"]
-        # Every standard-output line was a reply the client read.
-        assert (session.exit_code, session.stderr, session.extra_output) == (0, "", ""), case_id
+    session = summary["run"]["session"]
+    # Every standard-output line was a reply the client read.
+    assert (session.exit_code, session.stderr, session.extra_output) == (0, "", "")
     assert summary["network"] == []
 
 

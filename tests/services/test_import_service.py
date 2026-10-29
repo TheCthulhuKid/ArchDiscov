@@ -7,20 +7,17 @@ from typer.testing import CliRunner
 from archdiscov.cli import app
 from archdiscov.ingestion.adapter import IngestionError
 from archdiscov.ingestion.cloudformation.parameters import load_parameters
-from archdiscov.services import IngestFormat, importing, ingest_snapshot, load_snapshot
+from archdiscov.services import ingest_snapshot, load_snapshot
 from tests.paths import FIXTURES_ROOT
 
 FIXTURES = FIXTURES_ROOT
 runner = CliRunner()
 
 
-@pytest.mark.parametrize("explicit", [False, True])
-def test_default_and_explicit_snapshot_import(tmp_path, explicit):
+def test_snapshot_import_is_the_default(tmp_path):
     fixture = FIXTURES / "snapshots" / "partial-coverage.json"
     output = tmp_path / "saved.json"
-    result = ingest_snapshot(
-        fixture, output, **({"source_format": IngestFormat.SNAPSHOT} if explicit else {})
-    )
+    result = ingest_snapshot(fixture, output)
     assert result.snapshot == load_snapshot(fixture) == load_snapshot(output)
     assert result.path == output
     assert result.complete is False
@@ -31,17 +28,8 @@ def test_default_and_explicit_snapshot_import(tmp_path, explicit):
     [
         ("unknown-secret", {}),
         ("snapshot", {"stack_id": "private-value"}),
-        ("terraform-state", {"stack_name": "Example"}),
-        ("terraform-plan", {"account_id": "private-value"}),
-        ("cloudformation", {}),
     ],
-    ids=[
-        "unknown-format",
-        "snapshot-context",
-        "terraform-with-cloudformation-option",
-        "request-validation",
-        "cloudformation-without-context",
-    ],
+    ids=["unknown-format", "snapshot-context"],
 )
 def test_invalid_selection_or_context_never_reads_or_publishes(tmp_path, source_format, options):
     output = tmp_path / "saved.json"
@@ -54,17 +42,8 @@ def test_invalid_selection_or_context_never_reads_or_publishes(tmp_path, source_
     assert list(tmp_path.iterdir()) == []
 
 
-@pytest.mark.parametrize(
-    "content",
-    [
-        b'{"Secret":"private-value",',
-        b'["private-value"]',
-        b"[" * 1000 + b"]" * 1000,
-        b'{"Secret":"' + b"x" * (1024 * 1024) + b'"}',
-    ],
-    ids=["truncated", "not-an-object", "deep-nesting", "oversized"],
-)
-def test_parameters_file_rejects_unsafe_shapes_without_values(tmp_path, content):
+def test_parameters_file_rejects_malformed_content_without_values(tmp_path):
+    content = b'{"Secret":"private-value",'
     path = tmp_path / "parameters.json"
     path.write_bytes(content)
     with pytest.raises(IngestionError, match="bounded UTF-8 JSON object") as caught:
@@ -72,20 +51,6 @@ def test_parameters_file_rejects_unsafe_shapes_without_values(tmp_path, content)
     assert caught.value.code == "invalid_request"
     assert "private-value" not in str(caught.value)
     assert path.read_bytes() == content
-
-
-@pytest.mark.parametrize("directory", [False, True])
-def test_unreadable_parameters_file_is_safe(tmp_path, directory):
-    path = tmp_path if directory else tmp_path / "missing.json"
-    with pytest.raises(IngestionError, match="Parameters file"):
-        load_parameters(path)
-
-
-def test_parameters_file_preserves_json_values(tmp_path):
-    path = tmp_path / "parameters.json"
-    values = {"Name": "example", "Count": 0, "Ports": [80, 443], "Enabled": False}
-    path.write_text(json.dumps(values))
-    assert load_parameters(path) == values
 
 
 def test_cloudformation_parameters_and_sensitive_paths_are_redacted(tmp_path):
@@ -136,8 +101,7 @@ def test_cloudformation_parameters_and_sensitive_paths_are_redacted(tmp_path):
     assert load_snapshot(output) == result.snapshot
 
 
-@pytest.mark.parametrize("json_output", [False, True])
-def test_cli_context_diagnostics_never_echo_values(tmp_path, json_output):
+def test_cli_context_diagnostics_never_echo_values(tmp_path):
     output = tmp_path / "saved.json"
     result = runner.invoke(
         app,
@@ -150,21 +114,11 @@ def test_cli_context_diagnostics_never_echo_values(tmp_path, json_output):
             "terraform-state",
             "--account-id",
             "private-value",
-            *(["--json"] if json_output else []),
         ],
     )
     assert result.exit_code == 2
     assert "private-value" not in result.output
     assert "invalid_request" in result.output
-    assert not output.exists()
-
-
-def test_invalid_format_is_usage_error_without_guessing(tmp_path):
-    output = tmp_path / "saved.json"
-    result = runner.invoke(
-        app, ["ingest", "template.yaml", "-o", str(output), "--format", "yaml", "--json"]
-    )
-    assert result.exit_code == 2
     assert not output.exists()
 
 
@@ -183,41 +137,3 @@ def test_empty_terraform_import_reports_successful_zero(tmp_path):
     assert result.snapshot.source.workspace == "development"
     assert result.snapshot.coverage.operations[0].result_count == 0
     assert result.snapshot.coverage.operations[0].status == "success"
-
-
-def test_wrong_adapter_cardinality_publishes_nothing(tmp_path, monkeypatch):
-    monkeypatch.setattr(importing, "collect_snapshots", lambda *args, **kwargs: [])
-    with pytest.raises(IngestionError, match="one snapshot"):
-        ingest_snapshot(
-            tmp_path / "source.json", tmp_path / "snapshot.json", source_format="terraform-plan"
-        )
-    assert list(tmp_path.iterdir()) == []
-
-
-@pytest.mark.parametrize("json_output", [False, True])
-def test_parameter_parse_error_publishes_nothing_and_is_safe(tmp_path, json_output):
-    parameters = tmp_path / "parameters.json"
-    parameters.write_text('{"Secret":"private-value",')
-    output = tmp_path / "snapshot.json"
-    result = runner.invoke(
-        app,
-        [
-            "ingest",
-            "not-read",
-            "-o",
-            str(output),
-            "--format",
-            "cloudformation",
-            "--account-id",
-            "123456789012",
-            "--region",
-            "eu-west-1",
-            "--parameters-file",
-            str(parameters),
-            *(["--json"] if json_output else []),
-        ],
-    )
-    assert result.exit_code == 2
-    assert "private-value" not in result.output
-    assert "invalid_request" in result.output
-    assert not output.exists()

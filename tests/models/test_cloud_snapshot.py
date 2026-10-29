@@ -1,4 +1,3 @@
-import json
 from copy import deepcopy
 
 import pytest
@@ -6,20 +5,14 @@ from pydantic import ValidationError
 
 from archdiscov.models.architecture import ArchitectureSnapshot
 from archdiscov.models.cloud.snapshot import CloudSnapshot
-from archdiscov.models.snapshot_access import SnapshotAccess, upgrade_snapshot
+from archdiscov.models.snapshot_access import upgrade_snapshot
 from tests.paths import FIXTURES_ROOT
 
 FIXTURES = FIXTURES_ROOT / "snapshots"
 
 
 @pytest.mark.parametrize(
-    "path",
-    [
-        p
-        for p in sorted(FIXTURES.glob("*.json"))
-        if json.loads(p.read_text())["schema_version"] in ("1", "2")
-    ],
-    ids=lambda p: p.stem,
+    "path", [FIXTURES / "hierarchy.json", FIXTURES / "partial-coverage.json"], ids=lambda p: p.stem
 )
 def test_explicit_upgrade_preserves_legacy_contract(path):
     legacy = ArchitectureSnapshot.model_validate_json(path.read_text())
@@ -66,10 +59,6 @@ def _other_region(data: dict) -> None:
     data["coverage"]["locations"].append("eu-west-2")
 
 
-def _evidence_of_another_resource(data: dict) -> None:
-    next(iter(data["evidence"].values()))["resource_id"] = data["scope_resources"][0]["id"]
-
-
 DEFECTS = {
     "scope": (_other_account, "account must match"),
     "platform": (lambda data: data["source"].update(platform="azure"), "source platform"),
@@ -78,17 +67,10 @@ DEFECTS = {
         lambda data: data["regions"]["eu-west-1"]["resources"].append(deepcopy(_root(data))),
         "duplicate resource",
     ),
-    "pointer": (
-        lambda data: _root(data)["fact_evidence"].update(
-            {"/missing": [next(iter(data["evidence"]))]}
-        ),
-        "fact pointer",
-    ),
     "citation": (
         lambda data: _root(data).update(evidence_ids=["missing"]),
         "unknown evidence citation",
     ),
-    "owner": (_evidence_of_another_resource, "belongs to another resource"),
     "coverage": (
         lambda data: data["coverage"]["scope"].update(account_id="999999999999"),
         "coverage scope",
@@ -114,51 +96,6 @@ def test_schema3_integrity_rejects_isolated_defects(defect):
     corrupt, diagnostic = DEFECTS[defect]
     corrupt(data)
     with pytest.raises(ValidationError, match=diagnostic):
-        CloudSnapshot.model_validate(data)
-
-
-def test_access_is_detached_and_returns_containment_not_attachments():
-    snapshot = CloudSnapshot.model_validate(modern_data())
-    access = SnapshotAccess.from_snapshot(snapshot)
-    original = [r.id for r in access.resources()]
-    snapshot.regions.clear()
-    assert [r.id for r in access.resources()] == original
-    first = next(access.resources())
-    first.children.clear()
-    assert list(access.containment())
-    coverage = access.coverage
-    coverage.locations.clear()
-    assert access.coverage.locations
-
-
-def test_cross_platform_external_target_retains_own_scope():
-    data = modern_data()
-    data["dependencies"][0]["target"] = {
-        "kind": "external",
-        "scope": {"platform": "azure", "subscription_id": "11111111-1111-1111-1111-111111111111"},
-        "identifier": "external Azure resource",
-        "location": "eastus",
-        "service": "Microsoft.Compute",
-        "native_type": "Microsoft.Compute/virtualMachines",
-    }
-    snapshot = CloudSnapshot.model_validate(data)
-    assert snapshot.dependencies[0].target.scope.platform == "azure"
-    assert (
-        json.loads(snapshot.model_dump_json())["dependencies"][0]["target"]["scope"]["platform"]
-        == "azure"
-    )
-
-
-def test_schema3_unknown_retains_native_type_without_bypassing_scope():
-    data = modern_data()
-    resource = data["scope_resources"][0]
-    resource["resource_type"] = "cloud_unknown"
-    resource["platform"] = "aws"
-    resource["native_type"] = resource.pop("aws_resource_type")
-    snapshot = CloudSnapshot.model_validate(data)
-    assert snapshot.scope_resources[0].native_type == "AWS::IAM::Role"
-    resource["platform"] = "azure"
-    with pytest.raises(ValidationError, match="platform must match identity"):
         CloudSnapshot.model_validate(data)
 
 

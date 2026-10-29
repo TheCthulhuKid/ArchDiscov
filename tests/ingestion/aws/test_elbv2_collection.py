@@ -50,39 +50,6 @@ def test_combined_services_keep_regional_ec2_and_global_iam_intact(tmp_path):
     assert all(link.target.kind == "local" for link in snap.dependencies_by_region["us-east-1"])
 
 
-def test_two_elbv2_regions_collect_independently():
-    class RegionalSession(Elbv2Session):
-        def client(self, name, **kwargs):
-            if name == "elbv2":
-                self.clients.append((name, kwargs))
-                region = kwargs["region_name"]
-                return Elbv2Client(json.loads(json.dumps(responses()).replace("us-east-1", region)))
-            return super().client(name, **kwargs)
-
-    session = RegionalSession(iam=IamClient())
-    request = AwsCollectionRequest(
-        accounts=(
-            config(
-                regions=("us-east-1", "us-west-2"),
-                services=(AwsService.IAM, AwsService.ELASTIC_LOAD_BALANCING),
-            ),
-        )
-    )
-    snap = collect_snapshots(request, context=context(session))[0]
-    assert len(snap.coverage.operations) == 20
-    assert sum(method == "list_roles" for method, _ in session.iam.calls) == 1
-    assert len(snap.global_resources) == 3
-    assert {kwargs["region_name"] for name, kwargs in session.clients if name == "elbv2"} == {
-        "us-east-1",
-        "us-west-2",
-    }
-    for region, architecture in snap.regions.items():
-        assert all(
-            resource.identity.region == region
-            for resource in walk_resources(architecture.resources)
-        )
-
-
 def test_failed_health_preserves_inventory_and_successful_listener_details(tmp_path):
     data = responses()
     data["describe_target_health"] = ClientError(
@@ -98,6 +65,9 @@ def test_failed_health_preserves_inventory_and_successful_listener_details(tmp_p
     assert len(resources) == 4
     assert next(r for r in resources if isinstance(r, TargetGroup)).targets is None
     assert next(r for r in resources if isinstance(r, Listener)).actions[0].forward_groups
+    operations = {op.operation: op.status for op in snap.coverage.operations}
+    assert operations["DescribeTargetHealth"] == "failed"
+    assert operations["DescribeTags"] == "success"  # tags do not depend on health
     assert "protected-secret" not in outcome.path.read_text()
 
 

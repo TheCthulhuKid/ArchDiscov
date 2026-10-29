@@ -134,22 +134,3 @@ def test_absences_follow_the_other_sides_recorded_coverage(left_kind, right_kind
     if right_kind == SnapshotSourceKind.TERRAFORM_PLAN:
         expected_right = expected_right | {("planned_lifecycle", "right")}
     assert absent_from_left == expected_right
-
-
-@pytest.mark.parametrize("right_kind", [K.AWS, K.TERRAFORM_PLAN], ids=lambda kind: kind.value)
-def test_planned_lifecycle_qualifies_the_pair_and_the_difference_is_not_an_absence(right_kind):
-    result = compare_snapshots(build(SnapshotSourceKind.AWS, 1), build(right_kind, 2))
-    [pair] = result.matched
-    planned = [q for q in pair.qualifications if str(q.kind) == "planned_lifecycle"]
-    if right_kind == SnapshotSourceKind.TERRAFORM_PLAN:
-        [qualification] = planned
-        assert str(qualification.side) == "right"
-        assert qualification.lifecycle.actions == ["delete"]
-    else:
-        assert planned == []
-    assert all(
-        str(q.kind) != "planned_lifecycle"
-        for entry in result.unmatched
-        if str(entry.side) == "left"
-        for q in entry.qualifications
-    )

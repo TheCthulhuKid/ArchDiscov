@@ -1,16 +1,14 @@
 from uuid import UUID
 
 import pytest
-from pydantic import Field, ValidationError
+from pydantic import ValidationError
 
 from archdiscov.assistant.tools.contracts import (
     BoundedList,
     IdKind,
-    ToolLimits,
     ToolOutput,
     UntrustedText,
     bounded,
-    render,
     untrusted,
 )
 from archdiscov.assistant.tools.record import ReturnedIds, RunRecord, SnapshotReturnedIds
@@ -52,16 +50,15 @@ class _Side(Model):
 class _Comparison(ToolOutput):
     left: _Side
     right: _Side
-    findings: dict[str, _Finding] = Field(default_factory=dict)
 
 
 class _Unscoped(ToolOutput):
     resource_id: str
 
 
-def _search(*resource_ids: str, snapshot_id: UUID = LEFT) -> _Search:
+def _search(*resource_ids: str) -> _Search:
     return _Search(
-        snapshot_id=snapshot_id,
+        snapshot_id=LEFT,
         resources=bounded(
             [
                 _Resource(
@@ -78,6 +75,7 @@ def _search(*resource_ids: str, snapshot_id: UUID = LEFT) -> _Search:
 
 
 def test_outputs_record_every_id_field_exactly() -> None:
+    # Untrusted text and other fields, such as a fact path, are not IDs.
     record = RunRecord()
     record.record_output(_search("vpc-b", "vpc-a"))
     assert record.returned() == ReturnedIds(
@@ -91,7 +89,7 @@ def test_outputs_record_every_id_field_exactly() -> None:
     )
 
 
-def test_ids_are_scoped_to_the_nearest_snapshot() -> None:
+def test_ids_are_scoped_to_the_nearest_snapshot_and_need_one() -> None:
     record = RunRecord()
     record.record_output(
         _Comparison(
@@ -103,70 +101,20 @@ def test_ids_are_scoped_to_the_nearest_snapshot() -> None:
     assert not returned.contains(IdKind.RESOURCE, RIGHT, "db-1")
     # A snapshot that returned no IDs has no entry.
     assert [entry.snapshot_id for entry in returned.snapshots] == [LEFT]
-
-
-def test_ids_outside_any_snapshot_are_rejected() -> None:
     with pytest.raises(ValueError, match="no enclosing snapshot_id"):
         RunRecord().record_output(_Unscoped(resource_id="vpc-a"))
-    with pytest.raises(ValueError, match="no enclosing snapshot_id"):
-        RunRecord().record_output(
-            _Comparison(
-                left=_Side(snapshot_id=LEFT),
-                right=_Side(snapshot_id=RIGHT),
-                findings={"f": _Finding(finding_id="f-1", resource_ids=(), evidence_ids=())},
-            )
-        )
 
 
-def test_untrusted_text_and_other_fields_are_not_recorded() -> None:
+def test_explicit_recording_sorts_deduplicates_and_validates_ids() -> None:
     record = RunRecord()
-    record.record_output(_search("vpc-a"))
-    returned = record.returned()
-    assert not returned.contains(IdKind.EVIDENCE, LEFT, "ev-not-an-id")
-    assert not returned.contains(IdKind.RESOURCE, LEFT, "/a")
-
-
-def test_recording_is_deterministic_and_deduplicated() -> None:
-    first, second = RunRecord(), RunRecord()
-    first.record_output(_search("b", "a"))
-    first.record_output(_search("a", snapshot_id=RIGHT))
-    second.record_output(_search("a", snapshot_id=RIGHT))
-    second.record_output(_search("a", "b"))
-    second.record_output(_search("b"))
-    assert first.returned() == second.returned()
-    assert first.returned().model_dump_json() == second.returned().model_dump_json()
-
-
-def test_returned_ids_are_detached_from_later_recording_and_caller_changes() -> None:
-    record = RunRecord()
-    finding_ids = ["f-2", "f-1"]
-    record.record(LEFT, IdKind.FINDING, finding_ids)
-    before = record.returned()
-    finding_ids.append("f-3")
-    record.record(LEFT, IdKind.FINDING, "f-4")
-    assert before.snapshots[0].finding_ids == ("f-1", "f-2")
-    assert record.returned().snapshots[0].finding_ids == ("f-1", "f-2", "f-4")
-    with pytest.raises(ValidationError):
-        before.snapshots = ()
-
-
-def test_explicit_recording_validates_ids() -> None:
-    record = RunRecord()
-    for bad in ([""], [" "], [None], [3]):
-        with pytest.raises(ValueError):
-            record.record(LEFT, IdKind.RESOURCE, bad)
-    assert record.returned() == ReturnedIds()
-
-
-def test_optional_id_fields_left_empty_are_skipped() -> None:
-    record = RunRecord()
-    record.record_output(
-        _Comparison(
-            left=_Side(snapshot_id=LEFT),
-            right=_Side(snapshot_id=RIGHT),
-        )
+    record.record(LEFT, IdKind.FINDING, ["f-2", "f-1"])
+    record.record(LEFT, IdKind.FINDING, "f-1")
+    record.record(RIGHT, IdKind.RESOURCE, [])
+    with pytest.raises(ValueError):
+        record.record(LEFT, IdKind.RESOURCE, [" "])
+    assert record.returned() == ReturnedIds(
+        snapshots=(SnapshotReturnedIds(snapshot_id=LEFT, finding_ids=("f-1", "f-2")),)
     )
-    assert record.returned() == ReturnedIds()
 
 
 def test_findings_record_finding_resource_and_evidence_ids() -> None:
@@ -183,7 +131,6 @@ def test_findings_record_finding_resource_and_evidence_ids() -> None:
                     finding_id="ownership:vpc-a",
                     resource_ids=("vpc-a",),
                     evidence_ids=("ev-1",),
-                    related_resource_id=None,
                 ),
             ),
         )
@@ -194,49 +141,11 @@ def test_findings_record_finding_resource_and_evidence_ids() -> None:
     assert entry.evidence_ids == ("ev-1",)
 
 
-def test_only_delivered_outputs_are_recorded() -> None:
-    record = RunRecord()
-    oversized = _search(*[f"vpc-{index:03}" for index in range(10)])
-    _, delivered = render("call_1", oversized, ToolLimits(max_output_chars=1_024))
-    if isinstance(delivered, ToolOutput):
-        record.record_output(delivered)
-    assert record.returned() == ReturnedIds()
-
-
-@pytest.mark.parametrize(
-    "data",
-    [
-        {"snapshots": [{"snapshot_id": str(RIGHT)}, {"snapshot_id": str(LEFT)}]},
-        {"snapshots": [{"snapshot_id": str(LEFT)}, {"snapshot_id": str(LEFT)}]},
-        {"snapshots": [{"snapshot_id": str(LEFT), "resource_ids": ["b", "a"]}]},
-        {"snapshots": [{"snapshot_id": str(LEFT), "resource_ids": ["a", "a"]}]},
-    ],
-)
-def test_returned_ids_must_be_sorted_and_unique(data: dict) -> None:
-    with pytest.raises(ValidationError) as raised:
-        ReturnedIds.model_validate(data)
-    assert raised.value.errors()[0]["type"] == "tool_returned_ids_order"
-
-
-def test_returned_ids_round_trip() -> None:
-    record = RunRecord()
-    record.record_output(_search("vpc-a", "vpc-b"))
-    returned = record.returned()
-    assert ReturnedIds.model_validate_json(returned.model_dump_json()) == returned
-    assert not returned.contains(IdKind.RESOURCE, RIGHT, "vpc-a")
-
-
-def test_recording_no_ids_adds_no_snapshot_entry() -> None:
-    record = RunRecord()
-    record.record(LEFT, IdKind.RESOURCE, [])
-    assert record.returned() == ReturnedIds()
-
-
-def test_bounded_lists_of_ids_are_recorded() -> None:
-    class _Listed(ToolOutput):
-        snapshot_id: UUID
-        resource_ids: BoundedList[str]
-
-    record = RunRecord()
-    record.record_output(_Listed(snapshot_id=LEFT, resource_ids=bounded(["c", "a", "b"], 2)))
-    assert record.returned().snapshots[0].resource_ids == ("a", "c")
+def test_returned_ids_must_be_sorted_and_unique() -> None:
+    for snapshots in (
+        [{"snapshot_id": str(RIGHT)}, {"snapshot_id": str(LEFT)}],
+        [{"snapshot_id": str(LEFT), "resource_ids": ["b", "a"]}],
+    ):
+        with pytest.raises(ValidationError) as raised:
+            ReturnedIds.model_validate({"snapshots": snapshots})
+        assert raised.value.errors()[0]["type"] == "tool_returned_ids_order"

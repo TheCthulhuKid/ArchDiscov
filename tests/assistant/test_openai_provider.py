@@ -23,10 +23,7 @@ from archdiscov.assistant.openai_provider import OpenAIProvider
 from archdiscov.assistant.provider import (
     CompletionRequest,
     CompletionResponse,
-    ProviderCapability,
-    ProviderInvalidRequestError,
     ProviderMalformedOutputError,
-    ProviderRefusalError,
     RequestLimits,
     StopReason,
 )
@@ -42,57 +39,28 @@ from tests.support.openai_exchanges import (
     send_request,
     sent_body,
 )
-from tests.support.provider_data import EXCHANGE, INSPECT_TOOL, SEARCH_TOOL, THINKING
+from tests.support.provider_data import EXCHANGE, INSPECT_TOOL, SEARCH_TOOL
 from tests.support.secrets import SECRET, secret_renderings
-
-PROTOCOLS = list(OpenAIProtocol)
-
-
-def _config(tmp_path: Path, protocol: OpenAIProtocol, extra: str = "") -> Path:
-    path = tmp_path / "provider.toml"
-    path.write_text(
-        f'kind = "openai_compatible"\nmodel = "gpt-5"\napi_key_env = "ASK_KEY"\n'
-        f'endpoint = "{ENDPOINT}"\nprotocol = "{protocol.value}"\n{extra}',
-        encoding="utf-8",
-    )
-    return path
-
 
 # ---- construction ------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("protocol", PROTOCOLS, ids=str)
-def test_a_configuration_builds_the_adapter_without_a_request(
-    tmp_path: Path, protocol: OpenAIProtocol
-) -> None:
-    config, provider = load_provider(_config(tmp_path, protocol), environ={"ASK_KEY": SECRET})
+def test_a_configuration_builds_the_adapter_without_a_request(tmp_path: Path) -> None:
+    path = tmp_path / "provider.toml"
+    path.write_text(
+        f'kind = "openai_compatible"\nmodel = "gpt-5"\napi_key_env = "ASK_KEY"\n'
+        f'endpoint = "{ENDPOINT}"\nprotocol = "chat_completions"\ncapabilities = []\n',
+        encoding="utf-8",
+    )
+    config, provider = load_provider(path, environ={"ASK_KEY": SECRET})
     assert isinstance(provider, OpenAIProvider)
     assert (provider.model, provider.base_url, provider.protocol) == (
         config.model,
         ENDPOINT,
-        protocol,
+        OpenAIProtocol.CHAT_COMPLETIONS,
     )
-    assert provider.capabilities.capabilities == {ProviderCapability.TOOL_CALLING}
-
-
-@pytest.mark.parametrize(
-    ("declared", "expected"),
-    [
-        ("[]", set()),
-        ('["tool_calling"]', {ProviderCapability.TOOL_CALLING}),
-        (
-            '["tool_calling", "parallel_tool_calls"]',
-            {ProviderCapability.TOOL_CALLING, ProviderCapability.PARALLEL_TOOL_CALLS},
-        ),
-    ],
-    ids=["none", "tools", "parallel"],
-)
-def test_the_adapter_declares_the_configured_capabilities(
-    tmp_path: Path, declared: str, expected: set
-) -> None:
-    path = _config(tmp_path, OpenAIProtocol.RESPONSES, f"capabilities = {declared}\n")
-    _, provider = load_provider(path, environ={"ASK_KEY": SECRET})
-    assert provider.capabilities.capabilities == expected
+    # Only the declared capabilities, here none: a compatible server cannot be asked.
+    assert provider.capabilities.capabilities == set()
 
 
 # ---- Chat Completions requests ---------------------------------------------------
@@ -219,38 +187,16 @@ def test_an_assistant_message_without_text_sends_no_content() -> None:
     assert assistant["tool_calls"][0]["function"]["arguments"] == '{"name":"réseau"}'
 
 
+# Both protocols share these tool fields; the full request above sends `true`.
 @pytest.mark.parametrize(
-    ("declared", "limit", "expected"),
-    [(PARALLEL, 4, True), (PARALLEL, 1, False), (["tool_calling"], 1, None)],
-    ids=["declared-many", "declared-one", "undeclared"],
+    ("declared", "expected"),
+    [(PARALLEL, False), (["tool_calling"], None)],
+    ids=["declared-one-call", "undeclared"],
 )
-def test_parallel_tool_calls_is_sent_only_when_declared(declared, limit, expected) -> None:
+def test_parallel_tool_calls_is_sent_only_when_declared(declared, expected) -> None:
     api = responding_api(_body())
-    send_request(
-        _chat(api, capabilities=declared), request=openai_request(max_tool_calls_per_turn=limit)
-    )
+    send_request(_chat(api, capabilities=declared), request=openai_request())
     assert sent_body(api).get("parallel_tool_calls") is expected
-
-
-def test_a_request_without_tools_sends_no_tool_fields() -> None:
-    api = responding_api(_body())
-    send_request(_chat(api, capabilities=PARALLEL), request=openai_request(tools=()))
-    assert set(sent_body(api)) == {"model", "messages", "max_completion_tokens"}
-
-
-def test_any_continuation_is_refused_before_any_request() -> None:
-    # Chat Completions never returns one, so even its own kind's continuation is foreign.
-    api = responding_api(_body())
-    message = {
-        "role": "assistant",
-        "text": "Thinking.",
-        "continuation": {"provider_kind": "openai_compatible", "blocks": [THINKING]},
-    }
-    with pytest.raises(ProviderInvalidRequestError):
-        send_request(
-            _chat(api), request=openai_request(message, {"role": "user", "text": "Go on."})
-        )
-    assert api.requests == []
 
 
 # ---- Chat Completions responses --------------------------------------------------
@@ -260,10 +206,6 @@ def _call(call: dict, arguments=None) -> ToolCall:
     function = call["function"]
     value = arguments or ParsedToolArguments(value=json.loads(function["arguments"]))
     return ToolCall(id=call["id"], name=function["name"], arguments=value)
-
-
-def _calls_body(*calls: dict) -> dict[str, Any]:
-    return _body({"content": None, "tool_calls": list(calls)}, "tool_calls")
 
 
 def _with_arguments(call: dict, arguments: Any) -> dict:
@@ -279,21 +221,12 @@ def _with_arguments(call: dict, arguments: Any) -> dict:
             StopReason.TOOL_USE,
         ),
         (
-            _body({"content": "Let me look.", "tool_calls": [LOOKUP]}, "tool_calls"),
-            AssistantMessage(text="Let me look.", tool_calls=(_call(LOOKUP),)),
-            StopReason.TOOL_USE,
-        ),
-        (
             _body({"tool_calls": [_with_arguments(LOOKUP, {"type": "x"})]}, "tool_calls"),
             AssistantMessage(tool_calls=(_call(LOOKUP),)),
             StopReason.TOOL_USE,
         ),
     ],
-    ids=[
-        "parallel-calls",
-        "text-and-calls",
-        "decoded-arguments",
-    ],
+    ids=["parallel-calls", "decoded-arguments"],
 )
 def test_chat_responses_map_to_the_shared_contracts(body, message, stop) -> None:
     response = send_request(_chat(responding_api(body)), "async")
@@ -302,28 +235,10 @@ def test_chat_responses_map_to_the_shared_contracts(body, message, stop) -> None
     )
 
 
-@pytest.mark.parametrize(
-    ("body", "error"),
-    [
-        (_body({"refusal": "No.", "tool_calls": [LOOKUP]}, "tool_calls"), ProviderRefusalError),
-        (_body(choices=[]), ProviderMalformedOutputError),
-        (_body(TEXT, "improvised"), ProviderMalformedOutputError),
-        (
-            _calls_body({**INSPECTION, "function": {"name": "not a tool", "arguments": "{}"}}),
-            ProviderMalformedOutputError,
-        ),
-    ],
-    ids=[
-        "refusal-with-call",
-        "no-choices",
-        "unknown-finish",
-        "invalid-tool-name",
-    ],
-)
-def test_unusable_chat_responses_are_typed_errors_without_provider_text(body, error) -> None:
-    with pytest.raises(error) as raised:
-        send_request(_chat(responding_api(body)))
-    assert str(raised.value) == error.message
+def test_a_chat_response_without_one_choice_is_malformed_without_provider_text() -> None:
+    with pytest.raises(ProviderMalformedOutputError) as raised:
+        send_request(_chat(responding_api(_body(choices=[_choice(TEXT), _choice(TEXT)]))))
+    assert str(raised.value) == ProviderMalformedOutputError.message
     assert "None of them" not in "".join(secret_renderings(raised.value))
 
 

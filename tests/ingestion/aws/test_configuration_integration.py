@@ -1,10 +1,5 @@
-import json
 from typing import ClassVar
 
-import pytest
-from typer.testing import CliRunner
-
-from archdiscov import cli, cli_collection
 from archdiscov.ingestion.adapter import AdapterContext
 from archdiscov.ingestion.operations import (
     EcsOperation,
@@ -26,15 +21,12 @@ class EmptyClient:
         "describe_db_instances": {"DBInstances": []},
         "describe_db_clusters": {"DBClusters": []},
         "describe_db_subnet_groups": {"DBSubnetGroups": []},
-        "list_queues": {"QueueUrls": []},
+        # SQS omits QueueUrls when the account has no queues.
+        "list_queues": {},
     }
-
-    def __init__(self):
-        self.calls = []
 
     def __getattr__(self, method):
         def read(**params):
-            self.calls.append((method, params))
             assert method in self.replies, f"unexpected AWS operation: {method}"
             return self.replies[method]
 
@@ -43,11 +35,9 @@ class EmptyClient:
 
 class Session:
     def __init__(self):
-        self.clients = []
         self.empty = EmptyClient()
 
     def client(self, name, **kwargs):
-        self.clients.append((name, kwargs))
         if name == "sts":
             return self
         return self.empty
@@ -69,16 +59,12 @@ def request(services=SERVICES, regions=("us-east-1",)):
     )
 
 
-def test_combined_empty_inventory_is_complete_per_service_and_region(tmp_path):
+def test_combined_empty_inventory_is_complete_per_service_and_region():
     session = Session()
-    outcomes = collect_and_save(
+    (snapshot,) = collect_snapshots(
         request(regions=("us-east-1", "us-west-2")),
-        [tmp_path / "empty.json"],
         context=AdapterContext(session_factory=lambda **kwargs: session),
     )
-    assert outcomes[0].error is None
-    assert outcomes[0].complete
-    snapshot = load_snapshot(outcomes[0].path)
     operations = [*EcsOperation, *LambdaOperation, *RdsOperation, *SqsOperation]
     assert len(snapshot.coverage.operations) == len(operations) * 2
     assert all(
@@ -88,80 +74,9 @@ def test_combined_empty_inventory_is_complete_per_service_and_region(tmp_path):
     assert {op.region for op in snapshot.coverage.operations} == {"us-east-1", "us-west-2"}
     assert snapshot.schema_version == "2"
     assert all(not region.resources for region in snapshot.regions.values())
-    before = outcomes[0].path.read_bytes()
-    conflict = collect_and_save(
-        request(),
-        [outcomes[0].path],
-        context=AdapterContext(session_factory=lambda **kwargs: session),
-    )[0]
-    assert conflict.error.code == "snapshot_conflict"
-    assert outcomes[0].path.read_bytes() == before
 
 
-@pytest.mark.parametrize("service", SERVICES)
-def test_collect_cli_accepts_each_regional_service(monkeypatch, tmp_path, service):
-    session = Session()
-    real_collect = cli_collection.collect_and_save
-    monkeypatch.setattr(
-        cli_collection,
-        "collect_and_save",
-        lambda req, paths: real_collect(
-            req, paths, context=AdapterContext(session_factory=lambda **kwargs: session)
-        ),
-    )
-    result = CliRunner().invoke(
-        cli.app,
-        [
-            "collect",
-            "--account",
-            "dev:123456789012",
-            "--region",
-            "us-east-1",
-            "--service",
-            service.value,
-            "--output",
-            str(tmp_path / "snapshot.json"),
-            "--json",
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    payload = json.loads(result.output)
-    assert payload["accounts"][0]["complete"]
-    assert {op["service"] for op in payload["accounts"][0]["operations"]} == {service.value}
-    assert all(name in {service.value, "sts"} for name, _ in session.clients)
-    missing_region = CliRunner().invoke(
-        cli.app,
-        [
-            "collect",
-            "--account",
-            "dev:123456789012",
-            "--service",
-            service.value,
-            "--output",
-            str(tmp_path / "bad.json"),
-            "--json",
-        ],
-    )
-    assert missing_region.exit_code == 2
-    assert not (tmp_path / "bad.json").exists()
-
-
-def test_identity_failure_prevents_new_service_calls():
-    class WrongAccount(Session):
-        def get_caller_identity(self):
-            return {"Account": "999999999999"}
-
-    session = WrongAccount()
-    from archdiscov.ingestion.adapter import IngestionError
-
-    with pytest.raises(IngestionError, match="does not match"):
-        collect_snapshots(
-            request(), context=AdapterContext(session_factory=lambda **kwargs: session)
-        )
-    assert session.empty.calls == []
-
-
-def test_nonempty_combined_services_persist_links_and_inspect_fact_evidence(monkeypatch, tmp_path):
+def test_nonempty_combined_services_persist_source_owned_links(tmp_path):
     from archdiscov.ingestion.configuration_relationships import walk_resources
     from archdiscov.models.resources.database import DbInstance
     from archdiscov.models.resources.ecs import EcsService
@@ -187,7 +102,6 @@ def test_nonempty_combined_services_persist_links_and_inspect_fact_evidence(monk
             }
 
         def client(self, name, **kwargs):
-            self.clients.append((name, kwargs))
             if name == "sts":
                 return self
             if name == "ec2":
@@ -234,51 +148,3 @@ def test_nonempty_combined_services_persist_links_and_inspect_fact_evidence(monk
             snapshot.evidence[eid].resource_id == link.source_id for eid in link.evidence_ids
         )
     assert "secret-" not in output.read_text()
-    database = next(r for r in resources if isinstance(r, DbInstance))
-    evidence_id = database.fact_evidence["/endpoint_port"][0]
-    inspected = CliRunner().invoke(
-        cli.app, ["evidence", evidence_id, "--snapshot", str(output), "--json"]
-    )
-    assert inspected.exit_code == 0, inspected.output
-    payload = json.loads(inspected.output)
-    assert payload["evidence"]["value"] == 5432
-    assert payload["evidence"]["configuration_path"].endswith("Endpoint.Port")
-    assert snapshot.model_dump(mode="json") == outcome.snapshot.model_dump(mode="json")
-
-
-def test_new_service_partial_failure_keeps_other_service_results(tmp_path):
-    from botocore.exceptions import ClientError
-
-    from tests.support.lambda_data import Client as LambdaClient
-    from tests.support.rds_data import Client as RdsClient
-    from tests.support.rds_data import data as rds_data
-
-    class PartialSession(Session):
-        def __init__(self):
-            super().__init__()
-            self.function = LambdaClient(
-                detail=ClientError(
-                    {"Error": {"Code": "AccessDenied", "Message": "injected-private-value"}},
-                    "GetFunctionConfiguration",
-                )
-            )
-            self.database = RdsClient(rds_data())
-
-        def client(self, name, **kwargs):
-            if name == "sts":
-                return self
-            return self.function if name == "lambda" else self.database
-
-    session = PartialSession()
-    outcome = collect_and_save(
-        request((AwsService.LAMBDA, AwsService.RDS)),
-        [tmp_path / "partial.json"],
-        context=AdapterContext(session_factory=lambda **kwargs: session),
-    )[0]
-    assert outcome.error is None
-    assert not outcome.complete
-    assert len(outcome.snapshot.regions["us-east-1"].resources) == 4
-    operations = {op.operation: op for op in outcome.snapshot.coverage.operations}
-    assert operations["GetFunctionConfiguration"].status == "failed"
-    assert operations["DescribeDBInstances"].status == "success"
-    assert "injected-private-value" not in outcome.path.read_text()

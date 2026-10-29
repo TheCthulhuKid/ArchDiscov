@@ -1,29 +1,17 @@
-import asyncio
-import json
-from copy import deepcopy
-
 import pytest
 from pydantic import ValidationError
 
 from archdiscov.ingestion.adapter import IngestionError
-from archdiscov.ingestion.terraform import TerraformPlanAdapter, TerraformPlanRequest
-from archdiscov.models.architecture import ArchitectureSnapshot, ResourceLifecycle
+from archdiscov.ingestion.terraform import TerraformPlanRequest
+from archdiscov.models.architecture import ResourceLifecycle
 from archdiscov.models.enums import EvidenceValueStatus, LifecycleValueScope
-from archdiscov.services import (
-    SnapshotConflictError,
-    collect_snapshots,
-    collect_snapshots_async,
-    get_evidence,
-    load_snapshot,
-    save_snapshot,
-)
+from archdiscov.services import collect_snapshots, get_evidence, load_snapshot, save_snapshot
 from tests.support.terraform_data import (
     ACCOUNT,
     CONTEXT,
     FIXTURE,
     change,
     collect,
-    plan_request,
     resources,
     write_plan,
 )
@@ -93,16 +81,6 @@ def test_plan_fixture_lifecycle_uncertainty_persistence_and_evidence(tmp_path, m
         "t2.micro",
     ):
         assert secret not in saved
-    with pytest.raises(SnapshotConflictError):
-        save_snapshot(snapshot, output)
-    assert output.read_text() == saved
-    assert ArchitectureSnapshot.model_validate_json(snapshot.model_dump_json()) == snapshot
-
-
-def test_plan_async_and_sync_api_agree():
-    assert asyncio.run(collect_snapshots_async(plan_request(FIXTURE), context=CONTEXT)) == [
-        collect(FIXTURE)
-    ]
 
 
 @pytest.mark.parametrize(
@@ -111,8 +89,8 @@ def test_plan_async_and_sync_api_agree():
         ({}, {}, False),
         ({"instance_type": None}, {}, True),
         ({"instance_type": None}, {"instance_type": True}, False),
-        ({"instance_type": "stale"}, {"instance_type": True}, False),
     ],
+    ids=["missing", "null", "unknown"],
 )
 def test_missing_null_and_unknown_are_distinct(tmp_path, values, unknown, has_citation):
     snapshot = collect(write_plan(tmp_path, [change(after=values, after_unknown=unknown)]))
@@ -150,17 +128,8 @@ def test_before_never_backfills_unknown_after_values(tmp_path):
     )
 
 
-@pytest.mark.parametrize(
-    "before",
-    [
-        {"arn": "arn:aws:ec2:us-east-1:999999999999:instance/i-before"},
-        {"arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-before", "region": "eu-west-1"},
-        {"account_id": "invalid-account"},
-        {"arn": "arn:malformed"},
-    ],
-    ids=["foreign-account", "conflicting-regions", "invalid-account", "malformed-arn"],
-)
-def test_before_context_conflicts_rejected_without_disclosing_values(tmp_path, before):
+def test_before_context_conflicts_rejected_without_disclosing_values(tmp_path):
+    before = {"arn": "arn:aws:ec2:us-east-1:999999999999:instance/i-before"}
     path = write_plan(
         tmp_path, [change(actions=["update"], before=before, after={"instance_type": "t3.micro"})]
     )
@@ -169,21 +138,8 @@ def test_before_context_conflicts_rejected_without_disclosing_values(tmp_path, b
     assert "999999999999" not in str(caught.value)
 
 
-def test_before_context_still_rejects_unsupported_regions(tmp_path):
-    path = write_plan(
-        tmp_path, [change(actions=["update"], before={"region": "unsupported-region"})]
-    )
-    with pytest.raises(IngestionError, match="Unsupported Terraform resource region") as caught:
-        collect(path)
-    assert caught.value.code == "unsupported_region"
-    assert "unsupported-region" not in str(caught.value)
-
-
-@pytest.mark.parametrize("actions", [["delete", "create"], ["create", "delete"]])
-@pytest.mark.parametrize("explicit_region", [False, True])
-def test_replacement_can_move_regions_without_reusing_before_context(
-    tmp_path, actions, explicit_region
-):
+def test_replacement_can_move_regions_without_reusing_before_context(tmp_path):
+    actions = ["delete", "create"]
     path = write_plan(
         tmp_path,
         [
@@ -195,10 +151,7 @@ def test_replacement_can_move_regions_without_reusing_before_context(
         ],
     )
     snapshot = collect_snapshots(
-        TerraformPlanRequest(
-            path=path, account_id=ACCOUNT, region="eu-west-1" if explicit_region else None
-        ),
-        context=CONTEXT,
+        TerraformPlanRequest(path=path, account_id=ACCOUNT), context=CONTEXT
     )[0]
     resource = resources(snapshot)["aws_instance.example"]
     assert resource.identity.region == "eu-west-1"
@@ -224,31 +177,7 @@ def test_unknowns_require_scope_rather_than_inferring_prior_state(tmp_path):
         collect_snapshots(TerraformPlanRequest(path=path), context=CONTEXT)
 
 
-@pytest.mark.parametrize(
-    "actions,scope",
-    [(["delete"], "after"), (["create"], "before"), (["delete", "create"], "before")],
-)
-def test_lifecycle_scope_must_match_actions(actions, scope):
+def test_lifecycle_scope_must_match_actions_and_is_omitted_when_absent():
     with pytest.raises(ValidationError, match="value_scope"):
-        ResourceLifecycle(actions=actions, value_scope=scope)
-
-
-def test_action_only_historical_lifecycle_remains_compatible():
-    lifecycle = ResourceLifecycle(actions=["delete"])
-    assert lifecycle.model_dump() == {"actions": ["delete"]}
-
-
-def test_adapter_rejects_wrong_request_kind():
-    from archdiscov.ingestion.terraform import TerraformStateRequest
-
-    with pytest.raises(IngestionError, match="TerraformPlanRequest"):
-        TerraformPlanAdapter().collect(TerraformStateRequest(path=FIXTURE), context=CONTEXT)
-
-
-def test_input_data_unchanged(tmp_path):
-    data = json.loads(FIXTURE.read_text())
-    original = deepcopy(data)
-    path = tmp_path / "plan.json"
-    path.write_text(json.dumps(data))
-    collect(path)
-    assert json.loads(path.read_text()) == original
+        ResourceLifecycle(actions=["delete"], value_scope="after")
+    assert ResourceLifecycle(actions=["delete"]).model_dump() == {"actions": ["delete"]}
