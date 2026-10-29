@@ -1,8 +1,7 @@
 from archdiscov.models.enums import ComparisonSide, DifferenceKind, DifferenceSubject
 from archdiscov.services.comparison_fields import FieldComparer
 from archdiscov.services.comparison_matching import match_resources
-from tests.comparison.snapshots import REGION, aws_resource, index
-from tests.support.comparison_data import evidence, rid, vpc
+from tests.support.comparison_data import REGION, aws_resource, evidence, index, rid, vpc
 
 FIELD, DEPENDENCY, CONTAINMENT = (
     DifferenceSubject.FIELD,

@@ -4,7 +4,7 @@ import re
 
 import pytest
 
-from tests.documentation.markdown import DOC_FILES, anchors, prose
+from tests.support.markdown import DOC_FILES, anchors, prose
 
 _LINK = re.compile(r"(?<!!)\[[^\]]*\]\(([^)\s]+)\)")
 

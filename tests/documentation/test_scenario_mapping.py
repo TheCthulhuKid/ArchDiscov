@@ -5,8 +5,8 @@ import re
 
 import pytest
 
-from tests.documentation.markdown import table_rows
 from tests.paths import PROJECT_ROOT
+from tests.support.markdown import table_rows
 
 ACCEPTANCE = PROJECT_ROOT / "docs" / "acceptance.md"
 SCENARIOS = [

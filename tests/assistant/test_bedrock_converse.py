@@ -11,10 +11,7 @@ import logging
 from typing import Any
 
 import pytest
-from botocore.exceptions import (
-    ClientError,
-    ReadTimeoutError,
-)
+from botocore.exceptions import ClientError, ReadTimeoutError
 from botocore.stub import Stubber
 
 from archdiscov.assistant.bedrock_provider import BedrockProvider
@@ -54,7 +51,7 @@ from tests.support.bedrock_exchanges import (
 )
 from tests.support.mock_api import AwsResponse, BotocoreApi
 from tests.support.provider_data import EXCHANGE, INSPECT_TOOL, SEARCH_TOOL, SIGNATURE, THINKING
-from tests.support.provider_harness import HARNESS_PROFILE, BedrockHarness
+from tests.support.provider_harness import HARNESS_PROFILE
 from tests.support.scripted_turns import SNAPSHOT
 from tests.support.secrets import secret_renderings
 
@@ -65,7 +62,6 @@ LOOKUP = {"toolUse": {"toolUseId": "tooluse_1", "name": "search_resources", "inp
 INSPECTION = {"toolUse": {"toolUseId": "tooluse_2", "name": "inspect_resource", "input": {}}}
 REASONING = {"reasoningContent": {"reasoningText": {"text": "Thinking.", "signature": SIGNATURE}}}
 REDACTED = {"reasoningContent": {"redactedContent": base64.b64encode(b"encrypted").decode()}}
-_ANSWER = {"message": {"role": "assistant", "text": "None of them."}, "stop_reason": "end"}
 
 
 def _body(*content: dict, stop: str = "end_turn", usage: dict | None = None) -> dict[str, Any]:
@@ -288,7 +284,7 @@ def test_usage_maps_with_and_without_cache_fields() -> None:
 # ---- continuations -----------------------------------------------------------------
 
 
-def test_reasoning_is_replayed_verbatim_and_in_order_on_the_next_request() -> None:
+def test_only_reasoning_makes_a_continuation_replayed_verbatim_and_in_order() -> None:
     first = _body(
         REASONING, {"text": "Searching."}, REDACTED, _with_input(LOOKUP, {}), stop="tool_use"
     )
@@ -305,9 +301,7 @@ def test_reasoning_is_replayed_verbatim_and_in_order_on_the_next_request() -> No
     assert replayed == {"role": "assistant", "content": first["output"]["message"]["content"]}
     assert result.transcript.turns[0].continuation_bytes > 0
     assert SIGNATURE not in result.transcript.model_dump_json()
-
-
-def test_a_response_without_reasoning_has_no_continuation() -> None:
+    # A response without reasoning has no continuation.
     assert _send(_provider(_api(_body(TEXT, LOOKUP, stop="tool_use")))).message.continuation is None
 
 
@@ -321,19 +315,6 @@ def test_another_providers_continuation_is_never_sent() -> None:
     with pytest.raises(ProviderInvalidRequestError):
         _send(_provider(api), request=_request(foreign, {"role": "user", "text": "Go on."}))
     assert api.requests == []
-
-
-# ---- harness -----------------------------------------------------------------------
-
-
-def test_a_delay_beyond_the_clients_read_timeout_is_a_timeout() -> None:
-    respond = {"kind": "respond", "delay_seconds": 90, "response": _ANSWER}
-    clock = FakeClock()
-    provider = BedrockHarness().build([respond], clock=clock)
-    with pytest.raises(ProviderTimeoutError) as raised:
-        _send(provider)
-    assert isinstance(raised.value.__cause__, ReadTimeoutError)
-    assert clock.monotonic() == 60
 
 
 # ---- failures ----------------------------------------------------------------------
@@ -393,8 +374,9 @@ def test_each_request_is_read_with_its_own_timeout(mode: str) -> None:
     clock = FakeClock()
     slow = AwsResponse(200, _body(TEXT), delay=15)
     provider, _ = _failing(slow, slow, slow, slow, clock=clock)
-    with pytest.raises(ProviderTimeoutError):
+    with pytest.raises(ProviderTimeoutError) as raised:
         _send(provider, mode, _request(timeout_seconds=10))
+    assert isinstance(raised.value.__cause__, ReadTimeoutError)
     assert clock.monotonic() == 10
     for timeout in (60, 20, 30):
         assert _send(provider, mode, _request(timeout_seconds=timeout)).message.text

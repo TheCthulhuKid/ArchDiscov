@@ -25,6 +25,7 @@ import json
 import re
 import shutil
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from urllib.parse import quote, unquote
 
@@ -34,9 +35,11 @@ from archdiscov.assistant.fake import FakeTranscript
 from archdiscov.assistant.runs import RunTranscript
 from archdiscov.services import load_snapshot
 from tests.support.answer_claims import INJECTION
+from tests.support.ask_cli_cases import PRE_RUN_ERRORS
 from tests.support.ask_examples import (
     EXAMPLES,
     README_QUESTIONS,
+    ExampleRun,
     write_example,
 )
 from tests.support.ask_runs import fake_config
@@ -52,7 +55,7 @@ from tests.support.installed_cli import (
     suite_cases,
 )
 from tests.support.mock_api import mock_api_server
-from tests.support.provider_data import MISSING_PROFILE, missing_profile_config
+from tests.support.provider_data import MISSING_PROFILE
 from tests.support.provider_harness import (
     HARNESS_PROFILE,
     AnthropicHarness,
@@ -121,11 +124,10 @@ def _evidence_ids(answer: dict) -> list[str]:
     return [item for finding in _findings(answer) for item in finding["evidence_ids"]]
 
 
-def _suites(root: Path, *names: str) -> Workspace:
-    """A workspace with the named evaluation suites copied to `fixtures/<name>`."""
+def _suite(root: Path, name: str) -> Workspace:
+    """A workspace with the named evaluation suite copied to `fixtures/<name>`."""
     ws = Workspace(root)
-    for name in names:
-        shutil.copytree(SUITES[name].parent, ws.path("fixtures", name))
+    shutil.copytree(SUITES[name].parent, ws.path("fixtures", name))
     return ws
 
 
@@ -138,10 +140,11 @@ def _unchanged(ws: Workspace, ask: Callable[[], dict]) -> dict:
     return summary
 
 
-def answers_journey(root: Path) -> dict:
+@pytest.fixture(scope="module")
+def answers(tmp_path_factory) -> dict:
     """Each README case asked in JSON, the first also readably; the first cited evidence
     record inspected through the CLI, and every cited ID checked in the answered snapshot."""
-    ws = _suites(root, "readme")
+    ws = _suite(tmp_path_factory.mktemp("ask-answers"), "readme")
 
     def ask() -> dict:
         examples, inspected = {}, None
@@ -159,63 +162,37 @@ def answers_journey(root: Path) -> dict:
     return _unchanged(ws, ask)
 
 
-def paths_journey(root: Path) -> dict:
-    ws = _suites(root, "adversarial")
+@pytest.fixture(scope="module")
+def paths(tmp_path_factory) -> dict:
+    ws = _suite(tmp_path_factory.mktemp("ask-paths"), "adversarial")
     adversarial = suite_cases(ws, "adversarial")
-
-    def ask() -> dict:
-        return {
+    return _unchanged(
+        ws,
+        lambda: {
             case_id: _ask(ws, "adversarial", adversarial[case_id], code)
             for case_id, (_, code, _) in PATHS.items()
-        }
-
-    return _unchanged(ws, ask)
-
-
-def _missing_config(ws: Workspace, snapshot: Path) -> tuple[list, int, str]:
-    options = ["--snapshot", snapshot, "--config", ws.path("missing.toml")]
-    return options, 1, "provider_config_unreadable"
+        },
+    )
 
 
-def _unknown_snapshot(ws: Workspace, snapshot: Path) -> tuple[list, int, str]:
-    config = ws.path("examples", SNAPSHOT, "provider.toml")
-    return ["--snapshot", ws.path("missing.json"), "--config", config], 1, "snapshot_io_error"
+def _missing_key(harness: MockedHarness, directory: Path) -> tuple[Path, list, dict]:
+    return harness_config(directory, harness), [], {}
 
 
-def _missing_profile(ws: Workspace, snapshot: Path) -> tuple[list, int, str]:
-    directory = ws.path("cases", "missing-profile")
-    directory.mkdir(parents=True)
-    config = missing_profile_config(directory)
-    return ["--snapshot", snapshot, "--config", config], 2, "provider_profile_unavailable"
-
-
-def _existing_transcript(ws: Workspace, snapshot: Path) -> tuple[list, int, str]:
-    config = ws.path("examples", SNAPSHOT, "provider.toml")
-    existing = ws.path("kept.json")
-    existing.write_text("kept", encoding="utf-8")
-    options = ["--snapshot", snapshot, "--config", config, "--transcript", existing]
-    return options, 3, "snapshot_conflict"
-
-
-def _missing_key(harness: MockedHarness) -> Callable[[Workspace, Path], tuple[list, int, str]]:
-    def case(ws: Workspace, snapshot: Path) -> tuple[list, int, str]:
-        directory = ws.path("cases", f"missing-{harness.label}-key")
-        directory.mkdir(parents=True)
-        options = ["--snapshot", snapshot, "--config", harness_config(directory, harness)]
-        return options, 2, "provider_credential_missing"
-
-    case.__name__ = f"_missing_{harness.name}_key"
-    return case
-
-
-REFUSALS = [
-    _missing_config,
-    _unknown_snapshot,
-    _missing_profile,
-    _missing_key(AnthropicHarness()),
-    _missing_key(ResponsesHarness()),
-    _existing_transcript,
-]
+PRE_RUN = {case.__name__.strip("_"): (case, code, error) for case, code, error in PRE_RUN_ERRORS}
+# The CLI test's pre-run cases the installed command repeats, and two adapters without a key.
+REFUSALS = {
+    **{name: PRE_RUN[name] for name in ("missing_config", "unknown_snapshot", "missing_profile")},
+    **{
+        f"missing_{harness.name}_key": (
+            partial(_missing_key, harness),
+            2,
+            "provider_credential_missing",
+        )
+        for harness in (AnthropicHarness(), ResponsesHarness())
+    },
+    "existing_transcript": PRE_RUN["existing_transcript"],
+}
 # Scripted runs that start and fail: (turns, extra configuration, exit code, failure reason).
 FAILED_RUNS = {
     "provider-error": ([fail_turn("provider_unavailable")], "", 6, "provider_error"),
@@ -226,10 +203,13 @@ FAILED_RUNS = {
 def _refusals(ws: Workspace) -> dict:
     snapshot = ws.path("examples", SNAPSHOT, "snapshot.json")
     refused = {}
-    for index, case in enumerate(REFUSALS):
-        options, code, error = case(ws, snapshot)
+    for index, (name, (case, code, error)) in enumerate(REFUSALS.items()):
+        directory = ws.path("cases", name)
+        directory.mkdir(parents=True)
+        config, extra, overrides = case(directory)
         before = {path: digest(path) for path in ws.root.rglob("*") if path.is_file()}
-        question = (README_QUESTIONS[0], *options)
+        selected = overrides.get("snapshot", snapshot)
+        question = (README_QUESTIONS[0], "--snapshot", selected, "--config", config, *extra)
         diagnostic = ws.json("ask", *question, expect=code)["error"]
         assert diagnostic["code"] == error
         if index == 0:
@@ -237,7 +217,7 @@ def _refusals(ws: Workspace) -> dict:
             assert readable.stdout == "" and readable.stderr.startswith(f"Error [{error}]: ")
         # A refused run neither writes nor overwrites anything.
         assert {path: digest(path) for path in ws.root.rglob("*") if path.is_file()} == before
-        refused[case.__name__.strip("_")] = diagnostic
+        refused[name] = diagnostic
     return refused
 
 
@@ -272,11 +252,6 @@ def _credentials(directory: Path, harness: MockedHarness) -> dict[str, str]:
     return files
 
 
-def _model(path: str, body: dict) -> str:
-    """The model a request names: in its body, or, for Converse, in its path."""
-    return body["model"] if "model" in body else unquote(path.split("/")[2])
-
-
 def _through_the_adapters(ws: Workspace) -> dict[str, tuple[dict, list]]:
     """The adapted example answered through each adapter's mock API."""
     directory = ws.path("examples", ADAPTED)
@@ -296,107 +271,69 @@ def _through_the_adapters(ws: Workspace) -> dict[str, tuple[dict, list]]:
     return answered
 
 
-def _examples(root: Path, *names: str) -> tuple[Workspace, dict]:
-    """A workspace with the named README examples written to `examples/<name>`."""
+def _example(root: Path, name: str) -> tuple[Workspace, ExampleRun]:
+    """A workspace with the named README example written to `examples/<name>`."""
     ws = Workspace(root)
-    examples = {}
-    for name in names:
-        directory = ws.path("examples", name)
-        directory.mkdir(parents=True)
-        examples[name] = write_example(EXAMPLES[name], directory)
-    return ws, examples
+    directory = ws.path("examples", name)
+    directory.mkdir(parents=True)
+    return ws, write_example(EXAMPLES[name], directory)
 
 
-def refusals_journey(root: Path) -> dict:
-    ws, _ = _examples(root, SNAPSHOT)
+@pytest.fixture(scope="module")
+def summary(tmp_path_factory) -> dict:
+    ws, _ = _example(tmp_path_factory.mktemp("ask-refusals"), SNAPSHOT)
     summary = {"refusals": _refusals(ws), "failed": _failed_runs(ws)}
     assert ws.guard.attempts == []
     return summary
 
 
-def adapters_journey(root: Path) -> dict:
-    ws, examples = _examples(root, ADAPTED)
+@pytest.fixture(scope="module")
+def adapters(tmp_path_factory) -> dict:
+    ws, example = _example(tmp_path_factory.mktemp("ask-adapters"), ADAPTED)
     summary = {
-        "fake": ws.json("ask", *examples[ADAPTED].arguments),
+        "fake": ws.json("ask", *example.arguments),
         "adapters": _through_the_adapters(ws),
     }
     assert ws.guard.attempts == []
     return summary
 
 
-@pytest.fixture(scope="module")
-def answers(tmp_path_factory) -> dict:
-    return answers_journey(tmp_path_factory.mktemp("ask-answers"))
-
-
-@pytest.fixture(scope="module")
-def paths(tmp_path_factory) -> dict:
-    return paths_journey(tmp_path_factory.mktemp("ask-paths"))
-
-
-@pytest.fixture(scope="module")
-def summary(tmp_path_factory) -> dict:
-    return refusals_journey(tmp_path_factory.mktemp("ask-refusals"))
-
-
-@pytest.fixture(scope="module")
-def adapters(tmp_path_factory) -> dict:
-    return adapters_journey(tmp_path_factory.mktemp("ask-adapters"))
-
-
-def _cited(answer: dict, key: str) -> set[str]:
-    return {
-        item
-        for conclusion in answer["conclusions"]
-        for citation in conclusion["citations"]
-        for item in citation[key]
-    }
-
-
 @ANSWERS
 def test_every_readme_question_is_answered_from_tool_returned_findings(answers):
     examples = answers["examples"]
     assert set(README_QUESTIONS) <= {case["question"] for case, _ in examples.values()}
+    limited = set()
     for case_id, (case, asked) in examples.items():
         answer = asked["data"]["result"]["answer"]
         expect = case["expect"]
         assert answer["outcome"]["status"] == "answered", case_id
         assert answer["status"] in expect["statuses"], case_id
         # The cited findings are exactly those the example's tools returned.
-        assert _cited(answer, "finding_ids") == set(expect.get("finding_ids", ())), case_id
+        citations = [item for c in answer["conclusions"] for item in c["citations"]]
+        cited = {item for citation in citations for item in citation["finding_ids"]}
+        assert cited == set(expect.get("finding_ids", ())), case_id
         assert answer["conclusions"], case_id
         assert asked["data"]["summary"]["provider_kind"] == "fake", case_id
+        # A finding that supports anything cites evidence the answered snapshot records;
+        # insufficient evidence may cite none.
+        for finding in _findings(answer):
+            if finding["status"] != "insufficient_evidence":
+                assert finding["evidence_ids"], case_id
+        assert asked["recorded"], case_id
+        # An answer short of supported states its limitations.
+        if answer["status"] != "supported":
+            assert answer["qualifications"], case_id
+            limited.add(case_id)
+    assert {"trust_limited_coverage", "internet_insufficient_evidence", "ownership_planned"} <= (
+        limited
+    )
+    evidence_id, inspected = answers["inspected"]
+    assert inspected["evidence_id"] == evidence_id
     [(_, first)] = [item for item in examples.values() if item[1]["readable"] is not None]
     lines = first["readable"].splitlines()
     assert "Provider: fake, model fake" in lines
     assert "Answer: answered, exit code 0" in lines
     assert f"Status: {first['data']['result']['answer']['status']}" in lines
-
-
-@ANSWERS
-def test_cited_evidence_is_inspected_in_the_answered_snapshot(answers):
-    for case_id, (_, asked) in answers["examples"].items():
-        answer = asked["data"]["result"]["answer"]
-        # A finding that supports anything cites evidence; insufficient evidence may not.
-        for finding in _findings(answer):
-            if finding["status"] != "insufficient_evidence":
-                assert finding["evidence_ids"], case_id
-        assert asked["recorded"], case_id
-    evidence_id, inspected = answers["inspected"]
-    assert inspected["evidence_id"] == evidence_id
-
-
-@ANSWERS
-def test_answers_short_of_supported_state_their_limitations(answers):
-    limited = {}
-    for case_id, (_, asked) in answers["examples"].items():
-        answer = asked["data"]["result"]["answer"]
-        if answer["status"] != "supported":
-            assert answer["qualifications"], case_id
-            limited[case_id] = answer["qualifications"]
-    assert {"trust_limited_coverage", "internet_insufficient_evidence", "ownership_planned"} <= (
-        set(limited)
-    )
 
 
 @PATHS_GROUP
@@ -425,7 +362,7 @@ def test_imported_instructions_are_only_quoted_data(paths):
 
 def test_errors_before_the_run_fail_safely(summary):
     refused = summary["refusals"]
-    assert list(refused) == [case.__name__.strip("_") for case in REFUSALS]
+    assert list(refused) == list(REFUSALS)
     # A Bedrock profile is named, never its contents, and fails before any request.
     assert refused["missing_profile"]["profile"] == MISSING_PROFILE
     assert refused["missing_profile"]["kind"] == "bedrock"
@@ -455,6 +392,7 @@ def test_each_adapter_answers_through_a_loopback_api(adapters, harness):
     for sent, headers, body in requests:
         lowered = {name.lower(): value for name, value in headers.items()}
         assert re.fullmatch(authorization, lowered["authorization"])
-        assert _model(sent, body) == model
+        # A request names its model in its body or, for Converse, in its path.
+        assert body.get("model", unquote(sent.split("/")[2])) == model
     for secret in (DUMMY_KEY, AWS_SECRET):
         assert secret not in json.dumps(data)

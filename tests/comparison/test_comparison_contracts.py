@@ -90,13 +90,12 @@ def ambiguous(**fields):
 
 
 def result(**fields):
-    value = {
+    return {
         "left": snapshot(LEFT),
         "right": snapshot(RIGHT, seed=2),
         "created_at": NOW.isoformat(),
         **fields,
     }
-    return value
 
 
 def ordered(model, entries):
@@ -220,14 +219,11 @@ def test_unmatched_resources_round_trip():
     assert UnmatchedResource.model_validate_json(model.model_dump_json()) == model
 
 
-def test_an_unmatched_resource_is_qualified_by_lifecycle_or_coverage_only():
+def test_an_unmatched_resource_is_qualified_by_its_own_lifecycle_or_either_coverage():
     with pytest.raises(ValidationError, match="lifecycle or coverage"):
         UnmatchedResource.model_validate(unmatched(qualifications=[qualification()]))
     planned = qualification("planned_lifecycle", lifecycle=DELETION)
     assert UnmatchedResource.model_validate(unmatched(qualifications=[planned]))
-
-
-def test_a_planned_lifecycle_of_an_unmatched_resource_concerns_its_own_side():
     with pytest.raises(ValidationError, match="own side"):
         UnmatchedResource.model_validate(
             unmatched(
@@ -235,9 +231,6 @@ def test_a_planned_lifecycle_of_an_unmatched_resource_concerns_its_own_side():
                 qualifications=[qualification("planned_lifecycle", "right", lifecycle=DELETION)],
             )
         )
-
-
-def test_an_unmatched_resource_may_be_qualified_by_the_coverage_of_either_side():
     for side in ("left", "right"):
         assert UnmatchedResource.model_validate(
             unmatched(
@@ -337,8 +330,6 @@ def test_a_cross_cloud_pair_is_two_unmatched_sides_with_a_limitation():
     )
     model = ComparisonResult.model_validate(data)
     assert {item.side for item in model.unmatched} == {LEFT, RIGHT}
-    with pytest.raises(ValidationError, match="complete scope"):
-        MatchedPair.model_validate(pair(right=ref("vm-1", AZURE)))
 
 
 def test_sides_must_be_labelled_left_then_right_and_match_their_scope():

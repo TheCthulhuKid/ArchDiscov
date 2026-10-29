@@ -14,8 +14,7 @@ from archdiscov.services import (
     load_comparison,
     save_comparison,
 )
-from tests.comparison.snapshots import aws_snapshot, azure_snapshot, coverage
-from tests.support.comparison_data import rid, vpc
+from tests.support.comparison_data import aws_snapshot, azure_snapshot, coverage, rid, vpc
 
 KINDS = list(SnapshotSourceKind)
 DELETE = {"actions": ["delete"], "value_scope": "before"}

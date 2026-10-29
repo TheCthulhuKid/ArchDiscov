@@ -23,10 +23,10 @@ from archdiscov.services.network_load_balancers import (
 from archdiscov.services.network_routes import evaluate_subnet_route
 from archdiscov.services.network_security_groups import Peer, evaluate_security_group
 from tests.paths import FIXTURES_ROOT
+from tests.support.elbv2_data import LB, responses
+from tests.support.elbv2_snapshot import build as build_lb
+from tests.support.elbv2_snapshot import resource_id as lb_id
 from tests.support.fixture_edits import edited_index
-from tests.support.lb_data import LB, responses
-from tests.support.lb_data import build as build_lb
-from tests.support.lb_data import resource_id as lb_id
 from tests.support.nacl_data import acl, entry
 from tests.support.network_data import ENI, FULL, ROUTE_TABLE, SG_RULES
 from tests.support.network_snapshot import build_network, resource_id

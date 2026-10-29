@@ -9,9 +9,8 @@ from archdiscov.services import (
     load_snapshot,
     save_snapshot,
 )
-from tests.comparison.snapshots import coverage
 from tests.paths import FIXTURES_ROOT
-from tests.support.comparison_data import journey_snapshot
+from tests.support.comparison_data import coverage, journey_snapshot
 from tests.support.installed_cli import run_installed_json
 
 DELETE = {"actions": ["delete"], "value_scope": "before"}

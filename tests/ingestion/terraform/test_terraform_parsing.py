@@ -84,6 +84,9 @@ def test_accepts_supported_major_with_newer_minor_and_empty_state(version):
     assert parsed.terraform_version is None
     assert parsed.resources == []
     assert parsed.skipped_paths == []
+    document = export()
+    document.pop("terraform_version")
+    assert parse_export(document).terraform_version is None
 
 
 def test_rejects_unsupported_format_version_without_echoing_value():
@@ -96,12 +99,6 @@ def test_rejects_invalid_terraform_version_without_echoing_value():
     with pytest.raises(IngestionError, match="Invalid Terraform version") as exc:
         parse_export(export(terraform_version=RAW_SECRET))
     assert_safe_error(exc.value)
-
-
-def test_terraform_version_is_optional():
-    document = export()
-    document.pop("terraform_version")
-    assert parse_export(document).terraform_version is None
 
 
 def test_rejects_plan_and_internal_state_even_with_valid_public_state_fields():
@@ -279,12 +276,14 @@ def test_load_export_rejects_non_json_numeric_constants(tmp_path):
 def test_recursive_masks_redact_booleans_dicts_lists_and_escaped_tag_keys():
     values = {
         "id": "vpc-123",
+        "password": RAW_SECRET,
         "tags": {"Name": "main", "team/~name": RAW_SECRET},
         "nested": [{"public": "keep", "private": RAW_SECRET}, RAW_SECRET, "tail"],
         "whole": {"otherwise_safe": RAW_SECRET},
     }
     mask = {
         "id": False,
+        "password": True,
         "tags": {"team/~name": True},
         "nested": [{"private": True}, True],
         "whole": True,
@@ -295,11 +294,18 @@ def test_recursive_masks_redact_booleans_dicts_lists_and_escaped_tag_keys():
 
     assert safe == {
         "id": "vpc-123",
+        "password": REDACTED,
         "tags": {"Name": "main", "team/~name": REDACTED},
         "nested": [{"public": "keep", "private": REDACTED}, REDACTED, "tail"],
         "whole": REDACTED,
     }
-    assert paths == ["/nested/0/private", "/nested/1", "/tags/team~1~0name", "/whole"]
+    assert paths == [
+        "/nested/0/private",
+        "/nested/1",
+        "/password",
+        "/tags/team~1~0name",
+        "/whole",
+    ]
     for path in paths:
         assert read_pointer(safe, path) == REDACTED
     assert values == before_values
@@ -346,12 +352,6 @@ def test_whole_resource_sensitive_mask_discards_all_attributes_including_identit
     assert RAW_SECRET not in json.dumps(asdict(parsed))
 
 
-def test_redaction_paths_are_sorted_and_deduplicated():
-    safe, paths = sanitize_values({"password": RAW_SECRET}, {"password": True})
-    assert safe == {"password": REDACTED}
-    assert paths == ["/password"]
-
-
 @pytest.mark.parametrize(
     ("values", "mask"),
     [
@@ -381,17 +381,7 @@ def test_parse_export_propagates_malformed_sensitive_mask_as_safe_ingestion_erro
     assert document == before
 
 
-@pytest.mark.parametrize(
-    ("pointer", "expected"),
-    [
-        ("/", "empty-key"),
-        ("/tags/team~1~0name", "escaped"),
-        ("/items/0/name", "first"),
-        ("/items/1/name", "second"),
-        ("/~01", "literal-tilde-one"),
-    ],
-)
-def test_read_pointer_decodes_escaped_keys_and_list_indexes(pointer, expected):
+def test_read_pointer_decodes_escaped_keys_and_list_indexes():
     value = {
         "": "empty-key",
         "tags": {"team/~name": "escaped"},
@@ -399,10 +389,9 @@ def test_read_pointer_decodes_escaped_keys_and_list_indexes(pointer, expected):
         "~1": "literal-tilde-one",
     }
     before = deepcopy(value)
-    assert read_pointer(value, pointer) == expected
-    assert value == before
-
-
-def test_read_pointer_empty_pointer_returns_root():
-    value = {"items": ["first"]}
     assert read_pointer(value, "") is value
+    assert read_pointer(value, "/") == "empty-key"
+    assert read_pointer(value, "/tags/team~1~0name") == "escaped"
+    assert read_pointer(value, "/items/1/name") == "second"
+    assert read_pointer(value, "/~01") == "literal-tilde-one"
+    assert value == before

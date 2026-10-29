@@ -9,7 +9,7 @@ from archdiscov.services.comparison_matching import (
     match_resources,
     pair_groups,
 )
-from tests.comparison.snapshots import (
+from tests.support.comparison_data import (
     ACCOUNT,
     REGION,
     aws_resource,

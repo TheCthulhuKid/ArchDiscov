@@ -33,8 +33,6 @@ from archdiscov.assistant.conversation import (
     SystemMessage,
     TokenUsage,
     ToolCall,
-    ToolResult,
-    ToolResultMessage,
     UserMessage,
 )
 from archdiscov.assistant.provider import (
@@ -53,7 +51,7 @@ from archdiscov.assistant.provider import (
     complete_async,
 )
 from tests.support.mock_api import Waits
-from tests.support.provider_data import INSPECT_TOOL, SEARCH_TOOL
+from tests.support.provider_data import EXCHANGE, INSPECT_TOOL, SEARCH_TOOL
 from tests.support.provider_harness import (
     HARNESS_KEY,
     AnthropicHarness,
@@ -123,45 +121,36 @@ def _calls(*names_and_arguments) -> tuple[ToolCall, ...]:
 # ---- message mapping ---------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "response",
-    [
-        TEXT,
-        CompletionResponse(
-            message=AssistantMessage(
-                text="Searching.",
-                tool_calls=_calls(
-                    ("search_resources", ParsedToolArguments(value={"type": "rds_instance"}))
+RESPONSES = {
+    "text": TEXT,
+    # Text, a parsed call, and a call whose arguments were not JSON.
+    "text-and-calls": CompletionResponse(
+        message=AssistantMessage.model_validate(EXCHANGE[0]),
+        usage=TokenUsage(input_tokens=10, output_tokens=5, cache_read_input_tokens=3),
+        stop_reason=StopReason.TOOL_USE,
+    ),
+    "calls-only": CompletionResponse(
+        message=AssistantMessage(
+            tool_calls=_calls(
+                ("inspect_resource", ParsedToolArguments(value={"resource_id": "db-a"})),
+                (
+                    "search_resources",
+                    MalformedToolArguments(reason=MalformedArgumentsReason.NOT_OBJECT),
                 ),
-            ),
-            usage=TokenUsage(input_tokens=10, output_tokens=5, cache_read_input_tokens=3),
-            stop_reason=StopReason.TOOL_USE,
+            )
         ),
-        CompletionResponse(
-            message=AssistantMessage(
-                tool_calls=_calls(
-                    ("inspect_resource", ParsedToolArguments(value={"resource_id": "db-a"})),
-                    (
-                        "inspect_resource",
-                        MalformedToolArguments(reason=MalformedArgumentsReason.INVALID_JSON),
-                    ),
-                    (
-                        "search_resources",
-                        MalformedToolArguments(reason=MalformedArgumentsReason.NOT_OBJECT),
-                    ),
-                )
-            ),
-            stop_reason=StopReason.TOOL_USE,
-        ),
-        CompletionResponse(
-            message=AssistantMessage(text="The answer was cut"), stop_reason=StopReason.LENGTH
-        ),
-        CompletionResponse(
-            message=AssistantMessage(text="I cannot help."), stop_reason=StopReason.REFUSAL
-        ),
-    ],
-    ids=["text", "single-call", "parallel-malformed", "length", "refusal"],
-)
+        stop_reason=StopReason.TOOL_USE,
+    ),
+    "length": CompletionResponse(
+        message=AssistantMessage(text="The answer was cut"), stop_reason=StopReason.LENGTH
+    ),
+    "refusal": CompletionResponse(
+        message=AssistantMessage(text="I cannot help."), stop_reason=StopReason.REFUSAL
+    ),
+}
+
+
+@pytest.mark.parametrize("response", list(RESPONSES.values()), ids=list(RESPONSES))
 def test_responses_map_to_the_shared_contracts(
     harness: ProviderHarness, response: CompletionResponse
 ) -> None:
@@ -170,16 +159,12 @@ def test_responses_map_to_the_shared_contracts(
     assert harness.attempts(provider) == 1
 
 
-def test_conversations_with_tool_exchanges_are_accepted(harness: ProviderHarness) -> None:
-    calls = _calls(("search_resources", ParsedToolArguments(value={})))
-    exchange = (
-        AssistantMessage(tool_calls=calls),
-        ToolResultMessage(
-            results=(ToolResult(call_id="call_0", content="Unknown type.", is_error=True),)
-        ),
-    )
+def test_supported_requests_are_answered(harness: ProviderHarness) -> None:
     provider = harness.build([_respond(TEXT)])
-    assert send(provider, _request(*exchange)) == TEXT
+    assert send(provider, _request(*EXCHANGE)) == TEXT
+    # A text-only provider still answers a request that offers no tools.
+    provider = harness.build([_respond(TEXT)], capabilities=TEXT_ONLY)
+    assert send(provider, _request(tools=(), limits=RequestLimits())) == TEXT
 
 
 # ---- errors ------------------------------------------------------------------------
@@ -226,29 +211,20 @@ def test_only_retryable_errors_are_retried_up_to_the_configured_count(
 # ---- capabilities ------------------------------------------------------------------
 
 
+TOOLS_ONLY = ProviderCapabilities(capabilities={ProviderCapability.TOOL_CALLING})
+UNSUPPORTED = {
+    "tools-offered": (TEXT_ONLY, _request(), ProviderCapability.TOOL_CALLING),
+    "parallel-calls": (TOOLS_ONLY, _request(), ProviderCapability.PARALLEL_TOOL_CALLS),
+    "prior-tool-exchange": (
+        TEXT_ONLY,
+        _request(*EXCHANGE, tools=(), limits=RequestLimits()),
+        ProviderCapability.TOOL_CALLING,
+    ),
+}
+
+
 @pytest.mark.parametrize(
-    "capabilities,request_,missing",
-    [
-        (TEXT_ONLY, _request(), ProviderCapability.TOOL_CALLING),
-        (
-            ProviderCapabilities(capabilities={ProviderCapability.TOOL_CALLING}),
-            _request(),
-            ProviderCapability.PARALLEL_TOOL_CALLS,
-        ),
-        (
-            TEXT_ONLY,
-            _request(
-                AssistantMessage(
-                    tool_calls=_calls(("search_resources", ParsedToolArguments(value={})))
-                ),
-                ToolResultMessage(results=(ToolResult(call_id="call_0", content="{}"),)),
-                tools=(),
-                limits=RequestLimits(),
-            ),
-            ProviderCapability.TOOL_CALLING,
-        ),
-    ],
-    ids=["tools-offered", "parallel-calls", "prior-tool-exchange"],
+    "capabilities,request_,missing", list(UNSUPPORTED.values()), ids=list(UNSUPPORTED)
 )
 def test_unsupported_capabilities_are_rejected_before_any_attempt(
     harness: ProviderHarness,
@@ -264,47 +240,37 @@ def test_unsupported_capabilities_are_rejected_before_any_attempt(
     assert harness.attempts(provider) == 0
 
 
-def test_text_only_providers_still_answer_text_requests(harness: ProviderHarness) -> None:
-    provider = harness.build([_respond(TEXT)], capabilities=TEXT_ONLY)
-    assert send(provider, _request(tools=(), limits=RequestLimits())) == TEXT
-
-
 # ---- limits ------------------------------------------------------------------------
 
 
 def test_requests_beyond_the_timeout_fail_as_timeouts_without_retry(
     harness: ProviderHarness,
 ) -> None:
+    timed = _request(limits=RequestLimits(timeout_seconds=10))
     provider = harness.build([_respond(TEXT, delay_seconds=20), _respond(TEXT)], max_retries=2)
     with pytest.raises(ProviderError) as raised:
-        send(provider, _request(limits=RequestLimits(timeout_seconds=10)))
+        send(provider, timed)
     assert raised.value.code == ProviderErrorCode.TIMEOUT
     assert harness.attempts(provider) == 1
-
-
-def test_requests_within_the_timeout_succeed(harness: ProviderHarness) -> None:
-    provider = harness.build([_respond(TEXT, delay_seconds=9.5)])
-    assert send(provider, _request(limits=RequestLimits(timeout_seconds=10))) == TEXT
+    # A request within the timeout succeeds.
+    assert send(harness.build([_respond(TEXT, delay_seconds=9.5)]), timed) == TEXT
 
 
 # ---- the shared retry policy -------------------------------------------------------
 
 
-class _Refused(Exception):
-    """An SDK failure that the retry table maps to a retryable transport error."""
-
-
 @pytest.mark.parametrize("mode", ["sync", "async"])
 def test_retries_back_off_exponentially(mode: str) -> None:
     waits = Waits()
-    retries = Retries({_Refused: ProviderTransportError}, 2, waits.sleep, waits.sleep_async)
-    outcomes = iter([_Refused(), _Refused(), "sent"])
+    # A failure that the retry table maps to a retryable transport error.
+    refused = {ConnectionRefusedError: ProviderTransportError}
+    retries = Retries(refused, 2, waits.sleep, waits.sleep_async)
+    refusals = [ConnectionRefusedError(), ConnectionRefusedError()]
 
     def attempt() -> str:
-        outcome = next(outcomes)
-        if isinstance(outcome, Exception):
-            raise outcome
-        return outcome
+        if refusals:
+            raise refusals.pop()
+        return "sent"
 
     async def attempt_async() -> str:
         return attempt()
@@ -357,9 +323,8 @@ def _unmapped_sdk_errors(sdk, errors) -> set[type]:
 
 def _unmapped_converse_errors() -> set[str]:
     model = botocore.session.get_session().get_service_model("bedrock-runtime")
-    return {shape.name for shape in model.operation_model("Converse").error_shapes} - set(
-        API_ERRORS
-    )
+    errors = model.operation_model("Converse").error_shapes
+    return {shape.name for shape in errors} - set(API_ERRORS)
 
 
 UNMAPPED = {
@@ -400,11 +365,9 @@ def test_only_the_configuration_chooses_the_target_and_credential(
 ) -> None:
     for name, value in HOSTILE_ENVIRONMENT.items():
         monkeypatch.setenv(name, value)
+    sender = complete if mode == "sync" else send
     provider = harness.build([_respond(TEXT)])
-    if mode == "sync":
-        complete(provider, _request())
-    else:
-        send(provider, _request())
+    sender(provider, _request())
     [sent] = harness.requests(provider)
     assert str(sent.url).startswith(provider.base_url)
     assert sent.headers["authorization"] == f"Bearer {HARNESS_KEY.get_secret_value()}"
@@ -412,14 +375,11 @@ def test_only_the_configuration_chooses_the_target_and_credential(
     assert names <= HTTP_HEADERS | SDK_HEADERS
     sent_text = sent.content.decode() + str(dict(sent.headers))
     assert not any(value in sent_text for value in HOSTILE_ENVIRONMENT.values())
-
-
-@pytest.mark.parametrize("harness", HTTP, ids=lambda harness: harness.label)
-def test_redirects_are_not_followed(harness: MockedHarness) -> None:
+    # Nor does a redirect: it is not followed.
     elsewhere = httpx2.Response(307, headers={"location": "https://elsewhere.example.com/v1"})
     provider = harness.serving([elsewhere])
     with pytest.raises(ProviderError):
-        send(provider, _request())
+        sender(provider, _request())
     hosts = [request.url.host for request in harness.requests(provider)]
     assert hosts == [httpx2.URL(provider.base_url).host]
 

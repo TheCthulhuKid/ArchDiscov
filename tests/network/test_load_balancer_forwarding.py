@@ -8,8 +8,8 @@ from archdiscov.services.network_load_balancers import (
     evaluate_load_balancer_scheme,
 )
 from tests.paths import FIXTURES_ROOT
-from tests.support.elbv2_snapshot import ec2_roots
-from tests.support.lb_data import GROUP, LB, LISTENER, RULE, build, resource_id, responses
+from tests.support.elbv2_data import GROUP, LB, LISTENER, RULE, responses
+from tests.support.elbv2_snapshot import build, ec2_roots, resource_id
 
 D = NetworkDecision
 B = NetworkBlockerCode

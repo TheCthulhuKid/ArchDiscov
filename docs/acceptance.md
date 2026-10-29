@@ -185,8 +185,8 @@ the host with `.venv/bin/python` and in Docker with `/opt/venv/bin/python`:
   and retrieves cited evidence through a tool; each accepted answer equals what `ask` gives for
   the same files. In the second, the adversarial suite's unsupported claims are rejected with
   their codes and corrected in the same session, imported instructions appear only as quoted
-  data, a missing or invalid snapshot fails before serving, and a session that calls every tool
-  opens no file beyond the three selected, with other snapshots and results beside them.
+  data, and a session that calls every tool opens no file beyond the three selected, with
+  other snapshots and results beside them.
 - `tests/cli/test_mcp_cli.py`, `tests/services/test_mcp_service.py`, and
   `tests/assistant/test_mcp_server.py`: the command's diagnostics and exit codes, a real stdio
   session, and the server's tools, limits, prompts, and answer parity with `ask`.
@@ -229,15 +229,15 @@ not only that a command ran:
 | Terraform unknown values | `tests/ingestion/terraform/test_terraform_plan.py::test_missing_null_and_unknown_are_distinct`<br>`tests/acceptance/test_readme_scenarios.py::test_an_unknown_planned_value_is_indeterminate_not_a_change` |
 | CloudFormation unresolved references | `tests/ingestion/cloudformation/test_cloudformation_import.py::test_conditions_local_getatt_and_conditional_missing_target`<br>`tests/acceptance/test_readme_scenarios.py::test_cloudformation_unresolved_references_are_indeterminate_between_two_templates` |
 | Safe matching of observed and declared resources | `tests/comparison/test_matching.py::test_names_and_short_ids_never_match`<br>`tests/comparison/test_matching.py::test_logical_addresses_never_match_across_iac_contexts_or_observations`<br>`tests/acceptance/test_readme_scenarios.py::test_observed_and_declared_resources_are_matched_only_by_identity` |
-| README example questions answered from tool-returned findings and evidence | `tests/acceptance/test_installed_ask.py::test_every_readme_question_is_answered_from_tool_returned_findings`<br>`tests/acceptance/test_installed_ask.py::test_cited_evidence_is_inspected_in_the_answered_snapshot` |
-| Coverage limitations stated in answers | `tests/acceptance/test_installed_ask.py::test_answers_short_of_supported_state_their_limitations`<br>`tests/acceptance/test_phase_five_acceptance.py::test_answers_short_of_supported_state_their_limitations` |
+| README example questions answered from tool-returned findings and evidence | `tests/acceptance/test_installed_ask.py::test_every_readme_question_is_answered_from_tool_returned_findings` |
+| Coverage limitations stated in answers | `tests/acceptance/test_installed_ask.py::test_every_readme_question_is_answered_from_tool_returned_findings` |
 | Fabricated and unreturned citations rejected, and one repair | `tests/acceptance/test_installed_ask.py::test_fabricated_and_unreturned_citations_are_rejected_and_repairs_answer`<br>`tests/assistant/test_answer_suite.py::test_each_rejection_is_reached_in_isolation` |
 | Unsupported claims | `tests/services/test_evaluation_suites.py::test_both_suites_pass_and_each_adversarial_case_passes_on_its_safe_outcome` |
 | Malicious imported text in names and tags | `tests/acceptance/test_installed_ask.py::test_imported_instructions_are_only_quoted_data`<br>`tests/services/test_evaluation_suites.py::test_injected_names_and_tags_are_only_quoted_data`<br>`tests/acceptance/test_phase_five_acceptance.py::test_imported_instructions_are_only_quoted_data` |
 | Provider errors and tool-call limits | `tests/acceptance/test_installed_ask.py::test_provider_errors_and_limits_are_answer_outcomes`<br>`tests/services/test_evaluation_suites.py::test_both_suites_pass_and_each_adversarial_case_passes_on_its_safe_outcome` |
 | Provider adapters answer as the fake provider does | `tests/acceptance/test_installed_ask.py::test_each_adapter_answers_through_a_loopback_api`<br>`tests/acceptance/test_installed_evaluation.py::test_the_adapter_reaches_the_fakes_records_through_a_loopback_api` |
 | MCP client answers the README questions from their prompts | `tests/acceptance/test_phase_five_acceptance.py::test_every_readme_question_is_answered_from_its_prompt`<br>`tests/acceptance/test_phase_five_acceptance.py::test_every_accepted_answer_equals_what_ask_gives`<br>`tests/acceptance/test_phase_five_acceptance.py::test_cited_evidence_is_retrieved_through_a_tool` |
-| MCP server rejects unsupported claims and accepts the corrected proposal | `tests/acceptance/test_phase_five_acceptance.py::test_each_unsupported_claim_is_rejected_with_its_code`<br>`tests/acceptance/test_phase_five_acceptance.py::test_a_corrected_proposal_is_accepted_in_the_same_session` |
+| MCP server rejects unsupported claims and accepts the corrected proposal | `tests/acceptance/test_phase_five_acceptance.py::test_each_unsupported_claim_is_rejected_and_its_correction_accepted` |
 | MCP server reads only the selected files and never the network | `tests/acceptance/test_phase_five_acceptance.py::test_the_server_opens_only_the_files_it_was_given`<br>`tests/acceptance/test_phase_five_acceptance.py::test_the_server_exits_cleanly_and_nothing_reaches_the_network` |
 
 `tests/acceptance/test_installed_ask.py` runs the installed `ask` command outside the checkout

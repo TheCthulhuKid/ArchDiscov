@@ -16,10 +16,9 @@ from archdiscov.services import (
     save_comparison,
     validate_comparison_result,
 )
-from tests.comparison.snapshots import aws_resource, aws_snapshot, coverage
 from tests.paths import FIXTURES_ROOT
 from tests.support.aws_fakes import empty_network_pages, make_context, request
-from tests.support.comparison_data import rid, vpc
+from tests.support.comparison_data import aws_resource, aws_snapshot, coverage, rid, vpc
 from tests.support.network_data import SUBNET, element_pages
 from tests.support.terraform_data import CONTEXT, plan_request
 
