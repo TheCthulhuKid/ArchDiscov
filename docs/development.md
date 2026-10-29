@@ -34,11 +34,21 @@ src/archdiscov/
 
 Model imports use the installed package, for example `from archdiscov.models.architecture import ArchitectureSnapshot` and `from archdiscov.models.enums import AwsRegion`. CLI commands call application services; discovery and analysis logic belong outside the CLI.
 
-Tests are grouped by component under `tests/models`, `tests/analysis`, `tests/query`,
-`tests/graph`, `tests/ingestion`, `tests/services`, `tests/cli`, and `tests/acceptance`.
-Shared fakes/data builders live in `tests/support`; committed input files remain in
-`tests/fixtures`. See [the layout guide](project-layout.md) for placement rules,
-updated model import paths, and focused test commands.
+Tests are grouped by component under `tests/models`, `tests/core`, `tests/graph`,
+`tests/ingestion`, `tests/network`, `tests/analysis`, `tests/query`, `tests/comparison`,
+`tests/services`, `tests/assistant`, `tests/cli`, `tests/documentation`, and
+`tests/acceptance`; `tests/live` holds the opt-in provider tests. Shared fakes/data builders
+live in `tests/support`; committed input files remain in `tests/fixtures`. See
+[the layout guide](project-layout.md) for placement rules, updated model import paths, and
+focused test commands.
+
+Each behaviour is proven in one home test file, and other layers assert only what they add:
+options and exit codes in `tests/cli`, tool contracts in `tests/assistant`, the installed
+journeys in `tests/acceptance`. The offline suite runs the CLI in process, except the `mcp`
+command's stdio sessions, which need the command's own standard input and output; the
+installed journeys are acceptance tests. On eight workers the
+offline suite takes about a minute and the acceptance suite about two, most of it the start-up
+of each installed command.
 
 Packaging tests execute both CLI entry points and model imports from a temporary directory outside the repository.
 

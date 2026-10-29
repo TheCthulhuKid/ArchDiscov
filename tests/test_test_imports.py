@@ -33,7 +33,10 @@ SHARED = ("tests.support", "tests.paths")
 
 
 def _unshared(module: str) -> bool:
-    return module.startswith("tests.") and not any(
+    """A module under `tests` that is a test module or is not one of the shared helpers."""
+    if not module.startswith("tests."):
+        return False
+    return module.rsplit(".", 1)[-1].startswith("test_") or not any(
         module == shared or module.startswith(f"{shared}.") for shared in SHARED
     )
 
