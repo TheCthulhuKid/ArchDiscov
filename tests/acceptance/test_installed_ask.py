@@ -1,13 +1,14 @@
 """The installed `ask` command, outside the checkout, with the fake provider and no network.
 
-Four journeys, each on its own xdist worker. The first asks each README case of the
-checked-in evaluation suite with its fake transcript, over the case's files as copied: every
-README question is answered from the findings its tools returned, cited evidence is recorded
-in the answered snapshot (one record is inspected through the CLI), and answers short of
-`supported` state their limitations. The second asks the adversarial cases that submit a
-fabricated or unreturned citation (rejected after the repair, exit 5), repair a fabricated
-citation (answered after the repair), and answer over imported text that tries to instruct
-the model (shown only as quoted data).
+Four journeys, each on its own xdist worker. The first asks a README case of the checked-in
+evaluation suite with its fake transcript, over the case's files as copied: the question is
+answered from the findings its tools returned, cited evidence is recorded in the answered
+snapshot (one record is inspected through the CLI), and the answer, short of `supported`,
+states its limitations. `test_installed_evaluation.py` asks every README case through the
+installed script, and the in-process suites check each one. The second asks the adversarial
+cases that submit a fabricated or unreturned citation (rejected after the repair, exit 5),
+repair a fabricated citation (answered after the repair), and answer over imported text that
+tries to instruct the model (shown only as quoted data).
 
 The third refuses a missing configuration, a Bedrock profile that cannot be loaded, and an
 Anthropic configuration without its key before the run, and reports a scripted provider error
@@ -81,6 +82,9 @@ PATHS = {
     "injected_text": ("answered", 0, None),
 }
 
+# The README case the answers journey asks: limited coverage keeps it short of `supported`.
+# The installed evaluation journey asks every README case.
+ANSWERED = "trust_limited_coverage"
 # The examples whose files the failure and adapter cases reuse.
 SNAPSHOT = "internet_exposure"
 ADAPTED = "ownership"
@@ -141,22 +145,16 @@ def _unchanged(ws: Workspace, ask: Callable[[], dict]) -> dict:
 
 @pytest.fixture(scope="module")
 def answers(tmp_path_factory) -> dict:
-    """Each README case asked in JSON, the first also readably; the first cited evidence
-    record inspected through the CLI, and every cited ID checked in the answered snapshot."""
+    """The answered case asked in JSON and readably, and its first cited evidence record
+    inspected through the CLI."""
     ws = _suite(tmp_path_factory.mktemp("ask-answers"), "readme")
 
     def ask() -> dict:
-        examples, inspected = {}, None
-        for index, (case_id, case) in enumerate(suite_cases(ws, "readme").items()):
-            asked = _ask(ws, "readme", case, readable=index == 0)
-            cited = _evidence_ids(asked["data"]["result"]["answer"])
-            recorded = load_snapshot(Path(asked["snapshot"])).evidence
-            asked["recorded"] = all(item in recorded for item in cited)
-            if inspected is None and cited:
-                found = ws.json("evidence", cited[0], "--snapshot", asked["snapshot"])
-                inspected = (cited[0], found)
-            examples[case_id] = (case, asked)
-        return {"examples": examples, "inspected": inspected}
+        case = suite_cases(ws, "readme")[ANSWERED]
+        asked = _ask(ws, "readme", case, readable=True)
+        cited = _evidence_ids(asked["data"]["result"]["answer"])
+        found = ws.json("evidence", cited[0], "--snapshot", asked["snapshot"])
+        return {"case": case, "asked": asked, "cited": cited, "inspected": found}
 
     return _unchanged(ws, ask)
 
@@ -295,41 +293,31 @@ def adapters(tmp_path_factory) -> dict:
 
 
 @ANSWERS
-def test_every_readme_question_is_answered_from_tool_returned_findings(answers):
-    examples = answers["examples"]
-    assert set(README_QUESTIONS) <= {case["question"] for case, _ in examples.values()}
-    limited = set()
-    for case_id, (case, asked) in examples.items():
-        answer = asked["data"]["result"]["answer"]
-        expect = case["expect"]
-        assert answer["outcome"]["status"] == "answered", case_id
-        assert answer["status"] in expect["statuses"], case_id
-        # The cited findings are exactly those the example's tools returned.
-        citations = [item for c in answer["conclusions"] for item in c["citations"]]
-        cited = {item for citation in citations for item in citation["finding_ids"]}
-        assert cited == set(expect.get("finding_ids", ())), case_id
-        assert answer["conclusions"], case_id
-        assert asked["data"]["summary"]["provider_kind"] == "fake", case_id
-        # A finding that supports anything cites evidence the answered snapshot records;
-        # insufficient evidence may cite none.
-        for finding in _findings(answer):
-            if finding["status"] != "insufficient_evidence":
-                assert finding["evidence_ids"], case_id
-        assert asked["recorded"], case_id
-        # An answer short of supported states its limitations.
-        if answer["status"] != "supported":
-            assert answer["qualifications"], case_id
-            limited.add(case_id)
-    assert {"trust_limited_coverage", "internet_insufficient_evidence", "ownership_planned"} <= (
-        limited
-    )
-    evidence_id, inspected = answers["inspected"]
-    assert inspected["evidence_id"] == evidence_id
-    [(_, first)] = [item for item in examples.values() if item[1]["readable"] is not None]
-    lines = first["readable"].splitlines()
+def test_a_readme_question_is_answered_from_tool_returned_findings_with_its_limitations(
+    answers,
+):
+    case, asked = answers["case"], answers["asked"]
+    answer = asked["data"]["result"]["answer"]
+    assert case["question"] in README_QUESTIONS
+    assert answer["outcome"]["status"] == "answered"
+    assert asked["data"]["summary"]["provider_kind"] == "fake"
+    # The cited findings are exactly those the case's tools returned. A finding that supports
+    # anything cites evidence the answered snapshot records; insufficient evidence may cite none.
+    citations = [item for c in answer["conclusions"] for item in c["citations"]]
+    cited = {item for citation in citations for item in citation["finding_ids"]}
+    assert cited == set(case["expect"]["finding_ids"])
+    for finding in _findings(answer):
+        assert finding["evidence_ids"] or finding["status"] == "insufficient_evidence"
+    recorded = load_snapshot(Path(asked["snapshot"])).evidence
+    assert all(item in recorded for item in answers["cited"])
+    assert answers["inspected"]["evidence_id"] == answers["cited"][0]
+    # Limited coverage keeps the answer short of supported, and it says why.
+    assert answer["status"] == "partial"
+    assert answer["qualifications"]
+    lines = asked["readable"].splitlines()
     assert "Provider: fake, model fake" in lines
     assert "Answer: answered, exit code 0" in lines
-    assert f"Status: {first['data']['result']['answer']['status']}" in lines
+    assert "Status: partial" in lines
 
 
 @PATHS_GROUP
