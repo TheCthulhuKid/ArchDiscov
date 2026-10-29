@@ -22,11 +22,10 @@ def request(**kwargs):
         ("String", "literal", "literal"),
         ("Number", "3", 3),
         ("Number", "1.5", 1.5),
-        ("CommaDelimitedList", "one, two", ["one", "two"]),
         ("List<Number>", "1, 2", [1, 2]),
-        ("AWS::EC2::VPC::Id", "vpc-1", "vpc-1"),
         ("List<AWS::EC2::Subnet::Id>", ["subnet-1"], ["subnet-1"]),
     ],
+    ids=["string", "integer", "float", "split-numbers", "list-value"],
 )
 def test_parameter_types(kind, value, expected):
     assert parameters_for({"Parameters": {"P": {"Type": kind, "Default": value}}}, request()) == {
@@ -40,10 +39,10 @@ def test_parameter_types(kind, value, expected):
         ("String", []),
         ("Number", True),
         ("Number", "nan"),
-        ("Number", "inf"),
         ("CommaDelimitedList", {}),
         ("List<Number>", ["bad"]),
     ],
+    ids=["not-string", "boolean-number", "non-finite", "not-list", "not-number"],
 )
 def test_invalid_parameter_types_do_not_leak_values(kind, value):
     with pytest.raises(IngestionError, match="does not match its type"):
@@ -88,23 +87,21 @@ def test_sensitive_paths_escape_and_safe_tag_projection():
 
 
 def test_missing_sensitive_path_fails_without_disclosing_it():
+    source = {"Resources": {"R": {"Properties": {}}}}
     with pytest.raises(IngestionError, match="does not identify a value") as error:
-        prepare_template({}, request(sensitive_paths=("/secret",)))
+        prepare_template(source, request(sensitive_paths=("/Resources/R/Properties/secret",)))
     assert "secret" not in str(error.value)
 
 
 @pytest.mark.parametrize(
     "path",
     [
-        "/Resources/R/Properties",
         "/Resources/R/Properties/Values/0",
         "/Parameters/P/Default",
-        "/Parameters/P/Default/Values/0",
         "/Mappings/M/Region",
-        "/Mappings/M/Region/Value",
         "/Conditions/C",
-        "/Conditions/C/Fn::Equals/0",
     ],
+    ids=["resource-properties", "parameter-default", "mapping", "condition"],
 )
 def test_sensitive_paths_permitted_cases(path):
     source = {
@@ -123,12 +120,8 @@ def test_sensitive_paths_permitted_cases(path):
 
 @pytest.mark.parametrize(
     "path",
-    [
-        "/Resources/R",
-        "/Parameters/P/Type",
-        "/Outputs/O/Value",
-        "/Resources/R/Properties/Values/01",
-    ],
+    ["/secret", "/Resources/R", "/Outputs/O/Value", "/Resources/R/Properties/Values/01"],
+    ids=["top-level", "too-short", "ineligible-section", "non-canonical-index"],
 )
 def test_sensitive_paths_reject_ineligible_or_invalid_locations(path):
     source = {

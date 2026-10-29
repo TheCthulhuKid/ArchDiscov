@@ -7,7 +7,6 @@ from archdiscov.cli import app
 from archdiscov.graph import GraphIndex
 from archdiscov.services import load_snapshot
 from tests.paths import FIXTURES_ROOT
-from tests.support.installed_cli import run_installed_json
 
 FIXTURES = FIXTURES_ROOT / "snapshots"
 NETWORK = FIXTURES / "network.json"
@@ -116,15 +115,3 @@ def test_snapshot_failures_use_snapshot_exit_codes(tmp_path):
     broken = tmp_path / "broken.json"
     broken.write_text("{")
     assert invoke("search", "--snapshot", str(broken)).exit_code == 2
-
-
-def test_installed_journey_outside_repository(tmp_path):
-    def run(*arguments):
-        return run_installed_json(tmp_path, *arguments)
-
-    snapshot = str(NETWORK)
-    neighbours = run("query", "neighbours", RTB, "--snapshot", snapshot, "--json")
-    evidence_id = neighbours["steps"][0]["edge"]["edge"]["evidence_ids"][0]
-    inspected = run("evidence", evidence_id, "--snapshot", snapshot, "--json")
-    assert inspected["resource"]["id"] == RTB
-    assert run("query", "paths", RTB, "--snapshot", snapshot, "--json")["paths"]

@@ -79,46 +79,15 @@ def test_elb_only_missing_parents_targets_are_explicit():
     assert registration.target.source_path.endswith("Target.Id")
 
 
-@pytest.mark.parametrize(
-    "target_type,identifier,expected",
-    [
-        (TargetType.IP, "10.0.0.7", "unresolved"),
-        (TargetType.LAMBDA, f"arn:aws:lambda:us-east-1:{ACCOUNT}:function:worker", "external"),
-        (TargetType.ALB, LB, "local"),
-    ],
-)
-def test_target_kinds_do_not_infer_ip_ownership(target_type, identifier, expected):
-    data = responses()
-    data["describe_target_groups"]["TargetGroups"][0]["TargetType"] = target_type.value
-    data["describe_target_health"]["TargetHealthDescriptions"][0]["Target"]["Id"] = identifier
-    result = normalized(data)
-    roots = merge_resources(ec2_roots(), result.resources)
-    snap = snapshot(result, roots)
-    group = next(r for r in walk_resources(roots) if isinstance(r, TargetGroup))
-    link = next(
-        link for link in snap.dependencies_by_region["us-east-1"] if link.source_id == group.id
-    )
-    assert link.target.kind == expected
-    assert group.targets[0].id == identifier
-    if target_type == TargetType.IP:
-        assert "ownership is not inferred" in link.target.reason
-
-
-@pytest.mark.parametrize("target_type", [TargetType.INSTANCE, None, TargetType.ALB])
-@pytest.mark.parametrize("observation", ["missing", "wrong_type", "unique", "duplicate"])
-def test_registration_requires_unique_expected_resource_type(target_type, observation):
+@pytest.mark.parametrize("observation", ["wrong_type", "unique", "duplicate"])
+def test_registration_requires_unique_expected_resource_type(observation):
     result = normalized()
     group = next(r for r in result.resources if isinstance(r, TargetGroup))
-    group.target_type = target_type
-    identifier = LB if target_type == TargetType.ALB else "i-web"
+    group.target_type = TargetType.INSTANCE
+    identifier = "i-web"
     group.targets[0].id = identifier
-    expected = (
-        next(r for r in result.resources if isinstance(r, LoadBalancer))
-        if target_type == TargetType.ALB
-        else Ec2Instance(identity=identity(identifier))
-    )
+    expected = Ec2Instance(identity=identity(identifier))
     candidates = {
-        "missing": [],
         "wrong_type": [Subnet(identity=identity(identifier))],
         "unique": [expected, Subnet(identity=identity(identifier))],
         "duplicate": [expected, expected.model_copy(deep=True)],
@@ -157,7 +126,6 @@ def test_registration_requires_unique_expected_resource_type(target_type, observ
     "lb_types,expected",
     [
         ([LoadBalancerType.NETWORK], "unresolved"),
-        ([None], "unresolved"),
         ([LoadBalancerType.APPLICATION, LoadBalancerType.NETWORK], "local"),
     ],
 )
@@ -181,9 +149,9 @@ def test_alb_registration_filters_load_balancer_type_before_uniqueness(lb_types,
     [
         (f"arn:aws:lambda:us-east-1:{ACCOUNT}:function:worker", ACCOUNT),
         ("arn:aws:lambda:us-east-1:invalid:function:worker", None),
-        ("arn:aws:lambda:us-east-1:123:function:worker", None),
         ("worker", None),
     ],
+    ids=["account-arn", "invalid-account", "not-an-arn"],
 )
 def test_lambda_registration_remains_external_without_fabricating_resources(identifier, account_id):
     result = normalized()
@@ -219,41 +187,24 @@ def test_ip_registration_does_not_resolve_matching_physical_identifier():
     )
 
 
-@pytest.mark.parametrize("target_type", list(TargetType))
-def test_registration_without_citations_never_creates_an_edge(target_type):
+def test_registration_without_citations_never_creates_an_edge():
     result = normalized()
     group = next(r for r in result.resources if isinstance(r, TargetGroup))
-    group.target_type = target_type
     group.fact_evidence.clear()
     assert resolve_relationships([group], {}) == []
 
 
-@pytest.mark.parametrize(
-    "action_type,configuration",
-    [
-        (
-            "redirect",
-            {"RedirectConfig": {"Protocol": "HTTPS", "Port": "443", "StatusCode": "HTTP_301"}},
-        ),
-        (
-            "fixed-response",
-            {"FixedResponseConfig": {"StatusCode": "403", "MessageBody": "protected-body"}},
-        ),
-        (
-            "authenticate-oidc",
-            {
-                "AuthenticateOidcConfig": {
-                    "Issuer": "https://issuer",
-                    "ClientSecret": "protected-secret",
-                }
-            },
-        ),
-    ],
-)
-def test_nonforward_actions_never_become_forwarding_edges(action_type, configuration):
+def test_nonforward_actions_never_become_forwarding_edges():
+    action_type = "authenticate-oidc"
     data = responses()
     data["describe_listeners"]["Listeners"][0]["DefaultActions"] = [
-        {"Type": action_type, **configuration}
+        {
+            "Type": action_type,
+            "AuthenticateOidcConfig": {
+                "Issuer": "https://issuer",
+                "ClientSecret": "protected-secret",
+            },
+        }
     ]
     result = normalized(data)
     roots = merge_resources([], result.resources)

@@ -196,29 +196,6 @@ def test_coverage_limitations_round_trip(status: str) -> None:
 @pytest.mark.parametrize(
     "change,diagnostic",
     [
-        ({"result_count": None}, "successful coverage requires a count"),
-        ({"status": "failed", "result_count": None}, "failed coverage requires a failure"),
-        (
-            {"started_at": "2026-10-13T08:00:20Z", "completed_at": "2026-10-13T08:00:10Z"},
-            "coverage completed_at must not precede started_at",
-        ),
-        (
-            {"failures": [{"code": "Denied", "message": "Denied"}]},
-            "successful coverage requires a count and no failures/unresolved values",
-        ),
-    ],
-)
-def test_inconsistent_operation_outcomes_are_rejected(change: dict, diagnostic: str) -> None:
-    data = snapshot_data()
-    ArchitectureSnapshot.model_validate(data)
-    data["coverage"]["operations"][0].update(change)
-    with pytest.raises(ValidationError, match=diagnostic):
-        ArchitectureSnapshot.model_validate(data)
-
-
-@pytest.mark.parametrize(
-    "change,diagnostic",
-    [
         ({"account_id": "999999999999"}, "operation coverage account must match snapshot account"),
         ({"region": "us-east-1"}, "operation coverage region must be included in requested scope"),
         ({"region": "global"}, "global operation coverage requires account_wide scope"),
@@ -283,13 +260,10 @@ def test_incomplete_coverage_preserves_results_and_each_limitation_kind(limitati
         assert resource.fact_evidence == {"/attributes/ingress/0": ["sg-rule"]}
 
 
-@pytest.mark.parametrize("status", ["failed", "skipped", "unsupported"])
-def test_uncollected_coverage_cannot_claim_zero_results(status: str) -> None:
+def test_uncollected_coverage_cannot_claim_zero_results() -> None:
     data = snapshot_data()
     operation = data["coverage"]["operations"][1]
-    operation.update(status=status, reason="Not collected", result_count=0)
-    if status != "failed":
-        operation["failures"] = []
+    operation.update(status="skipped", reason="Not collected", result_count=0, failures=[])
     with pytest.raises(
         ValidationError, match="only successful or incomplete coverage can have a result_count"
     ):

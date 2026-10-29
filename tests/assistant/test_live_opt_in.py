@@ -14,8 +14,6 @@ from tests.live import (
 from tests.paths import PROJECT_ROOT, TESTS_ROOT
 from tests.support import live
 
-# pytest's exit code when every collected test was deselected.
-NO_TESTS_COLLECTED = 5
 OPENAI_REQUIRED = (
     live.OPENAI_KEY_ENV,
     live.OPENAI_ENDPOINT,
@@ -24,26 +22,7 @@ OPENAI_REQUIRED = (
 )
 
 
-def _pytest(*arguments: str, expect: int = 0, forward: bool = False) -> str:
-    """Run pytest without provider variables, or, when `forward`, with only the live ones."""
-    env = {
-        key: value
-        for key, value in os.environ.items()
-        if (forward and key.startswith("ARCHDISCOV_LIVE_"))
-        or not key.startswith(("ARCHDISCOV_LIVE_", "ANTHROPIC_", "OPENAI_"))
-    }
-    completed = subprocess.run(
-        [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", *arguments],
-        cwd=PROJECT_ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-    )
-    assert completed.returncode == expect, completed.stdout + completed.stderr
-    return completed.stdout
-
-
-def test_the_default_options_deselect_live_tests() -> None:
+def test_the_default_options_deselect_live_tests(request) -> None:
     options = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     pytest_options = options["tool"]["pytest"]["ini_options"]
     assert '-m "not live"' in pytest_options["addopts"]
@@ -51,26 +30,33 @@ def test_the_default_options_deselect_live_tests() -> None:
     modules = (test_anthropic_live, test_openai_live, test_bedrock_live, test_evaluation_live)
     for module in modules:
         assert module.pytestmark.name == "live"
-    output = _pytest("--collect-only", "-q", str(TESTS_ROOT / "live"), expect=NO_TESTS_COLLECTED)
-    assert "_live.py" not in output and "5 deselected" in output
+    # This run applies those options, so the live tests are deselected from it.
+    assert request.config.option.markexpr == "not live"
 
 
-def test_an_opted_in_run_without_its_variables_skips_with_a_reason() -> None:
-    output = _pytest("-m", "live", "-rs", str(TESTS_ROOT / "live"))
+def test_an_opted_in_run_without_keys_skips_each_test_with_its_reason() -> None:
+    """One opted-in run with no Anthropic or Bedrock variables, and OpenAI variables that
+    list only the Responses protocol and name a key variable holding no key."""
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith(("ARCHDISCOV_LIVE_", "ANTHROPIC_", "OPENAI_"))
+    }
+    env.update(dict.fromkeys(OPENAI_REQUIRED, "x"), **{live.OPENAI_PROTOCOLS: "responses"})
+    env.pop("x", None)
+    live_dir = str(TESTS_ROOT / "live")
+    completed = subprocess.run(
+        [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-m", "live", "-rs", live_dir],
+        cwd=PROJECT_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    output = completed.stdout
     assert "5 skipped" in output
     assert f"set {live.ANTHROPIC_KEY_ENV}, {live.ANTHROPIC_MODEL} to run" in output
-    assert f"set {', '.join(OPENAI_REQUIRED)} to run" in output
-    assert f"set {live.BEDROCK_PROFILE}, {live.BEDROCK_REGION}, {live.BEDROCK_MODEL}" in output
-    assert live.NO_PROVIDER in output
-
-
-def test_an_openai_run_skips_the_protocols_it_does_not_list(monkeypatch) -> None:
-    for name in OPENAI_REQUIRED:
-        monkeypatch.setenv(name, "x")
-    monkeypatch.setenv(live.OPENAI_PROTOCOLS, "responses")
-    output = _pytest(
-        "-m", "live", "-rs", str(TESTS_ROOT / "live" / "test_openai_live.py"), forward=True
-    )
-    assert "2 skipped" in output
     assert f"{live.OPENAI_PROTOCOLS} does not list chat_completions" in output
     assert f"{live.OPENAI_KEY_ENV} names x, which holds no key" in output
+    assert f"set {live.BEDROCK_PROFILE}, {live.BEDROCK_REGION}, {live.BEDROCK_MODEL}" in output
+    assert live.NO_PROVIDER in output

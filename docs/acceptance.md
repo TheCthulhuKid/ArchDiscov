@@ -75,8 +75,11 @@ The phase closes with complementary journeys rather than live-AWS requirements:
 - `tests/acceptance/test_whole_architecture_acceptance.py`: populated seven-family collection
   across accounts/regions, with discovery, isolated failures, redaction and immutable files.
 - `tests/acceptance/test_raw_ingestion_acceptance.py`: the installed `archdiscov` script outside
-  the checkout for every source format, context/format failures, protected parameters,
-  partial summaries, evidence inspection and no overwrite.
+  the checkout imports every source format without saving a protected value, inspects a cited
+  fact, and refuses malformed input without creating output. Each format's mapping and context
+  and parameter failures are proven by the ingestion and import-service tests, no overwrite once
+  in the ingest stage of `test_installed_end_to_end.py`, and the readable summaries in
+  `tests/cli`.
 - `tests/acceptance/test_offline_acceptance.py` and the fixture persistence suite preserve
   historical schema `1`, typed children, citations and qualified coverage.
 - `tests/ingestion/aws/test_permissions_documentation.py` prevents the published inventory policy
@@ -117,8 +120,11 @@ Phase 3 closes with offline checks that need no credentials or network, on the h
   kinds, a planned side, and both clouds), against the completion criteria (cited evidence and paths, coverage qualification, no
   unqualified conclusion under partial coverage, immutable and verified results).
 - `tests/acceptance/test_installed_end_to_end.py`: one journey outside the checkout through the
-  installed `archdiscov` script (ingest, queries, each analyzer, findings, evidence, comparisons)
-  with an offline guard that fails any network use.
+  installed `archdiscov` script, one test per stage (ingest, queries, each analyzer with its
+  findings and evidence, each comparison), with an offline guard that fails any network use.
+  Every stage starts from the same fixtures, and the ingest stage shows that `ingest` saves each
+  snapshot fixture unchanged, so the stages run in parallel. The AWS-only analyzers' unsupported
+  result on the Azure fixture is checked once per analyzer in `test_cloud_workflows.py`.
 - `tests/acceptance/test_readme_scenarios.py` and `tests/documentation`: the scenarios below,
   and the documentation, command, limit, link, and scenario-mapping checks.
 
@@ -130,8 +136,8 @@ docker run --rm --network none \
   archdiscov-dev /opt/venv/bin/python -m pytest -n 8 --dist loadgroup -q
 ```
 
-`--dist loadgroup` keeps the installed-CLI journey on one worker; `-n 8` can be dropped to run
-serially. The last verified run passed all 4,303 tests on the host and in Docker with networking
+`--dist loadgroup` keeps each module-scoped journey (the installed `ask`, MCP, and evaluation
+journeys) on one worker; `-n 8` can be dropped to run serially. The last verified run passed all 4,303 tests on the host and in Docker with networking
 disabled. Image builds need registry access; test execution does not. The offline Azure fixtures
 validate the generic mechanics (schemas, queries, comparison) and the explicit unsupported
 results of the AWS-only analyzers; they are not Azure discovery or analysis.
@@ -141,14 +147,15 @@ results of the AWS-only analyzers; they are not Azure discovery or analysis.
 Phase 4 closes with offline checks that need no credentials or network, on the host with
 `.venv/bin/python` and in Docker with `/opt/venv/bin/python`:
 
-- `tests/acceptance/test_installed_ask.py`: two journeys outside the checkout through the
-  installed `archdiscov` script. In the first, the checked-in fixtures are ingested, each
-  README example question is asked with a fake transcript and answered from the findings the
-  tools returned, cited evidence is inspected in the answered snapshot, answers short of
-  `supported` state their limitations, a fabricated or unreturned citation is rejected after
-  the one repair (exit 5), a repaired proposal answers, and imported instructions appear only
-  as quoted data. The second covers refusals before a run, provider errors and limits, and
-  each provider adapter against a loopback mock API, described below.
+- `tests/acceptance/test_installed_ask.py`: four journeys outside the checkout through the
+  installed `archdiscov` script. In the first, each README example question is asked over the
+  checked-in fixtures with a fake transcript and answered from the findings the tools
+  returned, cited evidence is recorded in the answered snapshot and inspected through the CLI,
+  and answers short of `supported` state their limitations. In the second, a fabricated or
+  unreturned citation is rejected after the one repair (exit 5), a repaired proposal answers,
+  and imported instructions appear only as quoted data. The third covers refusals before a run
+  and provider errors and limits, and the fourth each provider adapter against a loopback mock
+  API, described below. Readable output is checked once; `tests/cli` renders every outcome.
 - `tests/acceptance/test_installed_evaluation.py`: the README and adversarial evaluation
   suites, described below.
 - `tests/documentation`: the documented tools, limits, provider options, answer and
@@ -172,14 +179,14 @@ Phase 5 closes with offline checks that need no credentials, no provider, and no
 the host with `.venv/bin/python` and in Docker with `/opt/venv/bin/python`:
 
 - `tests/acceptance/test_phase_five_acceptance.py`: two journeys outside the checkout through
-  the installed `archdiscov` script, with no connection allowed at all. In the first, the checked-in README fixtures are
-  ingested and an MCP stdio client starts `archdiscov mcp` over each, lists the tools and the five
-  prompts, answers each example question from its prompt through the tools and `submit_answer`,
+  the installed `archdiscov` script, with no connection allowed at all. In the first, an MCP
+  stdio client starts `archdiscov mcp` over each checked-in README case's files, lists the
+  tools and the five prompts, answers each example question from its prompt through the tools and `submit_answer`,
   and retrieves cited evidence through a tool; each accepted answer equals what `ask` gives for
   the same files. In the second, the adversarial suite's unsupported claims are rejected with
   their codes and corrected in the same session, imported instructions appear only as quoted
-  data, a missing or invalid snapshot fails before serving, and a session that calls every tool
-  opens no file beyond the three selected, with other snapshots and results beside them.
+  data, and a session that calls every tool opens no file beyond the three selected, with
+  other snapshots and results beside them.
 - `tests/cli/test_mcp_cli.py`, `tests/services/test_mcp_service.py`, and
   `tests/assistant/test_mcp_server.py`: the command's diagnostics and exit codes, a real stdio
   session, and the server's tools, limits, prompts, and answer parity with `ask`.
@@ -222,15 +229,15 @@ not only that a command ran:
 | Terraform unknown values | `tests/ingestion/terraform/test_terraform_plan.py::test_missing_null_and_unknown_are_distinct`<br>`tests/acceptance/test_readme_scenarios.py::test_an_unknown_planned_value_is_indeterminate_not_a_change` |
 | CloudFormation unresolved references | `tests/ingestion/cloudformation/test_cloudformation_import.py::test_conditions_local_getatt_and_conditional_missing_target`<br>`tests/acceptance/test_readme_scenarios.py::test_cloudformation_unresolved_references_are_indeterminate_between_two_templates` |
 | Safe matching of observed and declared resources | `tests/comparison/test_matching.py::test_names_and_short_ids_never_match`<br>`tests/comparison/test_matching.py::test_logical_addresses_never_match_across_iac_contexts_or_observations`<br>`tests/acceptance/test_readme_scenarios.py::test_observed_and_declared_resources_are_matched_only_by_identity` |
-| README example questions answered from tool-returned findings and evidence | `tests/acceptance/test_installed_ask.py::test_every_readme_question_is_answered_from_tool_returned_findings`<br>`tests/acceptance/test_installed_ask.py::test_cited_evidence_is_inspected_in_the_answered_snapshot` |
-| Coverage limitations stated in answers | `tests/acceptance/test_installed_ask.py::test_answers_short_of_supported_state_their_limitations`<br>`tests/acceptance/test_phase_five_acceptance.py::test_answers_short_of_supported_state_their_limitations` |
+| README example questions answered from tool-returned findings and evidence | `tests/acceptance/test_installed_ask.py::test_every_readme_question_is_answered_from_tool_returned_findings` |
+| Coverage limitations stated in answers | `tests/acceptance/test_installed_ask.py::test_every_readme_question_is_answered_from_tool_returned_findings` |
 | Fabricated and unreturned citations rejected, and one repair | `tests/acceptance/test_installed_ask.py::test_fabricated_and_unreturned_citations_are_rejected_and_repairs_answer`<br>`tests/assistant/test_answer_suite.py::test_each_rejection_is_reached_in_isolation` |
-| Unsupported claims | `tests/services/test_evaluation_suites.py::test_the_adversarial_suite_expects_each_safe_outcome` |
+| Unsupported claims | `tests/services/test_evaluation_suites.py::test_both_suites_pass_and_each_adversarial_case_passes_on_its_safe_outcome` |
 | Malicious imported text in names and tags | `tests/acceptance/test_installed_ask.py::test_imported_instructions_are_only_quoted_data`<br>`tests/services/test_evaluation_suites.py::test_injected_names_and_tags_are_only_quoted_data`<br>`tests/acceptance/test_phase_five_acceptance.py::test_imported_instructions_are_only_quoted_data` |
-| Provider errors and tool-call limits | `tests/acceptance/test_installed_ask.py::test_provider_errors_and_limits_are_answer_outcomes`<br>`tests/services/test_evaluation_suites.py::test_the_adversarial_suite_expects_each_safe_outcome` |
+| Provider errors and tool-call limits | `tests/acceptance/test_installed_ask.py::test_provider_errors_and_limits_are_answer_outcomes`<br>`tests/services/test_evaluation_suites.py::test_both_suites_pass_and_each_adversarial_case_passes_on_its_safe_outcome` |
 | Provider adapters answer as the fake provider does | `tests/acceptance/test_installed_ask.py::test_each_adapter_answers_through_a_loopback_api`<br>`tests/acceptance/test_installed_evaluation.py::test_the_adapter_reaches_the_fakes_records_through_a_loopback_api` |
 | MCP client answers the README questions from their prompts | `tests/acceptance/test_phase_five_acceptance.py::test_every_readme_question_is_answered_from_its_prompt`<br>`tests/acceptance/test_phase_five_acceptance.py::test_every_accepted_answer_equals_what_ask_gives`<br>`tests/acceptance/test_phase_five_acceptance.py::test_cited_evidence_is_retrieved_through_a_tool` |
-| MCP server rejects unsupported claims and accepts the corrected proposal | `tests/acceptance/test_phase_five_acceptance.py::test_each_unsupported_claim_is_rejected_with_its_code`<br>`tests/acceptance/test_phase_five_acceptance.py::test_a_corrected_proposal_is_accepted_in_the_same_session` |
+| MCP server rejects unsupported claims and accepts the corrected proposal | `tests/acceptance/test_phase_five_acceptance.py::test_each_unsupported_claim_is_rejected_and_its_correction_accepted` |
 | MCP server reads only the selected files and never the network | `tests/acceptance/test_phase_five_acceptance.py::test_the_server_opens_only_the_files_it_was_given`<br>`tests/acceptance/test_phase_five_acceptance.py::test_the_server_exits_cleanly_and_nothing_reaches_the_network` |
 
 `tests/acceptance/test_installed_ask.py` runs the installed `ask` command outside the checkout

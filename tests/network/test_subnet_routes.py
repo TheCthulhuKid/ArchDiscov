@@ -1,5 +1,3 @@
-from functools import partial
-
 import pytest
 
 from archdiscov.graph import GraphIndex
@@ -7,7 +5,7 @@ from archdiscov.models.enums import NetworkBlockerCode, NetworkDecision, RouteRe
 from archdiscov.services import load_snapshot
 from archdiscov.services.network_routes import evaluate_subnet_route
 from tests.paths import FIXTURES_ROOT
-from tests.support.fixture_edits import edited_index
+from tests.support.fixture_edits import S3_ENTRIES, prefix_list_index
 from tests.support.network_snapshot import resource_id
 from tests.support.route_data import LOCAL, build, egress_only_gateway, gateway, route, table
 
@@ -17,7 +15,6 @@ IGW, LOCAL_REACH = RouteReach.INTERNET_GATEWAY, RouteReach.LOCAL
 EIGW = RouteReach.EGRESS_ONLY_INTERNET_GATEWAY
 PUBLIC = "203.0.113.9"
 INSIDE = "10.0.1.5"
-prefix_list_index = partial(edited_index, "endpoints-and-prefix-lists.json")
 
 
 def check(tables, gateways=None, *, address=PUBLIC, reach=IGW, subnet="subnet-1", **kw):
@@ -149,7 +146,6 @@ def test_routes_of_the_other_address_family_are_ignored():
 
 # ---- prefix-list routes -------------------------------------------------------------
 
-S3_ENTRIES = {"pl-s3": {"entries": [{"cidr": "52.218.0.0/17"}]}}
 # rtb-svc's routes: local, the endpoint's pl-s3, and pl-office to a transit gateway.
 ROUTES = [
     route.model_dump(mode="json")

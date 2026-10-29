@@ -7,10 +7,21 @@ VENDOR_MODULES = ("anthropic", "openai", "boto3", "botocore")
 TRANSCRIPT = TESTS_ROOT / "fixtures" / "assistant" / "multi_step.json"
 SNAPSHOT = TESTS_ROOT / "fixtures" / "snapshots" / "aws.json"
 
+# The answer output is imported first, before anything loads the CLI or Typer.
+ANSWER_OUTPUT_SCRIPT = """
+import sys
+
+from archdiscov.assistant import answer_output
+
+loaded = [
+    name for name in sys.modules if name == "typer" or name.startswith(("typer.", "archdiscov.cli"))
+]
+assert not loaded, loaded
+"""
+
 # Imports would fail loudly if any assistant module reached a vendor SDK; the transcript
 # replay exercises the modules, not just their top-level imports.
-SCRIPT = f"""
-import sys
+ASSISTANT_SCRIPT = f"""
 from importlib.abc import MetaPathFinder
 
 BLOCKED = {VENDOR_MODULES!r}
@@ -23,7 +34,8 @@ class Blocker(MetaPathFinder):
         return None
 
 
-sys.meta_path.insert(0, Blocker())
+blocker = Blocker()
+sys.meta_path.insert(0, blocker)
 
 from pathlib import Path
 
@@ -164,26 +176,13 @@ with tempfile.TemporaryDirectory() as directory:
     asked = ask.ask_question("q", snapshot_path=Path({str(SNAPSHOT)!r}), config_path=settings)
 assert asked.summary.provider_kind == "fake"
 print(",".join(module for module in BLOCKED if module in sys.modules))
+# The CLI loads the AWS SDK; from here on only `mcp` is watched.
+sys.meta_path.remove(blocker)
 """
-
-
-def test_assistant_modules_work_with_vendor_sdks_blocked() -> None:
-    completed = subprocess.run(
-        [sys.executable, "-c", SCRIPT],
-        capture_output=True,
-        text=True,
-        cwd=PROJECT_ROOT,
-    )
-    assert completed.returncode == 0, completed.stderr
-    assert completed.stdout.strip() == ""
-
 
 # Every command module, the `mcp` command's help and service module, an `ask` run, and an
 # evaluation leave `mcp` unimported; only building the MCP server imports it.
 MCP_SCRIPT = f"""
-import sys
-from pathlib import Path
-
 from typer.testing import CliRunner
 
 from archdiscov.cli import app
@@ -214,8 +213,6 @@ asked = CliRunner().invoke(
     ],
 )
 assert asked.exit_code == 0, asked.output
-import tempfile
-
 with tempfile.TemporaryDirectory() as directory:
     config = write_fake_config(Path(directory) / "fake.toml")
     report = evaluate_suite(README_SUITE, [config])
@@ -230,25 +227,12 @@ assert "mcp" in sys.modules
 """
 
 
-def test_only_the_mcp_server_imports_mcp() -> None:
+def test_assistant_modules_isolate_vendor_sdks_mcp_and_the_cli() -> None:
     completed = subprocess.run(
-        [sys.executable, "-c", MCP_SCRIPT],
+        [sys.executable, "-c", ANSWER_OUTPUT_SCRIPT + ASSISTANT_SCRIPT + MCP_SCRIPT],
         capture_output=True,
         text=True,
         cwd=PROJECT_ROOT,
     )
     assert completed.returncode == 0, completed.stderr
-
-
-def test_the_answer_output_imports_no_cli_or_typer() -> None:
-    script = (
-        "import sys\n"
-        "from archdiscov.assistant import answer_output\n"
-        "loaded = [name for name in sys.modules if name == 'typer'"
-        " or name.startswith(('typer.', 'archdiscov.cli'))]\n"
-        "assert not loaded, loaded\n"
-    )
-    completed = subprocess.run(
-        [sys.executable, "-c", script], capture_output=True, text=True, cwd=PROJECT_ROOT
-    )
-    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip() == ""

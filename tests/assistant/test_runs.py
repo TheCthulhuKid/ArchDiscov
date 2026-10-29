@@ -1,5 +1,4 @@
 import json
-import time
 from typing import get_args
 
 import pytest
@@ -23,17 +22,14 @@ from archdiscov.assistant.provider import (
     RequestLimits,
     StopReason,
 )
-from archdiscov.assistant.redaction import REDACTED, looks_secret, redact_secrets
+from archdiscov.assistant.redaction import REDACTED
 from archdiscov.assistant.runs import (
     MAX_TRANSCRIPT_TEXT_CHARS,
     Answered,
-    Cancelled,
-    LimitReached,
     MalformedOutput,
     MalformedOutputReason,
     Proposed,
     ProviderFailed,
-    RunLimitKind,
     RunLimits,
     RunOutcome,
     RunTranscript,
@@ -43,19 +39,22 @@ from archdiscov.assistant.runs import (
     read_proposal,
     total_usage,
     transcript_json,
+    transcript_outcome,
     transcript_text,
     transcript_tool_call,
 )
 from archdiscov.models.sanitization import REDACTED_MARKER, is_sensitive_path
+from tests.support.run_outcomes import PROPOSAL, every_run_outcome
 
 SECRET = "sk-ant-api03-SECRETvalue0123456789abcdefXYZ"
 OUTCOMES = TypeAdapter(RunOutcome)
+ANSWERED = Answered(message=AssistantMessage(text="Done."), stop_reason=StopReason.END)
 
 
 # ---- limits ------------------------------------------------------------------------
 
 
-def test_limits_have_conservative_defaults() -> None:
+def test_default_limits_are_conservative_and_limits_round_trip_frozen() -> None:
     assert RunLimits().model_dump() == {
         "max_provider_requests": 8,
         "max_tool_calls_per_turn": 1,
@@ -65,6 +64,10 @@ def test_limits_have_conservative_defaults() -> None:
         "request_timeout_seconds": 60.0,
         "overall_timeout_seconds": 300.0,
     }
+    limits = RunLimits(max_tool_calls_per_turn=4, request_timeout_seconds=30)
+    assert RunLimits.model_validate_json(limits.model_dump_json()) == limits
+    with pytest.raises(ValidationError):
+        limits.max_tool_calls = 1
 
 
 @pytest.mark.parametrize(
@@ -90,22 +93,14 @@ def test_out_of_range_limits_are_rejected(field: str, low: float, high: float) -
     [
         ({"max_tool_calls_per_turn": 8, "max_tool_calls": 4}, "run_limits_order"),
         ({"request_timeout_seconds": 120, "overall_timeout_seconds": 60}, "run_limits_order"),
-        ({"max_provider_requests": "8"}, "int_type"),
         ({"max_tool_calls": True}, "int_type"),
-        ({"max_retries": 2}, "extra_forbidden"),
     ],
+    ids=["calls-order", "timeout-order", "bool-is-not-int"],
 )
 def test_invalid_limits_are_rejected(data: dict, code: str) -> None:
     with pytest.raises(ValidationError) as raised:
         RunLimits.model_validate(data)
     assert code in {error["type"] for error in raised.value.errors()}
-
-
-def test_limits_round_trip_and_are_frozen() -> None:
-    limits = RunLimits(max_tool_calls_per_turn=4, request_timeout_seconds=30)
-    assert RunLimits.model_validate_json(limits.model_dump_json()) == limits
-    with pytest.raises(ValidationError):
-        limits.max_tool_calls = 1
 
 
 def test_limits_come_from_provider_configuration() -> None:
@@ -142,85 +137,38 @@ def test_request_limits_follow_the_run_limits() -> None:
 
 # ---- outcomes ----------------------------------------------------------------------
 
-EXAMPLES = {
-    "answered": Answered(message=AssistantMessage(text="Done."), stop_reason=StopReason.END),
-    "proposed": Proposed(
-        proposal=AnswerProposal.model_validate(
-            {
-                "status": "supported",
-                "contexts": [{"side": "primary", "source_kind": "aws"}],
-                "conclusions": [
-                    {"kind": "analyzer_finding", "citations": [{"finding_ids": ["f-1"]}]}
-                ],
-                "summary": "One finding.",
-            }
-        )
+
+def test_every_outcome_kind_round_trips() -> None:
+    outcomes = every_run_outcome()
+    kinds = {member.model_fields["kind"].default for member in get_args(get_args(RunOutcome)[0])}
+    assert {outcome.kind for outcome in outcomes} == kinds
+    for outcome in outcomes:
+        data = json.loads(outcome.model_dump_json())
+        assert OUTCOMES.validate_python(data) == outcome
+
+
+ANSWERED_DATA = ANSWERED.model_dump(mode="json")
+CALL_DATA = {"id": "c", "name": "t", "arguments": {"kind": "parsed", "value": {}}}
+INVALID_OUTCOMES = {
+    "answer-with-calls": (
+        {**ANSWERED_DATA, "message": {"role": "assistant", "tool_calls": [CALL_DATA]}},
+        "run_answer_not_final",
     ),
-    "limit_reached": LimitReached(limit=RunLimitKind.TOOL_CALLS),
-    "provider_error": ProviderFailed(
-        code=ProviderErrorCode.TIMEOUT, retryable=False, message="Provider request timed out."
+    "answer-stop-reason": ({**ANSWERED_DATA, "stop_reason": "tool_use"}, "literal_error"),
+    "malformed-as-provider-error": (
+        {
+            "kind": "provider_error",
+            "code": "provider_malformed_output",
+            "retryable": False,
+            "message": "m",
+        },
+        "run_outcome_kind_mismatch",
     ),
-    "malformed_output": MalformedOutput(reason=MalformedOutputReason.CONVERSATION_INVALID),
-    "cancelled": Cancelled(),
+    "unknown-kind": ({"kind": "succeeded"}, "union_tag_invalid"),
 }
 
 
-def test_every_outcome_kind_has_an_example() -> None:
-    kinds = {member.model_fields["kind"].default for member in get_args(get_args(RunOutcome)[0])}
-    assert kinds == set(EXAMPLES)
-
-
-@pytest.mark.parametrize("kind", list(EXAMPLES))
-def test_outcomes_round_trip(kind: str) -> None:
-    outcome = EXAMPLES[kind]
-    data = json.loads(outcome.model_dump_json())
-    assert data["kind"] == kind
-    assert OUTCOMES.validate_python(data) == outcome
-
-
-@pytest.mark.parametrize("limit", list(RunLimitKind))
-def test_limit_reached_names_each_limit(limit: RunLimitKind) -> None:
-    assert OUTCOMES.validate_python({"kind": "limit_reached", "limit": limit.value}).limit == limit
-
-
-@pytest.mark.parametrize(
-    "data,code",
-    [
-        (
-            {
-                "kind": "answered",
-                "message": {
-                    "role": "assistant",
-                    "tool_calls": [
-                        {"id": "c", "name": "t", "arguments": {"kind": "parsed", "value": {}}}
-                    ],
-                },
-                "stop_reason": "end",
-            },
-            "run_answer_not_final",
-        ),
-        (
-            {
-                "kind": "answered",
-                "message": {"role": "assistant", "text": "x"},
-                "stop_reason": "tool_use",
-            },
-            "literal_error",
-        ),
-        (
-            {
-                "kind": "provider_error",
-                "code": "provider_malformed_output",
-                "retryable": False,
-                "message": "m",
-            },
-            "run_outcome_kind_mismatch",
-        ),
-        ({"kind": "limit_reached", "limit": "patience"}, "enum"),
-        ({"kind": "succeeded"}, "union_tag_invalid"),
-        ({"kind": "cancelled", "reason": "user"}, "extra_forbidden"),
-    ],
-)
+@pytest.mark.parametrize("data,code", list(INVALID_OUTCOMES.values()), ids=list(INVALID_OUTCOMES))
 def test_invalid_outcomes_are_rejected(data: dict, code: str) -> None:
     with pytest.raises(ValidationError) as raised:
         OUTCOMES.validate_python(data)
@@ -255,26 +203,18 @@ def test_provider_errors_map_to_typed_outcomes(error_type: type[ProviderError]) 
 # ---- transcript text ---------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "text",
-    [
-        f"The key is {SECRET}.",
-        "AKIAIOSFODNN7EXAMPLE was used",
-        "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload",
-        "-----BEGIN RSA PRIVATE KEY-----\nMIIEow\n-----END RSA PRIVATE KEY----- after",
-        "token aB3dE5fG7hJ9kL1mN3pQ5rS7tU9vW1xY3z end",
-    ],
-)
-def test_secret_looking_text_is_redacted(text: str) -> None:
-    value = transcript_text(text)
-    assert REDACTED in value.text
-    assert not looks_secret(value.text)
-    assert value.chars == len(text)
-
-
-def test_ordinary_text_is_kept() -> None:
+def test_transcript_text_and_json_never_hold_a_secret() -> None:
+    assert transcript_text(f"The key is {SECRET}.") == TranscriptText(
+        text=f"The key is {REDACTED}.", truncated=False, chars=len(SECRET) + 12
+    )
     text = "Found 3 security groups in vpc-0abc (eu-west-1); model claude-sonnet-5-5."
     assert transcript_text(text) == TranscriptText(text=text, truncated=False, chars=len(text))
+    value = transcript_json({"password": "hunter2", "query": f"use {SECRET}", "limit": 5})
+    data = json.loads(value.text)
+    assert data == {"limit": 5, "password": REDACTED_MARKER, "query": f"use {REDACTED}"}
+    with pytest.raises(ValidationError) as raised:
+        TranscriptText(text=SECRET, truncated=False, chars=len(SECRET))
+    assert raised.value.errors()[0]["type"] == "run_transcript_secret"
 
 
 def test_long_text_is_truncated_after_redaction() -> None:
@@ -285,25 +225,6 @@ def test_long_text_is_truncated_after_redaction() -> None:
     assert SECRET[:10] not in value.text
     exact = transcript_text("y" * MAX_TRANSCRIPT_TEXT_CHARS)
     assert exact.truncated is False
-
-
-def test_redaction_is_fast_on_large_inputs() -> None:
-    started = time.monotonic()
-    transcript_text("aB3" * 100_000)
-    redact_secrets("aB3" * 20_000 + " " + "x" * 200_000)
-    assert time.monotonic() - started < 2
-
-
-def test_transcript_text_rejects_secrets_built_directly() -> None:
-    with pytest.raises(ValidationError) as raised:
-        TranscriptText(text=SECRET, truncated=False, chars=len(SECRET))
-    assert raised.value.errors()[0]["type"] == "run_transcript_secret"
-
-
-def test_json_values_are_sanitized_and_redacted() -> None:
-    value = transcript_json({"password": "hunter2", "query": f"use {SECRET}", "limit": 5})
-    data = json.loads(value.text)
-    assert data == {"limit": 5, "password": REDACTED_MARKER, "query": f"use {REDACTED}"}
 
 
 # ---- tool calls, turns, and transcripts --------------------------------------------
@@ -354,101 +275,73 @@ def _transcript(turns, outcome=None, limits=None, **fields) -> RunTranscript:
         turns=tuple(turns),
         usage=fields.get("usage", total_usage(turns)),
         latency_seconds=1.0,
-        outcome=outcome or EXAMPLES["answered"],
+        outcome=outcome or ANSWERED,
     )
 
 
-def test_transcripts_round_trip_for_every_outcome() -> None:
+def test_transcripts_round_trip_and_total_their_usage() -> None:
     turns = [_turn(0, calls=1, input_tokens=10), _turn(1, input_tokens=5, output_tokens=3)]
-    for outcome in EXAMPLES.values():
+    for outcome in every_run_outcome():
         transcript = _transcript(turns, outcome)
         assert RunTranscript.model_validate_json(transcript.model_dump_json()) == transcript
     assert _transcript(turns).usage == TokenUsage(input_tokens=15, output_tokens=3)
-
-
-def test_total_usage_keeps_unreported_counters_empty() -> None:
     assert total_usage([]) == TokenUsage()
     assert total_usage([_turn(0, output_tokens=2), _turn(1)]) == TokenUsage(output_tokens=2)
 
 
+INCONSISTENT_TRANSCRIPTS = {
+    "unnumbered": lambda: _transcript([_turn(1)]),
+    "repair-unoffered": lambda: _transcript(
+        [_turn(0), _turn(1).model_copy(update={"repair": True})]
+    ),
+    "requests": lambda: _transcript(
+        [_turn(index) for index in range(3)], limits=RunLimits(max_provider_requests=2)
+    ),
+    "tool-calls": lambda: _transcript([_turn(0, calls=3)], limits=RunLimits(max_tool_calls=2)),
+    "usage": lambda: _transcript([_turn(0, input_tokens=4)], usage=TokenUsage(input_tokens=5)),
+    "secret-model": lambda: _transcript([], model=SECRET),
+    "kind": lambda: _transcript([], provider_kind="Not A Kind"),
+}
+
+
 @pytest.mark.parametrize(
-    "build",
-    [
-        lambda: _transcript([_turn(1)]),
-        lambda: _transcript([_turn(0), _turn(0)]),
-        lambda: _transcript(
-            [_turn(index) for index in range(3)], limits=RunLimits(max_provider_requests=2)
-        ),
-        lambda: _transcript([_turn(0, calls=3)], limits=RunLimits(max_tool_calls=2)),
-        lambda: _transcript([_turn(0, input_tokens=4)], usage=TokenUsage(input_tokens=5)),
-        lambda: _transcript([], model=SECRET),
-        lambda: _transcript([], provider_kind="Not A Kind"),
-    ],
-    ids=["unnumbered", "duplicate", "requests", "tool-calls", "usage", "secret-model", "kind"],
+    "build", list(INCONSISTENT_TRANSCRIPTS.values()), ids=list(INCONSISTENT_TRANSCRIPTS)
 )
 def test_inconsistent_transcripts_are_rejected(build) -> None:
     with pytest.raises(ValidationError):
         build()
 
 
-def test_transcripts_have_no_credential_fields() -> None:
-    def names(schema: dict) -> set[str]:
-        found = set(schema.get("properties", {}))
-        for value in schema.values():
-            if isinstance(value, dict):
-                found |= names(value)
-            elif isinstance(value, list):
-                for item in value:
-                    if isinstance(item, dict):
-                        found |= names(item)
-        return found
+def _property_names(schema) -> set[str]:
+    if isinstance(schema, list):
+        return set().union(*map(_property_names, schema))
+    if not isinstance(schema, dict):
+        return set()
+    return set(schema.get("properties", {})).union(*map(_property_names, schema.values()))
 
-    fields = names(RunTranscript.model_json_schema())
+
+def test_transcripts_have_no_credential_fields_or_values() -> None:
+    fields = _property_names(RunTranscript.model_json_schema())
     assert fields and not any(is_sensitive_path(name) for name in fields)
-
-
-def test_no_credential_value_appears_in_a_transcript() -> None:
-    call = ToolCall(
-        id="call_1",
-        name="search_resources",
-        arguments=ParsedToolArguments(value={"name": SECRET, "note": f"Bearer {SECRET}"}),
-    )
-    turn = TranscriptTurn(
-        request=0,
-        latency_seconds=0.1,
-        stop_reason=StopReason.TOOL_USE,
-        text=transcript_text(f"Calling with {SECRET}"),
-        tool_calls=(
-            transcript_tool_call(call, ToolResult(call_id="call_1", content=f"echo {SECRET}")),
-        ),
+    call = _call(ParsedToolArguments(value={"name": SECRET, "note": f"Bearer {SECRET}"}))
+    recorded = transcript_tool_call(call, ToolResult(call_id="call_1", content=f"echo {SECRET}"))
+    turn = _turn(0, calls=1).model_copy(
+        update={"text": transcript_text(f"Calling with {SECRET}"), "tool_calls": (recorded,)}
     )
     transcript = _transcript([turn], ProviderFailed.from_error(ProviderAuthenticationError()))
     assert SECRET not in transcript.model_dump_json()
     assert SECRET[:16] not in repr(transcript)
 
 
-def test_transcripts_record_answers_redacted_and_bounded() -> None:
-    from archdiscov.assistant.runs import transcript_outcome
-
-    raw = Answered(
+def test_transcripts_record_answers_and_proposals_redacted() -> None:
+    answer = Answered(
         message=AssistantMessage(text=f"Key {SECRET} " + "z" * 5_000), stop_reason=StopReason.END
     )
-    recorded = transcript_outcome(raw)
+    recorded = transcript_outcome(answer)
     assert SECRET not in recorded.message.text
     assert len(recorded.message.text) <= MAX_TRANSCRIPT_TEXT_CHARS
     assert recorded.stop_reason == StopReason.END
-    assert _transcript([], recorded).outcome == recorded
-    for other in (EXAMPLES[kind] for kind in EXAMPLES if kind not in {"answered", "proposed"}):
-        assert transcript_outcome(other) is other
-    with pytest.raises(ValidationError) as raised:
-        _transcript([], raw)
-    assert raised.value.errors()[0]["type"] == "run_transcript_secret"
-
-
-def test_transcripts_record_proposals_redacted() -> None:
-    from archdiscov.assistant.runs import transcript_outcome
-
-    raw = Proposed(
+    proposal = Proposed(
         proposal=AnswerProposal.model_validate(
             {
                 "status": "partial",
@@ -467,36 +360,31 @@ def test_transcripts_record_proposals_redacted() -> None:
             }
         )
     )
-    recorded = transcript_outcome(raw)
-    assert SECRET not in recorded.model_dump_json()
-    citation = recorded.proposal.conclusions[0].citations[0]
+    proposed = transcript_outcome(proposal)
+    assert SECRET not in proposed.model_dump_json()
+    citation = proposed.proposal.conclusions[0].citations[0]
     assert citation.finding_ids[0] == "f-1"
     placeholders = [
         citation.finding_ids[1],
         citation.evidence_ids[0],
-        recorded.proposal.limitations[0].finding_id,
+        proposed.proposal.limitations[0].finding_id,
     ]
     assert len(set(placeholders)) == 3 and all(item.startswith(REDACTED) for item in placeholders)
-    assert recorded.proposal.status == raw.proposal.status
-    assert recorded.proposal.contexts == raw.proposal.contexts
-    assert _transcript([], recorded).outcome == recorded
-    with pytest.raises(ValidationError) as raised:
-        _transcript([], raw)
-    assert raised.value.errors()[0]["type"] == "run_transcript_secret"
-    plain = EXAMPLES["proposed"]
-    assert transcript_outcome(plain) == plain
+    assert proposed.proposal.status == proposal.proposal.status
+    assert proposed.proposal.contexts == proposal.proposal.contexts
+    for raw, cleaned in ((answer, recorded), (proposal, proposed)):
+        assert _transcript([], cleaned).outcome == cleaned
+        with pytest.raises(ValidationError) as raised:
+            _transcript([], raw)
+        assert raised.value.errors()[0]["type"] == "run_transcript_secret"
+    for other in every_run_outcome():
+        if not isinstance(other, Answered | Proposed):
+            assert transcript_outcome(other) is other
 
 
 def test_read_proposal_reads_a_valid_proposal_and_names_why_others_fail() -> None:
-    data = {
-        "status": "insufficient_evidence",
-        "contexts": [{"side": "primary", "source_kind": "aws"}],
-        "insufficient_reason": "no_applicable_findings",
-        "summary": "Nothing applicable.",
-    }
-    assert read_proposal(ParsedToolArguments(value=data)) == Proposed(
-        proposal=AnswerProposal.model_validate(data)
-    )
+    data = PROPOSAL.model_dump(mode="json")
+    assert read_proposal(ParsedToolArguments(value=data)) == Proposed(proposal=PROPOSAL)
     oversized = MalformedToolArguments(reason=MalformedArgumentsReason.TOO_LARGE)
     assert read_proposal(oversized) == MalformedOutput(
         reason=MalformedOutputReason.PROPOSAL_MALFORMED

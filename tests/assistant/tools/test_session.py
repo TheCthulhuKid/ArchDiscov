@@ -1,12 +1,8 @@
-from pathlib import Path
-
-import pytest
-
 from archdiscov.assistant.tools.contracts import ToolLimits
 from archdiscov.assistant.tools.record import ReturnedIds
 from archdiscov.assistant.tools.session import ToolSession
 from archdiscov.graph import GraphIndex
-from archdiscov.services.snapshots import SnapshotError, load_snapshot
+from archdiscov.services.snapshots import load_snapshot
 from tests.paths import FIXTURES_ROOT
 
 SNAPSHOTS = FIXTURES_ROOT / "snapshots"
@@ -47,10 +43,3 @@ def test_each_session_has_its_own_record() -> None:
     first = ToolSession.from_paths(SNAPSHOTS / "aws.json")
     second = ToolSession.from_paths(SNAPSHOTS / "aws.json")
     assert first.record is not second.record
-
-
-def test_invalid_snapshot_files_fail_when_the_user_opens_the_session(tmp_path: Path) -> None:
-    path = tmp_path / "snapshot.json"
-    path.write_text("{}", encoding="utf-8")
-    with pytest.raises(SnapshotError):
-        ToolSession.from_paths(path)

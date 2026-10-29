@@ -7,18 +7,17 @@ from typer.testing import CliRunner
 
 from archdiscov.cli import app
 from archdiscov.ingestion import aws as aws_module
-from archdiscov.ingestion.adapter import AdapterContext, IngestionError
+from archdiscov.ingestion.adapter import IngestionError
 from archdiscov.ingestion.operations import Ec2Operation
 from archdiscov.ingestion.service_catalog import REGIONAL_OPERATIONS
 from archdiscov.models.enums import AwsService
 from archdiscov.services import (
-    SnapshotConflictError,
     collect_and_save,
     collect_snapshots,
     load_snapshot,
 )
 from tests.support import aws_fakes as fakes
-from tests.support.aws_fakes import Clock, Session, request
+from tests.support.aws_fakes import Session, request
 from tests.support.ec2_data import SUBNETS, VPC, default_pages, ec2_context
 
 ACCOUNT = "123456789012"
@@ -125,27 +124,6 @@ def test_multi_region_collection_has_separate_scopes():
     assert all(op.operation != Ec2Operation.DESCRIBE_REGIONS for op in snapshot.coverage.operations)
     ids = {r.id for region in snapshot.regions.values() for r in region.resources}
     assert len(ids) == len([r for region in snapshot.regions.values() for r in region.resources])
-
-
-def test_collect_and_save_isolates_accounts_and_never_overwrites(tmp_path):
-    def factory(**kwargs):
-        return Session(
-            ACCOUNT if kwargs.get("profile_name") == f"p{ACCOUNT}" else "000000000000",
-            default_pages,
-        )
-
-    context = AdapterContext(clock=Clock(), session_factory=factory)
-    first, second = tmp_path / "a.json", tmp_path / "b.json"
-    outcomes = collect_and_save(request(ACCOUNT, OTHER), [first, second], context=context)
-    assert outcomes[0].path == first and outcomes[0].error is None
-    assert outcomes[1].path is None and outcomes[1].error.code == "account_mismatch"
-    assert not second.exists()
-    assert load_snapshot(first).account_id == ACCOUNT
-
-    before = first.read_bytes()
-    again = collect_and_save(request(ACCOUNT), [first], context=context)
-    assert isinstance(again[0].error, SnapshotConflictError)
-    assert first.read_bytes() == before
 
 
 def test_collect_and_save_requires_distinct_outputs(tmp_path):

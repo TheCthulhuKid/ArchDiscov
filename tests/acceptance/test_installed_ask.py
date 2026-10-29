@@ -1,28 +1,31 @@
 """The installed `ask` command, outside the checkout, with the fake provider and no network.
 
-Two journeys, each on its own xdist worker. The first ingests the checked-in evaluation
-suites' case files and asks each README case with its fake transcript: every README question
-is answered from the findings its tools returned, cited evidence is inspected in the
-answered snapshot, and answers short of `supported` state their limitations. Its adversarial
-cases submit a fabricated or unreturned citation (rejected after the repair, exit 5), repair
-a fabricated citation (answered after the repair), and answer over imported text that tries
-to instruct the model (shown only as quoted data).
+Four journeys, each on its own xdist worker. The first asks each README case of the
+checked-in evaluation suite with its fake transcript, over the case's files as copied: every
+README question is answered from the findings its tools returned, cited evidence is recorded
+in the answered snapshot (one record is inspected through the CLI), and answers short of
+`supported` state their limitations. The second asks the adversarial cases that submit a
+fabricated or unreturned citation (rejected after the repair, exit 5), repair a fabricated
+citation (answered after the repair), and answer over imported text that tries to instruct
+the model (shown only as quoted data).
 
-The second refuses a missing configuration, an unknown snapshot, a Bedrock profile that
-cannot be loaded, an Anthropic or OpenAI-compatible configuration without its key, and an
-existing transcript path before the run, and reports a scripted provider error and a run
-limit as answer outcomes, each with its documented exit code. The Anthropic adapter, the
+The third refuses a missing configuration, an unknown snapshot, a Bedrock profile that cannot
+be loaded, an Anthropic or OpenAI-compatible configuration without its key, and an existing
+transcript path before the run, and reports a scripted provider error and a run limit as
+answer outcomes, each with its documented exit code. In the fourth, the Anthropic adapter, the
 OpenAI-compatible adapter through each protocol, and the Bedrock adapter answer a README
 question through a mock API on one loopback port, the only connection the run may make, and
 give the fake's answer. The child sees no credentials and no checkout, except a dummy key or
 AWS profile forwarded to an adapter's run alone: its whole `PYTHONPATH` is the offline guard,
-which fails and records any other network use.
+which fails and records any other network use. Each command's JSON is checked here; its
+readable form once, since `tests/cli` renders every outcome readably in process.
 """
 
 import json
 import re
 import shutil
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from urllib.parse import quote, unquote
 
@@ -31,18 +34,12 @@ import pytest
 from archdiscov.assistant.fake import FakeTranscript
 from archdiscov.assistant.runs import RunTranscript
 from archdiscov.services import load_snapshot
-from tests.assistant.provider_harness import (
-    HARNESS_PROFILE,
-    AnthropicHarness,
-    BedrockHarness,
-    ChatCompletionsHarness,
-    MockedHarness,
-    ResponsesHarness,
-)
 from tests.support.answer_claims import INJECTION
+from tests.support.ask_cli_cases import PRE_RUN_ERRORS
 from tests.support.ask_examples import (
     EXAMPLES,
     README_QUESTIONS,
+    ExampleRun,
     write_example,
 )
 from tests.support.ask_runs import fake_config
@@ -51,20 +48,30 @@ from tests.support.installed_cli import (
     DUMMY_KEY,
     INSTALLED_KEY_VARIABLE,
     Workspace,
+    case_selection,
     digest,
     harness_config,
-    ingest_selection,
     run_installed,
     suite_cases,
 )
 from tests.support.mock_api import mock_api_server
-from tests.support.provider_data import MISSING_PROFILE, missing_profile_config
+from tests.support.provider_data import MISSING_PROFILE
+from tests.support.provider_harness import (
+    HARNESS_PROFILE,
+    AnthropicHarness,
+    BedrockHarness,
+    ChatCompletionsHarness,
+    MockedHarness,
+    ResponsesHarness,
+)
 from tests.support.scripted_answers import SEARCH
 from tests.support.scripted_turns import calls_turn, fail_turn
 
-# Each journey is module-scoped; its tests share one xdist worker, and the two run in parallel.
+# Each journey is module-scoped; its tests share one xdist worker, and the four run in parallel.
 pytestmark = pytest.mark.xdist_group("installed-ask")
 ANSWERS = pytest.mark.xdist_group("installed-ask-answers")
+PATHS_GROUP = pytest.mark.xdist_group("installed-ask-paths")
+ADAPTERS_GROUP = pytest.mark.xdist_group("installed-ask-adapters")
 
 SUITES = {"readme": README_SUITE, "adversarial": ADVERSARIAL_SUITE}
 # Adversarial cases the journey asks: (expected failure or status, exit code, rejection).
@@ -98,106 +105,94 @@ ROUTES = {
 }
 
 
-def _ingest(ws: Workspace, suite: str, case: dict) -> list[str]:
-    """Ingest the case's snapshots and return the `ask` arguments over the ingested files."""
-    selection = ingest_selection(ws, suite, case)
+def _ask(ws: Workspace, suite: str, case: dict, expect: int = 0, readable: bool = False) -> dict:
+    """Ask the case over its files; the JSON result, and the readable output if asked for."""
     config = ws.path("fixtures", suite, case["id"], "provider.toml")
-    return [case["question"], *selection, "--config", str(config)]
-
-
-def _ask(ws: Workspace, suite: str, case: dict, expect: int = 0) -> dict:
-    arguments = _ingest(ws, suite, case)
+    arguments = [case["question"], *case_selection(ws, suite, case), "--config", str(config)]
     transcript = ws.path("results", f"{suite}-{case['id']}-transcript.json")
     data = ws.json("ask", *arguments, "--transcript", transcript, expect=expect)
-    readable = ws.run("ask", *arguments, expect=expect).stdout
     RunTranscript.model_validate_json(transcript.read_bytes())
-    return {"data": data, "readable": readable, "snapshot": arguments[2]}
+    shown = ws.run("ask", *arguments, expect=expect).stdout if readable else None
+    return {"data": data, "readable": shown, "snapshot": arguments[2]}
 
 
 def _findings(answer: dict) -> list[dict]:
     return [finding for conclusion in answer["conclusions"] for finding in conclusion["findings"]]
 
 
-def _inspected(ws: Workspace, answer: dict, snapshot: str) -> dict:
-    """The first cited evidence record, inspected through the CLI in the answered snapshot,
-    and whether every cited evidence ID is recorded there (checked in process, since one
-    command per ID would dominate the journey)."""
-    evidence_ids = [item for finding in _findings(answer) for item in finding["evidence_ids"]]
-    recorded = load_snapshot(Path(snapshot)).evidence
-    inspected = (
-        ws.json("evidence", evidence_ids[0], "--snapshot", snapshot) if evidence_ids else None
-    )
-    return {
-        "first": evidence_ids[0] if evidence_ids else None,
-        "inspected": inspected,
-        "recorded": all(item in recorded for item in evidence_ids),
-    }
+def _evidence_ids(answer: dict) -> list[str]:
+    return [item for finding in _findings(answer) for item in finding["evidence_ids"]]
 
 
-def answers_journey(root: Path) -> dict:
+def _suite(root: Path, name: str) -> Workspace:
+    """A workspace with the named evaluation suite copied to `fixtures/<name>`."""
     ws = Workspace(root)
-    for name, suite in SUITES.items():
-        shutil.copytree(suite.parent, ws.path("fixtures", name))
+    shutil.copytree(SUITES[name].parent, ws.path("fixtures", name))
+    return ws
+
+
+def _unchanged(ws: Workspace, ask: Callable[[], dict]) -> dict:
+    """Run the journey; asking never changes a fixture, and nothing reaches the network."""
     fixtures = {path: digest(path) for path in ws.path("fixtures").rglob("*") if path.is_file()}
-    summary: dict = {"examples": {}, "paths": {}}
-    for case_id, case in suite_cases(ws, "readme").items():
-        asked = _ask(ws, "readme", case)
-        answer = asked["data"]["result"]["answer"]
-        asked["evidence"] = _inspected(ws, answer, asked["snapshot"])
-        summary["examples"][case_id] = (case, asked)
-    adversarial = suite_cases(ws, "adversarial")
-    for case_id, (_, code, _) in PATHS.items():
-        summary["paths"][case_id] = _ask(ws, "adversarial", adversarial[case_id], code)
-    # Asking never changes a fixture, and nothing reaches the network.
+    summary = ask()
     assert {path: digest(path) for path in fixtures} == fixtures
     assert ws.guard.attempts == []
     return summary
 
 
-def _missing_config(ws: Workspace, snapshot: Path) -> tuple[list, int, str]:
-    options = ["--snapshot", snapshot, "--config", ws.path("missing.toml")]
-    return options, 1, "provider_config_unreadable"
+@pytest.fixture(scope="module")
+def answers(tmp_path_factory) -> dict:
+    """Each README case asked in JSON, the first also readably; the first cited evidence
+    record inspected through the CLI, and every cited ID checked in the answered snapshot."""
+    ws = _suite(tmp_path_factory.mktemp("ask-answers"), "readme")
+
+    def ask() -> dict:
+        examples, inspected = {}, None
+        for index, (case_id, case) in enumerate(suite_cases(ws, "readme").items()):
+            asked = _ask(ws, "readme", case, readable=index == 0)
+            cited = _evidence_ids(asked["data"]["result"]["answer"])
+            recorded = load_snapshot(Path(asked["snapshot"])).evidence
+            asked["recorded"] = all(item in recorded for item in cited)
+            if inspected is None and cited:
+                found = ws.json("evidence", cited[0], "--snapshot", asked["snapshot"])
+                inspected = (cited[0], found)
+            examples[case_id] = (case, asked)
+        return {"examples": examples, "inspected": inspected}
+
+    return _unchanged(ws, ask)
 
 
-def _unknown_snapshot(ws: Workspace, snapshot: Path) -> tuple[list, int, str]:
-    config = ws.path("examples", SNAPSHOT, "provider.toml")
-    return ["--snapshot", ws.path("missing.json"), "--config", config], 1, "snapshot_io_error"
+@pytest.fixture(scope="module")
+def paths(tmp_path_factory) -> dict:
+    ws = _suite(tmp_path_factory.mktemp("ask-paths"), "adversarial")
+    adversarial = suite_cases(ws, "adversarial")
+    return _unchanged(
+        ws,
+        lambda: {
+            case_id: _ask(ws, "adversarial", adversarial[case_id], code)
+            for case_id, (_, code, _) in PATHS.items()
+        },
+    )
 
 
-def _missing_profile(ws: Workspace, snapshot: Path) -> tuple[list, int, str]:
-    directory = ws.path("cases", "missing-profile")
-    directory.mkdir(parents=True)
-    config = missing_profile_config(directory)
-    return ["--snapshot", snapshot, "--config", config], 2, "provider_profile_unavailable"
+def _missing_key(harness: MockedHarness, directory: Path) -> tuple[Path, list, dict]:
+    return harness_config(directory, harness), [], {}
 
 
-def _existing_transcript(ws: Workspace, snapshot: Path) -> tuple[list, int, str]:
-    config = ws.path("examples", SNAPSHOT, "provider.toml")
-    existing = ws.path("kept.json")
-    existing.write_text("kept", encoding="utf-8")
-    options = ["--snapshot", snapshot, "--config", config, "--transcript", existing]
-    return options, 3, "snapshot_conflict"
-
-
-def _missing_key(harness: MockedHarness) -> Callable[[Workspace, Path], tuple[list, int, str]]:
-    def case(ws: Workspace, snapshot: Path) -> tuple[list, int, str]:
-        directory = ws.path("cases", f"missing-{harness.label}-key")
-        directory.mkdir(parents=True)
-        options = ["--snapshot", snapshot, "--config", harness_config(directory, harness)]
-        return options, 2, "provider_credential_missing"
-
-    case.__name__ = f"_missing_{harness.name}_key"
-    return case
-
-
-REFUSALS = [
-    _missing_config,
-    _unknown_snapshot,
-    _missing_profile,
-    _missing_key(AnthropicHarness()),
-    _missing_key(ResponsesHarness()),
-    _existing_transcript,
-]
+PRE_RUN = {case.__name__.strip("_"): (case, code, error) for case, code, error in PRE_RUN_ERRORS}
+# The CLI test's pre-run cases the installed command repeats, and two adapters without a key.
+REFUSALS = {
+    **{name: PRE_RUN[name] for name in ("missing_config", "unknown_snapshot", "missing_profile")},
+    **{
+        f"missing_{harness.name}_key": (
+            partial(_missing_key, harness),
+            2,
+            "provider_credential_missing",
+        )
+        for harness in (AnthropicHarness(), ResponsesHarness())
+    },
+    "existing_transcript": PRE_RUN["existing_transcript"],
+}
 # Scripted runs that start and fail: (turns, extra configuration, exit code, failure reason).
 FAILED_RUNS = {
     "provider-error": ([fail_turn("provider_unavailable")], "", 6, "provider_error"),
@@ -208,17 +203,21 @@ FAILED_RUNS = {
 def _refusals(ws: Workspace) -> dict:
     snapshot = ws.path("examples", SNAPSHOT, "snapshot.json")
     refused = {}
-    for case in REFUSALS:
-        options, code, error = case(ws, snapshot)
+    for index, (name, (case, code, error)) in enumerate(REFUSALS.items()):
+        directory = ws.path("cases", name)
+        directory.mkdir(parents=True)
+        config, extra, overrides = case(directory)
         before = {path: digest(path) for path in ws.root.rglob("*") if path.is_file()}
-        question = (README_QUESTIONS[0], *options)
+        selected = overrides.get("snapshot", snapshot)
+        question = (README_QUESTIONS[0], "--snapshot", selected, "--config", config, *extra)
         diagnostic = ws.json("ask", *question, expect=code)["error"]
-        readable = ws.run("ask", *question, expect=code)
         assert diagnostic["code"] == error
-        assert readable.stdout == "" and readable.stderr.startswith(f"Error [{error}]: ")
+        if index == 0:
+            readable = ws.run("ask", *question, expect=code)
+            assert readable.stdout == "" and readable.stderr.startswith(f"Error [{error}]: ")
         # A refused run neither writes nor overwrites anything.
         assert {path: digest(path) for path in ws.root.rglob("*") if path.is_file()} == before
-        refused[case.__name__.strip("_")] = diagnostic
+        refused[name] = diagnostic
     return refused
 
 
@@ -232,9 +231,7 @@ def _failed_runs(ws: Workspace) -> dict:
         options = (*question, "--config", fake_config(directory, turns, config))
         transcript = directory / "transcript.json"
         data = ws.json("ask", *options, "--transcript", transcript, expect=code)
-        readable = ws.run("ask", *options, expect=code).stdout
         assert data["result"]["answer"]["failure"]["reason"] == reason
-        assert f"Answer: failed ({reason}), exit code {code}" in readable
         failed[name] = (data, RunTranscript.model_validate_json(transcript.read_bytes()))
     return failed
 
@@ -255,119 +252,93 @@ def _credentials(directory: Path, harness: MockedHarness) -> dict[str, str]:
     return files
 
 
-def _model(path: str, body: dict) -> str:
-    """The model a request names: in its body, or, for Converse, in its path."""
-    return body["model"] if "model" in body else unquote(path.split("/")[2])
-
-
-def _through_the_adapters(ws: Workspace) -> dict[str, tuple[dict, str, list]]:
-    """The adapted example answered in JSON and readably through each adapter's mock API."""
+def _through_the_adapters(ws: Workspace) -> dict[str, tuple[dict, list]]:
+    """The adapted example answered through each adapter's mock API."""
     directory = ws.path("examples", ADAPTED)
     turns = json.loads((directory / "transcript.json").read_text(encoding="utf-8"))["turns"]
     arguments = [EXAMPLES[ADAPTED].question, "--snapshot", directory / "snapshot.json"]
     answered = {}
     for harness in ADAPTERS:
         bodies = [harness.body(turn.response) for turn in FakeTranscript(turns=turns).turns]
-        with mock_api_server(bodies * 2) as api:
+        with mock_api_server(bodies) as api:
             root, _, _ = ROUTES[harness.label]
             config = harness_config(directory, harness, f"http://127.0.0.1:{api.port}{root}")
             env = ws.guard.allowing(api.port, **_credentials(directory, harness))
             command = ["ask", *map(str, arguments), "--config", str(config)]
             data = json.loads(run_installed(ws.root, *command, "--json", env=env).stdout)
-            readable = run_installed(ws.root, *command, env=env).stdout
         assert api.bodies == []
-        answered[harness.label] = (data, readable, api.requests)
+        answered[harness.label] = (data, api.requests)
     return answered
 
 
-def runs_journey(root: Path) -> dict:
+def _example(root: Path, name: str) -> tuple[Workspace, ExampleRun]:
+    """A workspace with the named README example written to `examples/<name>`."""
     ws = Workspace(root)
-    examples = {}
-    for name in (SNAPSHOT, ADAPTED):
-        directory = ws.path("examples", name)
-        directory.mkdir(parents=True)
-        examples[name] = write_example(EXAMPLES[name], directory)
+    directory = ws.path("examples", name)
+    directory.mkdir(parents=True)
+    return ws, write_example(EXAMPLES[name], directory)
+
+
+@pytest.fixture(scope="module")
+def summary(tmp_path_factory) -> dict:
+    ws, _ = _example(tmp_path_factory.mktemp("ask-refusals"), SNAPSHOT)
+    summary = {"refusals": _refusals(ws), "failed": _failed_runs(ws)}
+    assert ws.guard.attempts == []
+    return summary
+
+
+@pytest.fixture(scope="module")
+def adapters(tmp_path_factory) -> dict:
+    ws, example = _example(tmp_path_factory.mktemp("ask-adapters"), ADAPTED)
     summary = {
-        "fake": ws.json("ask", *examples[ADAPTED].arguments),
-        "refusals": _refusals(ws),
-        "failed": _failed_runs(ws),
+        "fake": ws.json("ask", *example.arguments),
         "adapters": _through_the_adapters(ws),
     }
     assert ws.guard.attempts == []
     return summary
 
 
-@pytest.fixture(scope="module")
-def answers(tmp_path_factory) -> dict:
-    return answers_journey(tmp_path_factory.mktemp("ask-answers"))
-
-
-@pytest.fixture(scope="module")
-def summary(tmp_path_factory) -> dict:
-    return runs_journey(tmp_path_factory.mktemp("ask-runs"))
-
-
-def _cited(answer: dict, key: str) -> set[str]:
-    return {
-        item
-        for conclusion in answer["conclusions"]
-        for citation in conclusion["citations"]
-        for item in citation[key]
-    }
-
-
 @ANSWERS
 def test_every_readme_question_is_answered_from_tool_returned_findings(answers):
     examples = answers["examples"]
     assert set(README_QUESTIONS) <= {case["question"] for case, _ in examples.values()}
+    limited = set()
     for case_id, (case, asked) in examples.items():
         answer = asked["data"]["result"]["answer"]
         expect = case["expect"]
         assert answer["outcome"]["status"] == "answered", case_id
         assert answer["status"] in expect["statuses"], case_id
         # The cited findings are exactly those the example's tools returned.
-        assert _cited(answer, "finding_ids") == set(expect.get("finding_ids", ())), case_id
+        citations = [item for c in answer["conclusions"] for item in c["citations"]]
+        cited = {item for citation in citations for item in citation["finding_ids"]}
+        assert cited == set(expect.get("finding_ids", ())), case_id
         assert answer["conclusions"], case_id
         assert asked["data"]["summary"]["provider_kind"] == "fake", case_id
-        lines = asked["readable"].splitlines()
-        assert "Provider: fake, model fake" in lines
-        assert "Answer: answered, exit code 0" in lines
-        assert f"Status: {answer['status']}" in lines
-
-
-@ANSWERS
-def test_cited_evidence_is_inspected_in_the_answered_snapshot(answers):
-    inspected = 0
-    for case_id, (_, asked) in answers["examples"].items():
-        evidence = asked["evidence"]
-        answer = asked["data"]["result"]["answer"]
-        # A finding that supports anything cites evidence; insufficient evidence may not.
+        # A finding that supports anything cites evidence the answered snapshot records;
+        # insufficient evidence may cite none.
         for finding in _findings(answer):
             if finding["status"] != "insufficient_evidence":
                 assert finding["evidence_ids"], case_id
-        assert evidence["recorded"], case_id
-        if evidence["first"] is not None:
-            assert evidence["inspected"]["evidence_id"] == evidence["first"], case_id
-            inspected += 1
-    assert inspected >= len(README_QUESTIONS)
-
-
-@ANSWERS
-def test_answers_short_of_supported_state_their_limitations(answers):
-    limited = {}
-    for case_id, (_, asked) in answers["examples"].items():
-        answer = asked["data"]["result"]["answer"]
+        assert asked["recorded"], case_id
+        # An answer short of supported states its limitations.
         if answer["status"] != "supported":
             assert answer["qualifications"], case_id
-            limited[case_id] = answer["qualifications"]
+            limited.add(case_id)
     assert {"trust_limited_coverage", "internet_insufficient_evidence", "ownership_planned"} <= (
-        set(limited)
+        limited
     )
+    evidence_id, inspected = answers["inspected"]
+    assert inspected["evidence_id"] == evidence_id
+    [(_, first)] = [item for item in examples.values() if item[1]["readable"] is not None]
+    lines = first["readable"].splitlines()
+    assert "Provider: fake, model fake" in lines
+    assert "Answer: answered, exit code 0" in lines
+    assert f"Status: {first['data']['result']['answer']['status']}" in lines
 
 
-@ANSWERS
-def test_fabricated_and_unreturned_citations_are_rejected_and_repairs_answer(answers):
-    for case_id, asked in answers["paths"].items():
+@PATHS_GROUP
+def test_fabricated_and_unreturned_citations_are_rejected_and_repairs_answer(paths):
+    for case_id, asked in paths.items():
         outcome_name, code, rejection = PATHS[case_id]
         result = asked["data"]["result"]
         outcome = result["answer"]["outcome"]
@@ -376,15 +347,12 @@ def test_fabricated_and_unreturned_citations_are_rejected_and_repairs_answer(ans
         if rejection is not None:
             assert rejection in {item["code"] for item in outcome["rejections"]}, case_id
             assert result["answer"]["conclusions"] == []
-            assert f"Answer: failed ({outcome_name}), exit code {code}" in asked["readable"]
-    repaired = answers["paths"]["repaired"]["data"]
-    assert repaired["summary"]["usage"]["repair_requested"]
+    assert paths["repaired"]["data"]["summary"]["usage"]["repair_requested"]
 
 
-@ANSWERS
-def test_imported_instructions_are_only_quoted_data(answers):
-    asked = answers["paths"]["injected_text"]
-    answer = asked["data"]["result"]["answer"]
+@PATHS_GROUP
+def test_imported_instructions_are_only_quoted_data(paths):
+    answer = paths["injected_text"]["data"]["result"]["answer"]
     quoted = [item["untrusted_text"] for c in answer["conclusions"] for item in c["data"]]
     statements = [item for c in answer["conclusions"] for item in c["statements"]]
     assert INJECTION in quoted
@@ -394,7 +362,7 @@ def test_imported_instructions_are_only_quoted_data(answers):
 
 def test_errors_before_the_run_fail_safely(summary):
     refused = summary["refusals"]
-    assert list(refused) == [case.__name__.strip("_") for case in REFUSALS]
+    assert list(refused) == list(REFUSALS)
     # A Bedrock profile is named, never its contents, and fails before any request.
     assert refused["missing_profile"]["profile"] == MISSING_PROFILE
     assert refused["missing_profile"]["kind"] == "bedrock"
@@ -411,21 +379,20 @@ def test_provider_errors_and_limits_are_answer_outcomes(summary):
         assert transcript.outcome.kind == reason
 
 
+@ADAPTERS_GROUP
 @pytest.mark.parametrize("harness", ADAPTERS, ids=lambda harness: harness.label)
-def test_each_adapter_answers_through_a_loopback_api(summary, harness):
-    data, readable, requests = summary["adapters"][harness.label]
-    fake = summary["fake"]
+def test_each_adapter_answers_through_a_loopback_api(adapters, harness):
+    data, requests = adapters["adapters"][harness.label]
     model = harness.configuration(INSTALLED_KEY_VARIABLE)["model"]
-    assert data["summary"]["provider_kind"] == harness.name
-    assert data["result"] == fake["result"]
+    assert (data["summary"]["provider_kind"], data["summary"]["model"]) == (harness.name, model)
+    assert data["result"] == adapters["fake"]["result"]
     assert data["result"]["answer"]["status"] == EXAMPLES[ADAPTED].status
-    assert f"Provider: {harness.name}, model {model}" in readable.splitlines()
-    assert f"Status: {EXAMPLES[ADAPTED].status}" in readable.splitlines()
     _, path, authorization = ROUTES[harness.label]
     assert requests and all(sent == path for sent, _, _ in requests)
     for sent, headers, body in requests:
         lowered = {name.lower(): value for name, value in headers.items()}
         assert re.fullmatch(authorization, lowered["authorization"])
-        assert _model(sent, body) == model
+        # A request names its model in its body or, for Converse, in its path.
+        assert body.get("model", unquote(sent.split("/")[2])) == model
     for secret in (DUMMY_KEY, AWS_SECRET):
-        assert secret not in json.dumps(data) + readable
+        assert secret not in json.dumps(data)

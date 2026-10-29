@@ -61,9 +61,10 @@ responsibility; avoid a subpackage for each class or a single catch-all model mo
 
 Tests use `tests.paths.FIXTURES_ROOT` and `PROJECT_ROOT` instead of assuming how
 many directories separate a test from its inputs. Python package markers retain
-unambiguous imports and pytest discovery. A test module never imports another test
-module: put helpers that several modules share under `tests/support/`, and
-`tests/test_test_imports.py` fails when a test module imports another.
+unambiguous imports and pytest discovery. Tests share code only through
+`tests/support/` and `tests/paths.py`: put helpers that several modules share under
+`tests/support/`, never beside the tests, and `tests/test_test_imports.py` fails when a
+test imports any other module under `tests`.
 
 Run the entire suite as before, or select a directory for focused work:
 

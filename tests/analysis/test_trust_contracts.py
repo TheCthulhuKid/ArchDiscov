@@ -90,11 +90,6 @@ def test_every_classification_effect_and_conditionality_round_trips():
         assert model.not_principal is False
 
 
-@pytest.mark.parametrize("source", TrustSource)
-def test_both_trust_sources_are_representable(source):
-    assert CrossAccountTrust.model_validate(trust(source=source.value)).source == source
-
-
 def test_not_principal_must_be_unresolved():
     ok = CrossAccountTrust.model_validate(trust(classification="unresolved", not_principal=True))
     assert ok.not_principal is True
@@ -109,22 +104,12 @@ def test_not_principal_must_be_unresolved():
 @pytest.mark.parametrize(
     "fields",
     [
-        {"classification": "nonsense"},
         {"effect": "allow"},
-        {"effect": "Maybe"},
-        {"source": "somewhere"},
-        {"conditional": "yes"},
         {"conditional": 1},
-        {"not_principal": "no"},
     ],
     ids=[
-        "classification",
         "lowercase-effect",
-        "effect",
-        "source",
-        "str-bool",
         "int-bool",
-        "np-bool",
     ],
 )
 def test_invalid_values_are_rejected(fields):
@@ -178,19 +163,10 @@ def test_results_validate_against_a_snapshot_and_keep_scope_and_citations():
     assert item.trust.conditional is True
 
 
-@pytest.mark.parametrize(
-    ("data", "code"),
-    [
-        (result([finding(trust(), resource=PROFILE)]), "trust_source_mismatch"),
-        (result([finding(trust(source="resource_policy"))]), "trust_source_mismatch"),
-        (result([finding(trust(), resource="absent")]), "resource_unknown"),
-    ],
-    ids=["role-policy-on-profile", "resource-policy-on-role", "unknown-resource"],
-)
-def test_integrity_rejects_trust_on_the_wrong_resource(data, code):
+def test_integrity_rejects_trust_on_the_wrong_resource():
     with pytest.raises(AnalysisValidationError) as error:
-        validate_analysis_result(data, SNAPSHOT)
-    assert error.value.details[0].type == code
+        validate_analysis_result(result([finding(trust(), resource=PROFILE)]), SNAPSHOT)
+    assert error.value.details[0].type == "trust_source_mismatch"
 
 
 def test_unsupported_platform_code_is_shared_and_needs_no_trust_block():

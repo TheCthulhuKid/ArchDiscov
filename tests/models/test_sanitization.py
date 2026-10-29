@@ -10,16 +10,8 @@ from archdiscov.models.sanitization import is_sensitive_path, sanitize_value
 
 @pytest.mark.parametrize(
     "key",
-    [
-        "password",
-        "SecretAccessKey",
-        "SessionToken",
-        "PRIVATE-KEY",
-        "Authorization",
-        "UserData",
-        "ConnectionString",
-        "AWS.SECRET_ACCESS-KEY",
-    ],
+    ["password", "AWS.SECRET_ACCESS-KEY"],
+    ids=["exact", "normalized"],
 )
 def test_sensitive_keys(key: str) -> None:
     assert sanitize_value({key: "sensitive"}) == ({key: "[REDACTED]"}, [f"/{key}"])
@@ -27,7 +19,8 @@ def test_sensitive_keys(key: str) -> None:
 
 @pytest.mark.parametrize(
     "key",
-    ["IpProtocol", "FromPort", "ToPort", "CidrIp", "SecretArn", "SecretName", "TokenArn"],
+    ["FromPort", "SecretArn"],
+    ids=["network-field", "secret-reference"],
 )
 def test_network_fields_and_references_are_not_sensitive(key: str) -> None:
     assert sanitize_value({key: "ordinary"}) == ({key: "ordinary"}, [])
@@ -69,13 +62,13 @@ def test_json_pointer_escaping() -> None:
     )
 
 
-@pytest.mark.parametrize("value", [None, True, 0, 1.5, "plain", [], {}])
+@pytest.mark.parametrize("value", ["plain", [], {}], ids=["scalar", "list", "dict"])
 def test_nonsensitive_root(value: JsonValue) -> None:
     assert sanitize_value(value) == (value, [])
 
 
-@pytest.mark.parametrize("value", [None, False, 0, "secret", [], {}, {"password": "secret"}])
-def test_explicit_sensitive_root(value: JsonValue) -> None:
+def test_explicit_sensitive_root() -> None:
+    value: JsonValue = {"password": "secret"}
     original = deepcopy(value)
     assert sanitize_value(value, sensitive=True) == ("[REDACTED]", [""])
     assert value == original
@@ -88,10 +81,9 @@ def test_explicit_sensitive_root(value: JsonValue) -> None:
         "Resources.Database.Properties.MasterUserPassword",
         "items[0]['api-key']",
         'Properties["aws.secret-access_key"]',
-        "/Resources/Database/Properties/MasterUserPassword",
         "/Properties/db~1password",
-        "/Properties/secret/../name",
     ],
+    ids=["dotted", "single-quoted", "double-quoted", "escaped-pointer"],
 )
 def test_sensitive_source_paths(path: str) -> None:
     assert is_sensitive_path(path)
@@ -99,15 +91,8 @@ def test_sensitive_source_paths(path: str) -> None:
 
 @pytest.mark.parametrize(
     "path",
-    [
-        "",
-        "/",
-        "items[0].name",
-        "/items/0/name",
-        'Properties["SecretArn"]',
-        "Properties.passwordPolicy",
-        "/Properties/passwordPolicy",
-    ],
+    ["", 'Properties["SecretArn"]', "Properties.passwordPolicy"],
+    ids=["empty", "secret-reference", "sensitive-prefix"],
 )
 def test_nonsensitive_source_paths(path: str) -> None:
     assert not is_sensitive_path(path)

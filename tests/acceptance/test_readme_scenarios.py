@@ -11,7 +11,7 @@ from urllib.parse import unquote
 import pytest
 
 from archdiscov.services import compare_snapshots, ingest_snapshot, load_snapshot
-from tests.comparison.snapshots import aws_resource, aws_snapshot
+from tests.support.comparison_data import aws_resource, aws_snapshot
 
 ACCOUNT, REGION = "123456789012", "eu-west-1"
 MODULE_INSTANCE = "module.app.aws_instance.web"

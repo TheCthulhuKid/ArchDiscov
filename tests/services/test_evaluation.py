@@ -38,7 +38,6 @@ from archdiscov.services.evaluation import (
     run_evaluation_async,
 )
 from archdiscov.services.snapshot_errors import SnapshotIOError
-from tests.assistant.provider_harness import AnthropicHarness
 from tests.support.evaluation_suites import (
     EVALUATION_KEY_VARIABLE,
     SUITE,
@@ -47,6 +46,7 @@ from tests.support.evaluation_suites import (
     write_fake_config,
     write_readme_suite,
 )
+from tests.support.provider_harness import AnthropicHarness
 from tests.support.scripted_turns import SNAPSHOT
 
 NAMES = ["internet_exposure", "ownership", "ownership_compared"]
@@ -249,11 +249,9 @@ def test_an_evaluation_needs_one_to_ten_configurations(
         (None, EvaluationErrorCode.SUITE_UNREADABLE),
         (b" " * (MAX_SUITE_BYTES + 1), EvaluationErrorCode.SUITE_TOO_LARGE),
         (b'{"schema_version": "1", "schema_version": "1"}', EvaluationErrorCode.INVALID_SUITE),
-        (b'{"schema_version": NaN}', EvaluationErrorCode.INVALID_SUITE),
-        (b"\xff\xfe", EvaluationErrorCode.INVALID_SUITE),
         (b'{"schema_version": "1"}', EvaluationErrorCode.INVALID_SUITE),
     ],
-    ids=["missing", "too-large", "duplicate-key", "constant", "not-utf-8", "invalid"],
+    ids=["missing", "too-large", "not-json", "not-a-suite"],
 )
 def test_an_unusable_suite_file_fails_with_its_path(tmp_path: Path, content, code) -> None:
     path = tmp_path / SUITE

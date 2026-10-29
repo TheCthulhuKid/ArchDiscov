@@ -21,18 +21,10 @@ FIXTURES = FIXTURES_ROOT / "snapshots"
 SECRET = "duplicate resource unknown resource owner SECRET_PRIVATE_TOKEN"
 
 
-@pytest.mark.parametrize(
-    "message",
-    [
-        "entirely revised validator wording",
-        "duplicate resource SECRET at private/location",
-        "unknown resource owner SECRET; missing key SECRET",
-    ],
-)
-def test_custom_code_renderer_ignores_message_input_and_context(message: str) -> None:
+def test_custom_code_renderer_ignores_message_input_and_context() -> None:
     error = {
         "type": "snapshot_duplicate_resource",
-        "msg": message,
+        "msg": "unknown resource owner SECRET; missing key SECRET",
         "input": {"password": "SECRET"},
         "ctx": {"detail": "SECRET", "error": ValueError("SECRET")},
     }
@@ -72,31 +64,42 @@ def test_unregistered_validator_code_is_rejected() -> None:
         validation_error("unregistered", SECRET)
 
 
-@pytest.mark.parametrize("version", ["1", "3"])
+# Every check on the cloud model; the legacy model shares them, so one check proves it.
 @pytest.mark.parametrize(
-    "defect,code,safe_message",
+    "version,defect,code,safe_message",
     [
         (
-            "citation",
-            "snapshot_evidence_citation_unknown",
-            "Snapshot constraint failed: unknown evidence citation.",
-        ),
-        (
+            "1",
             "missing_key",
             "snapshot_fact_pointer_missing_key",
             "Snapshot constraint failed: missing key.",
         ),
         (
+            "3",
+            "citation",
+            "snapshot_evidence_citation_unknown",
+            "Snapshot constraint failed: unknown evidence citation.",
+        ),
+        (
+            "3",
+            "missing_key",
+            "snapshot_fact_pointer_missing_key",
+            "Snapshot constraint failed: missing key.",
+        ),
+        (
+            "3",
             "invalid_index",
             "snapshot_fact_pointer_invalid_index",
             "Snapshot constraint failed: invalid array index.",
         ),
         (
+            "3",
             "out_of_bounds",
             "snapshot_fact_pointer_index_out_of_bounds",
             "Snapshot constraint failed: array index out of bounds.",
         ),
         (
+            "3",
             "scalar",
             "snapshot_fact_pointer_scalar",
             "Snapshot constraint failed: cannot traverse scalar.",

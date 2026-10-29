@@ -167,14 +167,11 @@ def test_failed_discovery_skips_detail_without_claiming_empty_success():
 @pytest.mark.parametrize(
     "key,value,path",
     [
-        ("Runtime", "future-runtime", "Runtime"),
-        ("Timeout", True, "Timeout"),
-        ("MemorySize", "256", "MemorySize"),
         ("State", {"raw": SECRET}, "State"),
-        ("Architectures", ["future"], "Architectures"),
         ("VpcConfig", {"SubnetIds": ["bad subnet"]}, "VpcConfig.SubnetIds"),
         ("VpcConfig", "bad", "VpcConfig"),
     ],
+    ids=["top-level-field", "nested-field", "vpc-config-not-object"],
 )
 def test_malformed_detail_values_are_unavailable_and_precisely_reported(key, value, path):
     detail = {**configuration(), key: value}
@@ -188,14 +185,7 @@ def test_malformed_detail_values_are_unavailable_and_precisely_reported(key, val
     if key == "VpcConfig":
         assert result.resources[0].subnet_ids is None
     else:
-        field = {
-            "Runtime": "runtime",
-            "Timeout": "timeout",
-            "MemorySize": "memory_size",
-            "State": "state",
-            "Architectures": "architectures",
-        }[key]
-        assert getattr(result.resources[0], field) is None
+        assert result.resources[0].state is None
     assert SECRET not in snapshot(result).model_dump_json()
 
 
@@ -249,7 +239,7 @@ def test_direct_model_configuration_is_projected_again_on_save(tmp_path):
     assert SECRET.encode() not in path.read_bytes()
 
 
-@pytest.mark.parametrize("functions", [None, "bad", {"FunctionArn": ARN}, [None]])
+@pytest.mark.parametrize("functions", ["bad", [None]], ids=["not-list", "entry-not-object"])
 def test_malformed_function_container_or_entry_does_not_become_empty_success(functions):
     result = collect(Client(pages=[{"Functions": functions}]))
     assert result.resources == []

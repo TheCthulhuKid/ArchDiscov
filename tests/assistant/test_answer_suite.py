@@ -1,6 +1,6 @@
 """End-to-end answers: fake-provider runs that use the tools, then submit a proposal.
 
-Valid proposals are submitted for every analyzer kind; `REJECTION_SCENARIOS` holds one run per
+A valid proposal is submitted for one analyzer; `REJECTION_SCENARIOS` holds one run per
 `RejectionCode`, so a new code fails `test_every_rejection_code_is_covered` until a case is
 added. Proposal IDs are computed beforehand from the same deterministic services the tools
 call, as a model would copy them from tool results.
@@ -33,11 +33,10 @@ from tests.support.secrets import SECRET
 # ---- valid answers -----------------------------------------------------------------
 
 
-@pytest.mark.parametrize("kind", list(AnalyzerKind))
 @pytest.mark.parametrize("coverage", [None, "failed"])
-def test_a_valid_answer_validates_for_every_analyzer(
-    kind: AnalyzerKind, coverage: str | None
-) -> None:
+def test_a_valid_answer_validates(coverage: str | None) -> None:
+    # `test_answer_claims.py` walks every analyzer; the run is the same for each.
+    kind = AnalyzerKind.SECURITY_GROUP_IMPACT
     scenario = SCENARIOS[kind]
     snapshot = with_coverage(scenario.build(), coverage) if coverage else scenario.build()
     session = ToolSession(snapshot, limits=ToolLimits(result_limit=100))

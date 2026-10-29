@@ -3,29 +3,16 @@ import pytest
 from archdiscov.models.enums import NetworkBlockerCode, NetworkDecision, RouteReach
 from archdiscov.services.network_endpoints import EndpointInterfaces, endpoint_interfaces
 from archdiscov.services.network_routes import evaluate_subnet_route
-from tests.support.fixture_edits import edited_index
+from tests.support.fixture_edits import S3_ENTRIES, prefix_list_index
 from tests.support.network_snapshot import resource_id
 
 D = NetworkDecision
 B = NetworkBlockerCode
 S3_ADDRESS = "52.218.1.1"
-# pl-s3's entry recorded and cited, as GetManagedPrefixListEntries returns it.
-S3_ENTRIES = {
-    "pl-s3": {
-        "entries": [{"cidr": "52.218.0.0/17"}],
-        "fact_evidence": {
-            "/address_family": ["pl-s3"],
-            "/owner_id": ["pl-s3"],
-            "/entries/0": ["pl-s3-entry-0"],
-        },
-    }
-}
 
 
 def endpoint_index(changes=None, **edits):
-    return edited_index(
-        "endpoints-and-prefix-lists.json", {**S3_ENTRIES, **(changes or {})}, **edits
-    )
+    return prefix_list_index({**S3_ENTRIES, **(changes or {})}, **edits)
 
 
 def service_route(index, address=S3_ADDRESS, reach=RouteReach.VPC_ENDPOINT):
@@ -45,10 +32,8 @@ def test_an_s3_address_reaches_the_gateway_endpoint_through_its_prefix_list():
         "vpce-s3",
         "vpce-s3-route-table",
     ]
-    # An address outside the list's entries takes another route, and a local question on
-    # the endpoint route is answered by where it leads.
+    # An address outside the list's entries takes another route.
     assert service_route(index, "198.51.100.7").decision == D.DENY
-    assert service_route(index, reach=RouteReach.LOCAL).decision == D.DENY
 
 
 @pytest.mark.parametrize(

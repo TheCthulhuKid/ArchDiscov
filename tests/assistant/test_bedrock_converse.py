@@ -10,49 +10,35 @@ import json
 import logging
 from typing import Any
 
-import botocore.session
 import pytest
-from botocore.exceptions import (
-    ClientError,
-    EndpointConnectionError,
-    ReadTimeoutError,
-)
+from botocore.exceptions import ClientError, ReadTimeoutError
 from botocore.stub import Stubber
 
-from archdiscov.assistant.adapters import RETRY_BACKOFF_SECONDS, retry_wait
-from archdiscov.assistant.bedrock_provider import API_ERRORS, BedrockProvider
+from archdiscov.assistant.bedrock_provider import BedrockProvider
 from archdiscov.assistant.config import parse_provider_config
 from archdiscov.assistant.conversation import (
     AssistantMessage,
     Conversation,
-    MalformedArgumentsReason,
-    MalformedToolArguments,
     ParsedToolArguments,
     TokenUsage,
     ToolCall,
 )
-from archdiscov.assistant.fake import FakeClock, FakeRespond, load_fake_transcript
+from archdiscov.assistant.fake import FakeClock
 from archdiscov.assistant.orchestrator import run_assistant
 from archdiscov.assistant.provider import (
     CompletionRequest,
     CompletionResponse,
-    ProviderAuthenticationError,
     ProviderError,
     ProviderInvalidRequestError,
     ProviderMalformedOutputError,
     ProviderRateLimitError,
-    ProviderRefusalError,
     ProviderTimeoutError,
-    ProviderTransportError,
-    ProviderTruncatedOutputError,
     ProviderUnavailableError,
     RequestLimits,
     StopReason,
     complete,
 )
 from archdiscov.assistant.tools.session import ToolSession
-from tests.assistant.provider_harness import HARNESS_PROFILE, BedrockHarness
-from tests.paths import FIXTURES_ROOT
 from tests.support.bedrock_exchanges import (
     ANSWER,
     MODEL,
@@ -63,8 +49,9 @@ from tests.support.bedrock_exchanges import (
     bedrock_fields,
     signing_key,
 )
-from tests.support.mock_api import AwsResponse, BotocoreApi, Waits
+from tests.support.mock_api import AwsResponse, BotocoreApi
 from tests.support.provider_data import EXCHANGE, INSPECT_TOOL, SEARCH_TOOL, SIGNATURE, THINKING
+from tests.support.provider_harness import HARNESS_PROFILE
 from tests.support.scripted_turns import SNAPSHOT
 from tests.support.secrets import secret_renderings
 
@@ -75,7 +62,6 @@ LOOKUP = {"toolUse": {"toolUseId": "tooluse_1", "name": "search_resources", "inp
 INSPECTION = {"toolUse": {"toolUseId": "tooluse_2", "name": "inspect_resource", "input": {}}}
 REASONING = {"reasoningContent": {"reasoningText": {"text": "Thinking.", "signature": SIGNATURE}}}
 REDACTED = {"reasoningContent": {"redactedContent": base64.b64encode(b"encrypted").decode()}}
-_ANSWER = {"message": {"role": "assistant", "text": "None of them."}, "stop_reason": "end"}
 
 
 def _body(*content: dict, stop: str = "end_turn", usage: dict | None = None) -> dict[str, Any]:
@@ -91,18 +77,13 @@ def _api(*bodies: dict) -> BotocoreApi:
     return BotocoreApi([AwsResponse(200, body) for body in bodies], profile=HARNESS_PROFILE)
 
 
-def _provider(api: BotocoreApi, waits: Waits | None = None, **fields: Any) -> BedrockProvider:
-    """The adapter over `api`, its retries waiting into `waits`."""
+def _provider(api: BotocoreApi, **fields: Any) -> BedrockProvider:
+    """The adapter over `api`, without retries."""
+    capabilities = ["tool_calling", "parallel_tool_calls"]
     config = parse_provider_config(
-        bedrock_fields(capabilities=["tool_calling", "parallel_tool_calls"], **fields)
+        bedrock_fields(capabilities=capabilities, max_retries=0, **fields)
     )
-    waits = Waits() if waits is None else waits
-    return BedrockProvider(
-        config,
-        session_factory=api.session_factory,
-        sleep=waits.sleep,
-        async_sleep=waits.sleep_async,
-    )
+    return BedrockProvider(config, session_factory=api.session_factory)
 
 
 def _request(
@@ -223,10 +204,6 @@ def _call(block: dict, arguments=None) -> ToolCall:
     return ToolCall(id=use["toolUseId"], name=use["name"], arguments=value)
 
 
-def _malformed(reason: MalformedArgumentsReason) -> MalformedToolArguments:
-    return MalformedToolArguments(reason=reason)
-
-
 def _with_input(block: dict, value: Any) -> dict:
     return {"toolUse": {**block["toolUse"], "input": value}}
 
@@ -234,43 +211,16 @@ def _with_input(block: dict, value: Any) -> dict:
 @pytest.mark.parametrize(
     ("body", "message", "stop"),
     [
-        (_body(TEXT), AssistantMessage(text=TEXT["text"]), StopReason.END),
         (_body(TEXT, stop="stop_sequence"), AssistantMessage(text=TEXT["text"]), StopReason.END),
-        (
-            _body(LOOKUP, stop="tool_use"),
-            AssistantMessage(tool_calls=(_call(LOOKUP),)),
-            StopReason.TOOL_USE,
-        ),
-        (
-            _body(LOOKUP, INSPECTION, stop="tool_use"),
-            AssistantMessage(tool_calls=(_call(LOOKUP), _call(INSPECTION))),
-            StopReason.TOOL_USE,
-        ),
         (
             _body({"text": "Let me "}, {"text": "look."}, LOOKUP, stop="tool_use"),
             AssistantMessage(text="Let me look.", tool_calls=(_call(LOOKUP),)),
             StopReason.TOOL_USE,
         ),
         (
-            _body(_with_input(LOOKUP, "{not json"), _with_input(INSPECTION, [1]), stop="tool_use"),
-            AssistantMessage(
-                tool_calls=(
-                    _call(LOOKUP, _malformed(MalformedArgumentsReason.INVALID_JSON)),
-                    _call(INSPECTION, _malformed(MalformedArgumentsReason.NOT_OBJECT)),
-                )
-            ),
-            StopReason.TOOL_USE,
-        ),
-        (_body(TEXT, stop="max_tokens"), AssistantMessage(text=TEXT["text"]), StopReason.LENGTH),
-        (
             _body(TEXT, stop="model_context_window_exceeded"),
             AssistantMessage(text=TEXT["text"]),
             StopReason.LENGTH,
-        ),
-        (
-            _body(TEXT, stop="guardrail_intervened"),
-            AssistantMessage(text=TEXT["text"]),
-            StopReason.REFUSAL,
         ),
         (
             _body(TEXT, stop="content_filtered"),
@@ -279,15 +229,9 @@ def _with_input(block: dict, value: Any) -> dict:
         ),
     ],
     ids=[
-        "text",
         "stop-sequence",
-        "single-call",
-        "parallel-calls",
         "text-and-calls",
-        "malformed-inputs",
-        "max-tokens-text",
         "context-window-text",
-        "guardrail-text",
         "content-filtered-text",
     ],
 )
@@ -301,16 +245,12 @@ def test_responses_map_to_the_shared_contracts(body, message, stop) -> None:
 @pytest.mark.parametrize(
     ("body", "error"),
     [
-        (_body(stop="max_tokens"), ProviderTruncatedOutputError),
-        (_body(stop="guardrail_intervened"), ProviderRefusalError),
         (_body(TEXT, stop="malformed_model_output"), ProviderMalformedOutputError),
         (_body(TEXT, {"hologram": {}}), ProviderMalformedOutputError),
         (_body(TEXT, stop="tool_use"), ProviderMalformedOutputError),
         (_body({"text": 5}), ProviderMalformedOutputError),
     ],
     ids=[
-        "max-tokens-empty",
-        "guardrail-empty",
         "malformed-model-output",
         "unknown-block",
         "text-at-tool-use",
@@ -324,39 +264,27 @@ def test_unusable_responses_are_typed_errors_without_provider_text(body, error) 
     assert "None of them" not in "".join(secret_renderings(raised.value))
 
 
-@pytest.mark.parametrize(
-    ("usage", "expected"),
-    [
-        (
-            {
-                "inputTokens": 10,
-                "outputTokens": 5,
-                "totalTokens": 20,
-                "cacheReadInputTokens": 3,
-                "cacheWriteInputTokens": 2,
-            },
-            TokenUsage(
-                input_tokens=10,
-                output_tokens=5,
-                cache_read_input_tokens=3,
-                cache_write_input_tokens=2,
-            ),
-        ),
-        (
-            {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15},
-            TokenUsage(input_tokens=10, output_tokens=5),
-        ),
-    ],
-    ids=["with-cache", "without-cache"],
-)
-def test_usage_maps_with_and_without_cache_fields(usage, expected) -> None:
+def test_usage_maps_with_and_without_cache_fields() -> None:
+    usage = {
+        "inputTokens": 10,
+        "outputTokens": 5,
+        "totalTokens": 20,
+        "cacheReadInputTokens": 3,
+        "cacheWriteInputTokens": 2,
+    }
+    expected = TokenUsage(
+        input_tokens=10,
+        output_tokens=5,
+        cache_read_input_tokens=3,
+        cache_write_input_tokens=2,
+    )
     assert _send(_provider(_api(_body(TEXT, usage=usage)))).usage == expected
 
 
 # ---- continuations -----------------------------------------------------------------
 
 
-def test_reasoning_is_replayed_verbatim_and_in_order_on_the_next_request() -> None:
+def test_only_reasoning_makes_a_continuation_replayed_verbatim_and_in_order() -> None:
     first = _body(
         REASONING, {"text": "Searching."}, REDACTED, _with_input(LOOKUP, {}), stop="tool_use"
     )
@@ -373,9 +301,7 @@ def test_reasoning_is_replayed_verbatim_and_in_order_on_the_next_request() -> No
     assert replayed == {"role": "assistant", "content": first["output"]["message"]["content"]}
     assert result.transcript.turns[0].continuation_bytes > 0
     assert SIGNATURE not in result.transcript.model_dump_json()
-
-
-def test_a_response_without_reasoning_has_no_continuation() -> None:
+    # A response without reasoning has no continuation.
     assert _send(_provider(_api(_body(TEXT, LOOKUP, stop="tool_use")))).message.continuation is None
 
 
@@ -391,32 +317,6 @@ def test_another_providers_continuation_is_never_sent() -> None:
     assert api.requests == []
 
 
-# ---- harness -----------------------------------------------------------------------
-
-
-def test_the_harness_serves_fake_turns_that_map_back_unchanged() -> None:
-    transcript = load_fake_transcript(FIXTURES_ROOT / "assistant" / "multi_step.json")
-    turns = [turn.model_dump(mode="json") for turn in transcript.turns]
-    clock = FakeClock()
-    harness = BedrockHarness()
-    provider = harness.build(turns, clock=clock)
-    for turn in transcript.turns:
-        assert isinstance(turn, FakeRespond)
-        assert _send(provider) == turn.response
-    assert clock.monotonic() == sum(turn.delay_seconds for turn in transcript.turns)
-    assert harness.attempts(provider) == len(turns)
-
-
-def test_a_delay_beyond_the_clients_read_timeout_is_a_timeout() -> None:
-    respond = {"kind": "respond", "delay_seconds": 90, "response": _ANSWER}
-    clock = FakeClock()
-    provider = BedrockHarness().build([respond], clock=clock)
-    with pytest.raises(ProviderTimeoutError) as raised:
-        _send(provider)
-    assert isinstance(raised.value.__cause__, ReadTimeoutError)
-    assert clock.monotonic() == 60
-
-
 # ---- failures ----------------------------------------------------------------------
 
 REQUEST_ID = "bedrock-request-id-0001"
@@ -430,21 +330,17 @@ def _api_error(code: str | None, status: int = 400, headers: dict | None = None)
     return AwsResponse(status, {"message": f"{QUESTION} on {ROLE}"}, sent)
 
 
-def _failing(
-    *served, max_retries: int = 0, clock: FakeClock | None = None
-) -> tuple[BedrockProvider, Waits, BotocoreApi]:
-    """The adapter over an API serving `served`, the waits between retries, and the API."""
+def _failing(*served, clock: FakeClock | None = None) -> tuple[BedrockProvider, BotocoreApi]:
+    """The adapter over an API serving `served`, and the API."""
     api = BotocoreApi(list(served), clock, HARNESS_PROFILE)
-    waits = Waits()
-    return _provider(api, waits, max_retries=max_retries), waits, api
+    return _provider(api), api
 
 
+# The codes beyond those the contract's harness serves: one failure class, mapped by its code.
 @pytest.mark.parametrize(
     ("code", "error"),
     [
-        ("ThrottlingException", ProviderRateLimitError),
-        ("AccessDeniedException", ProviderAuthenticationError),
-        ("ValidationException", ProviderInvalidRequestError),
+        ("ServiceQuotaExceededException", ProviderRateLimitError),
         ("ModelTimeoutException", ProviderTimeoutError),
         ("SomethingNewException", ProviderUnavailableError),
     ],
@@ -452,7 +348,7 @@ def _failing(
 )
 def test_api_errors_map_by_code_to_fixed_safe_errors(caplog, code, error) -> None:
     caplog.set_level(logging.DEBUG)
-    provider, _, api = _failing(_api_error(code))
+    provider, api = _failing(_api_error(code))
     with pytest.raises(ProviderError) as raised:
         _send(provider)
     assert type(raised.value) is error
@@ -464,82 +360,10 @@ def test_api_errors_map_by_code_to_fixed_safe_errors(caplog, code, error) -> Non
     assert len(api.requests) == 1
 
 
-def test_every_converse_error_has_a_mapping() -> None:
-    model = botocore.session.get_session().get_service_model("bedrock-runtime")
-    errors = {shape.name for shape in model.operation_model("Converse").error_shapes}
-    assert errors <= set(API_ERRORS)
-
-
-@pytest.mark.parametrize(
-    ("served", "error"),
-    [
-        (lambda request: ReadTimeoutError(endpoint_url=request.url), ProviderTimeoutError),
-        (
-            lambda request: EndpointConnectionError(endpoint_url=request.url),
-            ProviderTransportError,
-        ),
-        (AwsResponse(200, b"{not json"), ProviderMalformedOutputError),
-        (AwsResponse(502, b"<html>Bad gateway</html>"), ProviderUnavailableError),
-    ],
-    ids=[
-        "read-timeout",
-        "connection",
-        "not-json",
-        "gateway-page",
-    ],
-)
-@pytest.mark.parametrize("mode", ["sync", "async"])
-def test_botocore_failures_map_by_class(served, error, mode: str) -> None:
-    provider, _, _ = _failing(served)
-    with pytest.raises(error):
-        _send(provider, mode)
-
-
-@pytest.mark.parametrize("mode", ["sync", "async"])
-@pytest.mark.parametrize("code", ["ThrottlingException", "ServiceQuotaExceededException"])
-def test_throttling_is_retried_with_exponential_backoff(mode: str, code: str) -> None:
-    provider, waits, api = _failing(
-        _api_error(code, 429), _api_error(code, 429), AwsResponse(200, _body(TEXT)), max_retries=2
-    )
-    assert _send(provider, mode).message.text == TEXT["text"]
-    assert len(api.requests) == 3
-    assert waits == [RETRY_BACKOFF_SECONDS, RETRY_BACKOFF_SECONDS * 2]
-
-
-def test_retry_after_is_read_from_botocores_parsed_response() -> None:
-    throttled = _api_error("ThrottlingException", 429, {"Retry-After": "2"})
-    provider, waits, _ = _failing(throttled, AwsResponse(200, _body(TEXT)), max_retries=1)
-    _send(provider)
-    assert waits == [2.0]
-    # A `ClientError` built without response metadata waits the backoff.
-    bare = ClientError({"Error": {"Code": "ThrottlingException"}}, "Converse")
-    assert retry_wait(bare, 0, 60) == RETRY_BACKOFF_SECONDS
-
-
-@pytest.mark.parametrize("mode", ["sync", "async"])
-def test_retries_stop_at_the_configured_count(mode: str) -> None:
-    refused = lambda request: EndpointConnectionError(endpoint_url=request.url)  # noqa: E731
-    provider, waits, api = _failing(refused, refused, refused, max_retries=2)
-    with pytest.raises(ProviderTransportError):
-        _send(provider, mode)
-    assert len(api.requests) == 3 and len(waits) == 2
-
-
-@pytest.mark.parametrize(
-    "served",
-    [
-        _api_error("ValidationException"),
-        _api_error("ModelTimeoutException", 408),
-        _api_error("ServiceUnavailableException", 503),
-        lambda request: ReadTimeoutError(endpoint_url=request.url),
-    ],
-    ids=["invalid-request", "model-timeout", "unavailable", "read-timeout"],
-)
-def test_other_failures_are_never_retried(served) -> None:
-    provider, waits, api = _failing(served, AwsResponse(200, _body(TEXT)), max_retries=3)
-    with pytest.raises(ProviderError):
+def test_a_gateway_page_is_an_unavailable_service() -> None:
+    provider, _ = _failing(AwsResponse(502, b"<html>Bad gateway</html>"))
+    with pytest.raises(ProviderUnavailableError):
         _send(provider)
-    assert len(api.requests) == 1 and waits == []
 
 
 # ---- timeouts ----------------------------------------------------------------------
@@ -549,9 +373,10 @@ def test_other_failures_are_never_retried(served) -> None:
 def test_each_request_is_read_with_its_own_timeout(mode: str) -> None:
     clock = FakeClock()
     slow = AwsResponse(200, _body(TEXT), delay=15)
-    provider, _, _ = _failing(slow, slow, slow, slow, clock=clock)
-    with pytest.raises(ProviderTimeoutError):
+    provider, _ = _failing(slow, slow, slow, slow, clock=clock)
+    with pytest.raises(ProviderTimeoutError) as raised:
         _send(provider, mode, _request(timeout_seconds=10))
+    assert isinstance(raised.value.__cause__, ReadTimeoutError)
     assert clock.monotonic() == 10
     for timeout in (60, 20, 30):
         assert _send(provider, mode, _request(timeout_seconds=timeout)).message.text

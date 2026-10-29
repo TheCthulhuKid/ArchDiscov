@@ -55,9 +55,9 @@ from archdiscov.models.query.requests import QueryNeighboursRequest, QuerySearch
 from archdiscov.services import DEFAULT_REGISTRY
 from archdiscov.services import evaluation as evaluation_service
 from archdiscov.services.snapshot_errors import SnapshotIOError
-from tests.documentation.markdown import DOC_FILES, code_blocks, table_rows
 from tests.paths import FIXTURES_ROOT, PROJECT_ROOT
 from tests.support.ask_cli_cases import ENVELOPE, PRE_RUN_ERRORS
+from tests.support.markdown import DOC_FILES, code_blocks, table_rows
 
 DOCS = PROJECT_ROOT / "docs"
 README = PROJECT_ROOT / "README.md"

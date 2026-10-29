@@ -2,7 +2,7 @@
 
 import pytest
 
-from tests.assistant.provider_harness import HARNESSES, ProviderHarness
+from tests.support.provider_harness import HARNESSES, ProviderHarness
 
 
 @pytest.fixture(params=HARNESSES, ids=lambda harness: harness.label)

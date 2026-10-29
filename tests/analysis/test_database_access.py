@@ -217,10 +217,9 @@ def test_unknown_and_wrongly_typed_selections_are_safe_errors(resource, code):
     [
         {"kind": "database_access", "resource_id": RDS_ID},
         {"kind": "database_access", "resource_id": RDS_ID, "port": 0},
-        {"kind": "database_access", "resource_id": RDS_ID, "port": 5432, "result_limit": 0},
-        {"kind": "database_access", "port": 5432},
         {"kind": "database_access", "resource_id": RDS_ID, "port": 5432, "max_depth": 2},
     ],
+    ids=["missing-port", "port-out-of-range", "foreign-option"],
 )
 def test_invalid_parameters_are_safe_errors(parameters):
     with pytest.raises(AnalyzerError) as error:

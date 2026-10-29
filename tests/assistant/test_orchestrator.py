@@ -8,9 +8,7 @@ from archdiscov.assistant.conversation import (
     ToolCall,
     ToolResultMessage,
 )
-from archdiscov.assistant.fake import FakeProvider, FakeTranscript
 from archdiscov.assistant.instructions import SYSTEM_INSTRUCTIONS
-from archdiscov.assistant.orchestrator import run_assistant
 from archdiscov.assistant.provider import ProviderErrorCode, StopReason
 from archdiscov.assistant.runs import (
     Answered,
@@ -63,11 +61,10 @@ def test_direct_answer_is_returned_as_is() -> None:
     assert result.conversation.messages[-1] == result.outcome.message
 
 
-@pytest.mark.parametrize("stop", ["length", "refusal"])
-def test_truncated_and_refused_answers_are_still_answers(stop: str) -> None:
-    result, _, _ = run_turns([text_turn("Partial", stop=stop)])
+def test_a_refused_answer_is_still_an_answer() -> None:
+    result, _, _ = run_turns([text_turn("Partial", stop="refusal")])
     assert isinstance(result.outcome, Answered)
-    assert result.outcome.stop_reason == stop
+    assert result.outcome.stop_reason == "refusal"
 
 
 def test_multi_step_tool_use_records_returned_ids() -> None:
@@ -222,30 +219,11 @@ def test_provider_errors_end_the_run_with_typed_outcomes(code: ProviderErrorCode
     assert result.transcript.turns[1].stop_reason is None
 
 
-def test_provider_malformed_output_is_its_own_outcome() -> None:
-    result, _, _ = run_turns([fail_turn("provider_malformed_output")])
-    assert result.outcome == MalformedOutput(reason=MalformedOutputReason.PROVIDER_REPORTED)
-
-
 def test_provider_retries_are_invisible_to_the_loop() -> None:
     result, provider, _ = run_turns([fail_turn("provider_transport"), text_turn()], max_retries=1)
     assert isinstance(result.outcome, Answered)
     assert len(provider.requests) == 2
     assert len(result.transcript.turns) == 1
-
-
-def test_unsupported_capabilities_fail_before_any_attempt() -> None:
-    data = {"turns": [text_turn()], "capabilities": {"capabilities": []}}
-    provider = FakeProvider(FakeTranscript.model_validate(data))
-    result = run_assistant(
-        QUESTION,
-        provider=provider,
-        session=ToolSession.from_paths(SNAPSHOT),
-        provider_kind="fake",
-        model="fake",
-    )
-    assert result.outcome.code == ProviderErrorCode.UNSUPPORTED_CAPABILITY
-    assert provider.requests == ()
 
 
 def test_reused_call_ids_are_malformed_output() -> None:

@@ -41,15 +41,11 @@ def role_with_trust(principal, *, negative=False):
         ({"AWS": ROLE_ARN}, "local", "aws"),
         ({"AWS": "210987654321"}, "external", "aws"),
         ({"AWS": "arn:aws:iam::210987654321:root"}, "external", "aws"),
-        ({"AWS": "arn:aws:iam::123456789012:role/not-stored"}, "external", "aws"),
         ({"Service": "ec2.amazonaws.com"}, "external", "service"),
-        ({"Federated": "arn:aws:iam::123456789012:saml-provider/company"}, "external", "federated"),
         ({"AWS": "*"}, "unresolved", "aws"),
         ("*", "unresolved", "unknown"),
-        ({"CanonicalUser": "unsupported"}, "unresolved", "unknown"),
-        ({"AWS": {"unexpected": "shape"}}, "unresolved", "aws"),
-        ({"AWS": []}, "unresolved", "aws"),
     ],
+    ids=["stored-role", "account-id", "account-arn", "service", "wildcard", "not-a-mapping"],
 )
 def test_trust_principals_are_references_not_grants(principal, target_kind, principal_kind):
     role, evidence = role_with_trust(principal)

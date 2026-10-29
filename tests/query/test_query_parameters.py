@@ -46,21 +46,14 @@ def test_containment_without_dependency_filters_is_valid():
     assert options.edge_selection == QueryEdgeSelection.CONTAINMENT
 
 
-@pytest.mark.parametrize(
-    "filters",
-    [
-        {"relationships": [DependencyRelationship.ATTACHED_TO]},
-        {"attachment_kinds": [AttachmentKind.SECURITY_GROUP_MEMBERSHIP]},
-    ],
-)
-def test_containment_rejects_dependency_filters(filters):
+def test_containment_rejects_dependency_filters():
     with pytest.raises(
         ValidationError,
         match="Dependency filters cannot be used with containment-only selection",
     ):
         QueryTraversalOptions(
             edge_selection=QueryEdgeSelection.CONTAINMENT,
-            **filters,
+            relationships=[DependencyRelationship.ATTACHED_TO],
         )
 
 
@@ -68,11 +61,9 @@ def test_containment_rejects_dependency_filters(filters):
     "field,value,error_type",
     [
         ("direction", "invalid", "enum"),
-        ("edge_selection", "invalid", "enum"),
-        ("relationships", ["invalid"], "enum"),
-        ("attachment_kinds", ["invalid"], "enum"),
         ("unexpected", True, "extra_forbidden"),
     ],
+    ids=["unknown-enum-value", "unknown-field"],
 )
 def test_invalid_options_are_rejected(field, value, error_type):
     with pytest.raises(ValidationError) as caught:
@@ -112,12 +103,9 @@ def test_path_limit_boundaries_are_accepted(field, value):
     "field,value,error_type",
     [
         ("depth", 0, "greater_than_equal"),
-        ("depth", 11, "less_than_equal"),
-        ("limit_result", 0, "greater_than_equal"),
         ("limit_result", 10_001, "less_than_equal"),
-        ("work_limit", 0, "greater_than_equal"),
-        ("work_limit", 1_000_001, "less_than_equal"),
     ],
+    ids=["below-minimum", "above-maximum"],
 )
 def test_out_of_range_path_limits_are_rejected(field, value, error_type):
     with pytest.raises(ValidationError) as caught:

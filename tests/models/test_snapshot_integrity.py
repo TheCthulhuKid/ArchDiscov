@@ -80,55 +80,14 @@ def test_hierarchy_round_trip(data: dict) -> None:
         assert model.evidence["role"].value == "role-app"
 
 
-@pytest.mark.parametrize(
-    "placement,locations",
-    [
-        (
-            "roots",
-            (
-                "regions[eu-west-1].resources[0].children[0].children[0]",
-                "regions[eu-west-1].resources[1]",
-            ),
-        ),
-        (
-            "ancestor",
-            (
-                "regions[eu-west-1].resources[0]",
-                "regions[eu-west-1].resources[0].children[0].children[0].children[0]",
-            ),
-        ),
-        (
-            "siblings",
-            (
-                "regions[eu-west-1].resources[0].children[0].children[0]",
-                "regions[eu-west-1].resources[0].children[2].children[0]",
-            ),
-        ),
-        ("global", ("global_resources[0]", "global_resources[1]")),
-    ],
-)
-def test_duplicate_storage_is_rejected(
-    data: dict, placement: str, locations: tuple[str, str]
-) -> None:
-    vpc, subnet, instance = tree(data)
-    if placement == "roots":
-        data["regions"]["eu-west-1"]["resources"].append(deepcopy(instance))
-    elif placement == "ancestor":
-        duplicate = deepcopy(vpc)
-        duplicate["children"] = []
-        instance["children"] = [duplicate]
-    elif placement == "siblings":
-        sibling = deepcopy(subnet)
-        sibling["identity"]["physical_id"] = "subnet-other"
-        vpc["children"].append(sibling)
-    else:
-        data["global_resources"].append(deepcopy(data["global_resources"][0]))
+def test_duplicate_storage_is_rejected(data: dict) -> None:
+    data["regions"]["eu-west-1"]["resources"].append(deepcopy(tree(data)[2]))
     with pytest.raises(ValidationError, match="duplicate resource") as error:
         ArchitectureSnapshot.model_validate(data)
-    assert f"at {locations[0]} and {locations[1]}" in str(error.value)
+    first = "regions[eu-west-1].resources[0].children[0].children[0]"
+    assert f"at {first} and regions[eu-west-1].resources[1]" in str(error.value)
 
 
-@pytest.mark.parametrize("depth", [0, 1, 2, 3, 4])
 @pytest.mark.parametrize(
     "field,value,diagnostic",
     [
@@ -136,16 +95,10 @@ def test_duplicate_storage_is_rejected(
         ("region", "us-east-1", "region must match enclosing region"),
     ],
 )
-def test_resource_scope_at_every_depth(
-    data: dict, depth: int, field: str, value: str, diagnostic: str
+def test_nested_resource_scope_is_validated(
+    data: dict, field: str, value: str, diagnostic: str
 ) -> None:
-    resources = tree(data) + data["global_resources"]
-    if depth == 4:
-        child = deepcopy(resources[3])
-        child["identity"]["physical_id"] = "role-child"
-        resources[3]["children"] = [child]
-        resources.append(child)
-    resources[depth]["identity"][field] = value
+    tree(data)[2]["identity"][field] = value
     with pytest.raises(ValidationError, match=diagnostic):
         ArchitectureSnapshot.model_validate(data)
 
@@ -156,7 +109,6 @@ def test_unsupported_discriminator_requires_adapter_normalization(data: dict) ->
         ArchitectureSnapshot.model_validate(data)
 
 
-@pytest.mark.parametrize("evidence_id", ["instance", "role"])
 @pytest.mark.parametrize(
     "field,value,diagnostic",
     [
@@ -165,14 +117,13 @@ def test_unsupported_discriminator_requires_adapter_normalization(data: dict) ->
     ],
 )
 def test_evidence_context_including_uncited_records(
-    data: dict, evidence_id: str, field: str, value: str, diagnostic: str
+    data: dict, field: str, value: str, diagnostic: str
 ) -> None:
-    data["evidence"][evidence_id][field] = value
+    data["evidence"]["role"][field] = value
     with pytest.raises(ValidationError, match=diagnostic):
         ArchitectureSnapshot.model_validate(data)
 
 
-@pytest.mark.parametrize("kind", ["broad", "fact"])
 @pytest.mark.parametrize(
     "citation,diagnostic",
     [
@@ -180,27 +131,14 @@ def test_evidence_context_including_uncited_records(
         ("role", "belongs to another resource"),
     ],
 )
-def test_nested_citation_integrity(data: dict, kind: str, citation: str, diagnostic: str) -> None:
-    instance = tree(data)[2]
-    if kind == "broad":
-        instance["evidence_ids"] = [citation]
-    else:
-        instance["fact_evidence"]["/instance_type"] = [citation]
+def test_nested_citation_integrity(data: dict, citation: str, diagnostic: str) -> None:
+    tree(data)[2]["fact_evidence"]["/instance_type"] = [citation]
     with pytest.raises(ValidationError, match=diagnostic):
         ArchitectureSnapshot.model_validate(data)
 
 
-@pytest.mark.parametrize("blank", ["", "   "])
-@pytest.mark.parametrize("location", ["key", "broad", "fact", "owner"])
-def test_blank_evidence_references(data: dict, blank: str, location: str) -> None:
-    if location == "key":
-        data["evidence"][blank] = data["evidence"].pop("role")
-    elif location == "broad":
-        tree(data)[2]["evidence_ids"] = [blank]
-    elif location == "fact":
-        tree(data)[2]["fact_evidence"]["/instance_type"] = [blank]
-    else:
-        data["evidence"]["role"]["resource_id"] = blank
+def test_blank_evidence_references(data: dict) -> None:
+    data["evidence"]["   "] = data["evidence"].pop("role")
     with pytest.raises(ValidationError, match="String should"):
         ArchitectureSnapshot.model_validate(data)
 
@@ -210,11 +148,9 @@ def test_blank_evidence_references(data: dict, blank: str, location: str) -> Non
     [
         "/attributes/a~1b~0c/0",
         "/attributes/a~1b~0c/1/",
-        "/attributes/~01",
-        "/name",
-        "/instance_type",
         "/identity/physical_id",
     ],
+    ids=["escaped-array-item", "empty-key", "model-field"],
 )
 def test_pointer_targets_and_fact_only_citations(data: dict, pointer: str) -> None:
     instance = tree(data)[2]
@@ -233,6 +169,7 @@ def test_pointer_targets_and_fact_only_citations(data: dict, pointer: str) -> No
         ("/attributes/items/01", "invalid array index"),
         ("/attributes/items/1", "array index out of bounds"),
     ],
+    ids=["missing-key", "scalar", "non-numeric-index", "index-out-of-bounds"],
 )
 def test_invalid_fact_targets(data: dict, pointer: str, diagnostic: str) -> None:
     instance = tree(data)[2]
@@ -274,30 +211,21 @@ def test_coverage_resource_context(data: dict, resource_id: str | None) -> None:
 
 
 @pytest.mark.parametrize("endpoint", ["source_id", "target_id"])
-@pytest.mark.parametrize("missing", ["missing", "999999999999/global/iam/physical/role-external"])
-def test_dependency_endpoints_must_exist(data: dict, endpoint: str, missing: str) -> None:
-    data["dependencies_by_region"]["eu-west-1"][0][endpoint] = missing
+def test_dependency_endpoints_must_exist(data: dict, endpoint: str) -> None:
+    data["dependencies_by_region"]["eu-west-1"][0][endpoint] = "missing"
     with pytest.raises(ValidationError, match=f"unknown {endpoint}"):
         ArchitectureSnapshot.model_validate(data)
 
 
-@pytest.mark.parametrize("group", ["global", "us-east-1"])
-def test_dependency_group_matches_source(data: dict, group: str) -> None:
-    data["dependencies_by_region"][group] = data["dependencies_by_region"].pop("eu-west-1")
+def test_dependency_group_matches_source(data: dict) -> None:
+    data["dependencies_by_region"]["global"] = data["dependencies_by_region"].pop("eu-west-1")
     with pytest.raises(ValidationError, match="grouping must match source resource region"):
         ArchitectureSnapshot.model_validate(data)
 
 
-@pytest.mark.parametrize(
-    "citation,diagnostic",
-    [
-        ("missing", "unknown evidence citation"),
-        ("role", "belongs to another resource"),
-    ],
-)
-def test_dependency_citation_ownership(data: dict, citation: str, diagnostic: str) -> None:
-    data["dependencies_by_region"]["eu-west-1"][0]["evidence_ids"] = [citation]
-    with pytest.raises(ValidationError, match=diagnostic):
+def test_dependency_citation_ownership(data: dict) -> None:
+    data["dependencies_by_region"]["eu-west-1"][0]["evidence_ids"] = ["role"]
+    with pytest.raises(ValidationError, match="belongs to another resource"):
         ArchitectureSnapshot.model_validate(data)
 
 

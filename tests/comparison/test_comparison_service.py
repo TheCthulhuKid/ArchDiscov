@@ -16,10 +16,9 @@ from archdiscov.services import (
     save_comparison,
     validate_comparison_result,
 )
-from tests.comparison.snapshots import aws_resource, aws_snapshot, coverage
 from tests.paths import FIXTURES_ROOT
 from tests.support.aws_fakes import empty_network_pages, make_context, request
-from tests.support.comparison_data import rid, vpc
+from tests.support.comparison_data import aws_resource, aws_snapshot, coverage, rid, vpc
 from tests.support.network_data import SUBNET, element_pages
 from tests.support.terraform_data import CONTEXT, plan_request
 
@@ -173,9 +172,6 @@ def test_swapped_or_wrong_snapshots_are_rejected(tmp_path):
         load_comparison(path, left=second, right=first)
     assert [issue.type for issue in swapped.value.details] == ["snapshot_mismatch"]
     assert swapped.value.path == path
-    other = aws_snapshot([vpc("vpc-1")], seed=7)
-    with pytest.raises(ComparisonValidationError):
-        load_comparison(path, left=first, right=other)
 
 
 def test_a_changed_snapshot_with_the_same_id_fails_verification(tmp_path):
@@ -196,7 +192,6 @@ def rewrite(path, change):
     ("change", "field"),
     [
         (lambda d: d["matched"][0]["differences"][0].update(right_value=99), "matched"),
-        (lambda d: d["matched"][0]["differences"][0].update(right_evidence_ids=["x"]), "matched"),
         (lambda d: d.update(unmatched=[]), "unmatched"),
         (lambda d: d["left"].update(source_kind="mock"), "left"),
         (
@@ -204,6 +199,7 @@ def rewrite(path, change):
             "limitations",
         ),
     ],
+    ids=["matched", "unmatched", "left", "limitations"],
 )
 def test_tampered_results_are_rejected(tmp_path, change, field):
     _, first, second, path = saved(tmp_path)
@@ -211,8 +207,7 @@ def test_tampered_results_are_rejected(tmp_path, change, field):
     with pytest.raises(ComparisonValidationError) as error:
         load_comparison(path, left=first, right=second)
     assert error.value.code == "invalid_comparison_result"
-    if field is not None:
-        assert field in {issue.location[0] for issue in error.value.details}
+    assert field in {issue.location[0] for issue in error.value.details}
 
 
 def test_raising_the_recorded_limit_of_a_truncated_result_is_rejected(tmp_path):

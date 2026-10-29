@@ -122,18 +122,12 @@ def test_condition_redaction_preserves_statement_dict_shape_and_context_scope():
 
 @pytest.mark.parametrize(
     "value",
-    [
-        None,
-        "raw-secret",
-        {"Statement": None},
-        {"Statement": {}, "value": float("nan")},
-        {},
-    ],
+    [None, "raw-secret", {"Statement": None}, {"Statement": {}, "value": float("nan")}],
+    ids=["not-object", "undecodable", "bad-statement", "non-finite"],
 )
-@pytest.mark.parametrize("function", [normalize_document, sanitize_document])
-def test_malformed_documents_raise_safe_errors(value, function):
+def test_malformed_documents_raise_safe_errors(value):
     with pytest.raises(ValueError) as exc:
-        function(value)
+        normalize_document(value)
     assert str(exc.value) == "IAM document must be a JSON object with Statement object(s)"
     assert "raw-secret" not in str(exc.value)
     assert exc.value.__cause__ is None

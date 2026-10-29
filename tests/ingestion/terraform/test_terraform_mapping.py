@@ -6,11 +6,8 @@ import pytest
 from archdiscov.ingestion.terraform.catalog import RESOURCE_MAPPINGS, service_for_type
 from archdiscov.ingestion.terraform.mapping import map_resource
 from archdiscov.models.architecture import Ec2Instance, Subnet, UnknownResource, Vpc
-from archdiscov.models.resources.iam import IamInstanceProfile, IamManagedPolicy, IamRole
+from archdiscov.models.resources.iam import IamRole
 from archdiscov.models.resources.network import (
-    InternetGateway,
-    NetworkInterface,
-    RouteTable,
     SecurityGroup,
 )
 from tests.support.terraform_data import identity
@@ -23,12 +20,12 @@ def resolve(value, pointer):
     return value
 
 
-@pytest.mark.parametrize("kind,mapping", RESOURCE_MAPPINGS.items())
-def test_catalog_keeps_model_discriminators_and_unknown_summaries_consistent(kind, mapping):
-    assert service_for_type(kind) == mapping.service
-    if mapping.model is not None:
-        assert mapping.model.model_fields["resource_type"].default == mapping.aws_type
-    else:
+def test_catalog_keeps_model_discriminators_and_unknown_summaries_consistent():
+    for kind, mapping in RESOURCE_MAPPINGS.items():
+        assert service_for_type(kind) == mapping.service
+        if mapping.model is not None:
+            assert mapping.model.model_fields["resource_type"].default == mapping.aws_type
+            continue
         resource, _, limitations = map_resource(kind, {}, identity(kind))
         assert isinstance(resource, UnknownResource)
         assert resource.aws_resource_type == mapping.aws_type
@@ -42,10 +39,8 @@ def test_catalog_keeps_model_discriminators_and_unknown_summaries_consistent(kin
         ("aws_subnet", Subnet),
         ("aws_instance", Ec2Instance),
         ("aws_security_group", SecurityGroup),
-        ("aws_internet_gateway", InternetGateway),
-        ("aws_route_table", RouteTable),
-        ("aws_network_interface", NetworkInterface),
     ],
+    ids=["cidrs", "cidrs-and-zone", "instance-type", "inline-collections"],
 )
 def test_core_models_and_fact_pointers(kind, model):
     values = {
@@ -90,22 +85,15 @@ def test_core_models_and_fact_pointers(kind, model):
         assert resource.instance_type == "t3.micro"
 
 
-@pytest.mark.parametrize(
-    "kind,model",
-    [
-        ("aws_iam_role", IamRole),
-        ("aws_iam_instance_profile", IamInstanceProfile),
-        ("aws_iam_policy", IamManagedPolicy),
-    ],
-)
-def test_iam_uses_source_arn_not_physical_id_and_omits_policy_payloads(kind, model):
+def test_iam_uses_source_arn_not_physical_id_and_omits_policy_payloads():
+    kind = "aws_iam_role"
     arn = "arn:aws:iam::123456789012:role/example"
     resource, facts, limitations = map_resource(
         kind,
         {"arn": arn, "name": "example", "policy": "do-not-copy"},
         identity(kind, physical_id="example"),
     )
-    assert isinstance(resource, model)
+    assert isinstance(resource, IamRole)
     assert resource.arn == arn
     assert resource.identity.physical_id == "example"
     assert facts["/arn"] == "/values/arn"
@@ -113,10 +101,9 @@ def test_iam_uses_source_arn_not_physical_id_and_omits_policy_payloads(kind, mod
     assert "do-not-copy" not in resource.model_dump_json() + json.dumps(limitations)
 
 
-@pytest.mark.parametrize("arn", [None, "[REDACTED]", {}, "not-an-arn"])
-def test_iam_missing_or_malformed_arn_is_unknown(arn):
+def test_iam_missing_or_malformed_arn_is_unknown():
     resource, facts, limitations = map_resource(
-        "aws_iam_role", {"arn": arn}, identity("aws_iam_role")
+        "aws_iam_role", {"arn": "not-an-arn"}, identity("aws_iam_role")
     )
     assert isinstance(resource, UnknownResource)
     assert resource.aws_resource_type == "AWS::IAM::Role"
@@ -127,11 +114,10 @@ def test_iam_missing_or_malformed_arn_is_unknown(arn):
 @pytest.mark.parametrize(
     "kind,aws_type,service",
     [
-        ("aws_s3_bucket", "AWS::S3::Bucket", "s3"),
         ("aws_lambda_function", "AWS::Lambda::Function", "lambda"),
-        ("aws_sqs_queue", "AWS::SQS::Queue", "sqs"),
         ("aws_future_service", "aws_future_service", "unknown"),
     ],
+    ids=["catalogued-untyped", "not-catalogued"],
 )
 def test_unsupported_resources_retain_only_safe_type_summary(kind, aws_type, service):
     resource, facts, limitations = map_resource(

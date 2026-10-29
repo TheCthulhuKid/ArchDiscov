@@ -213,10 +213,13 @@ def test_nested_stack_and_transform_never_fetch_or_deploy(tmp_path, monkeypatch)
         {"region": "global"},
         {"account_id": "wrong"},
         {"sensitive_paths": ("not-a-pointer",)},
-        {"sensitive_paths": ("/bad~2path",)},
         {"stack_id": "arn:aws:cloudformation:us-east-1:123456789012:stack/test/id"},
-        {"stack_id": "arn:aws:cloudformation:eu-west-1:999999999999:stack/test/id"},
+        {
+            "stack_id": "arn:aws:cloudformation:eu-west-1:123456789012:stack/test/id",
+            "stack_name": "other",
+        },
     ],
+    ids=["global-region", "account-pattern", "pointer-shape", "stack-arn", "stack-name"],
 )
 def test_request_rejects_invalid_context(change):
     data = {"path": FIXTURE, "account_id": ACCOUNT, "region": "eu-west-1"} | change
@@ -230,10 +233,9 @@ def test_stack_context_keeps_logical_identity_and_no_physical_ids():
     assert snapshot.source.stack_name == "demo"
 
 
-@pytest.mark.parametrize("parameters", [{"Undeclared": "secret"}, {"Stage": ["secret"]}])
-def test_invalid_parameters_fail_safely(parameters):
-    with pytest.raises(IngestionError) as error:
-        collect_snapshots(request(parameters=parameters))
+def test_undeclared_parameter_fails_safely():
+    with pytest.raises(IngestionError, match="not declared") as error:
+        collect_snapshots(request(parameters={"Undeclared": "secret"}))
     assert "secret" not in str(error.value)
 
 

@@ -10,8 +10,16 @@ from archdiscov.services.comparison_qualification import (
     comparison_snapshot,
     snapshot_limitations,
 )
-from tests.comparison.snapshots import REGION, aws_resource, azure_snapshot, coverage, index
-from tests.support.comparison_data import evidence, rid, vpc
+from tests.support.comparison_data import (
+    REGION,
+    aws_resource,
+    azure_snapshot,
+    coverage,
+    evidence,
+    index,
+    rid,
+    vpc,
+)
 
 LEFT, RIGHT = ComparisonSide.LEFT, ComparisonSide.RIGHT
 DELETE = {"actions": ["delete"], "value_scope": "before"}

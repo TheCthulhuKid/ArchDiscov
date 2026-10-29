@@ -72,6 +72,7 @@ def test_query_edge_union_selects_variant(kind, expected_class):
         ({}, "union_tag_not_found"),
         ({"kind": "invalid"}, "union_tag_invalid"),
     ],
+    ids=["missing-kind", "unknown-kind"],
 )
 def test_query_edge_union_rejects_invalid_discriminator(data, error_type):
     with pytest.raises(ValidationError) as caught:

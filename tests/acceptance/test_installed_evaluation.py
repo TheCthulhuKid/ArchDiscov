@@ -23,7 +23,6 @@ from archdiscov.assistant.evaluation import (
     parse_report,
 )
 from archdiscov.assistant.fake import FakeTranscript
-from tests.assistant.provider_harness import AnthropicHarness
 from tests.support.evaluation_suites import (
     ADVERSARIAL_SUITE,
     README_SUITE,
@@ -38,6 +37,7 @@ from tests.support.installed_cli import (
     run_installed,
 )
 from tests.support.mock_api import mock_api_server
+from tests.support.provider_harness import AnthropicHarness
 
 # The journey runs every suite once per module: keep its tests on one xdist worker.
 pytestmark = pytest.mark.xdist_group("installed-evaluation")
@@ -58,9 +58,9 @@ def _report(path: Path) -> EvaluationReport:
     return parse_report(json.loads(path.read_text(encoding="utf-8")))
 
 
-def _evaluated(ws: Workspace) -> dict[str, tuple[dict, str, str]]:
-    """Each suite evaluated with the fake: the JSON output, its budget statement, and the
-    readable output of a second run."""
+def _evaluated(ws: Workspace) -> tuple[dict[str, tuple[dict, str]], str]:
+    """Each suite evaluated with the fake: the JSON output and its budget statement; and the
+    readable output of a second README run, whose report the comparison reads."""
     config = write_fake_config(ws.path("fake.toml"))
     evaluated = {}
     for name, source in SUITES.items():
@@ -68,11 +68,11 @@ def _evaluated(ws: Workspace) -> dict[str, tuple[dict, str, str]]:
         suite = ws.path("suites", name, SUITE)
         output = ws.path("results", f"{name}.json")
         run = ws.run("evaluate", suite, "--config", config, "--output", output, "--json")
-        readable = ws.run(
-            "evaluate", suite, "--config", config, "--output", ws.path("results", f"{name}-2.json")
-        )
-        evaluated[name] = (json.loads(run.stdout), run.stderr, readable.stdout)
-    return evaluated
+        evaluated[name] = (json.loads(run.stdout), run.stderr)
+    suite = ws.path("suites", "readme", SUITE)
+    again = ws.path("results", "readme-2.json")
+    readable = ws.run("evaluate", suite, "--config", config, "--output", again).stdout
+    return evaluated, readable
 
 
 def _through_the_adapter(ws: Workspace) -> tuple[dict, list]:
@@ -146,7 +146,8 @@ def summary(tmp_path_factory):
 
 
 def test_both_suites_pass_with_the_fake_provider(summary):
-    for name, (data, budget, readable) in summary["evaluated"].items():
+    evaluated, readable = summary["evaluated"]
+    for name, (data, budget) in evaluated.items():
         assert json.loads(budget) == {"budgets": data["budgets"]}
         report = parse_report(data["report"])
         assert report == summary["reports"][name]
@@ -154,9 +155,9 @@ def test_both_suites_pass_with_the_fake_provider(summary):
         assert run.totals.failed == 0 and run.totals.passed == len(report.suite.case_ids)
         for record in run.records:
             assert {check.name for check in record.checks if check.passed} >= set(SAFETY_CHECKS)
-        lines = readable.splitlines()
-        assert lines[0].startswith("Saved report: ")
-        assert f"Suite: {name}, {len(report.suite.case_ids)} cases" in lines[1]
+    lines = readable.splitlines()
+    assert lines[0].startswith("Saved report: ")
+    assert f"Suite: readme, {len(summary['reports']['readme'].suite.case_ids)} cases" in lines[1]
 
 
 def test_the_adapter_reaches_the_fakes_records_through_a_loopback_api(summary):

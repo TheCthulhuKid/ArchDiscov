@@ -1,9 +1,6 @@
 """Offline installed-CLI journeys, also runnable with Docker networking disabled."""
 
 import json
-import os
-import subprocess
-import sys
 from ipaddress import ip_network
 from pathlib import Path
 
@@ -12,6 +9,7 @@ import pytest
 from archdiscov.models.architecture import Ec2Instance, Subnet, UnknownResource, Vpc
 from archdiscov.services import load_snapshot
 from tests.paths import FIXTURES_ROOT
+from tests.support.installed_cli import Workspace
 
 FIXTURES = FIXTURES_ROOT / "snapshots"
 
@@ -22,34 +20,11 @@ FIXTURES = FIXTURES_ROOT / "snapshots"
     ids=["hierarchy", "partial-coverage"],
 )
 def test_offline_acceptance(tmp_path: Path, fixture_name: str, evidence_id: str) -> None:
-    env = {
-        key: value
-        for key, value in os.environ.items()
-        if key != "PYTHONPATH"
-        and not key.startswith(
-            ("AWS_", "AZURE_", "GOOGLE_", "GCLOUD_", "OPENAI_", "ANTHROPIC_", "BOTO_")
-        )
-    }
-    env.update(
-        AWS_EC2_METADATA_DISABLED="true",
-        AWS_SHARED_CREDENTIALS_FILE=str(tmp_path / "no-aws-credentials"),
-        AWS_CONFIG_FILE=str(tmp_path / "no-aws-config"),
-        BOTO_CONFIG=str(tmp_path / "no-boto-config"),
-    )
-    executable = Path(sys.executable).with_name("archdiscov")
+    ws = Workspace(tmp_path)
 
     def run(*arguments: str, exit_code: int = 0) -> dict:
-        result = subprocess.run(
-            [str(executable), *arguments, "--json"],
-            cwd=tmp_path,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        assert result.returncode == exit_code, (result.stdout, result.stderr)
+        result = ws.run(*arguments, "--json", expect=exit_code)
         assert result.stderr == ""
-        assert "Traceback" not in result.stdout
         return json.loads(result.stdout)
 
     fixture = FIXTURES / f"{fixture_name}.json"
@@ -146,3 +121,4 @@ def test_offline_acceptance(tmp_path: Path, fixture_name: str, evidence_id: str)
     assert source.read_bytes() == source_bytes
     assert fixture.read_bytes() == source_bytes
     assert error["code"] == "invalid_snapshot"
+    assert ws.guard.attempts == []

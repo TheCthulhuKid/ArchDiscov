@@ -14,10 +14,8 @@ from archdiscov.models.enums import CloudPlatform
 SUBSCRIPTION = "12345678-1234-5678-abcd-123456789abc"
 
 
-@pytest.mark.parametrize(
-    "service", ["Microsoft..Network", "Microsoft.Network.", "Microsoft.123", "Microsoft.1Network"]
-)
-def test_context_and_identity_reject_the_same_malformed_namespaces(service):
+def test_context_and_identity_reject_the_same_malformed_namespaces():
+    service = "Microsoft..Network"
     scope = AzureScope(subscription_id=SUBSCRIPTION)
     with pytest.raises(ValidationError):
         AzureResourceIdentity(

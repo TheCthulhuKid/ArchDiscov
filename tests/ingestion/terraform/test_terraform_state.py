@@ -152,19 +152,7 @@ def test_arn_context_without_explicit_defaults(tmp_path):
     [
         ({}, [export_resource(id="i-one")], "account_id"),
         ({"account_id": "123456789012"}, [export_resource(id="i-one")], "Supply region"),
-        (
-            {"account_id": "999999999999", "region": "eu-west-1"},
-            [export_resource(owner_id="123456789012")],
-            "mixed-account",
-        ),
-        (
-            {"region": "eu-west-1"},
-            [
-                export_resource(owner_id="123456789012"),
-                export_resource("aws_subnet", owner_id="999999999999"),
-            ],
-            "mixed-account",
-        ),
+        ({"account_id": "123456789012"}, [], "empty export requires"),
         (
             {"account_id": "123456789012", "region": "eu-west-1"},
             [export_resource(region="us-east-1")],
@@ -176,6 +164,7 @@ def test_arn_context_without_explicit_defaults(tmp_path):
             "Unsupported",
         ),
     ],
+    ids=["missing-account", "missing-region", "empty-without-region", "conflicting", "unsupported"],
 )
 def test_reject_ambiguous_or_conflicting_context(tmp_path, context, resources, match):
     with pytest.raises(IngestionError, match=match):

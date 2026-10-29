@@ -47,6 +47,13 @@ def citation(result, resource, pointer):
     return result.evidence[ids[0]]
 
 
+def parent(data, path):
+    item = data
+    for key in path[:-1]:
+        item = item[key]
+    return item
+
+
 def persisted(result):
     return json.dumps(
         {
@@ -175,53 +182,38 @@ def test_multiple_inline_documents_have_distinct_request_evidence():
 
 
 @pytest.mark.parametrize(
-    ("method", "field", "op", "physical_id", "pointer"),
+    ("path", "op", "physical_id", "pointer"),
     [
         (
-            "list_roles",
-            ("Roles", 0, "AssumeRolePolicyDocument"),
+            ("list_roles", "Roles", 0, "AssumeRolePolicyDocument"),
             Op.LIST_ROLES,
             "AROAEXAMPLE",
             None,
         ),
         (
-            "get_role",
-            ("Role", "AssumeRolePolicyDocument"),
+            ("get_role", "Role", "AssumeRolePolicyDocument"),
             Op.GET_ROLE,
             "AROAEXAMPLE",
             "/trust_document",
         ),
         (
-            "get_role_policy",
-            ("PolicyDocument",),
+            ("get_role_policy", "PolicyDocument"),
             Op.GET_ROLE_POLICY,
             "AROAEXAMPLE",
             "/inline_policies/0/document",
         ),
         (
-            "get_policy_version",
-            ("PolicyVersion", "Document"),
+            ("get_policy_version", "PolicyVersion", "Document"),
             Op.GET_POLICY_VERSION,
             "ANPAEXAMPLE",
             "/document",
         ),
-        (
-            "list_instance_profiles",
-            ("InstanceProfiles", 0, "Roles", 0, "AssumeRolePolicyDocument"),
-            Op.LIST_INSTANCE_PROFILES,
-            "AIPAEXAMPLE",
-            None,
-        ),
     ],
+    ids=["whole-record", "role-trust", "inline-policy", "policy-version"],
 )
-def test_malformed_documents_are_omitted_with_originating_coverage(
-    method, field, op, physical_id, pointer
-):
+def test_malformed_documents_are_omitted_with_originating_coverage(path, op, physical_id, pointer):
     data = responses()
-    item = data[method]
-    for key in field[:-1]:
-        item = item[key]
-    item[field[-1]] = "%7Bprotected-malformed-secret"
+    parent(data, path)[path[-1]] = "%7Bprotected-malformed-secret"
     result, _ = normalize(data)
     resource = by_id(result, physical_id)
     assert resource.attributes["limitations"]
@@ -235,16 +227,11 @@ def test_malformed_documents_are_omitted_with_originating_coverage(
     assert "protected-malformed-secret" not in persisted(result)
 
 
-@pytest.mark.parametrize("identity", ["missing", "ambiguous"])
-def test_invalid_role_identity_skipped_without_inventing_source_id(identity):
+def test_ambiguous_role_identity_skipped_without_inventing_source_id():
     data = responses()
-    role = data["list_roles"]["Roles"][0]
-    if identity == "missing":
-        role.pop("RoleId")
-    else:
-        other = deepcopy(role)
-        other["RoleId"] = "AROAOTHER"
-        data["list_roles"]["Roles"].append(other)
+    other = deepcopy(data["list_roles"]["Roles"][0])
+    other["RoleId"] = "AROAOTHER"
+    data["list_roles"]["Roles"].append(other)
     result, _ = normalize(data)
     assert not any(r.identity.physical_id in ("AROAEXAMPLE", "AROAOTHER") for r in result.resources)
     coverage = next(c for c in result.coverage if c.operation == Op.LIST_ROLES)
@@ -307,24 +294,21 @@ def test_blocked_version_discovery_keeps_policy_with_explicit_limitation():
 
 
 @pytest.mark.parametrize(
-    ("method", "field", "op", "physical_id"),
+    ("path", "op", "physical_id"),
     [
-        ("get_role_policy", "PolicyDocument", Op.GET_ROLE_POLICY, "AROAEXAMPLE"),
-        ("get_policy_version", "Document", Op.GET_POLICY_VERSION, "ANPAEXAMPLE"),
+        (("get_role_policy", "PolicyDocument"), Op.GET_ROLE_POLICY, "AROAEXAMPLE"),
+        (("get_policy_version", "PolicyVersion", "Document"), Op.GET_POLICY_VERSION, "ANPAEXAMPLE"),
     ],
 )
-def test_successful_response_missing_document_is_incomplete(method, field, op, physical_id):
+def test_successful_response_missing_document_is_incomplete(path, op, physical_id):
     data = responses()
-    raw = data[method]
-    if method == "get_policy_version":
-        raw = raw["PolicyVersion"]
-    raw.pop(field)
+    parent(data, path).pop(path[-1])
     result, inventory = normalize(data)
     resource = by_id(result, physical_id)
     assert resource.attributes["limitations"]
     coverage = next(c for c in result.coverage if c.operation == op)
     assert coverage.status == CoverageStatus.INCOMPLETE
-    assert coverage.unresolved_values[0].configuration_path.endswith("." + field)
+    assert coverage.unresolved_values[0].configuration_path.endswith("." + path[-1])
     assert inventory.results[op].coverage.status == CoverageStatus.SUCCESS
     assert inventory.results[op].coverage.unresolved_values == []
 
@@ -389,28 +373,23 @@ def test_sorted_attachments_and_profile_roles_cite_observed_not_normalized_index
 
 
 @pytest.mark.parametrize(
-    ("method", "container", "id_field", "op", "physical_id"),
+    ("path", "op", "physical_id"),
     [
+        (("list_roles", "Roles", 0, "RoleId"), Op.LIST_ROLES, "AROAEXAMPLE"),
         (
-            "list_instance_profiles",
-            ("InstanceProfiles", 0),
-            "InstanceProfileId",
+            ("list_instance_profiles", "InstanceProfiles", 0, "InstanceProfileId"),
             Op.LIST_INSTANCE_PROFILES,
             "AIPAEXAMPLE",
         ),
-        ("get_policy", ("Policy",), "PolicyId", Op.GET_POLICY, "ANPAEXAMPLE"),
+        (("get_policy", "Policy", "PolicyId"), Op.GET_POLICY, "ANPAEXAMPLE"),
     ],
 )
-def test_missing_profile_or_policy_source_id_is_skipped(
-    method, container, id_field, op, physical_id
-):
+def test_missing_source_id_is_skipped_without_inventing_one(path, op, physical_id):
     data = responses()
-    raw = data[method]
-    for key in container:
-        raw = raw[key]
-    raw.pop(id_field)
+    parent(data, path).pop(path[-1])
     result, _ = normalize(data)
     assert not any(r.identity.physical_id == physical_id for r in result.resources)
     coverage = next(c for c in result.coverage if c.operation == op)
     assert coverage.status == CoverageStatus.INCOMPLETE
-    assert coverage.unresolved_values[0].resource_id is None
+    assert coverage.unresolved_values
+    assert all(u.resource_id is None for u in coverage.unresolved_values)

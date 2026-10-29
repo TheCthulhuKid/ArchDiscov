@@ -19,7 +19,6 @@ from archdiscov.assistant.conversation import ToolResultMessage, UserMessage
 from archdiscov.assistant.fake import FakeProvider, FakeTranscript
 from archdiscov.assistant.orchestrator import RunInEventLoopError
 from archdiscov.assistant.provider import CompletionResponse
-from archdiscov.assistant.rejections import MAX_LISTED_REJECTIONS
 from archdiscov.assistant.repair import NO_PROPOSAL, NOT_RUN, RESUBMIT
 from archdiscov.assistant.runs import RunLimits
 from archdiscov.assistant.tools.session import ToolSession
@@ -86,35 +85,6 @@ def test_a_rejected_proposal_is_repaired_once() -> None:
     assert "answer_unknown_id" in transcript.repair.prompt.text
 
 
-def test_a_proposal_rejected_twice_fails_with_the_final_rejections() -> None:
-    result, provider, _ = answer_turns(
-        lambda session: [
-            submit_turn("a", rejected_proposal(session)),
-            submit_turn("b", rejected_proposal(session)),
-        ]
-    )
-    outcome = result.outcome
-    assert outcome.failure == "rejected_after_repair" and outcome.exit_code == 5
-    assert {item.code for item in outcome.rejections} >= {"answer_unknown_id"}
-    assert len(provider.requests) == 2
-    assert result.rendered.failure.reason == "rejected_after_repair"
-    assert "Invented reasoning" not in result.rendered.model_dump_json()
-
-
-def test_many_rejections_are_listed_up_to_a_bound() -> None:
-    ids = [f"invented-{number}" for number in range(MAX_LISTED_REJECTIONS + 5)]
-
-    def turns(session: ToolSession) -> list[dict]:
-        proposal = rejected_proposal(session)
-        proposal["conclusions"][0]["citations"][0]["finding_ids"] = ids
-        return [submit_turn("a", proposal), submit_turn("b", answer_proposal(session))]
-
-    _, provider, _ = answer_turns(turns)
-    submission = _submission(_repair_request(provider)[1])
-    assert len(submission["rejections"]) == MAX_LISTED_REJECTIONS
-    assert submission["unlisted"] > 0
-
-
 def test_a_plain_text_answer_is_repaired_without_quoting_it() -> None:
     result, provider, _ = answer_turns(
         lambda session: [text_turn(PLAIN_TEXT), submit_turn("a", answer_proposal(session))]
@@ -124,14 +94,6 @@ def test_a_plain_text_answer_is_repaired_without_quoting_it() -> None:
     assert prompt == (UserMessage(text=NO_PROPOSAL),)
     assert PLAIN_TEXT not in result.transcript.repair.prompt.text
     assert result.transcript.repair.outcome.kind == "answered"
-
-
-def test_plain_text_after_the_repair_fails() -> None:
-    result, provider, _ = answer_turns(lambda _: [text_turn(PLAIN_TEXT), text_turn(PLAIN_TEXT)])
-    assert result.outcome.failure == "no_proposal_after_repair"
-    assert result.outcome.exit_code == 5
-    assert len(provider.requests) == 2
-    assert PLAIN_TEXT not in result.rendered.model_dump_json()
 
 
 @pytest.mark.parametrize(

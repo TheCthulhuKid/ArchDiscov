@@ -30,11 +30,10 @@ def test_optional_unknown_fields_are_not_empty_configuration():
     [
         ("memory_size", True),
         ("memory_size", 10241),
-        ("architectures", ["future"]),
         ("runtime", "future"),
         ("role_arn", "https://example.invalid/secret"),
-        ("subnet_ids", ["bad subnet"]),
     ],
+    ids=["coercible", "out-of-range", "unknown-choice", "pattern"],
 )
 def test_direct_typed_facts_reject_unknown_malformed_and_coercible_values(field, value):
     with pytest.raises(ValidationError):

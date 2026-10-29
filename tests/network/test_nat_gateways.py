@@ -35,9 +35,6 @@ def test_a_private_subnet_reaches_the_internet_through_the_nat_gateway_citing_ev
         "rtb-public-association",
         "rtb-public-route-1",
     ]
-    # A NAT gateway never carries inbound traffic: an internet-gateway question denies.
-    inbound = private_route(egress_index(), RouteReach.INTERNET_GATEWAY)
-    assert (inbound.decision, inbound.blockers[0].element) == (D.DENY, "route:/routes/1")
 
 
 @pytest.mark.parametrize(

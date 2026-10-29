@@ -23,10 +23,10 @@ from archdiscov.services.network_load_balancers import (
 from archdiscov.services.network_routes import evaluate_subnet_route
 from archdiscov.services.network_security_groups import Peer, evaluate_security_group
 from tests.paths import FIXTURES_ROOT
+from tests.support.elbv2_data import LB, responses
+from tests.support.elbv2_snapshot import build as build_lb
+from tests.support.elbv2_snapshot import resource_id as lb_id
 from tests.support.fixture_edits import edited_index
-from tests.support.lb_data import LB, responses
-from tests.support.lb_data import build as build_lb
-from tests.support.lb_data import resource_id as lb_id
 from tests.support.nacl_data import acl, entry
 from tests.support.network_data import ENI, FULL, ROUTE_TABLE, SG_RULES
 from tests.support.network_snapshot import build_network, resource_id
@@ -129,16 +129,11 @@ def test_a_closed_security_group_port_denies():
     assert inbound_https(topology(), port=22).decision == D.DENY
 
 
-@pytest.mark.parametrize(
-    ("operation", "status"),
-    [
-        (operation, status)
-        for operation in ("DescribeRouteTables", "DescribeNetworkAcls")
-        for status in ("failed", "incomplete", "skipped")
-    ],
-)
-def test_failed_route_or_nacl_collection_downgrades_the_composition_to_unknown(operation, status):
-    result = inbound_https(topology(covered={operation: status}))
+# Which statuses limit an element is each element's own test; one limited status per element
+# shows that the composition carries it.
+@pytest.mark.parametrize("operation", ["DescribeRouteTables", "DescribeNetworkAcls"])
+def test_failed_route_or_nacl_collection_downgrades_the_composition_to_unknown(operation):
+    result = inbound_https(topology(covered={operation: "failed"}))
     assert result.decision == D.UNKNOWN
     assert B.COVERAGE_LIMITED in codes(result)
     assert operation in {blocker.element for blocker in result.blockers}
@@ -267,15 +262,6 @@ NO_RETURN = {
         "fact_evidence": {},
     }
 }
-OTHER_ACCOUNT = {
-    "pcx-app-data": {
-        "accepter": {
-            "vpc_id": "vpc-data",
-            "owner_id": "210987654321",
-            "cidr_blocks": ["10.3.0.0/16"],
-        }
-    }
-}
 
 
 def app_and_data(index, destination="subnet-data"):
@@ -298,16 +284,6 @@ def test_subnets_in_one_vpc_give_the_local_route_result():
     assert (result.decision, result.evidence_ids) == (D.ALLOW, local.evidence_ids)
 
 
-@pytest.mark.parametrize(
-    ("fixture", "changes", "expected"),
-    [
-        ("transit-gateway.json", NO_RETURN, D.DENY),
-        ("vpc-peering.json", OTHER_ACCOUNT, D.UNKNOWN),
-    ],
-    ids=["no-return-route", "cross-account"],
-)
-def test_a_missing_return_route_denies_and_another_account_is_unknown(fixture, changes, expected):
-    result = app_and_data(edited_index(fixture, changes))
-    assert result.decision == expected
-    if expected == D.UNKNOWN:
-        assert any("210987654321" in blocker.message for blocker in result.blockers)
+def test_a_missing_return_route_denies():
+    # How each connection's own state decides is its handler's test (test_vpc_peering.py).
+    assert app_and_data(edited_index("transit-gateway.json", NO_RETURN)).decision == D.DENY

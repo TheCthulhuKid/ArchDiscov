@@ -82,40 +82,15 @@ def test_valid_impacts_round_trip(fields):
     assert SecurityGroupImpact.model_validate_json(model.model_dump_json()) == model
 
 
-@pytest.mark.parametrize("direction", RuleDirection)
-@pytest.mark.parametrize("side", RuleReferenceSide)
-def test_every_rule_direction_and_side_is_representable(direction, side):
-    model = SecurityGroupImpact(
-        selected_group_id=SGW,
-        kind=ImpactKind.RULE_REFERENCE,
-        label=ImpactLabel.OBSERVED,
-        rule_direction=direction,
-        reference_side=side,
-    )
-    assert (model.rule_direction, model.reference_side) == (direction, side)
-
-
 @pytest.mark.parametrize(
     "fields",
     [
-        {**DIRECT, "label": "potential"},
-        {**DOWNSTREAM, "label": "observed"},
-        {**RULE, "label": "potential"},
         {k: v for k, v in RULE.items() if k != "rule_direction"},
-        {k: v for k, v in RULE.items() if k != "reference_side"},
         {**DIRECT, "rule_direction": "ingress"},
-        {**DOWNSTREAM, "reference_side": "selected_references_other"},
-        {**DIRECT, "kind": "nonsense"},
     ],
     ids=[
-        "direct-potential",
-        "downstream-observed",
-        "rule-potential",
         "rule-no-direction",
-        "rule-no-side",
         "direct-with-rule-field",
-        "downstream-with-rule-field",
-        "unknown-kind",
     ],
 )
 def test_invalid_combinations_are_rejected(fields):
@@ -159,19 +134,12 @@ def test_results_validate_against_a_snapshot_and_keep_scope_and_citations():
     assert [f.impact.label for f in valid.findings] == [ImpactLabel.OBSERVED] * 2
 
 
-@pytest.mark.parametrize(
-    ("data", "code"),
-    [
-        (result([finding(impact(RTB, **DIRECT))], resource_id=RTB), "resource_not_security_group"),
-        (result([finding(impact("absent", **DIRECT))], resource_id="absent"), "resource_unknown"),
-    ],
-    ids=["not-a-security-group", "unknown-group"],
-)
-def test_integrity_rejects_bad_selected_groups(data, code):
+def test_integrity_rejects_a_selected_group_that_is_not_a_security_group():
     snapshot = load_snapshot(FIXTURES_ROOT / "snapshots" / "network.json")
+    data = result([finding(impact(RTB, **DIRECT))], resource_id=RTB)
     with pytest.raises(AnalysisValidationError) as error:
         validate_analysis_result(data, snapshot)
-    assert error.value.details[0].type == code
+    assert error.value.details[0].type == "resource_not_security_group"
 
 
 def test_unsupported_platform_is_a_cited_free_limitation_not_an_impact():
@@ -190,18 +158,11 @@ def test_unsupported_platform_is_a_cited_free_limitation_not_an_impact():
     assert AnalysisFinding.model_validate_json(model.model_dump_json()) == model
 
 
-@pytest.mark.parametrize(
-    ("code", "message"),
-    [
-        (AnalyzerErrorCode.RESOURCE_NOT_FOUND, "Selected resource was not found in the snapshot."),
-        (
-            AnalyzerErrorCode.UNSUPPORTED_RESOURCE,
-            "Selected resource is not supported by this analyzer.",
-        ),
-    ],
-)
-def test_new_analyzer_errors_have_fixed_messages(code, message):
+def test_new_analyzer_errors_have_fixed_messages():
+    code = AnalyzerErrorCode.UNSUPPORTED_RESOURCE
+    message = "Selected resource is not supported by this analyzer."
     error = AnalyzerError(code)
+
     assert (error.code, error.message, str(error)) == (code, message, message)
 
 

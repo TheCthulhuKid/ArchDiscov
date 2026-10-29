@@ -87,6 +87,14 @@ def test_scopes_and_enum_contract():
         (AzureScope, {"subscription_id": SUBSCRIPTION, "platform": "aws"}),
         (AzureScope, {"subscription_id": SUBSCRIPTION, "unexpected": True}),
     ],
+    ids=[
+        "aws-account-pattern",
+        "aws-partition",
+        "aws-platform",
+        "aws-unknown-field",
+        "azure-platform",
+        "azure-unknown-field",
+    ],
 )
 def test_invalid_scopes_are_rejected(scope_type, data):
     with pytest.raises(ValidationError):
@@ -193,11 +201,18 @@ def test_subscription_wide_resource():
 @pytest.mark.parametrize(
     "arm",
     [
-        " " + ARM,
-        ARM.replace(SUBSCRIPTION, OTHER_SUBSCRIPTION),
-        ARM.replace("virtualNetworks", "virtualMachines"),
-        ARM.replace("/subnets/", "/subnets/extra/"),
         ARM + "?query=1",
+        ARM.replace(SUBSCRIPTION, OTHER_SUBSCRIPTION),
+        ARM.replace("MyGroup", "OtherGroup"),
+        ARM.replace("/subnets/", "/subnets/extra/"),
+        ARM.replace("virtualNetworks", "virtualMachines"),
+    ],
+    ids=[
+        "not-arm",
+        "other-subscription",
+        "other-resource-group",
+        "unpaired-hierarchy",
+        "other-type",
     ],
 )
 def test_malformed_or_inconsistent_arm_is_rejected(arm):
@@ -214,6 +229,7 @@ def test_malformed_or_inconsistent_arm_is_rejected(arm):
         {"native_type": "Microsoft.Compute/virtualMachines"},
         {"platform": "aws"},
     ],
+    ids=["no-identifier", "padded-text", "service-pattern", "namespace-mismatch", "platform"],
 )
 def test_invalid_azure_identity_is_rejected(overrides):
     with pytest.raises(ValidationError):

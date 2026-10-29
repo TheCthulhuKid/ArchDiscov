@@ -21,7 +21,6 @@ from archdiscov.assistant.evaluation import (
 )
 from archdiscov.cli import app
 from archdiscov.services.evaluation import EvaluationCancelled, load_report
-from tests.assistant.provider_harness import AnthropicHarness
 from tests.support.evaluation_suites import (
     ADVERSARIAL_SUITE,
     EVALUATION_KEY_VARIABLE,
@@ -32,6 +31,7 @@ from tests.support.evaluation_suites import (
     serve_suite,
     write_fake_config,
 )
+from tests.support.provider_harness import AnthropicHarness
 
 runner = CliRunner()
 KEY = "sk-ant-api03-EVALUATIONcli0123456789abcdef"

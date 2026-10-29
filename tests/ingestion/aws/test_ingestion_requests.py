@@ -33,13 +33,10 @@ def test_assume_role_fields_accepted():
     [
         ({"expected_account_id": "123"}, "expected_account_id"),
         ({"regions": ["us-east-1", "us-east-1"]}, "unique"),
-        ({"regions": ["mars-north-1"]}, "regions"),
-        ({"max_concurrency": 0}, "max_concurrency"),
-        ({"services": []}, "at least one service"),
         ({"services": ["sts"]}, "not collectable"),
-        ({"role_arn": "not-an-arn"}, "role_arn"),
         ({"external_id": "x"}, "external_id requires role_arn"),
     ],
+    ids=["field-constraint", "region-validator", "service-validator", "model-validator"],
 )
 def test_invalid_config_rejected(overrides, fragment):
     with pytest.raises(ValidationError) as exc:

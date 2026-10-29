@@ -2,9 +2,9 @@ from functools import partial
 
 import pytest
 
-from archdiscov.models.enums import NetworkBlockerCode, NetworkDecision, RouteReach
-from archdiscov.services.network_routes import evaluate_subnet_route, evaluate_vpc_route
-from tests.support.fixture_edits import edited_index
+from archdiscov.models.enums import NetworkBlockerCode, NetworkDecision
+from archdiscov.services.network_routes import evaluate_vpc_route
+from tests.support.fixture_edits import S3_ENTRIES, edited_index, prefix_list_index
 from tests.support.network_snapshot import resource_id
 
 D = NetworkDecision
@@ -72,11 +72,6 @@ def test_a_transit_gateway_route_leads_into_the_attached_vpc_in_both_directions(
     third = evaluate_vpc_route(index, resource_id("subnet-app"), "10.3.1.5", resource_id("vpc-x"))
     assert (third.decision, third.blockers[0].code) == (D.UNKNOWN, B.UNSUPPORTED_ELEMENT)
     assert "another hop" in third.blockers[0].message
-    # A transit gateway route is not an internet gateway.
-    internet = evaluate_subnet_route(
-        index, resource_id("subnet-app"), "10.3.1.5", reach=RouteReach.INTERNET_GATEWAY
-    )
-    assert internet.decision == D.DENY
 
 
 @pytest.mark.parametrize(
@@ -120,11 +115,11 @@ def test_the_hop_decides_as_recorded(variant, address, expected, named):
 
 
 def test_a_transit_gateway_outside_the_snapshot_is_unknown_naming_it():
-    index = edited_index(
-        "endpoints-and-prefix-lists.json", {"pl-s3": {"entries": [{"cidr": "52.218.0.0/17"}]}}
-    )
     result = evaluate_vpc_route(
-        index, resource_id("subnet-svc"), "198.51.100.7", resource_id("vpc-other")
+        prefix_list_index(S3_ENTRIES),
+        resource_id("subnet-svc"),
+        "198.51.100.7",
+        resource_id("vpc-other"),
     )
     [blocker] = result.blockers
     assert (result.decision, blocker.code) == (D.UNKNOWN, B.MISSING_EVIDENCE)

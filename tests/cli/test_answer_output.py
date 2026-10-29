@@ -148,7 +148,8 @@ def test_renderings_match_their_goldens(case: str) -> None:
     _golden(f"{case}.json", json.dumps(answer_data(rendered), indent=2, ensure_ascii=False) + "\n")
 
 
-@pytest.mark.parametrize("case", sorted(CASES))
+# One answer and one failure: the two shapes a rendering takes.
+@pytest.mark.parametrize("case", ["answered", "rejected_after_repair"])
 def test_json_round_trips_and_has_the_documented_shape(case: str) -> None:
     rendered = CASES[case]()
     data = json.loads(json.dumps(answer_data(rendered)))
@@ -159,7 +160,7 @@ def test_json_round_trips_and_has_the_documented_shape(case: str) -> None:
     assert RenderedAnswer.model_validate(data["answer"]) == rendered
 
 
-@pytest.mark.parametrize("case", sorted(CASES))
+@pytest.mark.parametrize("case", ["answered", "rejected_after_repair"])
 def test_no_secret_appears_in_either_rendering(case: str) -> None:
     rendered = CASES[case]()
     for text in (answer_text(rendered), json.dumps(answer_data(rendered))):

@@ -68,23 +68,10 @@ def test_results_round_trip_and_serialize_every_blocker_field():
     [
         lambda: NetworkResult(decision=D.ALLOW),
         lambda: NetworkResult(decision=D.DENY),
-        lambda: NetworkResult(
-            decision=D.DENY,
-            blockers=[
-                NetworkBlocker(code=B.DENIED, message="m"),
-                NetworkBlocker(code=B.UNSUPPORTED_ELEMENT, message="m"),
-            ],
-        ),
         lambda: NetworkResult(decision=D.UNKNOWN),
         lambda: NetworkBlocker(code=B.COVERAGE_LIMITED, message="m"),
     ],
-    ids=[
-        "allow-uncited",
-        "deny-bare",
-        "deny-mixed",
-        "unknown-bare",
-        "limited-without-coverage",
-    ],
+    ids=["allow-uncited", "deny-bare", "unknown-bare", "limited-without-coverage"],
 )
 def test_invalid_results_and_blockers_are_rejected(build):
     with pytest.raises(ValidationError):

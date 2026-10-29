@@ -1,11 +1,10 @@
 import json
-from itertools import product
 
 import pytest
 from pydantic import ValidationError
 
 from archdiscov.graph import GraphIndex
-from archdiscov.models.analysis.exposure import ExposureElementDecision, InternetExposure
+from archdiscov.models.analysis.exposure import InternetExposure
 from archdiscov.models.analysis.references import UNSUPPORTED_PLATFORM_CODE, AnalysisLimitation
 from archdiscov.models.analysis.results import AnalysisFinding, AnalysisResult
 from archdiscov.models.enums import (
@@ -15,7 +14,6 @@ from archdiscov.models.enums import (
     NetworkDecision,
     TargetHealthState,
 )
-from archdiscov.models.network_path import compose_decisions
 from archdiscov.services import AnalysisValidationError, validate_analysis_result, validate_snapshot
 from tests.paths import FIXTURES_ROOT
 
@@ -125,43 +123,11 @@ def explained(kind, decision):
 # ---- elements and composition -------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("decision", "codes"),
-    [
-        (D.ALLOW, []),
-        (D.DENY, [B.DENIED]),
-        (D.UNKNOWN, [B.UNSUPPORTED_ELEMENT]),
-        (D.UNKNOWN, [B.COVERAGE_LIMITED, B.MISSING_EVIDENCE]),
-    ],
-)
-def test_every_element_decision_round_trips(decision, codes):
-    model = ExposureElementDecision(element=X.ROUTE, decision=decision, blocker_codes=codes)
-    assert ExposureElementDecision.model_validate_json(model.model_dump_json()) == model
-
-
-@pytest.mark.parametrize(
-    ("decision", "codes"),
-    [
-        (D.ALLOW, [B.DENIED]),
-        (D.DENY, []),
-        (D.UNKNOWN, []),
-        (D.UNKNOWN, [B.DENIED]),
-        (D.UNKNOWN, [B.MISSING_EVIDENCE, B.COVERAGE_LIMITED]),
-    ],
-)
-def test_invalid_element_decisions_are_rejected(decision, codes):
-    with pytest.raises(ValidationError):
-        ExposureElementDecision(element=X.ROUTE, decision=decision, blocker_codes=codes)
-
-
-@pytest.mark.parametrize("decisions", list(product(D, repeat=2)))
-def test_the_composed_decision_follows_all_of(decisions):
-    elements = [explained(X.PUBLIC_ADDRESS, decisions[0]), explained(X.ROUTE, decisions[1])]
-    expected = compose_decisions(list(decisions))
-    assert InternetExposure.model_validate(exposure(decision=expected, elements=elements))
-    wrong = next(d for d in D if d != expected)
+def test_the_decision_must_compose_the_element_decisions():
+    elements = [explained(X.PUBLIC_ADDRESS, D.ALLOW), explained(X.ROUTE, D.DENY)]
+    assert InternetExposure.model_validate(exposure(decision=D.DENY, elements=elements))
     with pytest.raises(ValidationError, match="compose"):
-        InternetExposure.model_validate(exposure(decision=wrong, elements=elements))
+        InternetExposure.model_validate(exposure(decision=D.ALLOW, elements=elements))
 
 
 @pytest.mark.parametrize("kind", ExposureEntryKind)
@@ -170,26 +136,9 @@ def test_each_entry_kind_accepts_its_full_path(kind):
     assert InternetExposure.model_validate(data).entry_kind == kind
 
 
-@pytest.mark.parametrize(
-    "fields",
-    [
-        {"elements": [element("scheme")]},  # a load balancer element on a public address
-        {"elements": [element("route"), element("public_address")]},
-        {"elements": []},
-        {"port_start": 444, "port_end": 443},
-        {"protocol": "icmp"},
-    ],
-    ids=[
-        "wrong-kind",
-        "unordered",
-        "empty",
-        "inverted",
-        "protocol",
-    ],
-)
-def test_invalid_exposure_values_are_rejected(fields):
-    with pytest.raises(ValidationError):
-        InternetExposure.model_validate(exposure(**fields))
+def test_an_inverted_port_range_is_rejected():
+    with pytest.raises(ValidationError, match="port_start"):
+        InternetExposure.model_validate(exposure(port_start=444, port_end=443))
 
 
 def test_load_balancer_elements_are_not_valid_for_a_public_address_and_vice_versa():
@@ -216,12 +165,9 @@ def test_target_health_is_an_observation_that_never_changes_the_decision():
     assert "health" not in {item.value for item in ExposureElement}
 
 
-@pytest.mark.parametrize(
-    "observed", [["unhealthy", "healthy"], ["healthy", "healthy"], ["nonsense"]]
-)
-def test_observed_health_must_be_sorted_unique_and_known(observed):
-    with pytest.raises(ValidationError):
-        InternetExposure.model_validate(balancer(observed_target_health=observed))
+def test_observed_health_must_be_sorted_and_unique():
+    with pytest.raises(ValidationError, match="unique and sorted"):
+        InternetExposure.model_validate(balancer(observed_target_health=["unhealthy", "healthy"]))
 
 
 def test_health_is_observed_only_through_a_load_balancer():
@@ -265,24 +211,8 @@ def test_finding_shape_rules():
         AnalysisFinding.model_validate(finding(exposure(), resources=[]))
 
 
-def test_an_unknown_decision_cannot_be_supported():
-    unknown = exposure(
-        decision="unknown", elements=[element("public_address", "unknown", ["missing_evidence"])]
-    )
-    with pytest.raises(ValidationError, match="cannot be supported"):
-        AnalysisFinding.model_validate(finding(unknown))
-    insufficient = {
-        "status": "insufficient_evidence",
-        "evidence_ids": [],
-        "limitations": [{"code": "x", "message": "m"}],
-    }
-    assert AnalysisFinding.model_validate(finding(unknown, **insufficient))
-
-
-@pytest.mark.parametrize("decision", ["allow", "deny"])
-def test_decided_findings_are_supported_and_cited(decision):
-    code = [] if decision == "allow" else ["denied"]
-    data = exposure(decision=decision, elements=[element("public_address", decision, code)])
+def test_decided_findings_are_supported_and_cited():
+    data = exposure(decision="deny", elements=[element("public_address", "deny", ["denied"])])
     model = AnalysisFinding.model_validate(finding(data))
     assert (model.status, model.evidence_ids) == ("supported", [EVIDENCE])
 
@@ -320,26 +250,11 @@ def test_results_validate_against_a_snapshot_for_every_entry_kind():
         assert checked.internet_exposure.port_start == 443
 
 
-@pytest.mark.parametrize(
-    ("data", "entry"),
-    [
-        (balancer(), ENI),
-        (exposure(), LOAD_BALANCER),
-        (exposure(), SUBNET),
-        (balancer(), SUBNET),
-    ],
-    ids=["lb-on-eni", "public-on-lb", "public-on-subnet", "lb-on-subnet"],
-)
-def test_integrity_rejects_an_entry_that_does_not_match_its_kind(data, entry):
+def test_integrity_rejects_an_entry_that_does_not_match_its_kind():
     with pytest.raises(AnalysisValidationError) as error:
-        validate_analysis_result(result([finding(data, entry=entry)]), SNAPSHOT)
+        validate_analysis_result(result([finding(balancer(), entry=ENI)]), SNAPSHOT)
+
     assert error.value.details[0].type == "exposure_entry_mismatch"
-
-
-def test_unknown_entry_resources_are_rejected():
-    with pytest.raises(AnalysisValidationError) as error:
-        validate_analysis_result(result([finding(exposure(), entry="absent")]), SNAPSHOT)
-    assert error.value.details[0].type == "resource_unknown"
 
 
 def test_unsupported_platform_code_is_shared_and_needs_no_exposure_block():

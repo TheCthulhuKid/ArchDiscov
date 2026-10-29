@@ -2,9 +2,8 @@
 
 Each example is written to a temporary directory and run in both output forms with the
 fake provider; the validated status, the cited findings and differences, and the
-qualifications are checked against what the example's tools returned. Each adapter harness
-(Anthropic, Bedrock, and the OpenAI-compatible adapter through each protocol), over a mocked
-API serving the same turns, must give the fake's answer.
+qualifications are checked against what the example's tools returned. That each adapter gives
+the fake's answer is `tests/assistant/test_answer_service_suite.py`'s to show.
 """
 
 import json
@@ -13,7 +12,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from archdiscov.assistant import providers, questions
+from archdiscov.assistant import questions
 from archdiscov.assistant.answer_rendering import (
     INSUFFICIENT_REASONS,
     LIMITED_COVERAGE,
@@ -24,16 +23,13 @@ from archdiscov.assistant.answer_rendering import (
 from archdiscov.assistant.answer_results import RenderedAnswer
 from archdiscov.assistant.answers import InsufficientReason
 from archdiscov.cli import app
-from tests.assistant.provider_harness import HARNESSES, MockedHarness
 from tests.paths import PROJECT_ROOT
 from tests.support.ask_examples import (
     EXAMPLES,
     README_QUESTIONS,
     ExampleRun,
     write_example,
-    write_provider_config,
 )
-from tests.support.mock_api import MockApi
 
 runner = CliRunner()
 INSUFFICIENT_COVERAGE = INSUFFICIENT_REASONS[InsufficientReason.LIMITED_COVERAGE]
@@ -52,41 +48,11 @@ QUALIFICATIONS = {
 DECLARED = {"ownership_planned"}
 
 
-HARNESS = {harness.label: harness for harness in HARNESSES}
-PROVIDERS = list(HARNESS)
-KEY_VARIABLE = "ASK_EXAMPLE_KEY"
-
-
-def _through_the_adapter(directory: Path, monkeypatch, harness: MockedHarness) -> MockApi:
-    """Configure the example for the harness's adapter, over a mocked API serving its turns.
-
-    The configuration file names the harness's provider kind, and its registered adapter
-    builds the real adapter from that file with the mocked API in place of the network.
-    """
-    turns = json.loads((directory / "transcript.json").read_text(encoding="utf-8"))["turns"]
-    api = harness.api(turns)
-    write_provider_config(directory / "provider.toml", harness.configuration(KEY_VARIABLE))
-    monkeypatch.setenv(KEY_VARIABLE, "sk-proj-EXAMPLEkey0123456789abcdefXYZ")
-    monkeypatch.setitem(
-        providers.ADAPTERS, harness.name, lambda config, key, _: harness.construct(config, key, api)
-    )
-    return api
-
-
-def _ask(name: str, tmp_path: Path, monkeypatch, provider: str, *flags: str):
+def _ask(name: str, tmp_path: Path, *flags: str):
     run = write_example(EXAMPLES[name], tmp_path)
-    harness = HARNESS[provider]
-    api = (
-        _through_the_adapter(tmp_path, monkeypatch, harness)
-        if isinstance(harness, MockedHarness)
-        else None
-    )
     result = runner.invoke(app, ["ask", *run.arguments, *flags])
     assert result.exit_code == 0, result.output
     assert result.stderr == ""
-    if api is not None:
-        turns = json.loads((tmp_path / "transcript.json").read_text(encoding="utf-8"))["turns"]
-        assert len(api.requests) == len(turns)
     return run, result.stdout
 
 
@@ -133,9 +99,9 @@ def _cited(answer: RenderedAnswer, run: ExampleRun) -> None:
 
 
 @pytest.mark.parametrize("name", list(EXAMPLES))
-def test_each_example_answers_in_json(tmp_path: Path, monkeypatch, name: str) -> None:
+def test_each_example_answers_in_json(tmp_path: Path, name: str) -> None:
     example = EXAMPLES[name]
-    run, output = _ask(name, tmp_path, monkeypatch, "fake", "--json")
+    run, output = _ask(name, tmp_path, "--json")
     result = json.loads(output)["result"]
     assert result["exit_code"] == 0
     answer = RenderedAnswer.model_validate(result["answer"])
@@ -150,9 +116,9 @@ def test_each_example_answers_in_json(tmp_path: Path, monkeypatch, name: str) ->
 
 
 @pytest.mark.parametrize("name", list(EXAMPLES))
-def test_each_example_answers_readably(tmp_path: Path, monkeypatch, name: str) -> None:
+def test_each_example_answers_readably(tmp_path: Path, name: str) -> None:
     example = EXAMPLES[name]
-    run, output = _ask(name, tmp_path, monkeypatch, "fake")
+    run, output = _ask(name, tmp_path)
     lines = output.splitlines()
     assert "Answer: answered, exit code 0" in lines
     assert f"Status: {example.status}" in lines
@@ -167,19 +133,3 @@ def test_each_example_answers_readably(tmp_path: Path, monkeypatch, name: str) -
             "  Source: terraform_plan, declared or planned configuration, not deployed state"
             in (lines)
         )
-
-
-@pytest.mark.parametrize("name", list(EXAMPLES))
-def test_each_example_answers_alike_through_every_provider(
-    tmp_path: Path, monkeypatch, name: str
-) -> None:
-    answers = {}
-    for provider in PROVIDERS:
-        directory = tmp_path / provider
-        directory.mkdir()
-        _, output = _ask(name, directory, monkeypatch, provider, "--json")
-        data = json.loads(output)
-        assert data["summary"]["provider_kind"] == HARNESS[provider].name
-        answers[provider] = data["result"]
-    for provider in PROVIDERS:
-        assert answers[provider] == answers["fake"], provider

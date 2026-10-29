@@ -87,31 +87,23 @@ NETWORK_RELATIONSHIPS = [
 ]
 
 
-@pytest.mark.parametrize("fixture", ["hierarchy", "network", "dependency-targets"])
-def test_legacy_and_explicit_schema_three_upgrade_have_identical_edge_handles(fixture):
-    legacy = load_snapshot(FIXTURES / f"{fixture}.json")
-    old = GraphIndex(legacy)
-    modern = GraphIndex(upgrade_snapshot(legacy))
-    assert old.dependency_edges == modern.dependency_edges
-    assert old.terminal_ids == modern.terminal_ids
-    for edge in old.dependency_edges:
-        assert old.incoming_edges(edge.target_id) == modern.incoming_edges(edge.target_id)
-        assert old.outgoing_edges(edge.source_id) == modern.outgoing_edges(edge.source_id)
-
-
 @pytest.mark.parametrize(
     "fixture",
     ["hierarchy", "network", "iam", "load-balancing", "dependency-targets", "azure"],
 )
-def test_fixture_dependencies_preserve_exact_context_and_reverse_adjacency(fixture):
+def test_fixture_dependencies_preserve_context_adjacency_and_upgrade_handles(fixture):
     snapshot = load_snapshot(FIXTURES / f"{fixture}.json")
     before = snapshot.model_dump(mode="json")
     access = SnapshotAccess.from_snapshot(snapshot)
     expected = list(access.dependencies())
     evidence = access.evidence
     index = GraphIndex(snapshot)
+    # Azure snapshots are already in the cloud schema; only AWS ones have a legacy form.
+    upgraded = index if fixture == "azure" else GraphIndex(upgrade_snapshot(snapshot))
     edges = index.dependency_edges
     assert len(edges) == len(expected)
+    assert upgraded.dependency_edges == edges
+    assert upgraded.terminal_ids == index.terminal_ids
     assert index.terminal_ids == tuple(sorted(index.terminal_ids))
     for edge in edges:
         assert isinstance(edge, DependencyEdge)
@@ -127,6 +119,8 @@ def test_fixture_dependencies_preserve_exact_context_and_reverse_adjacency(fixtu
         expected.remove(match)
         assert edge in index.outgoing_edges(edge.source_id)
         assert edge in index.incoming_edges(edge.target_id)
+        assert upgraded.outgoing_edges(edge.source_id) == index.outgoing_edges(edge.source_id)
+        assert upgraded.incoming_edges(edge.target_id) == index.incoming_edges(edge.target_id)
         assert index.get_dependency_edge(edge.id) == edge
         assert all(evidence[key].resource_id == edge.source_id for key in edge.evidence_ids)
         if isinstance(edge.target, LocalTarget):
@@ -150,8 +144,9 @@ def test_fixture_dependencies_preserve_exact_context_and_reverse_adjacency(fixtu
 def test_network_relationship_and_kind_filters_preserve_direction():
     index = GraphIndex(load_snapshot(FIXTURES / "network.json"))
     prefix = "123456789012/eu-west-1/ec2/physical/"
+    rtb = prefix + "rtb-main"
     routes = index.outgoing_edges(
-        prefix + "rtb-main",
+        rtb,
         relationship=DependencyRelationship.ATTACHED_TO,
         attachment_kind=AttachmentKind.ROUTE_TARGET,
     )
@@ -168,13 +163,8 @@ def test_network_relationship_and_kind_filters_preserve_direction():
         local,
     )
     assert index.outgoing_edges(local.target_id) == ()
-    assert (
-        index.outgoing_edges(prefix + "rtb-main", relationship=DependencyRelationship.FORWARDS_TO)
-        == ()
-    )
-    assert (
-        index.outgoing_edges(prefix + "rtb-main", attachment_kind=AttachmentKind.PROFILE_ROLE) == ()
-    )
+    assert index.outgoing_edges(rtb, relationship=DependencyRelationship.FORWARDS_TO) == ()
+    assert index.outgoing_edges(rtb, attachment_kind=AttachmentKind.PROFILE_ROLE) == ()
     (group_edge,) = index.outgoing_edges(
         prefix + "sg-web", attachment_kind=AttachmentKind.SECURITY_GROUP_REFERENCE
     )
@@ -222,10 +212,16 @@ def test_network_element_relationships_are_followed_both_ways_with_their_evidenc
     assert "eni-nat was not present" in dangling.reason
 
 
-def test_iam_global_and_listener_forwarding_edges_are_only_explicit_dependencies():
+def test_iam_and_listener_edges_are_only_explicit_and_missing_lookups_invent_none():
     iam = upgrade_snapshot(load_snapshot(FIXTURES / "iam.json"))
     role, profile, policy = iam.scope_resources
-    assert GraphIndex(iam).dependency_edges == ()
+    empty = GraphIndex(iam)
+    assert empty.dependency_edges == ()
+    assert empty.terminal_ids == ()
+    assert empty.outgoing_edges("missing") == ()
+    assert empty.incoming_edges("missing") == ()
+    assert empty.get_dependency_edge("missing") is None
+    assert empty.get_terminal("missing") is None
     iam.evidence["profile-role"] = CloudEvidence(
         snapshot_id=iam.snapshot_id,
         resource_id=profile.id,
@@ -295,49 +291,38 @@ def test_parallel_edges_and_identical_occurrences_are_not_collapsed():
     assert reordered.incoming_edges(route.target.resource_id) == edges
 
 
-def test_repeated_external_references_keep_edge_specific_terminals():
+def test_external_references_keep_edge_specific_terminals_in_their_own_scope():
     snapshot = upgrade_snapshot(load_snapshot(FIXTURES / "dependency-targets.json"))
     external = next(item for item in snapshot.dependencies if item.target.kind == "external")
-    snapshot.dependencies.append(external.model_copy(deep=True))
-    index = GraphIndex(snapshot)
-    edges = [edge for edge in index.dependency_edges if edge.target.kind == "external"]
-    assert len(edges) == 2
-    assert edges[0].target == edges[1].target
-    assert edges[0].target_id != edges[1].target_id
-    for edge in edges:
-        terminal = index.get_terminal(edge.target_id)
-        assert terminal.edge_id == edge.id
-        assert terminal.target.scope.account_id == "210987654321"
-        assert terminal.target.service == "iam"
-        assert index.incoming_edges(terminal.id) == (edge,)
-    unresolved = next(edge for edge in index.dependency_edges if edge.target.kind == "unresolved")
-    assert isinstance(index.get_terminal(unresolved.target_id).target, UnresolvedTarget)
-    assert unresolved.target.source_path == "Instance.SecurityGroupIds[0]"
-    assert "could not be evaluated" in unresolved.target.reason
-
-
-def test_cross_platform_terminal_retains_its_own_scope():
-    snapshot = upgrade_snapshot(load_snapshot(FIXTURES / "dependency-targets.json"))
-    external = next(item for item in snapshot.dependencies if item.target.kind == "external")
+    azure = external.model_copy(deep=True)
     target_scope = AzureScope(subscription_id="11111111-1111-1111-1111-111111111111")
-    external.target = CloudExternalTarget(
+    azure.target = CloudExternalTarget(
         scope=target_scope,
         identifier="declared-azure-reference",
         location="eastus",
         service="Microsoft.Compute",
         native_type=ResourceType.AZURE_VIRTUAL_MACHINE,
     )
+    snapshot.dependencies.extend([external.model_copy(deep=True), azure])
     index = GraphIndex(snapshot)
-    terminal = next(
-        terminal
-        for terminal in (index.get_terminal(key) for key in index.terminal_ids)
-        if terminal.target.kind == "external"
-    )
+    edges = [edge for edge in index.dependency_edges if edge.target == external.target]
+    assert len(edges) == 2
+    for edge in edges:
+        terminal = index.get_terminal(edge.target_id)
+        assert terminal.edge_id == edge.id
+        assert terminal.target.scope.account_id == "210987654321"
+        assert terminal.target.service == "iam"
+        assert index.incoming_edges(terminal.id) == (edge,)
+    (cross_platform,) = [edge for edge in index.dependency_edges if edge.target == azure.target]
+    terminal = index.get_terminal(cross_platform.target_id)
     assert terminal.target.scope == target_scope
     assert terminal.target.location == "eastus"
     assert terminal.target.service == "Microsoft.Compute"
     assert terminal.target.native_type == ResourceType.AZURE_VIRTUAL_MACHINE
-    assert index.get_resource(terminal.id) is None
+    unresolved = next(edge for edge in index.dependency_edges if edge.target.kind == "unresolved")
+    assert isinstance(index.get_terminal(unresolved.target_id).target, UnresolvedTarget)
+    assert unresolved.target.source_path == "Instance.SecurityGroupIds[0]"
+    assert "could not be evaluated" in unresolved.target.reason
 
 
 def test_dependency_cycles_and_self_edges_are_indexed_without_traversal():
@@ -362,15 +347,12 @@ def test_dependency_cycles_and_self_edges_are_indexed_without_traversal():
     )
     index = GraphIndex(snapshot)
     (reverse,) = index.outgoing_edges(local.target.resource_id)
-    assert reverse.target_id == local.source_id
     assert reverse in index.incoming_edges(local.source_id)
     assert len(index.incoming_edges(local.source_id)) == 2
     assert len(index.dependency_edges) == 5
 
 
-@pytest.mark.parametrize(
-    "kind", [None, "fixture_attachment", ["route_target"], {"detail": "custom"}]
-)
+@pytest.mark.parametrize("kind", ["fixture_attachment", ["route_target"]])
 def test_non_enum_attachment_details_are_retained_without_inferred_kind(kind):
     snapshot = upgrade_snapshot(load_snapshot(FIXTURES / "hierarchy.json"))
     snapshot.dependencies[0].attributes = {"kind": kind}
@@ -416,13 +398,3 @@ def test_dependency_and_terminal_results_are_deeply_isolated():
             terminal.target.source_path = "changed"
     assert index.dependency_edges == expected
     assert tuple(index.get_terminal(key) for key in index.terminal_ids) == terminals
-
-
-def test_empty_and_missing_lookups_do_not_invent_edges_or_terminals():
-    index = GraphIndex(load_snapshot(FIXTURES / "iam.json"))
-    assert index.dependency_edges == ()
-    assert index.terminal_ids == ()
-    assert index.outgoing_edges("missing") == ()
-    assert index.incoming_edges("missing") == ()
-    assert index.get_dependency_edge("missing") is None
-    assert index.get_terminal("missing") is None

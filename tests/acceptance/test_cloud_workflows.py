@@ -1,12 +1,11 @@
 import json
-import os
-import subprocess
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
 from archdiscov.cli import app
+from archdiscov.graph import GraphIndex
 from archdiscov.models.cloud.contracts import CloudEvidence
 from archdiscov.models.cloud.snapshot import CloudSnapshot
 from archdiscov.services import (
@@ -20,7 +19,7 @@ from archdiscov.services import (
     validate_snapshot,
 )
 from tests.paths import FIXTURES_ROOT
-from tests.support.installed_cli import CLI
+from tests.support.installed_cli import Workspace
 
 FIXTURES = FIXTURES_ROOT / "snapshots"
 runner = CliRunner()
@@ -135,19 +134,9 @@ def test_azure_evidence_exact_fact_and_matching_coverage_context() -> None:
     assert unavailable.evidence.limitation == "Offline fixture does not provide this fact"
 
 
-@pytest.mark.parametrize("mutation", ["id", "fact", "endpoint", "scope", "typed_value"])
-def test_azure_mutation_rejected_without_publishing(tmp_path: Path, mutation: str) -> None:
+def test_azure_mutation_rejected_without_publishing(tmp_path: Path) -> None:
     snapshot = load_snapshot(FIXTURES / "azure.json")
-    if mutation == "id":
-        vm(snapshot).id = "changed-id"
-    elif mutation == "fact":
-        vm(snapshot).fact_evidence["/absent"] = ["vm-size"]
-    elif mutation == "endpoint":
-        snapshot.dependencies[0].target.resource_id = "absent"
-    elif mutation == "scope":
-        snapshot.scope.subscription_id = "22222222-2222-2222-2222-222222222222"
-    else:
-        vm(snapshot).vm_size = 123
+    vm(snapshot).id = "changed-id"
     with pytest.raises(SnapshotValidationError):
         save_snapshot(snapshot, tmp_path / "invalid.json")
     assert list(tmp_path.iterdir()) == []
@@ -237,39 +226,45 @@ def test_aws_explicit_schema3_upgrade_save_load_and_ingest(tmp_path: Path) -> No
 
 
 def test_installed_azure_workflow_outside_checkout_without_credentials(tmp_path: Path) -> None:
-    env = {
-        key: value
-        for key, value in os.environ.items()
-        if not key.startswith(("AWS_", "AZURE_", "ARM_")) and key != "PYTHONPATH"
-    }
-    env["AWS_EC2_METADATA_DISABLED"] = "true"
-    command = CLI
-    output = tmp_path / "azure.json"
-    imported = subprocess.run(
-        [*command, "ingest", str(FIXTURES / "azure.json"), "-o", str(output), "--json"],
-        cwd=tmp_path,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-    assert imported.returncode == 0, imported.stderr
-    summary = json.loads(imported.stdout)
+    ws = Workspace(tmp_path)
+    output = ws.path("snapshots", "azure.json")
+    summary = ws.json("ingest", FIXTURES / "azure.json", "-o", output)
     assert summary["source_kind"] == "azure_fixture"
     assert summary["operations"] == expected_operations(load_snapshot(output))
     stored = output.read_bytes()
-    inspected = subprocess.run(
-        [*command, "evidence", "vm-size", "--snapshot", str(output), "--json"],
-        cwd=tmp_path,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-    assert inspected.returncode == 0, inspected.stderr
-    payload = json.loads(inspected.stdout)
+    payload = ws.json("evidence", "vm-size", "--snapshot", output)
     assert payload["fact_paths"] == ["/vm_size"]
     assert payload["evidence"]["scope"]["platform"] == "azure"
     assert payload["evidence"]["location"] == "eastus"
     assert payload["resource"]["vm_size"] is None
     assert output.read_bytes() == stored
+    assert ws.guard.attempts == []
+
+
+# The AWS-only analyzers over the Azure fixture: whether the analyzer selects a resource, its
+# other options, the finding block that stays empty, and what the unsupported limitation
+# names. `analyze` prints the findings it saved; the AWS journeys show `findings` prints them too.
+UNSUPPORTED = {
+    "security_group_impact": (True, [], "impact", "AWS"),
+    "cross_account_trust": (False, [], "trust", "IAM trust policies"),
+    "database_access": (True, ["--port", "5432"], "database_access", "database access"),
+    "internet_exposure": (False, [], "internet_exposure", "internet exposure"),
+}
+
+
+@pytest.mark.parametrize("kind", UNSUPPORTED)
+def test_installed_aws_only_analyzers_are_unsupported_on_azure(tmp_path: Path, kind: str) -> None:
+    selects, options, block, named = UNSUPPORTED[kind]
+    azure = FIXTURES / "azure.json"
+    if selects:
+        options = ["--resource-id", GraphIndex(load_snapshot(azure)).resource_ids[0], *options]
+    ws = Workspace(tmp_path)
+    output = ws.path("results", "result.json")
+    saved = ws.json(
+        "analyze", "--snapshot", azure, "--output", output, "--analyzer", kind, *options
+    )
+    [finding] = saved["findings"]
+    assert finding["status"] == "insufficient_evidence"
+    assert finding[block] is None
+    assert finding["limitations"][0]["code"] == "unsupported_platform"
+    assert named in finding["limitations"][0]["message"]

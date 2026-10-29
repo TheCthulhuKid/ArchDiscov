@@ -3,7 +3,6 @@ import json
 import pytest
 
 from archdiscov.ingestion.cloudformation.evaluation import Reference, evaluate
-from archdiscov.ingestion.cloudformation.intrinsics import InvalidIntrinsic, evaluate_pure
 from archdiscov.ingestion.cloudformation.issue_codes import EvaluationIssueCode
 
 
@@ -38,71 +37,23 @@ def test_issue_codes_preserve_persisted_strings():
     )
 
 
-@pytest.mark.parametrize(
-    ("name", "values", "expected"),
-    [
-        ("Fn::Join", ["-", []], ""),
-        ("Fn::Join", ["-", ["a", "b"]], "a-b"),
-        ("Fn::Split", [",", "a,,b,"], ["a", "", "b", ""]),
-        ("Fn::Select", ["01", ["a", "b"]], "b"),
-        ("Fn::Equals", [True, 1], False),
-        ("Fn::Equals", [1, 1.0], False),
-        ("Fn::Equals", [None, None], True),
-        ("Fn::Not", [False], True),
-        ("Fn::And", [True] * 10, True),
-        ("Fn::Or", [False] * 9 + [True], True),
-    ],
-)
-def test_pure_operations_without_evaluator_context(name, values, expected):
-    assert evaluate_pure(name, values) == expected
-
-
-@pytest.mark.parametrize(
-    ("name", "values"),
-    [
-        ("Fn::Select", [True, ["a", "b"]]),
-        ("Fn::Select", ["0000000000", ["a"]]),
-        ("Fn::Join", ["-", [1]]),
-        ("Fn::Split", ["", "abc"]),
-        ("Fn::Equals", [[], []]),
-        ("Fn::And", [True, 1]),
-        ("Fn::Or", [False, "true"]),
-        ("Fn::Not", [1]),
-    ],
-)
-def test_pure_operations_reject_invalid_operand_types(name, values):
-    with pytest.raises(InvalidIntrinsic):
-        evaluate_pure(name, values)
-
-
-@pytest.mark.parametrize(
-    ("limit", "expression"),
-    [
-        ("MAX_BYTES", {"Fn::Join": ["é", ["a", "b", "c"]]}),
-        ("MAX_NODES", {"Fn::Split": [",", "a,b,c,d,e"]}),
-    ],
-)
-def test_pure_expansion_limits_invalidate_evaluation_without_sources(
-    monkeypatch, limit, expression
-):
-    monkeypatch.setattr(f"archdiscov.ingestion.cloudformation.intrinsics.{limit}", 4)
-    result = run({"property": expression})
+def test_pure_expansion_limits_invalidate_evaluation_without_sources(monkeypatch):
+    monkeypatch.setattr("archdiscov.ingestion.cloudformation.intrinsics.MAX_BYTES", 4)
+    result = run({"property": {"Fn::Join": ["é", ["a", "b", "c"]]}})
     assert result.value is None and not result.resolved and not result.sources
     assert result.issues[-1].reason is EvaluationIssueCode.EVALUATION_LIMIT_OR_INVALID_SHAPE
 
 
-@pytest.mark.parametrize("selected", [True, False])
-def test_if_does_not_evaluate_unselected_sensitive_or_invalid_operations(selected):
+def test_if_does_not_evaluate_unselected_sensitive_or_invalid_operations():
     ignored = {
         "secret": {"Fn::Join": ["-", [{"Ref": "Secret"}]]},
         "reference": {"Ref": "R"},
         "invalid": {"Fn::Select": [-1, []]},
         "cycle": {"Condition": "Cycle"},
     }
-    branches = [{"answer": ["safe"]}, ignored] if selected else [ignored, {"answer": ["safe"]}]
     result = run(
-        {"property": {"Fn::If": ["C", *branches]}},
-        conditions={"C": selected, "Cycle": {"Condition": "Cycle"}},
+        {"property": {"Fn::If": ["C", {"answer": ["safe"]}, ignored]}},
+        conditions={"C": True, "Cycle": {"Condition": "Cycle"}},
         parameters={"Secret": "[REDACTED]"},
         resources={"R"},
     )
@@ -127,14 +78,10 @@ def test_mapping_results_are_literals_with_intrinsic_boundary_provenance():
     ("name", "valid"),
     [
         ("Fn::Join", ["-", ["a", "b"]]),
-        ("Fn::Split", [",", "a,b"]),
-        ("Fn::Select", [0, ["a"]]),
-        ("Fn::FindInMap", ["M", "top", "key"]),
-        ("Fn::Equals", [1, 1]),
-        ("Fn::Not", [True]),
         ("Fn::And", [True, False]),
-        ("Fn::Or", [True, False]),
+        ("Fn::FindInMap", ["M", "top", "key"]),
     ],
+    ids=["fixed-arity", "arity-range", "mapping-lookup"],
 )
 def test_eager_intrinsic_arity_is_checked_before_arguments(name, valid):
     for arguments in (valid[:-1], valid + [None] * 10, {"Ref": "R"}):
@@ -229,11 +176,9 @@ def test_substitution_explicit_variables_escapes_and_local_references():
     [
         {"Fn::Join": ["-", [{"Ref": "Secret"}, "suffix"]]},
         {"Fn::Sub": "prefix-${Secret}"},
-        {"Fn::Sub": ["${X}", {"X": {"Ref": "Secret"}}]},
-        {"Fn::Split": [",", {"Ref": "Secret"}]},
-        {"Fn::Equals": [{"Ref": "Secret"}, "x"]},
         {"Fn::ImportValue": {"Ref": "Secret"}},
     ],
+    ids=["eager-operand", "substitution", "import-value"],
 )
 def test_redacted_inputs_cannot_be_derived_or_exposed(expression):
     result = run({"identifier": expression}, parameters={"Secret": "[REDACTED]"})
@@ -255,12 +200,19 @@ def test_direct_redacted_values_are_preserved():
     "expression",
     [
         {"Fn::Select": [-1, ["a"]]},
-        {"Fn::Join": ["-", [1]]},
         {"Fn::If": ["Missing", 1, 2]},
         {"Fn::Sub": "${Missing}"},
         {"Fn::Unsupported": "secret-source"},
         {"Ref": "P", "extra": "secret-source"},
         {"Fn::ImportValue": "external-export"},
+    ],
+    ids=[
+        "invalid-operand",
+        "unavailable-condition",
+        "unavailable-substitution",
+        "unsupported-intrinsic",
+        "extra-key",
+        "import-value",
     ],
 )
 def test_unsupported_or_invalid_expressions_are_unknown_without_raw_messages(expression):

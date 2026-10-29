@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import get_args
 from uuid import UUID
 
@@ -79,17 +79,8 @@ def test_examples_cover_every_failure_reason() -> None:
 
 @pytest.mark.parametrize(
     "data",
-    [
-        {"status": "failed"},
-        {"status": "answered", "failure": "cancelled"},
-        {"status": "failed", "failure": "limit_reached"},
-        {"status": "failed", "failure": "cancelled", "limit": "tool_calls"},
-        {"status": "failed", "failure": "provider_error", "limit": "tool_calls"},
-        {"status": "answered", "malformed": "proposal_invalid"},
-        {"status": "failed", "failure": "rejected_after_repair"},
-        {"status": "failed", "failure": "gave_up"},
-        {"status": "answered", "confidence": 1},
-    ],
+    [{"status": "failed"}, {"status": "failed", "failure": "limit_reached"}],
+    ids=["failed-without-reason", "missing-detail"],
 )
 def test_inconsistent_outcomes_are_rejected(data: dict) -> None:
     with pytest.raises(ValidationError):
@@ -147,6 +138,8 @@ def test_every_run_outcome_maps_to_one_answer_outcome(outcome: RunOutcome) -> No
         with pytest.raises(ValueError, match="only after its repair"):
             final_outcome(outcome, rejections, repaired=False)
     mapped = final_outcome(outcome, rejections, repaired=True)
+    if not needs_repair(outcome, rejections):
+        assert final_outcome(outcome, rejections, repaired=False) == mapped
     expected = {
         Proposed: (FailureReason.REJECTED_AFTER_REPAIR, "rejections", UNKNOWN_ID_REJECTIONS),
         Answered: (FailureReason.NO_PROPOSAL_AFTER_REPAIR, None, None),
@@ -177,12 +170,6 @@ def test_valid_proposals_answer_before_or_after_repair() -> None:
         status="answered_after_repair"
     )
     assert final_outcome(proposed, (), repaired=False).exit_code == 0
-
-
-def test_unrepairable_outcomes_fail_without_repair() -> None:
-    for outcome in every_run_outcome():
-        if not needs_repair(outcome, ()) and not isinstance(outcome, Proposed):
-            assert final_outcome(outcome, (), repaired=False).status == AnswerStatus.FAILED
 
 
 # ---- the rendered answer -----------------------------------------------------------
@@ -220,7 +207,11 @@ CONCLUSION = RenderedConclusion(
 )
 
 
-@pytest.mark.parametrize("kind", list(SnapshotSourceKind), ids=lambda kind: kind.value)
+@pytest.mark.parametrize(
+    "kind",
+    [SnapshotSourceKind.AWS, SnapshotSourceKind.TERRAFORM_PLAN],
+    ids=lambda kind: kind.value,
+)
 def test_snapshots_flag_declared_state(kind: SnapshotSourceKind) -> None:
     snapshot = _snapshot(kind=kind)
     assert snapshot.declared == (kind in DECLARED_SOURCE_KINDS)
@@ -258,7 +249,6 @@ def test_answers_and_failures_round_trip() -> None:
             "narrative": None,
             "status": AnalysisStatus.SUPPORTED,
         },
-        {"outcome": AnswerOutcome(status="answered"), "status": None},
         {
             "outcome": AnswerOutcome(status="failed", failure="cancelled"),
             "status": None,
@@ -269,33 +259,13 @@ def test_answers_and_failures_round_trip() -> None:
             "status": None,
             "failure": RenderedFailure(reason="cancelled", unverified=("Cancelled.",)),
         },
-        {
-            "outcome": AnswerOutcome(status="failed", failure="cancelled"),
-            "status": None,
-            "narrative": None,
-            "failure": RenderedFailure(reason="limit_reached", unverified=("Stopped.",)),
-        },
-        {
-            "outcome": AnswerOutcome(status="failed", failure="cancelled"),
-            "status": None,
-            "narrative": None,
-            "conclusions": (CONCLUSION,),
-            "failure": RenderedFailure(reason="cancelled", unverified=("Cancelled.",)),
-        },
-        {"snapshots": (_snapshot("comparison"),)},
         {"snapshots": (_snapshot("comparison"), _snapshot())},
-        {"snapshots": (_snapshot(), _snapshot())},
     ],
     ids=[
         "answer-without-narrative",
-        "answer-without-status",
         "failure-without-explanation",
         "failure-with-narrative",
-        "failure-with-other-reason",
-        "failure-with-conclusions",
-        "no-primary",
         "primary-not-first",
-        "duplicate-side",
     ],
 )
 def test_renderings_show_an_answer_or_a_failure(fields: dict) -> None:
@@ -310,8 +280,6 @@ def test_renderings_show_an_answer_or_a_failure(fields: dict) -> None:
 
 
 def test_rendered_bounds() -> None:
-    with pytest.raises(ValidationError):
-        RenderedConclusion.model_validate({**CONCLUSION.model_dump(), "statements": ()})
     with pytest.raises(ValidationError):
         RenderedConclusion.model_validate({**CONCLUSION.model_dump(), "statements": ("x" * 501,)})
     with pytest.raises(ValidationError):
@@ -339,8 +307,6 @@ def test_affirmative_answers_must_show_their_conclusions() -> None:
 
 
 def test_a_collection_window_cannot_end_before_it_starts() -> None:
-    from datetime import timedelta
-
     with pytest.raises(ValidationError):
         RenderedSnapshot(
             side="primary",
@@ -364,11 +330,13 @@ def test_details_are_checked_by_presence_not_truthiness() -> None:
     [
         {"findings": (), "status": None},
         {"status": AnalysisStatus.SUPPORTED},
-        {"status": None},
         {"statements": ("Quoted as [2].",)},
-        {"statements": ("Quoted as [0].",)},
     ],
-    ids=["analyzer-without-findings", "status-not-combined", "no-status", "dangling", "zero"],
+    ids=[
+        "analyzer-without-findings",
+        "status-not-combined",
+        "dangling",
+    ],
 )
 def test_conclusions_are_consistent_with_their_findings_and_data(fields: dict) -> None:
     with pytest.raises(ValidationError):

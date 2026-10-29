@@ -1,7 +1,8 @@
-"""Test modules share helpers through `tests/support`, never by importing another test module.
+"""Test modules share helpers through `tests/support`, never by importing another test module
+or a helper kept beside the tests.
 
 A test module's helpers are private to it: importing them makes moving or renaming one break
-unrelated tests.
+unrelated tests. Only `tests.support` and `tests.paths` are shared.
 """
 
 import ast
@@ -28,12 +29,22 @@ def _imported_modules(path: Path) -> list[str]:
     return found
 
 
-def test_no_test_module_imports_another() -> None:
+SHARED = ("tests.support", "tests.paths")
+
+
+def _unshared(module: str) -> bool:
+    """A module under `tests` that is a test module or is not one of the shared helpers."""
+    if not module.startswith("tests."):
+        return False
+    return module.rsplit(".", 1)[-1].startswith("test_") or not any(
+        module == shared or module.startswith(f"{shared}.") for shared in SHARED
+    )
+
+
+def test_tests_import_only_the_shared_helpers() -> None:
     imports = {
         path.relative_to(TESTS).as_posix(): sorted(
-            module
-            for module in _imported_modules(path)
-            if module.startswith("tests.") and module.rsplit(".", 1)[-1].startswith("test_")
+            module for module in _imported_modules(path) if _unshared(module)
         )
         for path in TESTS.rglob("*.py")
         if path.relative_to(TESTS).as_posix() not in INSPECTING

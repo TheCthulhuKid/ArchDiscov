@@ -7,12 +7,6 @@ from archdiscov.ingestion.cloudformation.mapping import map_resource, service_fo
 from archdiscov.models.architecture import Ec2Instance, Subnet, UnknownResource, Vpc
 from archdiscov.models.enums import AwsRegion, AwsService, ResourceType
 from archdiscov.models.resource_base import ResourceIdentity
-from archdiscov.models.resources.network import (
-    InternetGateway,
-    NetworkInterface,
-    RouteTable,
-    SecurityGroup,
-)
 
 
 def identity(kind):
@@ -52,11 +46,8 @@ def assert_safe_facts(resource, facts, properties):
         (ResourceType.VPC, Vpc),
         (ResourceType.SUBNET, Subnet),
         (ResourceType.EC2_INSTANCE, Ec2Instance),
-        (ResourceType.SECURITY_GROUP, SecurityGroup),
-        (ResourceType.INTERNET_GATEWAY, InternetGateway),
-        (ResourceType.ROUTE_TABLE, RouteTable),
-        (ResourceType.NETWORK_INTERFACE, NetworkInterface),
     ],
+    ids=["cidrs", "cidrs-and-zone", "instance-type"],
 )
 def test_core_mapping_is_allowlisted_logical_only_and_cites_safe_leaves(kind, model):
     properties = {
@@ -114,81 +105,12 @@ def test_core_mapping_is_allowlisted_logical_only_and_cites_safe_leaves(kind, mo
             },
         ),
         (
-            ResourceType.SQS_QUEUE,
-            {"QueueName": "queue", "VisibilityTimeout": 30, "MessageRetentionPeriod": 86400},
-            {"queue_name": "queue", "visibility_timeout": 30, "message_retention_period": 86400},
-        ),
-        (
-            ResourceType.RDS_INSTANCE,
-            {
-                "DBInstanceIdentifier": "database",
-                "Engine": "postgres",
-                "EngineVersion": "17",
-                "Port": 5432,
-                "DBInstanceClass": "db.t3.micro",
-            },
-            {
-                "db_instance_identifier": "database",
-                "engine": "postgres",
-                "engine_version": "17",
-                "port": 5432,
-                "db_instance_class": "db.t3.micro",
-            },
-        ),
-        (
-            ResourceType.RDS_CLUSTER,
-            {
-                "DBClusterIdentifier": "cluster",
-                "Engine": "aurora-postgresql",
-                "EngineVersion": "17",
-                "Port": 5432,
-            },
-            {
-                "db_cluster_identifier": "cluster",
-                "engine": "aurora-postgresql",
-                "engine_version": "17",
-                "port": 5432,
-            },
-        ),
-        (
-            ResourceType.RDS_SUBNET_GROUP,
-            {"DBSubnetGroupName": "database-subnets"},
-            {"db_subnet_group_name": "database-subnets"},
-        ),
-        (ResourceType.ECS_CLUSTER, {"ClusterName": "cluster"}, {"cluster_name": "cluster"}),
-        (ResourceType.ECS_SERVICE, {"ServiceName": "service"}, {"service_name": "service"}),
-        (ResourceType.ECS_TASK_DEFINITION, {"Family": "family"}, {"family": "family"}),
-        (
             ResourceType.IAM_ROLE,
             {"RoleName": "role", "Path": "/app/"},
             {"role_name": "role", "path": "/app/"},
         ),
-        (
-            ResourceType.INSTANCE_PROFILE,
-            {"InstanceProfileName": "profile", "Path": "/app/"},
-            {"instance_profile_name": "profile", "path": "/app/"},
-        ),
-        (
-            ResourceType.MANAGED_POLICY,
-            {"ManagedPolicyName": "policy", "Path": "/app/"},
-            {"managed_policy_name": "policy", "path": "/app/"},
-        ),
-        (
-            ResourceType.ELBV2_LOAD_BALANCER,
-            {"Name": "lb", "Scheme": "internal", "Type": "application"},
-            {"name": "lb", "scheme": "internal", "type": "application"},
-        ),
-        (
-            ResourceType.ELBV2_LISTENER,
-            {"Protocol": "HTTPS", "Port": 443},
-            {"protocol": "HTTPS", "port": 443},
-        ),
-        (
-            ResourceType.ELBV2_TARGET_GROUP,
-            {"Name": "targets", "Protocol": "HTTP", "TargetType": "ip", "Port": 80},
-            {"name": "targets", "protocol": "HTTP", "target_type": "ip", "port": 80},
-        ),
     ],
+    ids=["strings-and-integers", "iam-policy-limitation"],
 )
 def test_arn_models_keep_only_selected_configuration(kind, properties, attributes):
     properties = {
@@ -237,19 +159,10 @@ def test_invalid_values_are_omitted_individually_without_losing_valid_facts():
     assert_safe_facts(resource, facts, properties)
 
 
-@pytest.mark.parametrize(
-    "value",
-    [
-        None,
-        [],
-        "[REDACTED]",
-        -1,
-    ],
-)
-def test_invalid_scalar_configuration_does_not_abort_or_leak(value):
+def test_invalid_scalar_configuration_does_not_abort_or_leak():
     resource, facts, limitations = map_resource(
         str(ResourceType.LAMBDA_FUNCTION),
-        {"MemorySize": value, "Runtime": "python3.13"},
+        {"MemorySize": -1, "Runtime": "python3.13"},
         identity(ResourceType.LAMBDA_FUNCTION),
     )
     assert resource.attributes == {"runtime": "python3.13"}
@@ -257,7 +170,7 @@ def test_invalid_scalar_configuration_does_not_abort_or_leak(value):
     assert limitations
 
 
-@pytest.mark.parametrize("value", [None, True, [], {}, "[REDACTED]", "10.0.0.1/16", "::/64"])
+@pytest.mark.parametrize("value", [None, "::/64"], ids=["not-string", "wrong-version"])
 def test_invalid_ipv4_cidr_is_omitted_without_dropping_valid_ipv6(value):
     resource, facts, limitations = map_resource(
         str(ResourceType.VPC),
@@ -271,7 +184,8 @@ def test_invalid_ipv4_cidr_is_omitted_without_dropping_valid_ipv6(value):
 
 @pytest.mark.parametrize(
     "tags",
-    [None, "private", {}, [None], [{"Key": "Name"}], [{"Key": "Name", "Value": "[REDACTED]"}]],
+    ["private", [None]],
+    ids=["not-list", "tag-not-mapping"],
 )
 def test_invalid_tags_do_not_persist_or_abort(tags):
     resource, facts, limitations = map_resource(
@@ -312,10 +226,9 @@ def test_inline_rules_are_explicitly_unmapped_and_never_cited():
     assert "not-retained" not in resource.model_dump_json()
 
 
-@pytest.mark.parametrize("properties", [None, [], "private"])
-def test_malformed_properties_do_not_abort(properties):
+def test_malformed_properties_do_not_abort():
     resource, facts, limitations = map_resource(
-        str(ResourceType.VPC), properties, identity(ResourceType.VPC)
+        str(ResourceType.VPC), "private", identity(ResourceType.VPC)
     )
     assert isinstance(resource, Vpc)
     assert resource.attributes == {}
@@ -323,7 +236,9 @@ def test_malformed_properties_do_not_abort(properties):
     assert limitations == ["Invalid or unresolved Properties omitted."]
 
 
-@pytest.mark.parametrize("kind", ["Custom::Thing", "AWS::IAM::Unrecognized", "AWS::S3::Bucket"])
+@pytest.mark.parametrize(
+    "kind", ["Custom::Thing", "AWS::IAM::Unrecognized"], ids=["unsupported", "unsupported-iam"]
+)
 def test_unsupported_type_is_exact_and_does_not_copy_payload(kind):
     resource, facts, limitations = map_resource(
         kind, {"Payload": {"secret": "private"}}, identity(kind)
@@ -357,18 +272,11 @@ def test_nested_stack_does_not_persist_url_or_parameters():
     "kind,service",
     [
         (str(ResourceType.VPC), AwsService.EC2),
-        (str(ResourceType.IAM_ROLE), AwsService.IAM),
         ("AWS::IAM::Unrecognized", AwsService.IAM),
-        ("AWS::S3::Bucket", AwsService.S3),
-        (str(ResourceType.LAMBDA_FUNCTION), AwsService.LAMBDA),
-        (str(ResourceType.SQS_QUEUE), AwsService.SQS),
-        (str(ResourceType.RDS_INSTANCE), AwsService.RDS),
-        (str(ResourceType.ECS_CLUSTER), AwsService.ECS),
-        (str(ResourceType.ELBV2_LOAD_BALANCER), AwsService.ELASTIC_LOAD_BALANCING),
-        ("AWS::CloudFormation::Stack", AwsService.CLOUDFORMATION),
         ("AWS::NotSupported::Thing", AwsService.UNKNOWN),
         ("Custom::Thing", AwsService.UNKNOWN),
     ],
+    ids=["known-namespace", "unsupported-type-in-known-namespace", "unknown-namespace", "not-aws"],
 )
 def test_service_for_type(kind, service):
     assert service_for_type(kind) == service

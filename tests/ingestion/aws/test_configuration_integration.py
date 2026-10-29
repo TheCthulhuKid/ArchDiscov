@@ -1,7 +1,4 @@
 import json
-import os
-import subprocess
-import sys
 from typing import ClassVar
 
 import pytest
@@ -147,23 +144,6 @@ def test_collect_cli_accepts_each_regional_service(monkeypatch, tmp_path, servic
     )
     assert missing_region.exit_code == 2
     assert not (tmp_path / "bad.json").exists()
-
-
-def test_installed_help_names_all_services_outside_checkout(tmp_path):
-    env = {
-        key: value
-        for key, value in os.environ.items()
-        if key != "PYTHONPATH" and not key.startswith("AWS_")
-    }
-    result = subprocess.run(
-        [sys.executable, "-m", "archdiscov", "collect", "--help"],
-        cwd=tmp_path,
-        env=env,
-        text=True,
-        capture_output=True,
-        check=True,
-    )
-    assert all(service.value in result.stdout for service in SERVICES)
 
 
 def test_identity_failure_prevents_new_service_calls():

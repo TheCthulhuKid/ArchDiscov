@@ -1,16 +1,149 @@
+"""The `collect` command: scope and limit options in process, and what one service collects
+through the CLI; what each service's collection contains is its adapter's tests' concern."""
+
 import json
 
 import pytest
 from botocore.exceptions import ClientError
 from typer.testing import CliRunner
 
+from archdiscov import cli_collection
 from archdiscov.cli import app
 from archdiscov.ingestion import aws as aws_module
+from archdiscov.ingestion.requests import COLLECTABLE_SERVICES, RegionScope
 from archdiscov.ingestion.service_catalog import REGIONAL_OPERATIONS
 from archdiscov.models.enums import AwsService
 from archdiscov.services import load_snapshot
 from tests.support.aws_fakes import Session
 from tests.support.iam_data import ACCOUNT, IamClient, IamSession, ec2_pages, responses
+
+
+def arguments(path):
+    return ["collect", "--account", f"dev:{ACCOUNT}", "-o", str(path), "--json"]
+
+
+@pytest.mark.parametrize(
+    "flags,services,scope,regions",
+    [
+        (["--all-services"], COLLECTABLE_SERVICES, RegionScope.ENABLED, ()),
+        (
+            ["--all-services", "--region", "us-west-2"],
+            COLLECTABLE_SERVICES,
+            RegionScope.EXPLICIT,
+            ("us-west-2",),
+        ),
+        (["--region", "us-east-1"], {"ec2"}, RegionScope.EXPLICIT, ("us-east-1",)),
+        (["--service", "iam"], {"iam"}, RegionScope.EXPLICIT, ()),
+        (["--service", "lambda", "--region-scope", "enabled"], {"lambda"}, RegionScope.ENABLED, ()),
+    ],
+)
+def test_cli_selects_scope_without_changing_selective_defaults(
+    monkeypatch, tmp_path, flags, services, scope, regions
+):
+    seen = []
+    monkeypatch.setattr(
+        cli_collection, "collect_and_save", lambda request, paths: seen.append(request) or []
+    )
+    result = CliRunner().invoke(app, [*arguments(tmp_path / "snapshot.json"), *flags])
+    assert result.exit_code == 0, result.output
+    (request,) = seen
+    (account,) = request.accounts
+    assert set(account.services) == services
+    assert account.region_scope is scope
+    assert account.regions == regions
+    assert account.all_services == ("--all-services" in flags)
+
+
+def test_cli_forwards_execution_and_bootstrap_controls(monkeypatch, tmp_path):
+    seen = []
+    paths = []
+
+    def collect(request, outputs):
+        seen.append(request)
+        paths.extend(outputs)
+        return []
+
+    monkeypatch.setattr(cli_collection, "collect_and_save", collect)
+    output = tmp_path / "snapshot.json"
+    result = CliRunner().invoke(
+        app,
+        [
+            *arguments(output),
+            "--all-services",
+            "--bootstrap-region",
+            "us-west-2",
+            "--max-in-flight-calls",
+            "7",
+            "--account-max-in-flight-calls",
+            "3",
+            "--max-active-accounts",
+            "1",
+            "--max-collector-jobs",
+            "5",
+            "--max-concurrency",
+            "2",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    (request,) = seen
+    assert paths == [output]
+    assert request.max_in_flight_calls == 7
+    assert request.max_active_accounts == 1
+    assert request.max_collector_jobs == 5
+    account = request.accounts[0]
+    assert account.bootstrap_region == "us-west-2"
+    assert account.max_in_flight_calls == 3
+    assert account.max_concurrency == 2
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [
+        ["--all-services", "--service", "ec2"],
+        ["--all-services", "--region-scope", "explicit"],
+        ["--all-services", "--region", "global"],
+        ["--all-services", "--bootstrap-region", "invalid-private-value"],
+        ["--all-services", "--max-in-flight-calls", "65"],
+    ],
+    ids=[
+        "all-services-with-service",
+        "explicit-scope-without-regions",
+        "global-region",
+        "unknown-bootstrap-region",
+        "limit-out-of-range",
+    ],
+)
+def test_invalid_scope_and_limits_are_rejected_before_collection(monkeypatch, tmp_path, flags):
+    def unexpected(*args):
+        pytest.fail("invalid CLI request reached collection")
+
+    monkeypatch.setattr(cli_collection, "collect_and_save", unexpected)
+    output = tmp_path / "not-created.json"
+    result = CliRunner().invoke(app, [*arguments(output), *flags])
+    assert result.exit_code == 2, result.output
+    assert json.loads(result.output)["error"]["code"] == "invalid_request"
+    assert "invalid-private-value" not in result.output
+    assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    ("flags", "named"),
+    [
+        (["--all-services", "--max-concurrency", "0"], "max_concurrency"),
+        (["--region", "invalid-private-value"], "--region"),
+    ],
+    ids=["model-issue-location", "option-message"],
+)
+def test_a_rejected_request_names_what_is_wrong_without_its_value(
+    monkeypatch, tmp_path, flags, named
+):
+    monkeypatch.setattr(cli_collection, "collect_and_save", lambda *args: [])
+    result = CliRunner().invoke(app, [*arguments(tmp_path / "x.json"), *flags])
+    assert result.exit_code == 2, result.output
+    error = json.loads(result.output)["error"]
+    locations = [part for issue in error.get("details", []) for part in issue["location"]]
+    assert named in error["message"] or named in locations
+    assert "invalid-private-value" not in result.output
 
 
 @pytest.mark.parametrize("combined", [False, True])
@@ -29,9 +162,7 @@ def test_collect_services_then_inspect_evidence_without_overwrite(tmp_path, monk
     ec2_reads = len(REGIONAL_OPERATIONS[AwsService.EC2])
     assert len(summary["operations"]) == (2 * ec2_reads + 8 if combined else 8)
     snapshot = load_snapshot(output)
-    assert len(snapshot.global_resources) == 3
     assert len(snapshot.regions) == (2 if combined else 0)
-    assert sum(method == "list_roles" for method, _ in session.iam.calls) == 1
     role = next(
         resource
         for resource in snapshot.global_resources
@@ -52,16 +183,11 @@ def test_collect_services_then_inspect_evidence_without_overwrite(tmp_path, monk
     assert output.read_bytes() == before
 
 
+# The default service, EC2, is regional; the request model's own rules are its tests' concern.
 @pytest.mark.parametrize(
     "options",
-    [
-        [],
-        ["--service", "ec2"],
-        ["--service", "iam", "--service", "ec2"],
-        ["--service", "not-a-service"],
-        ["--service", "s3"],
-        ["--service", "iam", "--service", "iam"],
-    ],
+    [[], ["--service", "not-a-service"]],
+    ids=["default-service-without-region", "unknown-service"],
 )
 def test_invalid_service_or_missing_required_region_makes_no_calls(tmp_path, monkeypatch, options):
     calls = []

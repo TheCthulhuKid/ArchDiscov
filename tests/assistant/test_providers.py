@@ -89,17 +89,10 @@ def test_a_fake_without_a_transcript_is_refused(tmp_path: Path) -> None:
     assert str(error) == "Fake provider configuration names no transcript file."
 
 
-@pytest.mark.parametrize(
-    ("content", "code"),
-    [(None, FakeScriptErrorCode.UNREADABLE), ("{not json", FakeScriptErrorCode.INVALID)],
-    ids=["missing", "invalid"],
-)
-def test_an_unusable_transcript_is_refused(tmp_path: Path, content, code) -> None:
-    if content is not None:
-        (tmp_path / "run.json").write_text(content, encoding="utf-8")
+def test_an_unusable_transcript_is_refused_with_its_resolved_path(tmp_path: Path) -> None:
     with pytest.raises(FakeScriptError) as raised:
         load_provider(_config(tmp_path, 'kind = "fake"\ntranscript = "run.json"\n'))
-    assert raised.value.code == code
+    assert raised.value.code == FakeScriptErrorCode.UNREADABLE
     assert raised.value.path == tmp_path / "run.json"
 
 

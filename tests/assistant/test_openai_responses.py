@@ -12,8 +12,6 @@ from archdiscov.assistant.config import OpenAIProtocol
 from archdiscov.assistant.conversation import (
     AssistantMessage,
     Conversation,
-    MalformedArgumentsReason,
-    MalformedToolArguments,
     ParsedToolArguments,
     TokenUsage,
     ToolCall,
@@ -26,7 +24,6 @@ from archdiscov.assistant.provider import (
     ProviderInvalidRequestError,
     ProviderMalformedOutputError,
     ProviderRefusalError,
-    ProviderTruncatedOutputError,
     RequestLimits,
     StopReason,
 )
@@ -199,15 +196,12 @@ def test_a_request_without_tools_sends_no_tool_fields_and_no_secret() -> None:
     assert set(json.loads(body)) == {"model", "input", "store", "max_output_tokens"}
 
 
-@pytest.mark.parametrize("provider_kind", ["fake", "anthropic"])
-def test_another_providers_continuation_is_refused_before_any_request(
-    provider_kind: str,
-) -> None:
+def test_another_providers_continuation_is_refused_before_any_request() -> None:
     api = responding_api(_body(TEXT))
     message = {
         "role": "assistant",
         "text": "Thinking.",
-        "continuation": {"provider_kind": provider_kind, "blocks": [THINKING]},
+        "continuation": {"provider_kind": "anthropic", "blocks": [THINKING]},
     }
     with pytest.raises(ProviderInvalidRequestError):
         send_request(
@@ -224,44 +218,13 @@ def _call(item: dict, arguments=None) -> ToolCall:
     return ToolCall(id=item["call_id"], name=item["name"], arguments=value)
 
 
-def _malformed(reason: MalformedArgumentsReason) -> MalformedToolArguments:
-    return MalformedToolArguments(reason=reason)
-
-
 @pytest.mark.parametrize(
     ("body", "message", "stop"),
     [
-        (_body(TEXT), AssistantMessage(text="None of them."), StopReason.END),
-        (_body(LOOKUP), AssistantMessage(tool_calls=(_call(LOOKUP),)), StopReason.TOOL_USE),
-        (
-            _body(LOOKUP, INSPECTION),
-            AssistantMessage(tool_calls=(_call(LOOKUP), _call(INSPECTION))),
-            StopReason.TOOL_USE,
-        ),
         (
             _body(_message(_text("Let me ")), _message(_text("look.")), LOOKUP),
             AssistantMessage(text="Let me look.", tool_calls=(_call(LOOKUP),)),
             StopReason.TOOL_USE,
-        ),
-        (
-            _body({**LOOKUP, "arguments": "{not json"}, {**INSPECTION, "arguments": "[1]"}),
-            AssistantMessage(
-                tool_calls=(
-                    _call(LOOKUP, _malformed(MalformedArgumentsReason.INVALID_JSON)),
-                    _call(INSPECTION, _malformed(MalformedArgumentsReason.NOT_OBJECT)),
-                )
-            ),
-            StopReason.TOOL_USE,
-        ),
-        (
-            _body(TEXT, status="incomplete", reason="max_output_tokens"),
-            AssistantMessage(text="None of them."),
-            StopReason.LENGTH,
-        ),
-        (
-            _body(_message({"type": "refusal", "refusal": "I cannot help."})),
-            AssistantMessage(text="I cannot help."),
-            StopReason.REFUSAL,
         ),
         (
             # Reasoning that cannot go back statelessly is left out of the message.
@@ -271,13 +234,7 @@ def _malformed(reason: MalformedArgumentsReason) -> MalformedToolArguments:
         ),
     ],
     ids=[
-        "text",
-        "single-call",
-        "parallel-calls",
         "text-and-calls",
-        "malformed-arguments",
-        "length-text",
-        "refusal-text",
         "unencrypted-reasoning",
     ],
 )
@@ -291,8 +248,6 @@ def test_responses_map_to_the_shared_contracts(body, message, stop) -> None:
 @pytest.mark.parametrize(
     ("body", "error"),
     [
-        (_body(status="incomplete", reason="max_output_tokens"), ProviderTruncatedOutputError),
-        (_body(TEXT, status="incomplete", reason="content_filter"), ProviderRefusalError),
         (
             _body(_message({"type": "refusal", "refusal": "No."}), LOOKUP),
             ProviderRefusalError,
@@ -302,8 +257,6 @@ def test_responses_map_to_the_shared_contracts(body, message, stop) -> None:
         (_body({**LOOKUP, "name": "not a tool"}), ProviderMalformedOutputError),
     ],
     ids=[
-        "length-empty",
-        "content-filter-text",
         "refusal-with-call",
         "failed",
         "unknown-item",
@@ -317,27 +270,18 @@ def test_unusable_responses_are_typed_errors_without_provider_text(body, error) 
     assert "None of them" not in "".join(secret_renderings(raised.value))
 
 
-@pytest.mark.parametrize(
-    ("usage", "expected"),
-    [
-        (
-            {
-                "input_tokens": 10,
-                "output_tokens": 5,
-                "input_tokens_details": {"cached_tokens": 3, "cache_write_tokens": 2},
-            },
-            TokenUsage(
-                input_tokens=10,
-                output_tokens=5,
-                cache_read_input_tokens=3,
-                cache_write_input_tokens=2,
-            ),
-        ),
-        ({"input_tokens": 10, "output_tokens": 5}, TokenUsage(input_tokens=10, output_tokens=5)),
-    ],
-    ids=["with-cache", "without-cache"],
-)
-def test_usage_maps_cached_tokens(usage, expected) -> None:
+def test_usage_maps_cached_tokens() -> None:
+    usage = {
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "input_tokens_details": {"cached_tokens": 3, "cache_write_tokens": 2},
+    }
+    expected = TokenUsage(
+        input_tokens=10,
+        output_tokens=5,
+        cache_read_input_tokens=3,
+        cache_write_input_tokens=2,
+    )
     assert send_request(_responses(responding_api(_body(TEXT, usage=usage)))).usage == expected
 
 

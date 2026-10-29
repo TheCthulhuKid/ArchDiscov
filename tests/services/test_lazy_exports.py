@@ -24,7 +24,7 @@ def test_unknown_names_raise_attribute_error() -> None:
         raise AssertionError("expected AttributeError")
 
 
-def test_query_and_analysis_modules_do_not_load_the_aws_sdk() -> None:
+def test_only_collection_loads_the_aws_sdk_and_only_on_use() -> None:
     script = (
         "import sys\n"
         "import archdiscov.services.queries, archdiscov.services.neighbours\n"
@@ -32,20 +32,10 @@ def test_query_and_analysis_modules_do_not_load_the_aws_sdk() -> None:
         "import archdiscov.services.analysis_execution, archdiscov.services.analyses\n"
         "import archdiscov.services.comparison_results, archdiscov.services.snapshots\n"
         "print(','.join(m for m in ('boto3', 'botocore') if m in sys.modules))\n"
-    )
-    completed = subprocess.run(
-        [sys.executable, "-c", script], capture_output=True, text=True, check=True, cwd=PROJECT_ROOT
-    )
-    assert completed.stdout.strip() == ""
-
-
-def test_collection_still_loads_the_aws_sdk_on_use() -> None:
-    script = (
-        "import sys\n"
         "from archdiscov.services import collect_snapshots\n"
         "print('botocore' in sys.modules)\n"
     )
     completed = subprocess.run(
         [sys.executable, "-c", script], capture_output=True, text=True, check=True, cwd=PROJECT_ROOT
     )
-    assert completed.stdout.strip() == "True"
+    assert completed.stdout.splitlines() == ["", "True"]

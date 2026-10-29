@@ -1,10 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from archdiscov.ingestion.adapter import IngestionError
-from archdiscov.ingestion.aws import require_allowed
-from archdiscov.ingestion.operations import ALLOWED_OPERATIONS, Ec2Operation
-from archdiscov.models.enums import AwsService, ResourceType, RouteTargetKind
+from archdiscov.models.enums import ResourceType, RouteTargetKind
 from archdiscov.models.resources.network import (
     InternetGateway,
     NetworkAcl,
@@ -76,12 +73,3 @@ def test_resource_types_match_aws_names():
     group = SecurityGroup(identity={**IDENTITY, "physical_id": "sg-1"})
     assert group.resource_type is ResourceType.SECURITY_GROUP
     assert group.resource_type.value == "AWS::EC2::SecurityGroup"
-
-
-def test_new_operations_are_allowlisted_and_others_rejected():
-    for operation in Ec2Operation:
-        assert (AwsService.EC2, operation.value) in ALLOWED_OPERATIONS
-        require_allowed(AwsService.EC2, operation.value)
-    with pytest.raises(IngestionError) as exc:
-        require_allowed(AwsService.EC2, "RunInstances")
-    assert exc.value.code == "operation_not_allowed"

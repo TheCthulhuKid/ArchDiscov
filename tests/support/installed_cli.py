@@ -8,10 +8,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from tests.assistant.provider_harness import MockedHarness
 from tests.support.ask_examples import write_provider_config
 from tests.support.evaluation_suites import SUITE
 from tests.support.offline_guard import OfflineGuard
+from tests.support.provider_harness import MockedHarness
 
 # The installed console script. `tests/acceptance/test_package.py` checks that
 # `python -m archdiscov` starts too; journeys run through the script alone.
@@ -24,8 +24,10 @@ def run_installed(
     expect: int = 0,
     timeout: int = 60,
     env: dict[str, str] | None = None,
+    command: list[str] = CLI,
 ) -> subprocess.CompletedProcess[str]:
-    """Run the installed CLI; assert its exit code and a traceback-free stderr.
+    """Run the installed CLI, or another `command`; assert its exit code and a traceback-free
+    stderr.
 
     Without `env` the child inherits the environment minus `PYTHONPATH`.
     """
@@ -33,7 +35,7 @@ def run_installed(
         env = os.environ.copy()
         env.pop("PYTHONPATH", None)
     result = subprocess.run(
-        [*CLI, *arguments],
+        [*command, *arguments],
         cwd=cwd,
         env=env,
         capture_output=True,
@@ -102,18 +104,18 @@ def suite_cases(ws: Workspace, suite: str) -> dict[str, dict]:
     return {case["id"]: case for case in data["cases"]}
 
 
-def ingest_selection(ws: Workspace, suite: str, case: dict) -> list[str]:
-    """Ingest the case's snapshots, byte for byte, and return the `--snapshot`, `--compare`,
-    and `--comparison-result` options that select the ingested files."""
+def case_selection(ws: Workspace, suite: str, case: dict) -> list[str]:
+    """The `--snapshot`, `--compare`, and `--comparison-result` options that select the case's
+    files in the workspace's `fixtures/<suite>`.
+
+    The files are selected as copied: ingesting a snapshot file saves it byte for byte, which
+    `test_installed_end_to_end.py` checks once, so a journey need not ingest each case again.
+    """
     fixtures = ws.path("fixtures", suite)
     selection = []
     for key, option in (("snapshot", "--snapshot"), ("comparison", "--compare")):
-        if key not in case:
-            continue
-        output = ws.path("snapshots", f"{suite}-{case['id']}-{key}.json")
-        saved = ws.json("ingest", fixtures / case[key], "-o", output)
-        assert digest(output) == digest(fixtures / case[key]), saved
-        selection += [option, str(output)]
+        if key in case:
+            selection += [option, str(fixtures / case[key])]
     for path in case.get("comparison_results", ()):
         selection += ["--comparison-result", str(fixtures / path)]
     return selection

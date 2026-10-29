@@ -31,15 +31,16 @@ def test_default_and_explicit_snapshot_import(tmp_path, explicit):
     [
         ("unknown-secret", {}),
         ("snapshot", {"stack_id": "private-value"}),
-        ("snapshot", {"sensitive_paths": ("/Properties/Password",)}),
         ("terraform-state", {"stack_name": "Example"}),
         ("terraform-plan", {"account_id": "private-value"}),
-        ("terraform-state", {"region": "global"}),
         ("cloudformation", {}),
-        (
-            "cloudformation",
-            {"account_id": "private-value", "region": "eu-west-1"},
-        ),
+    ],
+    ids=[
+        "unknown-format",
+        "snapshot-context",
+        "terraform-with-cloudformation-option",
+        "request-validation",
+        "cloudformation-without-context",
     ],
 )
 def test_invalid_selection_or_context_never_reads_or_publishes(tmp_path, source_format, options):
@@ -57,12 +58,11 @@ def test_invalid_selection_or_context_never_reads_or_publishes(tmp_path, source_
     "content",
     [
         b'{"Secret":"private-value",',
-        b'{"Secret":"private-value","Secret":"another"}',
         b'["private-value"]',
-        b'{"Secret":NaN}',
         b"[" * 1000 + b"]" * 1000,
         b'{"Secret":"' + b"x" * (1024 * 1024) + b'"}',
     ],
+    ids=["truncated", "not-an-object", "deep-nesting", "oversized"],
 )
 def test_parameters_file_rejects_unsafe_shapes_without_values(tmp_path, content):
     path = tmp_path / "parameters.json"

@@ -36,6 +36,7 @@ from openai.types.responses.response import IncompleteDetails
 from openai.types.responses.response_usage import InputTokensDetails
 from pydantic import SecretStr
 
+from archdiscov.assistant import anthropic_provider, bedrock_provider, openai_provider
 from archdiscov.assistant.anthropic_provider import AnthropicProvider
 from archdiscov.assistant.bedrock_provider import BedrockProvider
 from archdiscov.assistant.config import OpenAIProtocol, parse_provider_config
@@ -201,14 +202,16 @@ class ScopedProvider:
 class MockedHarness:
     """An adapter over a mocked API that serves fake turns in its protocol's shape.
 
-    A subclass names the provider kind, builds the protocol's response `body`, shows each
-    scripted provider error as the API would (`failures`), gives its provider
-    `configuration`, and `construct`s its adapter from a configuration, key, and API. An
+    A subclass names the provider kind and its SDK's `loggers`, builds the protocol's
+    response `body`, shows each scripted provider error as the API would (`failures`), gives
+    its provider `configuration`, and `construct`s its adapter from a configuration, key, and
+    API. An
     adapter mocked other than through an `httpx2` transport also says how its API serves a
     body (`_respond`) and is made (`_mock`).
     """
 
     name: ClassVar[str]
+    loggers: ClassVar[tuple[str, ...]]
     failures: ClassVar[Mapping[ProviderErrorCode, Served]]
 
     def __init__(self) -> None:
@@ -238,12 +241,21 @@ class MockedHarness:
         clock: FakeClock | None = None,
     ) -> Provider:
         api = self.api(turns, clock)
+        provider = self._over(api, max_retries)
+        if capabilities is not None:
+            provider = ScopedProvider(provider, capabilities)
+            self._apis[provider] = api
+        return provider
+
+    def serving(self, served: Sequence[Served]) -> Provider:
+        """The adapter over a mocked API that serves exactly `served`, as its API sends it."""
+        return self._over(self._mock(list(served), None), 0)
+
+    def _over(self, api: Any, max_retries: int) -> Provider:
         config = parse_provider_config(
             {**self.configuration("PROVIDER_API_KEY"), "max_retries": max_retries}
         )
         provider = self.construct(config, HARNESS_KEY, api)
-        if capabilities is not None:
-            provider = ScopedProvider(provider, capabilities)
         self._apis[provider] = api
         return provider
 
@@ -268,7 +280,11 @@ class MockedHarness:
         return MockApi(served, clock)
 
     def attempts(self, provider: Provider) -> int:
-        return len(self._apis[provider].requests)
+        return len(self.requests(provider))
+
+    def requests(self, provider: Provider) -> list[Any]:
+        """The requests that reached the mocked API, as its transport saw them."""
+        return self._apis[provider].requests
 
 
 def _anthropic_error(status: int, error_type: str) -> Served:
@@ -292,6 +308,7 @@ class AnthropicHarness(MockedHarness):
     """The Anthropic adapter over a mocked Messages API that serves the scripted turns."""
 
     name = "anthropic"
+    loggers = anthropic_provider._SDK_LOGGERS
     # How the Messages API shows each scripted provider error.
     failures: ClassVar[Mapping[ProviderErrorCode, Served]] = {
         ProviderErrorCode.AUTHENTICATION: _anthropic_error(401, "authentication_error"),
@@ -477,6 +494,7 @@ class OpenAIHarness(MockedHarness):
     """The OpenAI-compatible adapter over a mocked API of one protocol."""
 
     name = "openai_compatible"
+    loggers = openai_provider._SDK_LOGGERS
     protocol: ClassVar[OpenAIProtocol]
 
     @property
@@ -571,6 +589,7 @@ class BedrockHarness(MockedHarness):
     """The Bedrock adapter over a mocked Converse API, with the harness's own AWS profile."""
 
     name = "bedrock"
+    loggers = bedrock_provider._SDK_LOGGERS
     # How Converse shows each scripted provider error.
     failures: ClassVar[Mapping[ProviderErrorCode, Served]] = {
         ProviderErrorCode.AUTHENTICATION: _aws_error(403, "AccessDeniedException"),

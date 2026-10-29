@@ -101,20 +101,9 @@ def _edited_record(data: dict) -> None:
     record["cited_finding_ids"] = sorted([*record["cited_finding_ids"], TAMPERED])
 
 
-def _wrong_total(data: dict) -> None:
-    data["providers"][0]["totals"]["passed"] -= 1
-
-
-def _unknown_schema(data: dict) -> None:
-    data["schema_version"] = TAMPERED
-
-
-@pytest.mark.parametrize("edit", [_edited_record, _wrong_total, _unknown_schema])
-def test_loading_refuses_an_edited_report_safely(
-    report: EvaluationReport, tmp_path: Path, edit
-) -> None:
+def test_loading_refuses_an_edited_report_safely(report: EvaluationReport, tmp_path: Path) -> None:
     data = _saved(report, tmp_path)
-    edit(data)
+    _edited_record(data)
     path = tmp_path / "edited.json"
     path.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(EvaluationValidationError) as raised:

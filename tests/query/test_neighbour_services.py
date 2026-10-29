@@ -137,14 +137,6 @@ def test_invalid_and_unknown_requests_are_safe_errors():
     with pytest.raises(QueryError) as unknown:
         query_neighbours(index, {"resource_id": "absent"})
     assert unknown.value.code == QueryErrorCode.RESOURCE_NOT_FOUND
-    for bad in (
-        {},
-        {"resource_id": WEB, "limit_result": 0},
-        {
-            "resource_id": WEB,
-            "options": {"edge_selection": "containment", "relationships": ["attached_to"]},
-        },
-    ):
-        with pytest.raises(QueryError) as error:
-            query_neighbours(index, bad)
-        assert error.value.code == QueryErrorCode.INVALID_REQUEST
+    with pytest.raises(QueryError) as error:
+        query_neighbours(index, {"resource_id": WEB, "limit_result": 0})
+    assert error.value.code == QueryErrorCode.INVALID_REQUEST

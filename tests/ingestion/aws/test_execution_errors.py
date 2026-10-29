@@ -33,7 +33,7 @@ def test_detail_programming_errors_propagate(monkeypatch, stage, error_type):
         runner.run("DescribeLoadBalancers", [DetailCall("DescribeLoadBalancers")])
 
 
-@pytest.mark.parametrize("page", [None, []])
+@pytest.mark.parametrize("page", [None, {}], ids=["not-object", "missing-result-field"])
 def test_malformed_detail_results_are_safe_failures(monkeypatch, page):
     class Client:
         def describe_load_balancers(self, **params):
@@ -61,7 +61,7 @@ def test_expected_sdk_failures_remain_safe(monkeypatch):
     assert "protected-secret" not in result.coverage.model_dump_json()
 
 
-@pytest.mark.parametrize("page", [None, [], {}, {"Vpcs": None}, {"Vpcs": "not a list"}])
+@pytest.mark.parametrize("page", [None, {}], ids=["not-object", "missing-result-list"])
 def test_malformed_operation_results_are_safe_failures(page):
     runner, _ = operation_runner(FakeClient(pages=[page]))
     result = runner.run(task())

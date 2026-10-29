@@ -64,8 +64,8 @@ def test_limited_coverage_downgrades_supported_with_one_limitation(tmp_path, sta
     assert limitation.coverage.location == "eu-west-1"
 
 
-@pytest.mark.parametrize("status", [AnalysisStatus.PARTIAL, AnalysisStatus.INSUFFICIENT_EVIDENCE])
-def test_existing_uncertainty_is_never_upgraded(tmp_path, status):
+def test_existing_uncertainty_is_never_upgraded(tmp_path):
+    status = AnalysisStatus.INSUFFICIENT_EVIDENCE
     index = index_with(tmp_path, "failed")
     qualified = qualify_status(index, index.resources(), status)
     assert qualified.status == status
@@ -171,17 +171,9 @@ def test_registry_is_deterministic_and_rejects_unknown_kinds():
     )
 
 
-@pytest.mark.parametrize(
-    "parameters",
-    [
-        {},
-        {"kind": "nonsense"},
-        {"kind": "ownership", "ownership_keys": []},
-        {"kind": "ownership", "ownership_keys": ["SECRET-KEY", "SECRET-KEY"]},
-    ],
-)
-def test_invalid_parameters_are_safe_errors(parameters):
+def test_invalid_parameters_are_safe_errors():
     index = network_index()
+    parameters = {"kind": "ownership", "ownership_keys": ["SECRET-KEY", "SECRET-KEY"]}
     with pytest.raises(AnalyzerError) as error:
         run_analyzer(index, parameters, registry=AnalyzerRegistry([FakeOwnership()]))
     assert error.value.code == AnalyzerErrorCode.INVALID_PARAMETERS

@@ -2,8 +2,8 @@ from functools import partial
 
 import pytest
 
-from archdiscov.models.enums import NetworkBlockerCode, NetworkDecision, RouteReach
-from archdiscov.services.network_routes import evaluate_subnet_route, evaluate_vpc_route
+from archdiscov.models.enums import NetworkBlockerCode, NetworkDecision
+from archdiscov.services.network_routes import evaluate_vpc_route
 from tests.support.fixture_edits import edited_index
 from tests.support.network_snapshot import resource_id
 
@@ -31,11 +31,6 @@ def test_an_active_peering_route_leads_into_the_peer_vpc_in_both_directions():
     back = evaluate_vpc_route(index, resource_id("subnet-data"), "10.2.1.5", resource_id("vpc-app"))
     assert back.decision == D.ALLOW
     assert "rtb-data-route-1" in back.evidence_ids
-    # A peering route is not an internet gateway.
-    internet = evaluate_subnet_route(
-        index, resource_id("subnet-app"), "10.3.1.5", reach=RouteReach.INTERNET_GATEWAY
-    )
-    assert internet.decision == D.DENY
 
 
 @pytest.mark.parametrize(

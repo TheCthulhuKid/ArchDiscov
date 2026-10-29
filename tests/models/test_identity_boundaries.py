@@ -88,7 +88,16 @@ def test_expected_sdk_errors_have_safe_diagnostics(stage):
     assert SECRET not in str(caught.value)
 
 
-@pytest.mark.parametrize("value", [None, [], {}, {"Account": 123}, {"Account": ACCOUNT, "Arn": 3}])
+@pytest.mark.parametrize(
+    "value",
+    [
+        None,
+        {"Account": 123},
+        {"Account": ACCOUNT, "Arn": 3},
+        {"Account": ACCOUNT, "Arn": "arn:aws:iam::000000000000:user/x"},
+    ],
+    ids=["not-a-mapping", "account", "arn-type", "arn-account"],
+)
 def test_malformed_identity_is_an_expected_failure(value):
     with pytest.raises(IngestionError) as caught:
         invoke("identity", Session(value))
@@ -99,11 +108,10 @@ def test_malformed_identity_is_an_expected_failure(value):
     "credentials",
     [
         None,
-        [],
-        {},
-        {"AccessKeyId": "key"},
         {"AccessKeyId": "key", "SecretAccessKey": SECRET, "SessionToken": None},
+        {"AccessKeyId": "key", "SecretAccessKey": SECRET, "SessionToken": " "},
     ],
+    ids=["not-a-mapping", "missing-value", "blank-value"],
 )
 def test_malformed_assume_role_credentials_are_an_expected_failure(credentials):
     with pytest.raises(IngestionError) as caught:
@@ -112,7 +120,9 @@ def test_malformed_assume_role_credentials_are_an_expected_failure(credentials):
     assert SECRET not in str(caught.value)
 
 
-@pytest.mark.parametrize("value", [None, [], {"Regions": [None]}, {"Regions": [3]}])
+@pytest.mark.parametrize(
+    "value", [None, {"Regions": [None]}], ids=["not-a-mapping", "invalid-entry"]
+)
 def test_malformed_discovery_is_an_expected_failure(value):
     with pytest.raises(IngestionError) as caught:
         invoke("discovery", Session(value))

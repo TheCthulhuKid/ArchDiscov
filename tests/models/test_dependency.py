@@ -26,11 +26,13 @@ def test_dependency_accepts_relationship_enum(relationship: DependencyRelationsh
     assert dependency.relationship is relationship
 
 
-@pytest.mark.parametrize("relationship", ["", "   ", "ATTACHED_TO", "not-a-relationship"])
-def test_unknown_dependency_relationship_is_rejected(relationship: str) -> None:
+def test_unknown_dependency_relationship_is_rejected() -> None:
     with pytest.raises(ValidationError) as error:
         Dependency(
-            source_id="source", target_id="target", relationship=relationship, evidence_ids=["e1"]
+            source_id="source",
+            target_id="target",
+            relationship="not-a-relationship",
+            evidence_ids=["e1"],
         )
     assert error.value.errors()[0]["loc"] == ("relationship",)
 
@@ -130,6 +132,15 @@ def test_schema_1_remains_strict_and_keeps_its_shape() -> None:
             "sensitive",
         ),
     ],
+    ids=[
+        "both-target-forms",
+        "unknown-target",
+        "unknown-source",
+        "foreign-evidence",
+        "unknown-evidence",
+        "unknown-target-kind",
+        "sensitive-source-path",
+    ],
 )
 def test_schema_2_rejects_invalid_targets(mutation, message: str) -> None:
     data = _v2()
@@ -178,7 +189,11 @@ def test_plan_lifecycle_actions_round_trip_in_order(actions: list[str]) -> None:
     )
 
 
-@pytest.mark.parametrize("actions", [[], ["update", "delete"], ["create", "create"], ["bogus"]])
+@pytest.mark.parametrize(
+    "actions",
+    [[], ["update", "delete"], ["bogus"]],
+    ids=["empty", "unsupported-sequence", "unknown-action"],
+)
 def test_plan_lifecycle_rejects_invalid_sequences(actions: list[str]) -> None:
     with pytest.raises(ValidationError):
         ArchitectureSnapshot.model_validate(_plan_snapshot(actions))

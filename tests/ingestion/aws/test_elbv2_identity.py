@@ -30,16 +30,19 @@ IDENTITIES = [
 ]
 
 
-@pytest.mark.parametrize("op,key,field,arn", IDENTITIES)
-@pytest.mark.parametrize("invalid", [None, "account", "kind"])
+@pytest.mark.parametrize(
+    "op,key,field,arn,invalid",
+    [
+        (*identity, invalid)
+        for identity, invalid in zip(IDENTITIES, [None, "account", "region", "kind"], strict=True)
+    ],
+    ids=["not-string", "foreign-account", "foreign-region", "wrong-kind"],
+)
 def test_both_boundaries_reject_invalid_identity(op, key, field, arn, invalid):
     invalid = {
         "account": arn.replace(ACCOUNT, "000000000000"),
         "region": arn.replace("us-east-1", "us-west-2"),
-        "suffix": arn + "/extra",
-        "kind": arn.replace(":loadbalancer/", ":targetgroup/")
-        if field == "LoadBalancerArn"
-        else LB,
+        "kind": LB,
     }.get(invalid, invalid)
     data = responses()
     data_name = {

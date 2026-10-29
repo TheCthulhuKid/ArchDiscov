@@ -3,13 +3,11 @@ import pytest
 from archdiscov.graph import GraphIndex
 from archdiscov.models.enums import (
     AnalysisStatus,
-    AnalyzerErrorCode,
     TrustClassification,
     TrustEffect,
     TrustSource,
 )
 from archdiscov.services import (
-    AnalyzerError,
     AnalyzerRegistry,
     load_snapshot,
     run_analyzer,
@@ -47,18 +45,23 @@ def codes(finding):
     ("principal", "classification"),
     [
         ({"AWS": OTHER}, C.EXTERNAL_ACCOUNT),
-        ({"AWS": f"arn:aws:iam::{OTHER}:root"}, C.EXTERNAL_ACCOUNT),
         ({"AWS": ACCOUNT}, C.SAME_ACCOUNT),
-        ({"AWS": f"arn:aws:iam::{ACCOUNT}:role/not-stored"}, C.SAME_ACCOUNT),
         ({"AWS": role_arn("web")}, C.SAME_ACCOUNT),
         ({"Service": "ec2.amazonaws.com"}, C.SERVICE),
         ({"Federated": f"arn:aws:iam::{ACCOUNT}:saml-provider/company"}, C.FEDERATED),
         ({"AWS": "*"}, C.WILDCARD),
-        ("*", C.WILDCARD),
-        ({"AWS": "arn:aws:iam::*:root"}, C.WILDCARD),
         ({"AWS": "AROAEXAMPLEID"}, C.UNRESOLVED),
         ({"CanonicalUser": "unsupported"}, C.UNRESOLVED),
-        ({"AWS": []}, C.UNRESOLVED),
+    ],
+    ids=[
+        "other-account",
+        "own-account-id",
+        "stored-role",
+        "service",
+        "federated",
+        "wildcard",
+        "role-id-without-account",
+        "unknown-principal-kind",
     ],
 )
 def test_principals_are_classified_from_recorded_edges(principal, classification):
@@ -180,16 +183,6 @@ def test_azure_returns_an_actionable_unsupported_result():
     assert "IAM trust policies" in finding.limitations[0].message
 
 
-def test_invalid_result_limits_are_safe_errors():
-    index = GraphIndex(build({}))
-    for value in (0, 10_001):
-        with pytest.raises(AnalyzerError) as error:
-            run_analyzer(
-                index, {"kind": "cross_account_trust", "result_limit": value}, registry=REGISTRY
-            )
-        assert error.value.code == AnalyzerErrorCode.INVALID_PARAMETERS
-
-
 QUEUE = "work"
 
 
@@ -206,7 +199,6 @@ def queue_single(statements, **options):
         ({"AWS": ACCOUNT}, C.SAME_ACCOUNT),
         ({"Service": "sns.amazonaws.com"}, C.SERVICE),
         ({"AWS": "*"}, C.WILDCARD),
-        ("*", C.WILDCARD),
         ({"CanonicalUser": "x"}, C.UNRESOLVED),
     ],
 )

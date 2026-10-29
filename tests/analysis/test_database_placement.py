@@ -4,8 +4,7 @@ from archdiscov.graph import GraphIndex
 from archdiscov.models.enums import AnalyzerErrorCode, AwsService
 from archdiscov.services import AnalyzerError
 from archdiscov.services.database_placement import PortStatus, resolve_database_placement
-from tests.support.rds_data import CLUSTER, GROUP, INSTANCE, data
-from tests.support.rds_snapshot import build, ec2_roots, resource_id
+from tests.support.rds_data import CLUSTER, GROUP, INSTANCE, build, data, ec2_roots, resource_id
 
 RDS = AwsService.RDS
 SUBNET_A, SUBNET_B = resource_id("subnet-a"), resource_id("subnet-b")

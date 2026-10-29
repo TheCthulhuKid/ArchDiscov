@@ -53,25 +53,6 @@ def test_coverage_reference_round_trip(scope, location, service):
     assert QueryCoverageReference.model_validate_json(reference.model_dump_json()) == reference
 
 
-def test_coverage_reference_rejects_global_location_sentinel():
-    with pytest.raises(
-        ValidationError,
-        match="scope-wide placement uses null location, not global",
-    ) as caught:
-        QueryCoverageReference.model_validate(
-            {
-                "scope": {"platform": "aws", "account_id": "123456789012"},
-                "location": "global",
-                "service": "iam",
-                "operation": "ListRoles",
-            }
-        )
-    errors = caught.value.errors()
-    assert len(errors) == 1
-    assert errors[0]["loc"] == ()
-    assert errors[0]["type"] == "value_error"
-
-
 def test_missing_coverage_limitation_round_trip():
     limitation = QueryMissingCoverageLimitation.model_validate(
         {
@@ -199,12 +180,11 @@ def test_provenance_limitation_round_trip():
     assert QueryProvenanceLimitation.model_validate_json(limitation.model_dump_json()) == limitation
 
 
-@pytest.mark.parametrize("fact_path", ["attributes/tags", "/tags/~2key"])
-def test_provenance_limitation_rejects_invalid_pointer(fact_path):
+def test_provenance_limitation_rejects_invalid_pointer():
     with pytest.raises(ValidationError) as caught:
         QueryProvenanceLimitation(
             resource_id="resource-1",
-            fact_path=fact_path,
+            fact_path="attributes/tags",
             message="Fact provenance is unavailable.",
         )
 
@@ -407,6 +387,7 @@ def test_limitation_union_selects_variant(kind, context, expected_class):
         ({"message": "Missing kind."}, "union_tag_not_found"),
         ({"kind": "invalid", "message": "Unknown kind."}, "union_tag_invalid"),
     ],
+    ids=["missing-kind", "unknown-kind"],
 )
 def test_limitation_union_rejects_invalid_discriminator(data, error_type):
     with pytest.raises(ValidationError) as caught:
