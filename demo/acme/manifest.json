@@ -1,0 +1,36 @@
+{
+  "name": "Acme",
+  "account_id": "111122223333",
+  "region": "eu-west-2",
+  "captured_at": "2026-11-01T09:00:00Z",
+  "operations": {
+    "ec2:DescribeInstances": {
+      "status": "ok",
+      "file": "ec2/describe-instances.json"
+    },
+    "ec2:DescribeSubnets": {
+      "status": "ok",
+      "file": "ec2/describe-subnets.json"
+    },
+    "ec2:DescribeRouteTables": {
+      "status": "ok",
+      "file": "ec2/describe-route-tables.json"
+    },
+    "ec2:DescribeInternetGateways": {
+      "status": "ok",
+      "file": "ec2/describe-internet-gateways.json"
+    },
+    "ec2:DescribeNetworkAcls": {
+      "status": "ok",
+      "file": "ec2/describe-network-acls.json"
+    },
+    "ec2:DescribeSecurityGroups": {
+      "status": "ok",
+      "file": "ec2/describe-security-groups.json"
+    },
+    "rds:DescribeDBInstances": {
+      "status": "ok",
+      "file": "rds/describe-db-instances.json"
+    }
+  }
+}

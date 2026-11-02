@@ -1,0 +1,123 @@
+{
+    "NetworkAcls": [
+        {
+            "Associations": [
+                {
+                    "NetworkAclAssociationId": "aclassoc-public-a",
+                    "NetworkAclId": "acl-default",
+                    "SubnetId": "subnet-public-a"
+                },
+                {
+                    "NetworkAclAssociationId": "aclassoc-private-a",
+                    "NetworkAclId": "acl-default",
+                    "SubnetId": "subnet-private-a"
+                },
+                {
+                    "NetworkAclAssociationId": "aclassoc-private-b",
+                    "NetworkAclId": "acl-default",
+                    "SubnetId": "subnet-private-b"
+                }
+            ],
+            "Entries": [
+                {
+                    "CidrBlock": "0.0.0.0/0",
+                    "Egress": true,
+                    "Protocol": "-1",
+                    "RuleAction": "allow",
+                    "RuleNumber": 100
+                },
+                {
+                    "CidrBlock": "0.0.0.0/0",
+                    "Egress": true,
+                    "Protocol": "-1",
+                    "RuleAction": "deny",
+                    "RuleNumber": 32767
+                },
+                {
+                    "CidrBlock": "0.0.0.0/0",
+                    "Egress": false,
+                    "Protocol": "-1",
+                    "RuleAction": "allow",
+                    "RuleNumber": 100
+                },
+                {
+                    "CidrBlock": "0.0.0.0/0",
+                    "Egress": false,
+                    "Protocol": "-1",
+                    "RuleAction": "deny",
+                    "RuleNumber": 32767
+                }
+            ],
+            "IsDefault": true,
+            "NetworkAclId": "acl-default",
+            "Tags": [
+                {
+                    "Key": "Name",
+                    "Value": "nacl-default"
+                }
+            ],
+            "VpcId": "vpc-acme",
+            "OwnerId": "111122223333"
+        },
+        {
+            "Associations": [
+                {
+                    "NetworkAclAssociationId": "aclassoc-public-b",
+                    "NetworkAclId": "acl-public-b",
+                    "SubnetId": "subnet-public-b"
+                }
+            ],
+            "Entries": [
+                {
+                    "CidrBlock": "0.0.0.0/0",
+                    "Egress": true,
+                    "Protocol": "-1",
+                    "RuleAction": "allow",
+                    "RuleNumber": 100
+                },
+                {
+                    "CidrBlock": "0.0.0.0/0",
+                    "Egress": true,
+                    "Protocol": "-1",
+                    "RuleAction": "deny",
+                    "RuleNumber": 32767
+                },
+                {
+                    "CidrBlock": "0.0.0.0/0",
+                    "Egress": false,
+                    "Protocol": "6",
+                    "RuleAction": "deny",
+                    "RuleNumber": 90,
+                    "PortRange": {
+                        "From": 3389,
+                        "To": 3389
+                    }
+                },
+                {
+                    "CidrBlock": "0.0.0.0/0",
+                    "Egress": false,
+                    "Protocol": "-1",
+                    "RuleAction": "allow",
+                    "RuleNumber": 100
+                },
+                {
+                    "CidrBlock": "0.0.0.0/0",
+                    "Egress": false,
+                    "Protocol": "-1",
+                    "RuleAction": "deny",
+                    "RuleNumber": 32767
+                }
+            ],
+            "IsDefault": false,
+            "NetworkAclId": "acl-public-b",
+            "Tags": [
+                {
+                    "Key": "Name",
+                    "Value": "nacl-public-b"
+                }
+            ],
+            "VpcId": "vpc-acme",
+            "OwnerId": "111122223333"
+        }
+    ]
+}

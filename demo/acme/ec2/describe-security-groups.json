@@ -1,0 +1,271 @@
+{
+    "SecurityGroups": [
+        {
+            "GroupId": "sg-default",
+            "IpPermissionsEgress": [
+                {
+                    "IpProtocol": "-1",
+                    "IpRanges": [
+                        {
+                            "CidrIp": "0.0.0.0/0"
+                        }
+                    ],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": [],
+                    "UserIdGroupPairs": []
+                }
+            ],
+            "VpcId": "vpc-acme",
+            "SecurityGroupArn": "arn:aws:ec2:eu-west-2:111122223333:security-group/sg-default",
+            "OwnerId": "111122223333",
+            "GroupName": "default",
+            "Description": "default VPC security group",
+            "IpPermissions": [
+                {
+                    "IpProtocol": "-1",
+                    "IpRanges": [],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": [],
+                    "UserIdGroupPairs": [
+                        {
+                            "UserId": "111122223333",
+                            "GroupId": "sg-default"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "GroupId": "sg-web",
+            "IpPermissionsEgress": [
+                {
+                    "IpProtocol": "-1",
+                    "IpRanges": [
+                        {
+                            "CidrIp": "0.0.0.0/0"
+                        }
+                    ],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": [],
+                    "UserIdGroupPairs": []
+                }
+            ],
+            "VpcId": "vpc-acme",
+            "SecurityGroupArn": "arn:aws:ec2:eu-west-2:111122223333:security-group/sg-web",
+            "OwnerId": "111122223333",
+            "GroupName": "web",
+            "Description": "HTTPS from anywhere",
+            "IpPermissions": [
+                {
+                    "IpProtocol": "tcp",
+                    "FromPort": 443,
+                    "ToPort": 443,
+                    "IpRanges": [
+                        {
+                            "CidrIp": "0.0.0.0/0",
+                            "Description": "https"
+                        }
+                    ],
+                    "Ipv6Ranges": [
+                        {
+                            "CidrIpv6": "::/0"
+                        }
+                    ],
+                    "PrefixListIds": [],
+                    "UserIdGroupPairs": []
+                }
+            ],
+            "Tags": [
+                {
+                    "Key": "Name",
+                    "Value": "web"
+                }
+            ]
+        },
+        {
+            "GroupId": "sg-bastion",
+            "IpPermissionsEgress": [
+                {
+                    "IpProtocol": "-1",
+                    "IpRanges": [
+                        {
+                            "CidrIp": "0.0.0.0/0"
+                        }
+                    ],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": [],
+                    "UserIdGroupPairs": []
+                }
+            ],
+            "VpcId": "vpc-acme",
+            "SecurityGroupArn": "arn:aws:ec2:eu-west-2:111122223333:security-group/sg-bastion",
+            "OwnerId": "111122223333",
+            "GroupName": "bastion",
+            "Description": "SSH from anywhere",
+            "IpPermissions": [
+                {
+                    "IpProtocol": "tcp",
+                    "FromPort": 22,
+                    "ToPort": 22,
+                    "IpRanges": [
+                        {
+                            "CidrIp": "0.0.0.0/0"
+                        }
+                    ],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": [],
+                    "UserIdGroupPairs": []
+                }
+            ],
+            "Tags": [
+                {
+                    "Key": "Name",
+                    "Value": "bastion"
+                }
+            ]
+        },
+        {
+            "GroupId": "sg-legacy",
+            "IpPermissionsEgress": [
+                {
+                    "IpProtocol": "-1",
+                    "IpRanges": [
+                        {
+                            "CidrIp": "0.0.0.0/0"
+                        }
+                    ],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": [],
+                    "UserIdGroupPairs": []
+                }
+            ],
+            "VpcId": "vpc-acme",
+            "SecurityGroupArn": "arn:aws:ec2:eu-west-2:111122223333:security-group/sg-legacy",
+            "OwnerId": "111122223333",
+            "GroupName": "legacy",
+            "Description": "RDP for the old reporting box",
+            "IpPermissions": [
+                {
+                    "IpProtocol": "tcp",
+                    "FromPort": 3389,
+                    "ToPort": 3389,
+                    "IpRanges": [
+                        {
+                            "CidrIp": "0.0.0.0/0",
+                            "Description": "rdp"
+                        }
+                    ],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": [],
+                    "UserIdGroupPairs": []
+                }
+            ],
+            "Tags": [
+                {
+                    "Key": "Name",
+                    "Value": "legacy"
+                }
+            ]
+        },
+        {
+            "GroupId": "sg-worker",
+            "IpPermissionsEgress": [
+                {
+                    "IpProtocol": "-1",
+                    "IpRanges": [
+                        {
+                            "CidrIp": "0.0.0.0/0"
+                        }
+                    ],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": [],
+                    "UserIdGroupPairs": []
+                }
+            ],
+            "VpcId": "vpc-acme",
+            "SecurityGroupArn": "arn:aws:ec2:eu-west-2:111122223333:security-group/sg-worker",
+            "OwnerId": "111122223333",
+            "GroupName": "worker",
+            "Description": "App traffic from web, SSH from bastion",
+            "IpPermissions": [
+                {
+                    "IpProtocol": "tcp",
+                    "FromPort": 8080,
+                    "ToPort": 8080,
+                    "IpRanges": [],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": [],
+                    "UserIdGroupPairs": [
+                        {
+                            "UserId": "111122223333",
+                            "GroupId": "sg-web"
+                        }
+                    ]
+                },
+                {
+                    "IpProtocol": "tcp",
+                    "FromPort": 22,
+                    "ToPort": 22,
+                    "IpRanges": [],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": [],
+                    "UserIdGroupPairs": [
+                        {
+                            "UserId": "111122223333",
+                            "GroupId": "sg-bastion"
+                        }
+                    ]
+                }
+            ],
+            "Tags": [
+                {
+                    "Key": "Name",
+                    "Value": "worker"
+                }
+            ]
+        },
+        {
+            "GroupId": "sg-db",
+            "IpPermissionsEgress": [
+                {
+                    "IpProtocol": "-1",
+                    "IpRanges": [
+                        {
+                            "CidrIp": "0.0.0.0/0"
+                        }
+                    ],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": [],
+                    "UserIdGroupPairs": []
+                }
+            ],
+            "VpcId": "vpc-acme",
+            "SecurityGroupArn": "arn:aws:ec2:eu-west-2:111122223333:security-group/sg-db",
+            "OwnerId": "111122223333",
+            "GroupName": "db",
+            "Description": "Postgres",
+            "IpPermissions": [
+                {
+                    "IpProtocol": "tcp",
+                    "FromPort": 5432,
+                    "ToPort": 5432,
+                    "IpRanges": [
+                        {
+                            "CidrIp": "0.0.0.0/0",
+                            "Description": "postgres"
+                        }
+                    ],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": [],
+                    "UserIdGroupPairs": []
+                }
+            ],
+            "Tags": [
+                {
+                    "Key": "Name",
+                    "Value": "db"
+                }
+            ]
+        }
+    ]
+}

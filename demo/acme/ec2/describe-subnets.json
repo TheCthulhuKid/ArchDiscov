@@ -1,0 +1,132 @@
+{
+    "Subnets": [
+        {
+            "AvailabilityZone": "eu-west-2a",
+            "AvailabilityZoneId": "euw2-az1",
+            "AvailableIpAddressCount": 248,
+            "CidrBlock": "10.0.1.0/24",
+            "DefaultForAz": false,
+            "MapPublicIpOnLaunch": true,
+            "MapCustomerOwnedIpOnLaunch": false,
+            "State": "available",
+            "SubnetId": "subnet-public-a",
+            "VpcId": "vpc-acme",
+            "OwnerId": "111122223333",
+            "AssignIpv6AddressOnCreation": false,
+            "Ipv6CidrBlockAssociationSet": [],
+            "Tags": [
+                {
+                    "Key": "Name",
+                    "Value": "public-a"
+                }
+            ],
+            "SubnetArn": "arn:aws:ec2:eu-west-2:111122223333:subnet/subnet-public-a",
+            "EnableDns64": false,
+            "Ipv6Native": false,
+            "PrivateDnsNameOptionsOnLaunch": {
+                "HostnameType": "ip-name",
+                "EnableResourceNameDnsARecord": false,
+                "EnableResourceNameDnsAAAARecord": false
+            },
+            "BlockPublicAccessStates": {
+                "InternetGatewayBlockMode": "off"
+            }
+        },
+        {
+            "AvailabilityZone": "eu-west-2b",
+            "AvailabilityZoneId": "euw2-az2",
+            "AvailableIpAddressCount": 248,
+            "CidrBlock": "10.0.2.0/24",
+            "DefaultForAz": false,
+            "MapPublicIpOnLaunch": true,
+            "MapCustomerOwnedIpOnLaunch": false,
+            "State": "available",
+            "SubnetId": "subnet-public-b",
+            "VpcId": "vpc-acme",
+            "OwnerId": "111122223333",
+            "AssignIpv6AddressOnCreation": false,
+            "Ipv6CidrBlockAssociationSet": [],
+            "Tags": [
+                {
+                    "Key": "Name",
+                    "Value": "public-b"
+                }
+            ],
+            "SubnetArn": "arn:aws:ec2:eu-west-2:111122223333:subnet/subnet-public-b",
+            "EnableDns64": false,
+            "Ipv6Native": false,
+            "PrivateDnsNameOptionsOnLaunch": {
+                "HostnameType": "ip-name",
+                "EnableResourceNameDnsARecord": false,
+                "EnableResourceNameDnsAAAARecord": false
+            },
+            "BlockPublicAccessStates": {
+                "InternetGatewayBlockMode": "off"
+            }
+        },
+        {
+            "AvailabilityZone": "eu-west-2a",
+            "AvailabilityZoneId": "euw2-az1",
+            "AvailableIpAddressCount": 248,
+            "CidrBlock": "10.0.11.0/24",
+            "DefaultForAz": false,
+            "MapPublicIpOnLaunch": false,
+            "MapCustomerOwnedIpOnLaunch": false,
+            "State": "available",
+            "SubnetId": "subnet-private-a",
+            "VpcId": "vpc-acme",
+            "OwnerId": "111122223333",
+            "AssignIpv6AddressOnCreation": false,
+            "Ipv6CidrBlockAssociationSet": [],
+            "Tags": [
+                {
+                    "Key": "Name",
+                    "Value": "private-a"
+                }
+            ],
+            "SubnetArn": "arn:aws:ec2:eu-west-2:111122223333:subnet/subnet-private-a",
+            "EnableDns64": false,
+            "Ipv6Native": false,
+            "PrivateDnsNameOptionsOnLaunch": {
+                "HostnameType": "ip-name",
+                "EnableResourceNameDnsARecord": false,
+                "EnableResourceNameDnsAAAARecord": false
+            },
+            "BlockPublicAccessStates": {
+                "InternetGatewayBlockMode": "off"
+            }
+        },
+        {
+            "AvailabilityZone": "eu-west-2b",
+            "AvailabilityZoneId": "euw2-az2",
+            "AvailableIpAddressCount": 248,
+            "CidrBlock": "10.0.12.0/24",
+            "DefaultForAz": false,
+            "MapPublicIpOnLaunch": false,
+            "MapCustomerOwnedIpOnLaunch": false,
+            "State": "available",
+            "SubnetId": "subnet-private-b",
+            "VpcId": "vpc-acme",
+            "OwnerId": "111122223333",
+            "AssignIpv6AddressOnCreation": false,
+            "Ipv6CidrBlockAssociationSet": [],
+            "Tags": [
+                {
+                    "Key": "Name",
+                    "Value": "private-b"
+                }
+            ],
+            "SubnetArn": "arn:aws:ec2:eu-west-2:111122223333:subnet/subnet-private-b",
+            "EnableDns64": false,
+            "Ipv6Native": false,
+            "PrivateDnsNameOptionsOnLaunch": {
+                "HostnameType": "ip-name",
+                "EnableResourceNameDnsARecord": false,
+                "EnableResourceNameDnsAAAARecord": false
+            },
+            "BlockPublicAccessStates": {
+                "InternetGatewayBlockMode": "off"
+            }
+        }
+    ]
+}

@@ -1,0 +1,20 @@
+{
+    "InternetGateways": [
+        {
+            "Attachments": [
+                {
+                    "State": "available",
+                    "VpcId": "vpc-acme"
+                }
+            ],
+            "InternetGatewayId": "igw-acme",
+            "OwnerId": "111122223333",
+            "Tags": [
+                {
+                    "Key": "Name",
+                    "Value": "acme"
+                }
+            ]
+        }
+    ]
+}

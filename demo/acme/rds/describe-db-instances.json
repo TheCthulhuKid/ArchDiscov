@@ -1,0 +1,319 @@
+{
+    "DBInstances": [
+        {
+            "DBInstanceIdentifier": "db-orders",
+            "DBInstanceClass": "db.t4g.medium",
+            "Engine": "postgres",
+            "DBInstanceStatus": "available",
+            "MasterUsername": "acme_admin",
+            "DBName": "orders",
+            "Endpoint": {
+                "Address": "db-orders.c0acme0demo0.eu-west-2.rds.amazonaws.com",
+                "Port": 5432,
+                "HostedZoneId": "Z1TTGA775OQIYO"
+            },
+            "AllocatedStorage": 50,
+            "InstanceCreateTime": "2025-11-20T14:02:11.384000+00:00",
+            "PreferredBackupWindow": "02:00-02:30",
+            "BackupRetentionPeriod": 7,
+            "DBSecurityGroups": [],
+            "VpcSecurityGroups": [
+                {
+                    "VpcSecurityGroupId": "sg-db",
+                    "Status": "active"
+                }
+            ],
+            "DBParameterGroups": [
+                {
+                    "DBParameterGroupName": "default.postgres16",
+                    "ParameterApplyStatus": "in-sync"
+                }
+            ],
+            "AvailabilityZone": "eu-west-2a",
+            "DBSubnetGroup": {
+                "DBSubnetGroupName": "acme-public",
+                "DBSubnetGroupDescription": "Acme public subnets",
+                "VpcId": "vpc-acme",
+                "SubnetGroupStatus": "Complete",
+                "Subnets": [
+                    {
+                        "SubnetIdentifier": "subnet-public-a",
+                        "SubnetAvailabilityZone": {
+                            "Name": "eu-west-2a"
+                        },
+                        "SubnetOutpost": {},
+                        "SubnetStatus": "Active"
+                    },
+                    {
+                        "SubnetIdentifier": "subnet-public-b",
+                        "SubnetAvailabilityZone": {
+                            "Name": "eu-west-2b"
+                        },
+                        "SubnetOutpost": {},
+                        "SubnetStatus": "Active"
+                    }
+                ],
+                "SupportedNetworkTypes": [
+                    "IPV4"
+                ]
+            },
+            "PreferredMaintenanceWindow": "sun:03:00-sun:03:30",
+            "PendingModifiedValues": {},
+            "LatestRestorableTime": "2026-11-01T08:55:00+00:00",
+            "MultiAZ": false,
+            "EngineVersion": "16.4",
+            "AutoMinorVersionUpgrade": true,
+            "ReadReplicaDBInstanceIdentifiers": [],
+            "LicenseModel": "postgresql-license",
+            "OptionGroupMemberships": [
+                {
+                    "OptionGroupName": "default:postgres-16",
+                    "Status": "in-sync"
+                }
+            ],
+            "PubliclyAccessible": true,
+            "StorageType": "gp3",
+            "Iops": 3000,
+            "StorageThroughput": 125,
+            "DbInstancePort": 0,
+            "StorageEncrypted": true,
+            "KmsKeyId": "arn:aws:kms:eu-west-2:111122223333:key/00000000-0000-0000-0000-000000000000",
+            "DbiResourceId": "db-ORDERS0000000000000000",
+            "CACertificateIdentifier": "rds-ca-rsa2048-g1",
+            "DomainMemberships": [],
+            "CopyTagsToSnapshot": true,
+            "MonitoringInterval": 0,
+            "DBInstanceArn": "arn:aws:rds:eu-west-2:111122223333:db:db-orders",
+            "IAMDatabaseAuthenticationEnabled": false,
+            "PerformanceInsightsEnabled": false,
+            "DeletionProtection": true,
+            "AssociatedRoles": [],
+            "TagList": [
+                {
+                    "Key": "team",
+                    "Value": "data"
+                }
+            ],
+            "CustomerOwnedIpEnabled": false,
+            "BackupTarget": "region",
+            "NetworkType": "IPV4",
+            "CertificateDetails": {
+                "CAIdentifier": "rds-ca-rsa2048-g1",
+                "ValidTill": "2027-11-20T14:00:00+00:00"
+            },
+            "DedicatedLogVolume": false,
+            "IsStorageConfigUpgradeAvailable": false,
+            "EngineLifecycleSupport": "open-source-rds-extended-support"
+        },
+        {
+            "DBInstanceIdentifier": "db-analytics",
+            "DBInstanceClass": "db.t4g.medium",
+            "Engine": "postgres",
+            "DBInstanceStatus": "available",
+            "MasterUsername": "acme_admin",
+            "DBName": "analytics",
+            "Endpoint": {
+                "Address": "db-analytics.c0acme0demo0.eu-west-2.rds.amazonaws.com",
+                "Port": 5432,
+                "HostedZoneId": "Z1TTGA775OQIYO"
+            },
+            "AllocatedStorage": 50,
+            "InstanceCreateTime": "2026-04-07T09:48:57.902000+00:00",
+            "PreferredBackupWindow": "02:00-02:30",
+            "BackupRetentionPeriod": 7,
+            "DBSecurityGroups": [],
+            "VpcSecurityGroups": [
+                {
+                    "VpcSecurityGroupId": "sg-db",
+                    "Status": "active"
+                }
+            ],
+            "DBParameterGroups": [
+                {
+                    "DBParameterGroupName": "default.postgres16",
+                    "ParameterApplyStatus": "in-sync"
+                }
+            ],
+            "AvailabilityZone": "eu-west-2a",
+            "DBSubnetGroup": {
+                "DBSubnetGroupName": "acme-mixed",
+                "DBSubnetGroupDescription": "Acme mixed subnets",
+                "VpcId": "vpc-acme",
+                "SubnetGroupStatus": "Complete",
+                "Subnets": [
+                    {
+                        "SubnetIdentifier": "subnet-public-a",
+                        "SubnetAvailabilityZone": {
+                            "Name": "eu-west-2a"
+                        },
+                        "SubnetOutpost": {},
+                        "SubnetStatus": "Active"
+                    },
+                    {
+                        "SubnetIdentifier": "subnet-private-b",
+                        "SubnetAvailabilityZone": {
+                            "Name": "eu-west-2b"
+                        },
+                        "SubnetOutpost": {},
+                        "SubnetStatus": "Active"
+                    }
+                ],
+                "SupportedNetworkTypes": [
+                    "IPV4"
+                ]
+            },
+            "PreferredMaintenanceWindow": "sun:03:00-sun:03:30",
+            "PendingModifiedValues": {},
+            "LatestRestorableTime": "2026-11-01T08:55:00+00:00",
+            "MultiAZ": false,
+            "EngineVersion": "16.4",
+            "AutoMinorVersionUpgrade": true,
+            "ReadReplicaDBInstanceIdentifiers": [],
+            "LicenseModel": "postgresql-license",
+            "OptionGroupMemberships": [
+                {
+                    "OptionGroupName": "default:postgres-16",
+                    "Status": "in-sync"
+                }
+            ],
+            "PubliclyAccessible": true,
+            "StorageType": "gp3",
+            "Iops": 3000,
+            "StorageThroughput": 125,
+            "DbInstancePort": 0,
+            "StorageEncrypted": true,
+            "KmsKeyId": "arn:aws:kms:eu-west-2:111122223333:key/00000000-0000-0000-0000-000000000000",
+            "DbiResourceId": "db-ANALYTICS0000000000000000",
+            "CACertificateIdentifier": "rds-ca-rsa2048-g1",
+            "DomainMemberships": [],
+            "CopyTagsToSnapshot": true,
+            "MonitoringInterval": 0,
+            "DBInstanceArn": "arn:aws:rds:eu-west-2:111122223333:db:db-analytics",
+            "IAMDatabaseAuthenticationEnabled": false,
+            "PerformanceInsightsEnabled": false,
+            "DeletionProtection": true,
+            "AssociatedRoles": [],
+            "TagList": [
+                {
+                    "Key": "team",
+                    "Value": "data"
+                }
+            ],
+            "CustomerOwnedIpEnabled": false,
+            "BackupTarget": "region",
+            "NetworkType": "IPV4",
+            "CertificateDetails": {
+                "CAIdentifier": "rds-ca-rsa2048-g1",
+                "ValidTill": "2027-11-20T14:00:00+00:00"
+            },
+            "DedicatedLogVolume": false,
+            "IsStorageConfigUpgradeAvailable": false,
+            "EngineLifecycleSupport": "open-source-rds-extended-support"
+        },
+        {
+            "DBInstanceIdentifier": "db-billing",
+            "DBInstanceClass": "db.t4g.medium",
+            "Engine": "postgres",
+            "DBInstanceStatus": "available",
+            "MasterUsername": "acme_admin",
+            "DBName": "billing",
+            "Endpoint": {
+                "Address": "db-billing.c0acme0demo0.eu-west-2.rds.amazonaws.com",
+                "Port": 5432,
+                "HostedZoneId": "Z1TTGA775OQIYO"
+            },
+            "AllocatedStorage": 50,
+            "InstanceCreateTime": "2025-11-20T14:05:43.117000+00:00",
+            "PreferredBackupWindow": "02:00-02:30",
+            "BackupRetentionPeriod": 7,
+            "DBSecurityGroups": [],
+            "VpcSecurityGroups": [
+                {
+                    "VpcSecurityGroupId": "sg-db",
+                    "Status": "active"
+                }
+            ],
+            "DBParameterGroups": [
+                {
+                    "DBParameterGroupName": "default.postgres16",
+                    "ParameterApplyStatus": "in-sync"
+                }
+            ],
+            "AvailabilityZone": "eu-west-2a",
+            "DBSubnetGroup": {
+                "DBSubnetGroupName": "acme-private",
+                "DBSubnetGroupDescription": "Acme private subnets",
+                "VpcId": "vpc-acme",
+                "SubnetGroupStatus": "Complete",
+                "Subnets": [
+                    {
+                        "SubnetIdentifier": "subnet-private-a",
+                        "SubnetAvailabilityZone": {
+                            "Name": "eu-west-2a"
+                        },
+                        "SubnetOutpost": {},
+                        "SubnetStatus": "Active"
+                    },
+                    {
+                        "SubnetIdentifier": "subnet-private-b",
+                        "SubnetAvailabilityZone": {
+                            "Name": "eu-west-2b"
+                        },
+                        "SubnetOutpost": {},
+                        "SubnetStatus": "Active"
+                    }
+                ],
+                "SupportedNetworkTypes": [
+                    "IPV4"
+                ]
+            },
+            "PreferredMaintenanceWindow": "sun:03:00-sun:03:30",
+            "PendingModifiedValues": {},
+            "LatestRestorableTime": "2026-11-01T08:55:00+00:00",
+            "MultiAZ": false,
+            "EngineVersion": "16.4",
+            "AutoMinorVersionUpgrade": true,
+            "ReadReplicaDBInstanceIdentifiers": [],
+            "LicenseModel": "postgresql-license",
+            "OptionGroupMemberships": [
+                {
+                    "OptionGroupName": "default:postgres-16",
+                    "Status": "in-sync"
+                }
+            ],
+            "PubliclyAccessible": false,
+            "StorageType": "gp3",
+            "Iops": 3000,
+            "StorageThroughput": 125,
+            "DbInstancePort": 0,
+            "StorageEncrypted": true,
+            "KmsKeyId": "arn:aws:kms:eu-west-2:111122223333:key/00000000-0000-0000-0000-000000000000",
+            "DbiResourceId": "db-BILLING0000000000000000",
+            "CACertificateIdentifier": "rds-ca-rsa2048-g1",
+            "DomainMemberships": [],
+            "CopyTagsToSnapshot": true,
+            "MonitoringInterval": 0,
+            "DBInstanceArn": "arn:aws:rds:eu-west-2:111122223333:db:db-billing",
+            "IAMDatabaseAuthenticationEnabled": false,
+            "PerformanceInsightsEnabled": false,
+            "DeletionProtection": true,
+            "AssociatedRoles": [],
+            "TagList": [
+                {
+                    "Key": "team",
+                    "Value": "data"
+                }
+            ],
+            "CustomerOwnedIpEnabled": false,
+            "BackupTarget": "region",
+            "NetworkType": "IPV4",
+            "CertificateDetails": {
+                "CAIdentifier": "rds-ca-rsa2048-g1",
+                "ValidTill": "2027-11-20T14:00:00+00:00"
+            },
+            "DedicatedLogVolume": false,
+            "IsStorageConfigUpgradeAvailable": false,
+            "EngineLifecycleSupport": "open-source-rds-extended-support"
+        }
+    ]
+}
